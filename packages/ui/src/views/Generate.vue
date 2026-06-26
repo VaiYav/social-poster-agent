@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useStatsStore } from '../stores/stats';
+import { useToast } from '../composables/useToast';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import ErrorState from '../components/ErrorState.vue';
 import EmptyState from '../components/EmptyState.vue';
 
 const statsStore = useStatsStore();
+const toast = useToast();
 
 const count = ref(3);
 const networks = ref<string[]>(['X', 'THREADS', 'FACEBOOK']);
@@ -23,8 +25,10 @@ async function generate() {
   try {
     const data = await statsStore.triggerGeneration(count.value, networks.value, sourceType.value);
     result.value = `Generation started: ${data.runId ?? 'ok'}`;
+    toast.success(`Generation started (run ${data.runId?.slice(0, 8) ?? 'ok'})`);
   } catch (e: unknown) {
     resultError.value = (e as Error).message;
+    toast.error(`Generation failed: ${(e as Error).message}`);
   } finally {
     generating.value = false;
   }

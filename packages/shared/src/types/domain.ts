@@ -16,6 +16,9 @@ export interface SocialAccount {
   handle: string;
   credentialsRef: string;
   active: boolean;
+  warmupEnabled: boolean;
+  warmupStartedAt: string | null;
+  warmupDaysTotal: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -29,6 +32,11 @@ export interface Session {
   updatedAt: string;
 }
 
+/** Session with included account relation (as returned by GET /sessions) */
+export interface SessionWithAccount extends Session {
+  account: SocialAccount;
+}
+
 export interface GenerationRun {
   id: string;
   triggeredBy: GenerationTrigger;
@@ -37,6 +45,8 @@ export interface GenerationRun {
   startedAt: string;
   completedAt: string | null;
   errorMessage: string | null;
+  /** Prisma _count relation — included when `include: { _count: { select: { posts: true } } }` */
+  _count?: { posts: number };
 }
 
 export interface Post {

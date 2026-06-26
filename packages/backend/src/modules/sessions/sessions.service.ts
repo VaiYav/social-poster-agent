@@ -84,8 +84,10 @@ export class SessionsService {
       this.configService.get<string>(`${credPrefix}EMAIL`, '');
     const password = this.configService.get<string>(`${credPrefix}PASSWORD`, '');
 
-    if (!password) {
-      this.logger.error(`No credentials in env for ${network} — cannot auto-login`);
+    if (!password || !username) {
+      this.logger.error(
+        `Incomplete credentials in env for ${network} — both username/email and password are required`,
+      );
       return null;
     }
 

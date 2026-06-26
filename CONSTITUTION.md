@@ -288,9 +288,24 @@ social-poster-agent/               ← pnpm workspace root
 ├── package.json                   ← root workspace package (scripts, devDeps)
 ├── tsconfig.base.json             ← shared TS config
 ├── infra/
-│   └── docker-compose.yml         ← PostgreSQL :5433 + Redis :6380 (OQ-5)
+│   ├── docker-compose.yml         ← PostgreSQL :5433 + Redis :6381 (local dev)
+│   └── docker-compose.test.yml    ← PostgreSQL :5434 + Redis :6381 (test, tmpfs)
+├── docker/
+│   ├── Dockerfile.backend         ← Multi-stage: node:22-slim + Chromium deps
+│   ├── Dockerfile.ui              ← Multi-stage: node:22-slim → nginx:alpine
+│   ├── docker-compose.prod.yml    ← Production: backend + ui + postgres + redis
+│   └── nginx.conf                 ← SPA fallback + /api/ proxy + /events/ SSE proxy
 ├── .env.example                   ← Template для env vars (см. §8)
-├── docs/                          ← ADRs, plan, runbooks (создаются позже)
+├── docs/                          ← ADRs + runbooks
+│   ├── ADR-001-camoufox-over-playwright.md
+│   ├── ADR-002-bullmq-for-posting-queue.md
+│   ├── ADR-003-langgraph-for-generation.md
+│   ├── ADR-004-port-interfaces-ddd.md
+│   ├── ADR-005-sse-over-websocket.md
+│   ├── runbook-login.md
+│   ├── runbook-banned.md
+│   ├── runbook-failed-posts.md
+│   └── runbook-session-expired.md
 │
 ├── packages/
 │   │
@@ -310,40 +325,49 @@ social-poster-agent/               ← pnpm workspace root
 │   │   ├── tsconfig.json          ← extends ../../tsconfig.base.json
 │   │   ├── nest-cli.json
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma      ← Post, PostThread, SocialAccount, Session, GenerationRun, RateLimit
-│   │   │   └── migrations/
+│   │   │   ├── schema.prisma      ← Post, PostThread, SocialAccount, Session, GenerationRun, Interaction, BrowsingSession
+│   │   │   └── migrations/        ← init + warmup/banned status
 │   │   └── src/
-│   │       ├── main.ts            ← NestJS bootstrap + Swagger setup
-│   │       ├── app.module.ts
-│   │       ├── domain/            ← Re-exports from @spa/shared (DTOs, enums)
+│   │       ├── main.ts            ← NestJS bootstrap + Swagger setup + Sentry init
+│   │       ├── app.module.ts      ← Root module (16+ modules wired)
+│   │       ├── domain/            ← Re-exports from @spa/shared (DTOs, enums, ports, errors)
+│   │       │   ├── dtos.ts        ← Re-export DTOs from @spa/shared
+│   │       │   ├── enums.ts       ← Re-export enums from @spa/shared
+│   │       │   ├── errors.ts      ← SpaError hierarchy + classifyPlaywrightError
+│   │       │   └── ports/         ← IBrowserPort, ILlmPort, IContentPort (Symbol-token DI)
 │   │       ├── modules/           ← Feature modules (controller + service + module per domain)
-│   │       │   ├── posts/         ← Post CRUD, status transitions
-│   │       │   │   ├── posts.controller.ts  ← GET/POST /posts, PATCH /posts/:id/status
-│   │       │   │   ├── posts.service.ts
-│   │       │   │   └── posts.module.ts
-│   │       │   ├── generation/    ← LangGraph workflow, cron triggers
-│   │       │   │   ├── generation.controller.ts  ← POST /generation/run, GET /generation/runs
-│   │       │   │   ├── generation.service.ts
-│   │       │   │   ├── cron.service.ts
-│   │       │   │   └── generation.module.ts
-│   │       │   ├── posting/       ← BullMQ worker, Camoufox orchestration
-│   │       │   │   ├── posting.controller.ts  ← POST /posting/:postId, POST /posting/batch/all-approved
-│   │       │   │   ├── posting.service.ts
-│   │       │   │   ├── posting.module.ts
-│   │       │   │   └── posters/   ← Page Objects: x.poster, threads.poster, facebook.poster
-│   │       │   ├── sessions/      ← Session manager (storageState, relogin)
-│   │       │   ├── accounts/      ← Social account config (env-driven)
+│   │       │   ├── posts/         ← Post CRUD, status transitions, approve/reject
+│   │       │   ├── generation/    ← LangGraph 7-step parallel graph, cron triggers, SimHash dedup
+│   │       │   │   ├── generation.graph.ts   ← StateGraph (research→hook→angle→draft→critique→refine→save)
+│   │       │   │   ├── generation.service.ts ← Orchestrates graph.invoke() with checkpoint
+│   │       │   │   ├── simhash.ts            ← Near-duplicate detection (Hamming ≤3)
+│   │       │   │   └── cron.service.ts       ← Env-configurable cron (CRON_GENERATION_SCHEDULE)
+│   │       │   ├── posting/       ← BullMQ worker, Camoufox orchestration, rate limit, SSE
+│   │       │   │   ├── posting.service.ts    ← postById() + postAllApproved() with rate limit + SSE
+│   │       │   │   └── posters/   ← Page Objects: x/threads/facebook + selectors/ + base.poster
+│   │       │   ├── sessions/      ← Session manager + auto-login + warm-up (F20)
+│   │       │   │   ├── sessions.service.ts   ← getOrCreateSession, autoLogin, healthCheck
+│   │       │   │   └── warmup.service.ts     ← F20: gradual ramp for new accounts
+│   │       │   ├── accounts/      ← Social account config (env-driven, credentialsRef only)
 │   │       │   ├── content-source/← Adapter to content-agent-platform
-│   │       │   ├── queue/         ← BullMQ setup: queues, workers, retry config (TODO)
-│   │       │   ├── rate-limit/    ← Configurable rate limiter (env-driven) (TODO)
-│   │       │   └── health/        ← Healthcheck (DB + Redis)
+│   │       │   ├── queue/         ← BullMQ queues + workers (concurrency=1 per network)
+│   │       │   ├── rate-limit/    ← Redis sliding window (daily + weekly + interval, env-driven)
+│   │       │   ├── events/        ← SSE endpoint (GET /events/sse, heartbeat 30s)
+│   │       │   ├── health/        ← Healthcheck (DB SELECT 1 + Redis PING)
+│   │       │   ├── health-monitor/← F21: hourly cron, ban detection, DLQ alerting, reconciliation
+│   │       │   └── engagement/    ← F1 (experimental): like/comment/follow/reply + browsing sessions
 │   │       ├── infrastructure/
 │   │       │   ├── prisma/        ← PrismaService
-│   │       │   ├── llm/           ← LangGraph.js workflow, LangChain model, Ollama
-│   │       │   ├── browser/       ← Camoufox factory (1 browser, multi-context)
+│   │       │   ├── llm/           ← Multi-provider LLM fallback (Groq, OpenRouter, DeepSeek, Cerebras, OpenAI, Ollama)
+│   │       │   ├── browser/       ← Camoufox factory (stealth Firefox, 1 browser, multi-context)
 │   │       │   ├── content/       ← File-system reader for content-agent-platform
 │   │       │   ├── queue/         ← BullMQ queue + worker factory
-│   │       │   └── sse/           ← SSE emitter for real-time UI updates
+│   │       │   ├── sse/           ← SSE service (Redis Pub/Sub → client broadcast)
+│   │       │   ├── checkpoint/    ← RedisCheckpointSaver for LangGraph
+│   │       │   ├── cls/           ← nestjs-cls (CorrelationId interceptor)
+│   │       │   ├── logging/       ← RedactInterceptor (strip secrets from logs)
+│   │       │   ├── filters/       ← ZodValidationFilter (ZodError → HTTP 400)
+│   │       │   └── monitoring/    ← Sentry interceptor + init
 │   │       └── config/            ← Config module (env validation)
 │   │
 │   └── ui/                        ← Vue 3 + Vite SPA
@@ -366,16 +390,21 @@ social-poster-agent/               ← pnpm workspace root
 │           ├── composables/
 │           │   ├── useApi.ts      ← axios client (typed via shared Zod)
 │           │   └── useSSE.ts      ← SSE subscription composable
-│           ├── stores/            ← Pinia stores (TODO — not yet created)
-│           │   ├── posts.ts       ← Post state (SSE-fed)
-│           │   └── queue.ts       ← Queue state (SSE-fed)
-│           ├── components/        ← Shared UI components (TODO — not yet created)
-│           │   ├── PostCard.vue
-│           │   ├── PostEditor.vue
-│           │   ├── StatusBadge.vue
-│           │   └── NetworkIcon.vue
+│           ├── stores/            ← Pinia stores (SSE-fed, CRUD actions)
+│           │   ├── posts.ts       ← Post state (handles post_status + health_alert SSE events)
+│           │   ├── queue.ts       ← Queue state (BullMQ job stats, failed jobs)
+│           │   ├── sessions.ts    ← Session state (health check, refresh)
+│           │   └── stats.ts       ← Dashboard stats + generation run history
+│           ├── components/        ← Shared UI components (7 created)
+│           │   ├── PostCard.vue   ← Post card (network, status, content, approve/reject)
+│           │   ├── StatusBadge.vue← Colored status badge (6 statuses)
+│           │   ├── NetworkIcon.vue← X/Threads/Facebook icon + label
+│           │   ├── StatCard.vue   ← Stat display card
+│           │   ├── LoadingSpinner.vue ← Animated SVG spinner
+│           │   ├── ErrorState.vue ← Error display with message
+│           │   └── EmptyState.vue ← Empty state with message
 │           └── router/
-│               └── index.ts       ← Vue Router setup
+│               └── index.ts       ← Vue Router setup (5 routes, lazy-loaded)
 ```
 
 ---
@@ -773,54 +802,52 @@ _Пока нет — все стартовые закрыты. Новые OQ д�
 
 ## 16. Roadmap (фазы)
 
-### Phase 0 — Scaffold (эта конституция)
+### Phase 0 — Scaffold (эта конституция) — COMPLETED
 - [x] Зафиксировать концепцию (этот документ)
 - [x] Закрыть все 8 open questions v0.2.0 (§15)
 - [x] Закрыть 11 open questions v0.3.0 (§15 Resolved decisions v0.3.0)
 - [x] Создать `brand-voice.md` — tone of voice для соц-постов (OQ-7)
-- [ ] **F20: Session Warm-up Mode** — опция для новых аккаунтов (browse-only → gradual ramp)
-- [ ] Создать pnpm workspace: packages/{backend,ui,shared}
-- [ ] packages/shared: Zod schemas, domain types, DTO types (z.infer)
-- [ ] packages/backend: NestJS + REST + Swagger + Prisma + BullMQ
-- [ ] packages/ui: Vue 3 + Vite SPA + Pinia + Tailwind + Vue Router
-- [ ] `infra/docker-compose.yml` — PostgreSQL :5433 + Redis :6380 (OQ-5)
-- [ ] `.env.example` + Prisma schema (с retry_count, rate limit config)
-- [ ] tsconfig.base.json (shared TS config для всех 3 пакетов)
-- [ ] pnpm-workspace.yaml (packages: backend, ui, shared)
+- [x] **F20: Session Warm-up Mode** — опция для новых аккаунтов (browse-only → gradual ramp)
+- [x] Создать pnpm workspace: packages/{backend,ui,shared}
+- [x] packages/shared: Zod schemas, domain types, DTO types (z.infer)
+- [x] packages/backend: NestJS + REST + Swagger + Prisma + BullMQ
+- [x] packages/ui: Vue 3 + Vite SPA + Pinia + Tailwind + Vue Router
+- [x] `infra/docker-compose.yml` — PostgreSQL :5433 + Redis :6381 (OQ-5)
+- [x] `.env.example` + Prisma schema (с retry_count, rate limit config)
+- [x] tsconfig.base.json (shared TS config для всех 3 пакетов)
+- [x] pnpm-workspace.yaml (packages: backend, ui, shared)
 
-### Phase 1 — MVP (3 сети, HITL, persistent sessions, REST, BullMQ)
-- [ ] Content-source adapter (читает content-agent-platform runs + blog)
-- [ ] LangGraph workflow: per-network angle generation (OQ-16)
-- [ ] Camoufox browser factory (1 browser, multi-context — OQ-25)
-- [ ] Session manager (storageState save/load/health-check)
-- [ ] BullMQ queue + worker (auto-retry 3x backoff — OQ-14)
-- [ ] Rate limiter (configurable env — OQ-15)
-- [ ] Posting service для X.com (включая треды)
-- [ ] Posting service для Threads (включая треды)
-- [ ] Posting service для Facebook
-- [ ] NestJS REST controllers + Swagger (posts, generation, posting, sessions, accounts, content)
-- [ ] NestJS Logger + redact interceptor
-- [ ] Vue 3 + Vite SPA UI (dashboard, queue, history, generate, sessions)
-- [ ] SSE for real-time queue/status updates
-- [ ] Cron generation job
-- [ ] Vitest unit/integration tests (с testcontainers PostgreSQL + Redis)
-- [ ] Авто-логин flow для каждого аккаунта (OQ-8: агент логинится сам)
-- [ ] **F21: Account Health Monitor** — cron раз/час: sessions, queues, bans,
+### Phase 1 — MVP (3 сети, HITL, persistent sessions, REST, BullMQ) — COMPLETED
+- [x] Content-source adapter (читает content-agent-platform runs + blog)
+- [x] LangGraph workflow: per-network angle generation (OQ-16) — 7-step parallel graph
+- [x] Camoufox browser factory (1 browser, multi-context — OQ-25)
+- [x] Session manager (storageState save/load/health-check)
+- [x] BullMQ queue + worker (auto-retry 3x backoff — OQ-14)
+- [x] Rate limiter (configurable env — OQ-15) — wired into PostingService
+- [x] Posting service для X.com (включая треды)
+- [x] Posting service для Threads (включая треды)
+- [x] Posting service для Facebook
+- [x] NestJS REST controllers + Swagger (posts, generation, posting, sessions, accounts, content) — 65 decorators
+- [x] NestJS Logger + redact interceptor
+- [x] Vue 3 + Vite SPA UI (dashboard, queue, history, generate, sessions) — 5 views, 4 Pinia stores, 7 components
+- [x] SSE for real-time queue/status updates — wired in PostingService + HealthMonitor + UI
+- [x] Cron generation job — env-configurable (CRON_GENERATION_SCHEDULE)
+- [x] Vitest unit/integration tests — 368 tests (205 unit + 35 integration + 46 system + 82 acceptance)
+- [x] Авто-логин flow для каждого аккаунта (OQ-8: агент логинится сам)
+- [x] **F21: Account Health Monitor** — cron раз/час: sessions, queues, bans,
   DLQ. Health dashboard в UI + SSE alerts
 
-### Phase 1.5 — MVP+ (расширение базового MVP, низкий риск)
+### Phase 1.5 — MVP+ (расширение базового MVP, низкий риск) — PARTIAL
 - [ ] **F2: Multi-Stage Posting** — хук → 30мин → ссылка (X/Threads треды)
-- [ ] **F5: Pauseable/Resumable Environment** — start/stop/pause, queue
-  visualization (BullMQ events → SSE), DB state в UI
-- [ ] **F3: On-Demand Feature Launch** — UI control panel, model picker
-  (cloud + Ollama gemma4), network selector, real-time status
+- [~] **F5: Pauseable/Resumable Environment** — LangGraph checkpoint wired; UI for pause/stop/restart TBD
+- [~] **F3: On-Demand Feature Launch** — Generate.vue has count/network/source; model picker + control panel TBD
 - [ ] **F10: Content Repurposing** — article → 5-10 постов (deep fact extraction)
 - [ ] **F13: Content Recycling** — old top posts → refreshed angle (evergreen revival)
 - [ ] **F22: Trending Topic Detection** — Google Trends + X trending → priority generation
-- [ ] Ollama integration (local LLM для decision-making)
-- [ ] SSE for real-time UI updates (queue status, post status)
-- [ ] BullMQ queue per network (concurrency=1, B9 mitigation)
-- [ ] Reconciliation cron (B10: APPROVED posts without active job)
+- [x] Ollama integration (local LLM для decision-making) — LlmService supports Ollama as fallback
+- [x] SSE for real-time UI updates (queue status, post status) — wired in App.vue + Pinia stores
+- [x] BullMQ queue per network (concurrency=1, B9 mitigation) — QueueFactory
+- [x] Reconciliation cron (B10: APPROVED posts without active job) — health-monitor.service.ts
 
 ### Phase 2 — Расширение (после стабильного MVP)
 - [ ] **F6: Analytics Dashboard** — метрики engagement, top posts, сравнение сетей
@@ -914,7 +941,8 @@ _Пока нет — все стартовые закрыты. Новые OQ д�
 | 0.4.1 | 2026-06-26 | Feature expansion: 7 new features (F10-F22) в FEATURE_WISHLIST.md. F21 (Health Monitor) → MVP. F20 (Warm-up) → Phase 0/1. F10 (Repurposing), F13 (Recycling), F22 (Trending) → Phase 1.5. F11 (Best Time), F19 (Quote Cards) → Phase 2. Fixed stale §3.1 (Nuxt/Pino → Vue/NestJS Logger). Fixed stale R9 (tRPC risk → снято). Updated roadmap. |
 | 0.4.2 | 2026-06-26 | Browser stealth: REVERTED `playwright-extra` + `puppeteer-extra-plugin-stealth` (JS injection — детектится современными anti-bot) → **Camoufox** (Firefox fork, C++ level stealth). Removed `playwright` (full — скачивает 3 браузера ~800MB) → kept `playwright-core` (peer dep of camoufox-js, API only). New OQ-25. Обновлены §1/§2/§3.1/§3.2/§4/§4.1/§4.2/§5/§5.1/§6/§8/§9/§14/§15(R1,OQ-3)/§16/§17. Camoufox: fingerprint rotation, humanize, geoip — built-in. ~200MB vs Chrome 800MB+. Playwright-compatible API (camoufox-js + playwright-core). |
 | 0.5.0 | 2026-07-15 | **Audit fixes**: A1 rate-limit env vars (daily+weekly, conservative defaults). A2 Redis port 6381. A4 §10.3 LangGraph 7-step parallel per-network graph (OQ-16). B1 F21 Account Health Monitor (hourly cron, ban detection). B2 F20 Session Warm-up Mode. B3 Reconciliation cron. B4 Cron env-configurable. B5 SimHash dedup. B6 SSE UI wiring (Pinia stores). B10 Graceful shutdown. D1 Batch posting rate-limit fix. D2 approve() editedContent. D5 brand-voice path. D6 FB char limit 500. 5 ADRs, 4 runbooks, Dockerfiles + docker-compose.prod.yml. |
+| 0.5.1 | 2026-07-16 | **Doc-code sync**: §6 structure updated (added engagement/, health-monitor/, cls/, monitoring/, filters/, checkpoint/, docker/, docs/ ADRs+runbooks). §16 Phase 0/1 marked as COMPLETED with [x]. Phase 1.5 marked as PARTIAL (Ollama, SSE, BullMQ per-network, reconciliation cron — done; F2/F10/F13/F22 — not started; F3/F5 — partial). ROADMAP.md fully synced with codebase (all phases, compliance score 92/100, new sprints A-G). 368 tests pass. |
 
 ---
 
-_Document created 2026-06-26 by Valentyn Yakovlev. Concept stage — no code yet._
+_Document created 2026-06-26 by Valentyn Yakovlev. MVP fully implemented (v0.5.1)._

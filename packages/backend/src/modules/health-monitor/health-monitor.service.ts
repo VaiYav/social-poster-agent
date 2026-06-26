@@ -4,7 +4,8 @@ import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { SseService } from '../../infrastructure/sse/sse.service';
-import { SessionStatus, PostStatus } from '@prisma/client';
+import { QueueService } from '../queue/queue.service';
+import { SessionStatus, PostStatus, SocialNetwork } from '@prisma/client';
 
 /**
  * F21: Account Health Monitor — hourly cron that checks:
@@ -27,6 +28,7 @@ export class HealthMonitorService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sseService: SseService,
+    private readonly queueService: QueueService,
     private readonly configService: ConfigService,
     private readonly schedulerRegistry: SchedulerRegistry,
   ) {
@@ -66,6 +68,7 @@ export class HealthMonitorService implements OnModuleInit {
 
   /**
    * B3: Reconciliation — find APPROVED posts stuck without posting and re-enqueue.
+   * A post is "stuck" if it's been APPROVED for >10 minutes without being posted.
    */
   async runReconciliation(): Promise<{ requeued: number; skipped: number }> {
     this.logger.log('Running reconciliation — checking for orphaned APPROVED posts...');
@@ -78,11 +81,13 @@ export class HealthMonitorService implements OnModuleInit {
     let requeued = 0;
     let skipped = 0;
 
+    const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000);
+
     for (const post of approvedPosts) {
-      // Check if post has been stuck in APPROVED for >10 minutes
+      // Post is stuck if it was approved MORE than 10 minutes ago (stuckSince < tenMinAgo)
       const stuckSince = post.approvedAt ?? post.createdAt;
-      const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000);
       if (stuckSince > tenMinAgo) {
+        // Approved recently — give it time to be picked up by the queue worker
         skipped++;
         continue;
       }
@@ -90,6 +95,16 @@ export class HealthMonitorService implements OnModuleInit {
       this.logger.warn(
         `Reconciliation: post ${post.id} (${post.network}) stuck in APPROVED for >10min — re-enqueuing`,
       );
+
+      // Actually re-enqueue the post to BullMQ
+      try {
+        await this.queueService.enqueuePosting(post.id, post.network);
+      } catch (err) {
+        this.logger.error(
+          `Reconciliation: failed to re-enqueue post ${post.id}: ${(err as Error).message}`,
+        );
+        continue;
+      }
 
       await this.sseService.publish({
         type: 'reconciliation_requeue',
@@ -183,10 +198,13 @@ export class HealthMonitorService implements OnModuleInit {
     const results: SessionHealth[] = [];
 
     for (const session of sessions) {
+      // Count only recent failures (last 24 hours) to detect consecutive failures
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
       const recentFailures = await this.prisma.post.count({
         where: {
           accountId: session.accountId,
           status: PostStatus.FAILED,
+          createdAt: { gte: twentyFourHoursAgo },
         },
       });
 
@@ -245,13 +263,31 @@ export class HealthMonitorService implements OnModuleInit {
   }
 
   /**
-   * Check queue health — DLQ depth.
+   * Check queue health — DLQ depth and active queue status.
+   * Queries BullMQ failed jobs per network to detect dead-letter queue depth.
    */
   private async checkQueueHealth(): Promise<QueueHealth> {
-    return {
-      dlqDepth: 0,
-      activeQueues: [],
-    };
+    let dlqDepth = 0;
+    const activeQueues: string[] = [];
+
+    for (const network of Object.values(SocialNetwork)) {
+      try {
+        const counts = await this.queueService.getJobCounts(network);
+        const failed = counts.failed ?? 0;
+        const active = counts.active ?? 0;
+        const waiting = counts.waiting ?? 0;
+        if (failed > 0) {
+          dlqDepth += failed;
+        }
+        if (active > 0 || waiting > 0) {
+          activeQueues.push(`${network} (${active} active, ${waiting} waiting)`);
+        }
+      } catch {
+        // Queue not available — skip
+      }
+    }
+
+    return { dlqDepth, activeQueues };
   }
 
   /**

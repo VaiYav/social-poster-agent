@@ -2,17 +2,24 @@
 import { onMounted, onUnmounted, ref } from 'vue';
 import { RouterView, RouterLink } from 'vue-router';
 import { usePostsStore } from './stores/posts';
+import { useToast } from './composables/useToast';
+import ToastContainer from './components/ToastContainer.vue';
 
 /**
  * B6: Global SSE connection — listens for real-time post status updates
  * and dispatches events to the appropriate Pinia stores.
+ * Toast notifications on POSTED/FAILED/health_alert events.
  */
 const postsStore = usePostsStore();
+const toast = useToast();
 const sseConnected = ref(false);
 let eventSource: EventSource | null = null;
 
 function connectSSE(): void {
-  const sseUrl = `${import.meta.env.VITE_API_URL ?? 'http://localhost:3100/api/v1'}/events/sse`;
+  // In dev: Vite proxy forwards /api → http://localhost:3100
+  // In prod: nginx proxies /api → backend container (with SSE no-buffering)
+  const apiBase = import.meta.env.VITE_API_URL ?? '/api/v1';
+  const sseUrl = `${apiBase}/events/sse`;
   eventSource = new EventSource(sseUrl);
 
   eventSource.onopen = () => {
@@ -32,6 +39,17 @@ function connectSSE(): void {
     try {
       const data = JSON.parse(event.data) as { type: string; postId?: string; status?: string; network?: string; error?: string };
       postsStore.handleSseEvent(data);
+
+      // Toast notifications for key events
+      if (data.type === 'post_status') {
+        if (data.status === 'POSTED') {
+          toast.success(`Post ${data.postId?.slice(0, 8)}… posted on ${data.network}`);
+        } else if (data.status === 'FAILED') {
+          toast.error(`Post ${data.postId?.slice(0, 8)}… failed on ${data.network}: ${data.error ?? 'unknown error'}`);
+        }
+      } else if (data.type === 'health_alert') {
+        toast.warning(`Health alert: ${data.error ?? 'session issue detected'}`);
+      }
     } catch {
       // ignore malformed events
     }
@@ -72,5 +90,6 @@ onUnmounted(() => {
     <main class="mx-auto max-w-6xl px-6 py-8">
       <RouterView />
     </main>
+    <ToastContainer />
   </div>
 </template>

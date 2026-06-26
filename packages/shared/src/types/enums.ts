@@ -22,6 +22,8 @@ export const SessionStatusSchema = {
   ACTIVE: 'ACTIVE',
   EXPIRED: 'EXPIRED',
   ERROR: 'ERROR',
+  WARMUP: 'WARMUP',   // F20: new account in warm-up phase
+  BANNED: 'BANNED',   // F21: account flagged as banned by health monitor
 } as const;
 export type SessionStatus = (typeof SessionStatusSchema)[keyof typeof SessionStatusSchema];
 

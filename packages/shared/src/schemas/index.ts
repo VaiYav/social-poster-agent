@@ -63,7 +63,7 @@ export type GeneratePostsDto = z.infer<typeof GeneratePostsDtoSchema>;
 
 export const HealthCheckResultSchema = z.object({
   sessionId: z.string().uuid(),
-  status: z.enum(['ACTIVE', 'EXPIRED', 'ERROR']),
+  status: z.enum(['ACTIVE', 'EXPIRED', 'ERROR', 'WARMUP', 'BANNED']),
   message: z.string().optional(),
 });
 export type HealthCheckResult = z.infer<typeof HealthCheckResultSchema>;

@@ -15,6 +15,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   approve: [id: string];
   reject: [id: string];
+  edit: [post: Post];
 }>();
 
 const displayContent = props.truncate > 0
@@ -40,6 +41,10 @@ const displayContent = props.truncate > 0
         @click="emit('approve', post.id)"
         class="rounded bg-green-600 px-3 py-1 text-xs text-white hover:bg-green-700"
       >Approve</button>
+      <button
+        @click="emit('edit', post)"
+        class="rounded bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700"
+      >Edit & Approve</button>
       <button
         @click="emit('reject', post.id)"
         class="rounded bg-red-600 px-3 py-1 text-xs text-white hover:bg-red-700"

@@ -23,6 +23,13 @@ import { EventsModule } from './modules/events/events.module';
 import { EngagementModule } from './modules/engagement/engagement.module';
 import { HealthMonitorModule } from './modules/health-monitor/health-monitor.module';
 
+/**
+ * F1 Engagement module is experimental (Phase 2-3).
+ * Gated behind ENGAGEMENT_ENABLED env var (default: false).
+ * When disabled, routes are not registered — no engagement endpoints exposed.
+ */
+const engagementImports = process.env.ENGAGEMENT_ENABLED === 'true' ? [EngagementModule] : [];
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -49,7 +56,7 @@ import { HealthMonitorModule } from './modules/health-monitor/health-monitor.mod
     QueueModule,
     RateLimitModule,
     EventsModule,
-    EngagementModule, // Phase 2-3: likes, comments, browsing sessions
+    ...engagementImports, // F1: Phase 2-3 — gated by ENGAGEMENT_ENABLED
     HealthMonitorModule, // F21: Account Health Monitor + B3: Reconciliation cron
   ],
 })

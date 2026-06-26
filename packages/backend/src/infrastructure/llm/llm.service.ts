@@ -176,7 +176,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
       const lastIdx = this.providers.findIndex(
         (p) => p.name === this.lastWorkingProvider,
       );
-      if (lastIdx > 0) {
+      if (lastIdx >= 0) {
         ordered = [
           this.providers[lastIdx]!,
           ...this.providers.slice(0, lastIdx),

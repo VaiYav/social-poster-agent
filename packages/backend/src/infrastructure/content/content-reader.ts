@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { readFile, readdir, access } from 'node:fs/promises';
+import { readFile, readdir, access, stat as fsStat } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   BriefSchema,
@@ -55,6 +55,8 @@ export class ContentReader {
         const briefPath = join(runsDir, dir, 'brief.json');
         const raw = await readFile(briefPath, 'utf-8');
         const parsed = BriefSchema.parse(JSON.parse(raw));
+        // Use file modification time for freshness prioritization (B5)
+        const fileStat = await fsStat(briefPath);
         topics.push({
           sourceType: 'brief',
           path: briefPath,
@@ -64,7 +66,7 @@ export class ContentReader {
           outline: parsed.outline.map((o) => ({ heading: o.heading, entities: o.entities })),
           // B5: category + freshness for topic prioritization
           category: parsed.outline[0]?.heading ?? 'general',
-          publishedAt: new Date(),
+          publishedAt: fileStat.mtime,
         });
       } catch (err) {
         this.logger.debug(`Skipping ${dir}: ${(err as Error).message}`);

@@ -30,7 +30,6 @@ const REDACT_KEYS = [
   'cookie',
   'secret',
   'apiKey',
-  'apiKey',
 ];
 
 const REDACT_PATTERN = new RegExp(

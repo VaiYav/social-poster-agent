@@ -4,6 +4,8 @@ import type { ContentTopic } from '@spa/shared';
 import { SocialNetwork } from '@prisma/client';
 import { Logger } from '@nestjs/common';
 
+const logger = new Logger('GenerationGraph');
+
 // ============================================================
 // Types
 // ============================================================
@@ -141,7 +143,13 @@ Keywords: ${state.topic.keywords.join(', ')}
 
 Hooks:`;
 
-  const response = await llm.generateChat(systemPrompt, userPrompt, { temperature: 0.9 });
+  let response;
+  try {
+    response = await llm.generateChat(systemPrompt, userPrompt, { temperature: 0.9 });
+  } catch (err) {
+    logger.error(`hook_generation LLM call failed: ${(err as Error).message}`);
+    throw err; // Re-throw — GenerationService.generate() catches per-topic
+  }
   const hooks = response.content
     .split('\n')
     .map((line) => line.replace(/^\d+[\.\)]\s*/, '').trim())
@@ -219,7 +227,13 @@ ${state.topic.outline ? `Outline:\n${state.topic.outline.map((o: { heading: stri
 
 Post text:`;
 
-    const response = await llm.generateChat(systemPrompt, userPrompt, { temperature: 0.7 });
+    let response;
+    try {
+      response = await llm.generateChat(systemPrompt, userPrompt, { temperature: 0.7 });
+    } catch (err) {
+      logger.error(`draft_${network} LLM call failed: ${(err as Error).message}`);
+      throw err; // Re-throw — GenerationService.generate() catches per-topic
+    }
 
     // B5: Return ONLY the updated network — the results reducer merges concurrent updates
     return {
@@ -260,7 +274,13 @@ Draft:
 
 Return a brief critique (2-3 sentences). If the draft is good, say "GOOD — no changes needed."`;
 
-    const response = await llm.generateChat('', critiquePrompt, { temperature: 0.3 });
+    let response;
+    try {
+      response = await llm.generateChat('', critiquePrompt, { temperature: 0.3 });
+    } catch (err) {
+      logger.error(`critique_${network} LLM call failed: ${(err as Error).message}`);
+      throw err; // Re-throw — GenerationService.generate() catches per-topic
+    }
 
     // B5: Return ONLY the updated network — reducer merges concurrent updates
     return {
@@ -285,8 +305,9 @@ function makeRefineNode(network: SocialNetwork) {
     const netResult = state.results[network];
     if (!netResult) return {};
 
-    // If critique says it's good, skip refinement
-    if (netResult.critique.includes('GOOD') || netResult.critique.includes('no changes')) {
+    // If critique says it's good, skip refinement (case-insensitive match)
+    const critiqueLower = netResult.critique.toLowerCase();
+    if (critiqueLower.includes('good') || critiqueLower.includes('no changes')) {
       return {
         results: {
           [network]: { ...netResult, refined: netResult.draft },
@@ -307,7 +328,13 @@ ${netResult.critique}
 Character limit: ${charLimit}
 Return ONLY the refined post text, nothing else.`;
 
-    const response = await llm.generateChat('', refinePrompt, { temperature: 0.5 });
+    let response;
+    try {
+      response = await llm.generateChat('', refinePrompt, { temperature: 0.5 });
+    } catch (err) {
+      logger.error(`refine_${network} LLM call failed: ${(err as Error).message}`);
+      throw err; // Re-throw — GenerationService.generate() catches per-topic
+    }
 
     // B5: Return ONLY the updated network — reducer merges concurrent updates
     return {

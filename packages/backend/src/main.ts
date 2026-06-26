@@ -41,7 +41,7 @@ async function bootstrap(): Promise<void> {
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Social Poster Agent API')
     .setDescription('Internal API for social media posting agent — My Zodiac AI')
-    .setVersion('0.4.2')
+    .setVersion('0.5.1')
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup(swaggerPath, app, document);
