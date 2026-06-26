@@ -100,8 +100,15 @@ process.env.SOCIAL_FACEBOOK_PASSWORD = 'test_fb_pass';
 // Map-backed store so SseService, RateLimitService, RedisCheckpointSaver, and
 // HealthController exercise real logic against mocked Redis.
 
-const { sharedRedisStore } = vi.hoisted(() => ({
+const { sharedRedisStore, sharedPubSub } = vi.hoisted(() => ({
   sharedRedisStore: new Map<string, string>(),
+  // Cross-instance pub/sub bus: when publish() is called on one mock instance,
+  // the message is broadcast to all subscribed instances' 'message' listeners.
+  // This mirrors real Redis pub/sub where publisher and subscriber are different
+  // connections but share the same Redis server.
+  sharedPubSub: {
+    subscribers: [] as Array<{ emit: (...args: unknown[]) => void }>,
+  },
 }));
 
 vi.mock('ioredis', () => {
@@ -174,10 +181,19 @@ vi.mock('ioredis', () => {
       exists: (k: string) => Promise.resolve(store.has(k) ? 1 : 0),
       ping: () => Promise.resolve('PONG'),
       publish: (_ch: string, msg: string) => {
-        emit('message', _ch, msg);
+        // Broadcast to all subscribed instances (cross-instance pub/sub).
+        // SseService uses separate publisher/subscriber connections, so
+        // publish() on one instance must reach 'message' listeners on another.
+        for (const sub of sharedPubSub.subscribers) {
+          sub.emit('message', _ch, msg);
+        }
         return Promise.resolve(1);
       },
-      subscribe: () => Promise.resolve('OK'),
+      subscribe: () => {
+        // Register this instance's emit so cross-instance publish() reaches us
+        sharedPubSub.subscribers.push({ emit });
+        return Promise.resolve('OK');
+      },
       unsubscribe: () => Promise.resolve('OK'),
       psubscribe: () => Promise.resolve('OK'),
       connect: () => Promise.resolve(undefined),

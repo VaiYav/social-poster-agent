@@ -102,8 +102,15 @@ process.env.SOCIAL_FACEBOOK_PASSWORD = 'test_fb_pass';
 // Shared Map-backed store so RateLimitService, SseService, RedisCheckpointSaver,
 // and HealthController all exercise their real logic against mocked Redis.
 
-const { sharedRedisStore } = vi.hoisted(() => ({
+const { sharedRedisStore, sharedPubSub } = vi.hoisted(() => ({
   sharedRedisStore: new Map<string, string>(),
+  // Cross-instance pub/sub bus: when publish() is called on one mock instance,
+  // the message is broadcast to all subscribed instances' 'message' listeners.
+  // This mirrors real Redis pub/sub where publisher and subscriber are different
+  // connections but share the same Redis server.
+  sharedPubSub: {
+    subscribers: [] as Array<{ emit: (...args: unknown[]) => void }>,
+  },
 }));
 
 vi.mock('ioredis', () => {
@@ -176,10 +183,19 @@ vi.mock('ioredis', () => {
       exists: (k: string) => Promise.resolve(store.has(k) ? 1 : 0),
       ping: () => Promise.resolve('PONG'),
       publish: (_ch: string, msg: string) => {
-        emit('message', _ch, msg);
+        // Broadcast to all subscribed instances (cross-instance pub/sub).
+        // SseService uses separate publisher/subscriber connections, so
+        // publish() on one instance must reach 'message' listeners on another.
+        for (const sub of sharedPubSub.subscribers) {
+          sub.emit('message', _ch, msg);
+        }
         return Promise.resolve(1);
       },
-      subscribe: () => Promise.resolve('OK'),
+      subscribe: () => {
+        // Register this instance's emit so cross-instance publish() reaches us
+        sharedPubSub.subscribers.push({ emit });
+        return Promise.resolve('OK');
+      },
       unsubscribe: () => Promise.resolve('OK'),
       psubscribe: () => Promise.resolve('OK'),
       connect: () => Promise.resolve(undefined),
@@ -967,10 +983,11 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
     );
     expect(postingUpdate).toBeUndefined();
 
-    // Assert: rate limit counter was incremented (incr called by checkRateLimit).
-    // The 51st increment happened before the limit check rejected.
+    // Assert: rate limit counter was NOT incremented — checkRateLimit is read-only
+    // (uses redis.get, not redis.incr). recordPost() would increment, but it's
+    // never called because the rate limit check rejects before posting begins.
     const dailyCount = sharedRedisStore.get(`spa:ratelimit:X:daily:${today}`);
-    expect(parseInt(dailyCount ?? '0', 10)).toBe(51);
+    expect(parseInt(dailyCount ?? '0', 10)).toBe(50);
   });
 
   // ── STC-032: SSE event delivery under 100ms ────────────────────────────────

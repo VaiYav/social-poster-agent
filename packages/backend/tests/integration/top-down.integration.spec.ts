@@ -268,7 +268,10 @@ function createMockPrismaModule(mockPrisma: ReturnType<typeof createTestPrisma>)
   };
 }
 
-/** Canned LLM responses — critique deliberately avoids "GOOD"/"no changes" so refine runs. */
+/** Canned LLM responses — critique deliberately avoids "GOOD"/"no changes" so refine runs.
+ * Network-specific content avoids B5 SimHash dedup (Hamming distance ≤ 3) when
+ * generating posts for multiple networks within the same topic.
+ */
 function createIntegrationLlmPort(): ILlmPortType {
   const responses: LlmResponse = {
     content: 'Mercury retrograde is coming! Reflect, not react. #astrology',
@@ -285,14 +288,35 @@ function createIntegrationLlmPort(): ILlmPortType {
   let draftCounter = 0;
   return {
     generate: vi.fn().mockResolvedValue(responses),
-    generateChat: vi.fn().mockImplementation((_sys: string, userPrompt: string) => {
-      // self_critique node sends an empty system prompt with "Critique this"
+    generateChat: vi.fn().mockImplementation((sys: string, userPrompt: string) => {
+      // self_critique node sends a critique prompt
       if (userPrompt.startsWith('Critique this')) return Promise.resolve(critiqueResponse);
-      // Draft nodes — return unique content per call to avoid SimHash dedup
-      if (userPrompt.includes('Write a') || userPrompt.includes('draft')) {
+      // Draft/refine nodes — the system prompt contains "Generate a X post" etc.
+      // Return network-specific content so SimHash hashes differ sufficiently
+      // (Hamming distance > 3) to avoid B5 dedup removing cross-network posts.
+      const prompt = `${sys} ${userPrompt}`;
+      if (prompt.includes('X post')) {
         draftCounter++;
         return Promise.resolve({
-          content: `Mercury retrograde insight #${draftCounter}: Reflect, not react. Unique post variant ${draftCounter}.`,
+          content: `Mercury retrograde is coming! Reflect, not react. Short punchy take for X. #astrology #X${draftCounter}`,
+          model: 'gpt-4o-mini',
+          tokens: 120,
+          cost: 0.001,
+        });
+      }
+      if (prompt.includes('THREADS post')) {
+        draftCounter++;
+        return Promise.resolve({
+          content: `Mercury retrograde is here. Let me tell you a story about cosmic timing and why slowing down matters now. A narrative thread for you. #astrology #THREADS${draftCounter}`,
+          model: 'gpt-4o-mini',
+          tokens: 120,
+          cost: 0.001,
+        });
+      }
+      if (prompt.includes('FACEBOOK post')) {
+        draftCounter++;
+        return Promise.resolve({
+          content: `Mercury retrograde is approaching! How are you preparing for this cosmic shift? Share your thoughts below and let us navigate this together as a community. #astrology #FACEBOOK${draftCounter}`,
           model: 'gpt-4o-mini',
           tokens: 120,
           cost: 0.001,
@@ -700,8 +724,9 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     expect(runId).toBe('run-026');
     // 3 topics × 3 networks = 9 DRAFT posts
     expect(prisma.post.create).toHaveBeenCalledTimes(9);
-    // 9 posts × 4 LLM calls = 36 generateChat calls
-    expect(llm.generateChat).toHaveBeenCalledTimes(36);
+    // 3 topics × 10 LLM calls = 30 generateChat calls
+    // (per topic: 1 hook + 3 drafts + 3 critiques + 3 refines)
+    expect(llm.generateChat).toHaveBeenCalledTimes(30);
 
     // Verify all three networks are represented in created posts
     const networks = prisma.post.create.mock.calls.map(
