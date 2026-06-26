@@ -129,7 +129,7 @@ describe('MOD-06 / posts store', () => {
 
     await store.approve('p1');
 
-    expect(api.post).toHaveBeenCalledWith('/posts/p1/approve');
+    expect(api.post).toHaveBeenCalledWith('/posts/p1/approve', {});
     expect(store.drafts).toHaveLength(1);
     expect(store.drafts.find((p) => p.id === 'p1')).toBeUndefined();
     expect(store.drafts[0].id).toBe('p2');
