@@ -1,0 +1,40 @@
+# Social Poster Agent — TEST infrastructure
+# Separate ports to avoid conflicts with dev containers.
+#
+# Usage:
+#   docker compose -f infra/docker-compose.test.yml up -d
+#   docker compose -f infra/docker-compose.test.yml down -v
+
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: spa-postgres-test
+    restart: 'no'
+    ports:
+      - '5434:5432'
+    environment:
+      POSTGRES_USER: spa
+      POSTGRES_PASSWORD: spa
+      POSTGRES_DB: social_poster_test
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U spa -d social_poster_test']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    tmpfs:
+      - /var/lib/postgresql/data  # in-memory for speed
+
+  redis-test:
+    image: redis:7-alpine
+    container_name: spa-redis-test
+    restart: 'no'
+    ports:
+      - '6381:6379'
+    command: redis-server --appendonly no  # no persistence for test speed
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    tmpfs:
+      - /data  # in-memory for speed

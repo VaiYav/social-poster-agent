@@ -1,0 +1,44 @@
+{
+  "name": "social-poster-agent",
+  "version": "0.4.2",
+  "private": true,
+  "description": "Internal social media posting agent for My Zodiac AI — generates and posts content to X.com, Threads, Facebook via browser automation",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @spa/backend dev",
+    "dev:ui": "pnpm --filter @spa/ui dev",
+    "dev:all": "concurrently -n backend,ui -c blue,green \"pnpm dev\" \"pnpm dev:ui\"",
+    "build": "pnpm --filter @spa/shared build && pnpm --filter @spa/backend build && pnpm --filter @spa/ui build",
+    "build:backend": "pnpm --filter @spa/shared build && pnpm --filter @spa/backend build",
+    "build:ui": "pnpm --filter @spa/shared build && pnpm --filter @spa/ui build",
+    "lint": "oxlint .",
+    "format": "oxfmt '**/*.ts' '**/*.vue'",
+    "format:check": "oxfmt --check '**/*.ts' '**/*.vue'",
+    "format:write": "oxfmt --write '**/*.ts' '**/*.vue'",
+    "test": "pnpm --filter @spa/backend test",
+    "test:watch": "pnpm --filter @spa/backend test:watch",
+    "test:unit": "pnpm --filter @spa/backend test:unit && pnpm --filter @spa/ui test",
+    "test:integration": "pnpm --filter @spa/backend test:integration",
+    "test:system": "pnpm --filter @spa/backend test:system",
+    "test:acceptance": "pnpm --filter @spa/backend test:acceptance",
+    "test:e2e": "pnpm --filter @spa/backend test:e2e",
+    "test:ui-e2e": "pnpm --filter @spa/ui test:e2e",
+    "test:all": "pnpm test:unit && pnpm test:integration && pnpm test:system && pnpm test:acceptance && pnpm test:ui-e2e",
+    "test:coverage": "pnpm --filter @spa/backend test:coverage",
+    "prisma:migrate": "pnpm --filter @spa/backend prisma:migrate",
+    "prisma:generate": "pnpm --filter @spa/backend prisma:generate",
+    "prisma:studio": "pnpm --filter @spa/backend prisma:studio",
+    "infra:up": "docker compose -f infra/docker-compose.yml up -d",
+    "infra:down": "docker compose -f infra/docker-compose.yml down"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "oxlint": "^1.0.0",
+    "oxfmt": "^0.10.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=10.0.0"
+  }
+}

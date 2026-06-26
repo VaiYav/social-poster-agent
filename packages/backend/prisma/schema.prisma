@@ -1,0 +1,218 @@
+// Social Poster Agent — Prisma schema
+// See CONSTITUTION.md §7 for domain model
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// Enums
+// ============================================================
+
+enum SocialNetwork {
+  X
+  THREADS
+  FACEBOOK
+}
+
+enum PostStatus {
+  DRAFT
+  APPROVED
+  POSTING
+  POSTED
+  FAILED
+  REJECTED
+}
+
+enum SessionStatus {
+  ACTIVE
+  EXPIRED
+  ERROR
+  WARMUP    // F20: new account in warm-up phase (browse-only, gradual ramp)
+  BANNED    // F21: account flagged as banned by health monitor
+}
+
+enum GenerationRunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum GenerationTrigger {
+  CRON
+  MANUAL
+}
+
+// ============================================================
+// Engagement Enums (Phase 2-3)
+// ============================================================
+
+enum InteractionType {
+  LIKE
+  COMMENT
+  FOLLOW
+  UNFOLLOW
+  REPLY
+  SCROLL_VIEW
+}
+
+enum InteractionStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  SKIPPED
+}
+
+enum BrowsingSessionStatus {
+  ACTIVE
+  COMPLETED
+  FAILED
+  ABORTED
+}
+
+// ContentSourceType — not a Prisma enum, stored as lowercase string in
+// Post.sourceRef JSON field: { type: 'brief'|'article'|'topic'|'create_run', ... }
+// Canonical types in packages/shared/src/types/enums.ts
+
+model SocialAccount {
+  id             String         @id @default(uuid())
+  network        SocialNetwork
+  handle         String
+  credentialsRef String         // env var name (never the password itself)
+  active         Boolean        @default(true)
+  // F20: Warm-up mode for new accounts (browse-only → gradual ramp)
+  warmupEnabled  Boolean        @default(false) // true = account in warm-up phase
+  warmupStartedAt DateTime?     // when warm-up started (for gradual ramp calculation)
+  warmupDaysTotal Int           @default(7)     // total warm-up days (default 7)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  sessions       Session[]
+  posts          Post[]
+  threads        PostThread[]
+  interactions   Interaction[]
+  browsingSessions BrowsingSession[]
+
+  @@unique([network, handle])
+  @@index([network])
+}
+
+model Session {
+  id              String         @id @default(uuid())
+  accountId       String
+  account         SocialAccount  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  storageState    Json           // Playwright storageState (cookies, localStorage)
+  status          SessionStatus  @default(ACTIVE)
+  lastHealthCheck DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([accountId])
+  @@index([status])
+}
+
+model GenerationRun {
+  id            String                 @id @default(uuid())
+  triggeredBy   GenerationTrigger
+  sourceTopics  Json                   // array of topics from content-source
+  status        GenerationRunStatus    @default(RUNNING)
+  startedAt     DateTime               @default(now())
+  completedAt   DateTime?
+  posts         Post[]
+  errorMessage  String?
+
+  @@index([status])
+  @@index([triggeredBy])
+}
+
+model PostThread {
+  id         String       @id @default(uuid())
+  accountId  String
+  account    SocialAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  status     PostStatus   @default(DRAFT)
+  posts      Post[]
+  createdAt  DateTime     @default(now())
+  postedAt   DateTime?
+
+  @@index([accountId])
+  @@index([status])
+}
+
+model Post {
+  id               String           @id @default(uuid())
+  generationRunId  String?
+  generationRun    GenerationRun?   @relation(fields: [generationRunId], references: [id], onDelete: SetNull)
+  accountId        String
+  account          SocialAccount    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  threadId         String?
+  thread           PostThread?      @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  threadPosition   Int              @default(0) // 0 = root, 1+ = replies in thread
+  network          SocialNetwork
+  content          String           // final post text
+  sourceRef        Json?            // { type: 'brief'|'article'|'topic', path: '...', topic: '...' }
+  status           PostStatus       @default(DRAFT)
+  postUrl          String?          // URL after posting
+  errorMessage     String?
+  retryCount       Int              @default(0) // BullMQ retry count (0-3)
+  llmMetadata      Json?            // { model, tokens, cost, promptVersion, angleType }
+  createdAt        DateTime         @default(now())
+  approvedAt       DateTime?
+  postedAt         DateTime?
+
+  @@index([status])
+  @@index([network])
+  @@index([accountId])
+  @@index([generationRunId])
+  @@index([threadId])
+}
+
+// ============================================================
+// Engagement Models (Phase 2-3)
+// ============================================================
+
+model Interaction {
+  id            String             @id @default(uuid())
+  accountId     String
+  account       SocialAccount      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  type          InteractionType
+  status        InteractionStatus  @default(PENDING)
+  targetUrl     String?            // URL of the post being liked/commented/replied to
+  targetHandle  String?            // handle of the account being followed/interacted with
+  content       String?            // comment text (for COMMENT/REPLY)
+  errorMessage  String?
+  screenshotPath String?           // screenshot for debugging
+  browsingSessionId String?
+  browsingSession  BrowsingSession? @relation(fields: [browsingSessionId], references: [id], onDelete: SetNull)
+  createdAt     DateTime           @default(now())
+  completedAt   DateTime?
+
+  @@index([accountId])
+  @@index([type])
+  @@index([status])
+  @@index([browsingSessionId])
+  @@index([createdAt])
+}
+
+model BrowsingSession {
+  id              String               @id @default(uuid())
+  accountId       String
+  account         SocialAccount        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  status          BrowsingSessionStatus @default(ACTIVE)
+  startedAt       DateTime             @default(now())
+  endedAt         DateTime?
+  durationSec     Int                  @default(0)
+  postsViewed     Int                  @default(0)
+  interactionsCount Int                @default(0)
+  feedUrl         String?              // which feed was browsed
+  errorMessage    String?
+  interactions    Interaction[]
+
+  @@index([accountId])
+  @@index([status])
+  @@index([startedAt])
+}

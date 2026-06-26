@@ -1,0 +1,50 @@
+# Social Poster Agent — local infrastructure
+# PostgreSQL on port 5433 (avoids conflict with system Postgres)
+# Redis on port 6381 (avoids conflict with CAP Redis on 6380)
+#
+# Usage:
+#   pnpm infra:up                    # start (from repo root)
+#   pnpm infra:down                  # stop
+#   docker compose -f infra/docker-compose.yml down -v  # stop + delete data
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: spa-postgres
+    restart: unless-stopped
+    ports:
+      - '5433:5432'
+    environment:
+      POSTGRES_USER: spa
+      POSTGRES_PASSWORD: spa
+      POSTGRES_DB: social_poster
+    volumes:
+      - spa_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U spa -d social_poster']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: spa-redis
+    restart: unless-stopped
+    ports:
+      - '6381:6379'
+    # AOF persistence (B6 mitigation — LangGraph checkpoint in Redis)
+    # appendonly yes = persist to disk, survive container restart
+    command: redis-server --appendonly yes --appendfsync everysec
+    volumes:
+      - spa_redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  spa_pgdata:
+    driver: local
+  spa_redisdata:
+    driver: local

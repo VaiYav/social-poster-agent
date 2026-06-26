@@ -1,0 +1,93 @@
+# SPA Production Docker Compose
+# Usage: docker compose -f docker/docker-compose.prod.yml up -d
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: spa
+      POSTGRES_USER: spa
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-spa_dev}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spa"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6381:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://spa:${POSTGRES_PASSWORD:-spa_dev}@postgres:5432/spa
+      REDIS_URL: redis://redis:6379
+      SPA_API_PORT: "3100"
+      SPA_UI_PORT: "3101"
+      # LLM
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      # Social accounts
+      X_USERNAME: ${X_USERNAME:-}
+      X_PASSWORD: ${X_PASSWORD:-}
+      THREADS_USERNAME: ${THREADS_USERNAME:-}
+      THREADS_PASSWORD: ${THREADS_PASSWORD:-}
+      FACEBOOK_USERNAME: ${FACEBOOK_USERNAME:-}
+      FACEBOOK_PASSWORD: ${FACEBOOK_PASSWORD:-}
+      # Cron
+      CRON_GENERATION_SCHEDULE: ${CRON_GENERATION_SCHEDULE:-0 9,21 * * *}
+      HEALTH_MONITOR_SCHEDULE: ${HEALTH_MONITOR_SCHEDULE:-0 * * * *}
+      RECONCILIATION_SCHEDULE: ${RECONCILIATION_SCHEDULE:-30 * * * *}
+      # Rate limits
+      RATE_LIMIT_X_MAX_PER_DAY: ${RATE_LIMIT_X_MAX_PER_DAY:-1}
+      RATE_LIMIT_THREADS_MAX_PER_DAY: ${RATE_LIMIT_THREADS_MAX_PER_DAY:-1}
+      RATE_LIMIT_FACEBOOK_MAX_PER_DAY: ${RATE_LIMIT_FACEBOOK_MAX_PER_DAY:-1}
+      RATE_LIMIT_MIN_DELAY_MS: ${RATE_LIMIT_MIN_DELAY_MS:-3600000}
+      # Sentry
+      SENTRY_DSN: ${SENTRY_DSN:-}
+    ports:
+      - "3100:3100"
+    volumes:
+      - browser_data:/app/.cache/ms-playwright
+
+  ui:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ui
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3101:3101"
+
+volumes:
+  postgres_data:
+  redis_data:
+  browser_data:
