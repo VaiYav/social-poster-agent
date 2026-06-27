@@ -11,7 +11,7 @@ parent_repo: astro-ai-landing (lives in `social-poster-agent/` subdirectory)
 
 > **Назначение документа.** Это концептуальная конституция — фиксирует WHAT и WHY
 > на старте проекта, до написания кода. Архитектурные ADR-ы, технический план и
-> спецификации появятся позже как отдельные артефакты (`docs/ADR-*.md`,
+> спецификации появятся позже как отдельные артефакты (`docs/adr/ADR-*.md`,
 > `docs/plan.md`). Этот документ — точка отсчёта: всё, что здесь не описано,
 > считается out-of-scope для MVP и требует явного изменения конституции.
 
@@ -297,15 +297,18 @@ social-poster-agent/               ← pnpm workspace root
 │   └── nginx.conf                 ← SPA fallback + /api/ proxy + /events/ SSE proxy
 ├── .env.example                   ← Template для env vars (см. §8)
 ├── docs/                          ← ADRs + runbooks
-│   ├── ADR-001-camoufox-over-playwright.md
-│   ├── ADR-002-bullmq-for-posting-queue.md
-│   ├── ADR-003-langgraph-for-generation.md
-│   ├── ADR-004-port-interfaces-ddd.md
-│   ├── ADR-005-sse-over-websocket.md
-│   ├── runbook-login.md
-│   ├── runbook-banned.md
-│   ├── runbook-failed-posts.md
-│   └── runbook-session-expired.md
+│   ├── adr/
+│   │   ├── ADR-001-camoufox-browser-automation.md
+│   │   ├── ADR-002-bullmq-queue.md
+│   │   ├── ADR-003-langgraph-generation.md
+│   │   ├── ADR-004-hexagonal-ports.md
+│   │   └── ADR-005-sse-realtime.md
+│   └── runbooks/
+│       ├── login.md
+│       ├── banned.md
+│       ├── failed-posts.md
+│       ├── session-expired.md
+│       └── rollback.md            ← Rollback procedure (pg_dump, blue-green, decision tree)
 │
 ├── packages/
 │   │
@@ -326,15 +329,19 @@ social-poster-agent/               ← pnpm workspace root
 │   │   ├── nest-cli.json
 │   │   ├── prisma/
 │   │   │   ├── schema.prisma      ← Post, PostThread, SocialAccount, Session, GenerationRun, Interaction, BrowsingSession
-│   │   │   └── migrations/        ← init + warmup/banned status
+│   │   │   └── migrations/        ← init + warmup/banned status + PAUSED run status + simhash index
 │   │   └── src/
 │   │       ├── main.ts            ← NestJS bootstrap + Swagger setup + Sentry init
-│   │       ├── app.module.ts      ← Root module (16+ modules wired)
+│   │       ├── app.module.ts      ← Root module (31 modules wired, 5 feature-flagged)
 │   │       ├── domain/            ← Re-exports from @spa/shared (DTOs, enums, ports, errors)
 │   │       │   ├── dtos.ts        ← Re-export DTOs from @spa/shared
 │   │       │   ├── enums.ts       ← Re-export enums from @spa/shared
 │   │       │   ├── errors.ts      ← SpaError hierarchy + classifyPlaywrightError
 │   │       │   └── ports/         ← IBrowserPort, ILlmPort, IContentPort (Symbol-token DI)
+│   │       ├── events/            ← Sprint O: EDA domain events (EventEmitter2)
+│   │       │   ├── events.module.ts ← EventsEdaModule (internal event bus)
+│   │       │   └── enums/
+│   │       │       └── post-events.enum.ts ← Post lifecycle event types
 │   │       ├── modules/           ← Feature modules (controller + service + module per domain)
 │   │       │   ├── posts/         ← Post CRUD, status transitions, approve/reject
 │   │       │   ├── generation/    ← LangGraph 7-step parallel graph, cron triggers, SimHash dedup
@@ -347,7 +354,8 @@ social-poster-agent/               ← pnpm workspace root
 │   │       │   │   └── posters/   ← Page Objects: x/threads/facebook + selectors/ + base.poster
 │   │       │   ├── sessions/      ← Session manager + auto-login + warm-up (F20)
 │   │       │   │   ├── sessions.service.ts   ← getOrCreateSession, autoLogin, healthCheck
-│   │       │   │   └── warmup.service.ts     ← F20: gradual ramp for new accounts
+│   │       │   │   ├── warmup.service.ts     ← F20: gradual ramp for new accounts
+│   │       │   │   └── warmup.module.ts      ← WarmupModule (separate for lazy loading)
 │   │       │   ├── accounts/      ← Social account config (env-driven, credentialsRef only)
 │   │       │   ├── content-source/← Adapter to content-agent-platform
 │   │       │   ├── queue/         ← BullMQ queues + workers (concurrency=1 per network)
@@ -355,11 +363,21 @@ social-poster-agent/               ← pnpm workspace root
 │   │       │   ├── events/        ← SSE endpoint (GET /events/sse, heartbeat 30s)
 │   │       │   ├── health/        ← Healthcheck (DB SELECT 1 + Redis PING)
 │   │       │   ├── health-monitor/← F21: hourly cron, ban detection, DLQ alerting, reconciliation
+│   │       │   ├── trending/      ← F22: Trending topic detection (astro + Google Trends RSS + X scrape)
+│   │       │   │   ├── trending.service.ts        ← Astro events calendar
+│   │       │   │   └── trending-scraper.service.ts ← Google Trends RSS + X browser scraping
+│   │       │   ├── analytics/     ← Sprint O / F6: Analytics dashboard (read-only, always available)
+│   │       │   ├── recycling/     ← Sprint O / F13: Content recycling (manual trigger, evergreen revival)
+│   │       │   ├── quote-cards/   ← Sprint O / F19: Quote cards (gated by QUOTE_CARDS_ENABLED)
+│   │       │   ├── replies/       ← Sprint O / F4: Adaptive replies (gated by REPLIES_ENABLED)
 │   │       │   └── engagement/    ← F1 (experimental): like/comment/follow/reply + browsing sessions
+│   │       │       └── engagers/  ← Per-network engagers: x/threads/facebook + base.engager
 │   │       ├── infrastructure/
 │   │       │   ├── prisma/        ← PrismaService
 │   │       │   ├── llm/           ← Multi-provider LLM fallback (Groq, OpenRouter, DeepSeek, Cerebras, OpenAI, Ollama)
 │   │       │   ├── browser/       ← Camoufox factory (stealth Firefox, 1 browser, multi-context)
+│   │       │   │   ├── browser.factory.ts       ← Context pool (acquire/release, P0-H1 context.close())
+│   │       │   │   └── selector-health.service.ts ← Sprint O: selector drift detection + fallback
 │   │       │   ├── content/       ← File-system reader for content-agent-platform
 │   │       │   ├── queue/         ← BullMQ queue + worker factory
 │   │       │   ├── sse/           ← SSE service (Redis Pub/Sub → client broadcast)
@@ -367,8 +385,12 @@ social-poster-agent/               ← pnpm workspace root
 │   │       │   ├── cls/           ← nestjs-cls (CorrelationId interceptor)
 │   │       │   ├── logging/       ← RedactInterceptor (strip secrets from logs)
 │   │       │   ├── filters/       ← ZodValidationFilter (ZodError → HTTP 400)
-│   │       │   └── monitoring/    ← Sentry interceptor + init
-│   │       └── config/            ← Config module (env validation)
+│   │       │   ├── monitoring/    ← Sentry interceptor + init
+│   │       │   ├── crypto/        ← AES-256-GCM encryption for storageState at rest (P0-H3)
+│   │       │   ├── config/        ← Env validation (Joi schema, manual validateEnv())
+│   │       │   ├── redis/         ← Sprint L: Shared Redis connection pooling (RedisModule)
+│   │       │   ├── captcha/       ← Sprint O: Captcha solver (gated by CAPTCHA_SOLVER_ENABLED)
+│   │       │   └── proxy/         ← Sprint O: Proxy rotation (gated by PROXY_ROTATION_ENABLED)
 │   │
 │   └── ui/                        ← Vue 3 + Vite SPA
 │       ├── package.json
@@ -383,28 +405,32 @@ social-poster-agent/               ← pnpm workspace root
 │           │   └── main.css
 │           ├── views/             ← Pages (Vue Router)
 │           │   ├── Dashboard.vue  ← Stats + recent posts
-│           │   ├── Queue.vue      ← Draft posts for review (HITL)
+│           │   ├── Queue.vue      ← Draft posts for review (HITL) + PostEditor modal
 │           │   ├── History.vue    ← Posted/failed history
 │           │   ├── Generate.vue   ← Manual generation trigger
-│           │   └── Sessions.vue   ← Session status + health check
+│           │   ├── Sessions.vue   ← Session status + health check + warm-up/rate-limit display
+│           │   └── NotFound.vue   ← 404 fallback (Sprint B)
 │           ├── composables/
 │           │   ├── useApi.ts      ← axios client (typed via shared Zod)
-│           │   └── useSSE.ts      ← SSE subscription composable
+│           │   ├── useSSE.ts      ← SSE subscription composable
+│           │   └── useToast.ts    ← Toast notifications (Sprint B)
 │           ├── stores/            ← Pinia stores (SSE-fed, CRUD actions)
 │           │   ├── posts.ts       ← Post state (handles post_status + health_alert SSE events)
 │           │   ├── queue.ts       ← Queue state (BullMQ job stats, failed jobs)
 │           │   ├── sessions.ts    ← Session state (health check, refresh)
 │           │   └── stats.ts       ← Dashboard stats + generation run history
-│           ├── components/        ← Shared UI components (7 created)
+│           ├── components/        ← Shared UI components (9 created)
 │           │   ├── PostCard.vue   ← Post card (network, status, content, approve/reject)
+│           │   ├── PostEditor.vue ← Modal для редактирования draft перед approve (Sprint B)
 │           │   ├── StatusBadge.vue← Colored status badge (6 statuses)
 │           │   ├── NetworkIcon.vue← X/Threads/Facebook icon + label
 │           │   ├── StatCard.vue   ← Stat display card
 │           │   ├── LoadingSpinner.vue ← Animated SVG spinner
 │           │   ├── ErrorState.vue ← Error display with message
-│           │   └── EmptyState.vue ← Empty state with message
+│           │   ├── EmptyState.vue ← Empty state with message
+│           │   └── ToastContainer.vue ← Toast notifications container (Sprint B)
 │           └── router/
-│               └── index.ts       ← Vue Router setup (5 routes, lazy-loaded)
+│               └── index.ts       ← Vue Router setup (6 routes, lazy-loaded, 404 fallback)
 ```
 
 ---
@@ -499,10 +525,10 @@ DATABASE_URL=postgresql://spa:spa@localhost:5433/social_poster
 # Postgres поднимается через infra/docker-compose.yml (порт 5433 чтобы не
 # конфликтовать с системным Postgres если есть)
 
-# === Redis / BullMQ (Docker локально — порт 6380) ===
-REDIS_URL=redis://localhost:6380
-# Redis поднимается через infra/docker-compose.yml (порт 6380 чтобы не
-# конфликтовать с системным Redis если есть)
+# === Redis / BullMQ (Docker локально — порт 6381) ===
+REDIS_URL=redis://localhost:6381
+# Redis поднимается через infra/docker-compose.yml (порт 6381 чтобы не
+# конфликтовать с системным Redis и CAP Redis на 6380)
 
 # === Rate limits (configurable — меняются без кода) ===
 RATE_LIMIT_X_MAX_PER_DAY=1
@@ -773,7 +799,7 @@ SPA_SWAGGER_PATH=docs          # Swagger UI на /docs
 |----|--------|---------|---------|
 | OQ-9 | API layer: REST или tRPC? | **~~tRPC (trpc-nest)~~ → NestJS REST + Zod** (v0.4.0) | v0.3.0: tRPC. v0.4.0: reverted to REST — trpc-nest community-пакет, конфликт с NestJS парадигмой. REST + Swagger + shared Zod schemas для type safety |
 | OQ-10 | Структура проекта? | **pnpm workspace: backend + ui + shared** | packages/shared — Zod schemas + domain types; чистое разделение deps; tsconfig.base.json |
-| OQ-11 | Очередь постинга? | **BullMQ + Redis** | Auto-retry 3x backoff (1мин, 5мин, 15мин); dead-letter queue; rate limiter; Redis в docker-compose :6380 |
+| OQ-11 | Очередь постинга? | **BullMQ + Redis** | Auto-retry 3x backoff (1мин, 5мин, 15мин); dead-letter queue; rate limiter; Redis в docker-compose :6381 |
 | OQ-12 | Логирование? | **~~Pino~~ → NestJS Logger (built-in)** (v0.4.0) | v0.3.0: Pino. v0.4.0: NestJS Logger — проще, не нужен adapter, достаточно для 1 юзера. Redact через interceptor |
 | OQ-13 | Auth для UI? | **Нет auth (VPN-only)** | Убран ApiTokenGuard; UI/API не exposed публично; network-level isolation; Phase 2 = proper auth если понадобится |
 | OQ-14 | Retry при ошибке постинга? | **Auto-retry (3x backoff)** | BullMQ: 3 попытки, exponential backoff (1мин, 5мин, 15мин); dead-letter queue + UI alert если все fail |
@@ -837,17 +863,20 @@ _Пока нет — все стартовые закрыты. Новые OQ д�
 - [x] **F21: Account Health Monitor** — cron раз/час: sessions, queues, bans,
   DLQ. Health dashboard в UI + SSE alerts
 
-### Phase 1.5 — MVP+ (расширение базового MVP, низкий риск) — PARTIAL
-- [ ] **F2: Multi-Stage Posting** — хук → 30мин → ссылка (X/Threads треды)
+### Phase 1.5 — MVP+ (расширение базового MVP, низкий риск) — MOSTLY DONE
+- [x] **F2: Multi-Stage Posting** — backend done (multiStage param, PostThread, PostingService thread items); TODO: test with real threads
 - [~] **F5: Pauseable/Resumable Environment** — LangGraph checkpoint wired; UI for pause/stop/restart TBD
 - [~] **F3: On-Demand Feature Launch** — Generate.vue has count/network/source; model picker + control panel TBD
-- [ ] **F10: Content Repurposing** — article → 5-10 постов (deep fact extraction)
-- [ ] **F13: Content Recycling** — old top posts → refreshed angle (evergreen revival)
-- [ ] **F22: Trending Topic Detection** — Google Trends + X trending → priority generation
+- [x] **F10: Content Repurposing** — backend done (repurposeFromArticles, /repurpose endpoint, UI button); TODO: deeper fact extraction
+- [x] **F13: Content Recycling** — backend done (recycleTopPosts, POST /recycle endpoint, UI button); evergreen revival from old POSTED posts
+- [x] **F22: Trending Topic Detection** — backend done (TrendingModule, astro events calendar, UI display); TODO: Google Trends / X trending API
 - [x] Ollama integration (local LLM для decision-making) — LlmService supports Ollama as fallback
 - [x] SSE for real-time UI updates (queue status, post status) — wired in App.vue + Pinia stores
 - [x] BullMQ queue per network (concurrency=1, B9 mitigation) — QueueFactory
 - [x] Reconciliation cron (B10: APPROVED posts without active job) — health-monitor.service.ts
+- [x] **F20: Session Warm-up Mode** — warmup.service.ts, Prisma fields, canPost() check
+- [x] **P0-H3: AES-256-GCM encryption** — storageState encrypted at rest (CryptoModule + EncryptionService)
+- [x] **E2E Tests** — 33 tests (full-flow, HITL, health-check, SSE, smoke) — Sprint D complete
 
 ### Phase 2 — Расширение (после стабильного MVP)
 - [ ] **F6: Analytics Dashboard** — метрики engagement, top posts, сравнение сетей
@@ -942,7 +971,9 @@ _Пока нет — все стартовые закрыты. Новые OQ д�
 | 0.4.2 | 2026-06-26 | Browser stealth: REVERTED `playwright-extra` + `puppeteer-extra-plugin-stealth` (JS injection — детектится современными anti-bot) → **Camoufox** (Firefox fork, C++ level stealth). Removed `playwright` (full — скачивает 3 браузера ~800MB) → kept `playwright-core` (peer dep of camoufox-js, API only). New OQ-25. Обновлены §1/§2/§3.1/§3.2/§4/§4.1/§4.2/§5/§5.1/§6/§8/§9/§14/§15(R1,OQ-3)/§16/§17. Camoufox: fingerprint rotation, humanize, geoip — built-in. ~200MB vs Chrome 800MB+. Playwright-compatible API (camoufox-js + playwright-core). |
 | 0.5.0 | 2026-07-15 | **Audit fixes**: A1 rate-limit env vars (daily+weekly, conservative defaults). A2 Redis port 6381. A4 §10.3 LangGraph 7-step parallel per-network graph (OQ-16). B1 F21 Account Health Monitor (hourly cron, ban detection). B2 F20 Session Warm-up Mode. B3 Reconciliation cron. B4 Cron env-configurable. B5 SimHash dedup. B6 SSE UI wiring (Pinia stores). B10 Graceful shutdown. D1 Batch posting rate-limit fix. D2 approve() editedContent. D5 brand-voice path. D6 FB char limit 500. 5 ADRs, 4 runbooks, Dockerfiles + docker-compose.prod.yml. |
 | 0.5.1 | 2026-07-16 | **Doc-code sync**: §6 structure updated (added engagement/, health-monitor/, cls/, monitoring/, filters/, checkpoint/, docker/, docs/ ADRs+runbooks). §16 Phase 0/1 marked as COMPLETED with [x]. Phase 1.5 marked as PARTIAL (Ollama, SSE, BullMQ per-network, reconciliation cron — done; F2/F10/F13/F22 — not started; F3/F5 — partial). ROADMAP.md fully synced with codebase (all phases, compliance score 92/100, new sprints A-G). 368 tests pass. |
+| 0.5.2 | 2026-07-27 | **Review fixes**: Removed dead Sprint K context pool (conflicted with P0-H1 context.close()). Fixed getCheckpointState thread_id (now requires topic param). Fixed resumeRun no-sourceTopics orphaned run + added outer try/catch. Added PAUSED status to GenerationRunStatus (pauseRun no longer marks as FAILED). Added SimHash dedup to resumeRun. Awaited SSE publish in generation.service.ts. Added SESSION_ENCRYPTION_KEY to .env.example. Fixed DATABASE_URL default (5432→5433, spa→social_poster). Removed TrendingController from providers. F2 continuation now LLM-generated (removed "link in bio"). Sprint O modules added to AppModule: Analytics + Recycling (always on), Captcha + Proxy + QuoteCard + Replies (feature-flagged, default: false). |
+| 0.5.3 | 2026-07-27 | **Sprint A doc sync**: §6 structure tree updated to reflect actual codebase — added events/ (EDA), analytics/, recycling/, quote-cards/, replies/, engagement/engagers/, sessions/warmup.module.ts, trending-scraper.service.ts, infrastructure/{redis,captcha,proxy,selector-health.service}, UI additions (NotFound.vue, PostEditor.vue, ToastContainer.vue, useToast.ts), new Prisma migrations (PAUSED run status, simhash index). Fixed false v0.5.2 changelog claim that Sprint O modules were removed (they are feature-flagged, not removed). app.module.ts wires 31 modules (5 feature-flagged: Engagement, Captcha, Proxy, QuoteCard, Replies). |
 
 ---
 
-_Document created 2026-06-26 by Valentyn Yakovlev. MVP fully implemented (v0.5.1)._
+_Document created 2026-06-26 by Valentyn Yakovlev. MVP fully implemented (v0.5.3)._
