@@ -221,7 +221,7 @@ export function createMockPrismaService() {
     groupBy: vi.fn(),
   });
 
-  return {
+  const prisma: Record<string, unknown> = {
     generationRun: {
       ...createModelMock(),
       _count: { posts: vi.fn() },
@@ -243,9 +243,16 @@ export function createMockPrismaService() {
     },
     $connect: vi.fn(),
     $disconnect: vi.fn(),
-    $transaction: vi.fn((cb) => cb({})),
     $queryRaw: vi.fn(),
   };
+  // A4: pass the mock itself as the transaction client so code that does
+  // `prisma.$transaction(tx => tx.post.create(...))` works in tests (tx === prisma,
+  // so the same per-model spies record the calls). The array form resolves all
+  // promises, matching Prisma's `$transaction([...])` batch semantics.
+  prisma.$transaction = vi.fn((arg: unknown) =>
+    Array.isArray(arg) ? Promise.all(arg) : (arg as (c: unknown) => unknown)(prisma),
+  );
+  return prisma;
 }
 
 // ── Redis Mock ──

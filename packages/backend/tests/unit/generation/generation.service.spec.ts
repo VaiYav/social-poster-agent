@@ -665,6 +665,29 @@ describe('GenerationService', () => {
       expect(posts.create).toHaveBeenCalledTimes(3);
     });
 
+    it('UTC-223: P4 thread assembly runs inside a DB transaction (A4 atomicity)', async () => {
+      contentSource.getTopics.mockResolvedValue([TOPIC_1]);
+      const threadDepth = createMockThreadDepthController();
+      threadDepth.planThread.mockResolvedValue({
+        depth: 2,
+        continuations: [{ position: 1, content: 'Continuation 1' }],
+        reasoning: 'thread',
+      });
+      mockInvoke.mockResolvedValue({ posts: [genPost(SocialNetwork.X, 'Root post')], facts: TOPIC_1.facts });
+
+      const svc = new GenerationService(
+        llm, contentSource as any, accounts as any, posts as any,
+        prisma as any, checkpoint as any, sse as any,
+        undefined, undefined, undefined, undefined, undefined, threadDepth as any,
+      );
+
+      await svc.generate(1, [SocialNetwork.X], GenerationTrigger.MANUAL, true);
+
+      // Thread row + root link + continuations must be wrapped in one transaction.
+      expect(prisma.$transaction).toHaveBeenCalled();
+      expect(prisma.postThread.create).toHaveBeenCalled();
+    });
+
     it('UTC-221: multiStage=true without ThreadDepthController → F2 fallback (2 posts)', async () => {
       contentSource.getTopics.mockResolvedValue([TOPIC_1]);
       llm.generateChat.mockResolvedValue({ content: 'Continuation content here', model: 'gpt-4o-mini', tokens: 50, cost: 0.001 });

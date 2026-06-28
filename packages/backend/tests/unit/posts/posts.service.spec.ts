@@ -174,6 +174,21 @@ describe('MOD-02: PostsService', () => {
     expect(arg.data.llmMetadata).toEqual({ model: 'gpt-4o-mini', tokens: 120 });
   });
 
+  it('UTC-035: create(data, tx) writes via the provided transaction client (A4)', async () => {
+    const created = { id: 'tx-post' };
+    const tx = { post: { create: vi.fn().mockResolvedValue(created) } };
+
+    const result = await service.create(
+      { accountId: 'acc-1', network: 'X' as const, content: 'in-tx' },
+      tx as never,
+    );
+
+    expect(result).toBe(created);
+    expect(tx.post.create).toHaveBeenCalledTimes(1);
+    // When a tx client is passed, the default (non-transactional) client must NOT be used.
+    expect(prisma.post.create).not.toHaveBeenCalled();
+  });
+
   // ── updateStatus() ──────────────────────────────────────────
 
   it('UTC-035: updateStatus() sets APPROVED and records approvedAt timestamp', async () => {

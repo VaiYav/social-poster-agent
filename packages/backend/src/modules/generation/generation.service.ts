@@ -615,43 +615,56 @@ export class GenerationService {
               topic.keywords,
             );
             if (plan.depth > 1 && plan.continuations.length > 0) {
-              const thread = await this.prisma.postThread.create({
-                data: { accountId: account.id, status: PostStatus.DRAFT },
-              });
-              // Link root post to thread
-              await this.prisma.post.update({
-                where: { id: post.id },
-                data: { threadId: thread.id, threadPosition: 0 },
-              });
-              // Create continuation posts
-              for (const cont of plan.continuations) {
-                const contPost = await this.postsService.create({
-                  accountId: account.id,
-                  network: genPost.network,
-                  content: cont.content,
-                  threadId: thread.id,
-                  threadPosition: cont.position,
-                  generationRunId: runId,
-                  sourceRef: {
-                    type: topic.sourceType,
-                    path: topic.path,
-                    topic: topic.topic,
-                  },
-                  llmMetadata: {
-                    model: genPost.model,
-                    promptVersion: '0.3.0-p4',
-                    hook: genPost.hook,
-                    angleType: 'continuation',
-                    simhash: simhash(cont.content),
-                    multiStage: true,
-                    threadDepth: plan.depth,
-                  },
+              // A4: thread assembly (thread row + root link + continuations) is
+              // atomic — a mid-assembly crash must not leave an orphan PostThread
+              // or a thread with position gaps. planThread() (LLM) already ran
+              // above, so only fast DB writes live inside the transaction.
+              const contPosts = await this.prisma.$transaction(async (tx) => {
+                const thread = await tx.postThread.create({
+                  data: { accountId: account.id, status: PostStatus.DRAFT },
                 });
-                savedPosts.push(contPost);
-              }
-              this.logger.debug(
-                `P4: Created ${plan.continuations.length} continuation posts for ${genPost.network} thread ${thread.id} — ${plan.reasoning}`,
-              );
+                // Link root post to thread
+                await tx.post.update({
+                  where: { id: post.id },
+                  data: { threadId: thread.id, threadPosition: 0 },
+                });
+                // Create continuation posts (same tx client → all-or-nothing)
+                const created: { id: string }[] = [];
+                for (const cont of plan.continuations) {
+                  created.push(
+                    await this.postsService.create(
+                      {
+                        accountId: account.id,
+                        network: genPost.network,
+                        content: cont.content,
+                        threadId: thread.id,
+                        threadPosition: cont.position,
+                        generationRunId: runId,
+                        sourceRef: {
+                          type: topic.sourceType,
+                          path: topic.path,
+                          topic: topic.topic,
+                        },
+                        llmMetadata: {
+                          model: genPost.model,
+                          promptVersion: '0.3.0-p4',
+                          hook: genPost.hook,
+                          angleType: 'continuation',
+                          simhash: simhash(cont.content),
+                          multiStage: true,
+                          threadDepth: plan.depth,
+                        },
+                      },
+                      tx,
+                    ),
+                  );
+                }
+                this.logger.debug(
+                  `P4: Created ${plan.continuations.length} continuation posts for ${genPost.network} thread ${thread.id} — ${plan.reasoning}`,
+                );
+                return created;
+              });
+              savedPosts.push(...contPosts);
             }
           } catch (err) {
             this.logger.warn(`P4: Thread planning failed, falling back to F2: ${(err as Error).message}`);
@@ -679,34 +692,43 @@ export class GenerationService {
     runId: string,
     savedPosts: { id: string }[],
   ): Promise<void> {
+    // LLM continuation generation runs OUTSIDE the transaction (slow call must
+    // not hold a DB tx open). A4: the thread + root link + continuation write
+    // are then committed atomically.
     const continuationContent = await this.generateContinuationContent(genPost.hook, genPost.content, topic.topic);
-    const thread = await this.prisma.postThread.create({
-      data: { accountId: account.id, status: PostStatus.DRAFT },
-    });
-    await this.prisma.post.update({ where: { id: post.id }, data: { threadId: thread.id, threadPosition: 0 } });
-    const continuationPost = await this.postsService.create({
-      accountId: account.id,
-      network: genPost.network,
-      content: continuationContent,
-      threadId: thread.id,
-      threadPosition: 1,
-      generationRunId: runId,
-      sourceRef: {
-        type: topic.sourceType,
-        path: topic.path,
-        topic: topic.topic,
-      },
-      llmMetadata: {
-        model: genPost.model,
-        promptVersion: '0.3.0-f2',
-        hook: genPost.hook,
-        angleType: 'continuation',
-        simhash: simhash(continuationContent),
-        multiStage: true,
-      },
+    const continuationPost = await this.prisma.$transaction(async (tx) => {
+      const thread = await tx.postThread.create({
+        data: { accountId: account.id, status: PostStatus.DRAFT },
+      });
+      await tx.post.update({ where: { id: post.id }, data: { threadId: thread.id, threadPosition: 0 } });
+      const created = await this.postsService.create(
+        {
+          accountId: account.id,
+          network: genPost.network,
+          content: continuationContent,
+          threadId: thread.id,
+          threadPosition: 1,
+          generationRunId: runId,
+          sourceRef: {
+            type: topic.sourceType,
+            path: topic.path,
+            topic: topic.topic,
+          },
+          llmMetadata: {
+            model: genPost.model,
+            promptVersion: '0.3.0-f2',
+            hook: genPost.hook,
+            angleType: 'continuation',
+            simhash: simhash(continuationContent),
+            multiStage: true,
+          },
+        },
+        tx,
+      );
+      this.logger.debug(`F2: Created continuation post for ${genPost.network} thread ${thread.id}`);
+      return created;
     });
     savedPosts.push(continuationPost);
-    this.logger.debug(`F2: Created continuation post for ${genPost.network} thread ${thread.id}`);
   }
 
   /**

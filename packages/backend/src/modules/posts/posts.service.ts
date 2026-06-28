@@ -81,8 +81,13 @@ export class PostsService {
     sourceRef?: Prisma.InputJsonValue;
     llmMetadata?: Prisma.InputJsonValue;
     simhash?: string; // Sprint L: precomputed SimHash for fast dedup
-  }) {
-    const post = await this.prisma.post.create({ data });
+  },
+  // A4: optional transaction client so callers can persist atomically (e.g.
+  // thread assembly in GenerationService). Defaults to the non-transactional
+  // client, so every existing caller is unaffected.
+  client: Prisma.TransactionClient = this.prisma,
+  ) {
+    const post = await client.post.create({ data });
     this.eventEmitter.emit(PostEvents.DRAFT_GENERATED, { postId: post.id, network: post.network });
     return post;
   }
