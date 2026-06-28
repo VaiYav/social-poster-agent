@@ -27,6 +27,41 @@
 
 ---
 
+## ✅ Статус выполнения (обновлено 2026-06-28)
+
+Отметки ниже = **реально закоммичено** в ветке `fix/a3-remaining-tests`, зелено под `tsc` (`nest build`)
++ полный backend-сьют (**75 файлов / 1196 тестов**, lint **0 errors**). Источник истины по отдельным
+фиксам — `git log` + список задач; таблицы ниже размечены по нему, но не претендуют на исчерпывающий
+аудит. Dry-run по отрефакторенным путям подтверждён вручную.
+
+**Архитектурные (раздел 1):**
+- ✅ **A2** — единый `parseBool` (25 сайтов) · `842dbbe`
+- ✅ **B5/SEC4** — graceful shutdown · (M0)
+- ✅ **A1 + BUG-12** — единый fail-closed decision-gate, полоса HUMAN_REVIEW достижима · `f072834`
+- ✅ **A5** — `IPostingQueuePort` (убран `ModuleRef`-хак, разорван цикл Posts↔Queue) · `8ecfe16`
+- ✅ **A4** — персист+дедуп в `$transaction` (+ in-run дедуп) · `2c63af0`
+- 🟡 **A3** — *частично*: шов (вся зависимость от `playwright-core` в одном domain-модуле
+  `browser-primitives.ts`) `1d643eb` + мок-DOM тесты верификации постинга `9e27ecf`. Полный
+  `IPage`-адаптер **сознательно отложен** (низкий ROI — мок-DOM покрытие постеров уже есть).
+- 🟡 **D1** — *частично*: CI гоняет полный сьют + `nest build` typecheck (`456e181`/`07f2e23`).
+  E2E против **реального DOM** (nightly dry-run) ещё нет — нужен A3-2.
+- 🟡 **A6** — *частично*: шаг 1 `prioritizeTopics`→чистый модуль `42d8de6`; шаг 2 общий
+  `isDuplicateHash` (−4 дубля dedup) `295147a`. Кластер **run-management НЕ выносится** чисто (3/7
+  методов, дорогой `paramtypes`-ripple ради ~55 строк) — оставлен осознанно; `sessions.service` не тронут.
+
+**Баги (разделы 2) — закрыто:** RC1, R1, AU1/AU2/AU3 (в составе A1), SEC1, B5/SEC4, P2, P3/P4,
+reaper stuck-POSTING, P5, PO2, RP2, RP3, AU4/AU7/AU8, AU5 (trend-guardrail), TR1, BUG-12.
+
+**Доп. находка вне списка:** `tsc`-сборка была **сломана** (`localhost.guard`, от SEC1; не ловилась —
+vitest транслирует через esbuild без типов, а в CI не было build-шага → `pnpm build`/`pnpm dry-run` не
+собирались). Починено `334bf72`; в CI добавлен typecheck-шаг, чтобы такое падало.
+
+**Осознанно отложено:** полный A3 `IPage`-адаптер; D1 real-DOM E2E (nightly); A6 run-management +
+`sessions.service`; остаток `generation.service` (внутренне связан с графом — дробление требует слоёв
+абстракции, ROI низкий).
+
+---
+
 ## 0. Changeset hygiene & commit split (из код-ревью `06`)
 
 Перед взятием багов/фич в работу — привести **текущий незакоммиченный блоб** (118 файлов, +13k/−2.3k,
@@ -55,14 +90,14 @@
 
 | # | Пункт | Усилие | Блокируется | Разблокирует |
 |---|-------|--------|-------------|--------------|
-| A2 | Единый `parseBool` + рантайм-флаги | S–M | — | корректность всех флаг-гейтов; безопасный тогл без рестарта |
-| B5 | Graceful shutdown на `uncaughtException` + `unhandledRejection` | S | — | стабильность; меньше «живой, но сломанный» процесс |
-| A1 | Единый decision-gate (listener → `AutoApproveService.evaluate`, fail-closed) | M | A2 (желательно) | **агентскую авто-отправку**; убирает гонку двух путей |
-| A5 | Порт очереди (`IPostingQueuePort`) | M | — | убирает `ModuleRef`-хак; разрывает цикл Posts↔Queue |
-| A4 | Персистентность+дедуп в явную транзакцию (+ in-run дедуп) | M | — | корректный POSTED-state; exactly-once (M1) |
-| A3 | Порт «страницы/постинга», изоляция от Playwright | L | A5 | тестируемость, мок DOM, E2E; будущая смена драйвера |
-| D1 | E2E-смоук против реального DOM (dry-run в CI nightly) | M | A3 (частично) | защиту от регрессий селекторов (главный слепой зон CI) |
-| A6 | Разнос god-объектов (sessions/generation/replies) | XL | A3, A4 | снижение плотности багов; дешевле дальнейшие фиксы |
+| ✅ A2 | Единый `parseBool` + рантайм-флаги | S–M | — | корректность всех флаг-гейтов; безопасный тогл без рестарта |
+| ✅ B5 | Graceful shutdown на `uncaughtException` + `unhandledRejection` | S | — | стабильность; меньше «живой, но сломанный» процесс |
+| ✅ A1 | Единый decision-gate (listener → `AutoApproveService.evaluate`, fail-closed) | M | A2 (желательно) | **агентскую авто-отправку**; убирает гонку двух путей |
+| ✅ A5 | Порт очереди (`IPostingQueuePort`) | M | — | убирает `ModuleRef`-хак; разрывает цикл Posts↔Queue |
+| ✅ A4 | Персистентность+дедуп в явную транзакцию (+ in-run дедуп) | M | — | корректный POSTED-state; exactly-once (M1) |
+| 🟡 A3 | Порт «страницы/постинга», изоляция от Playwright | L | A5 | *шов + мок-DOM тесты готовы; полный `IPage`-адаптер отложен (низкий ROI)* |
+| 🟡 D1 | E2E-смоук против реального DOM (dry-run в CI nightly) | M | A3 (частично) | *CI: полный сьют + typecheck готовы; real-DOM E2E ещё нет* |
+| 🟡 A6 | Разнос god-объектов (sessions/generation/replies) | XL | A3, A4 | *generation: 2 чистых выноса готовы; run-management/sessions отложены* |
 
 **Порядок (что за чем):**
 `A2 → B5` (дёшево, сразу) → `A1` (включает безопасную отправку) → `A5 → A4` → `A3 → D1` → `A6` (в
@@ -85,10 +120,10 @@ HEAD`, независимая верификация на каждую нахо�
 | `07` ID | Что | Sev | Усилие | M | Статус |
 |---------|-----|-----|--------|---|--------|
 | BUG-1 | simhash само-матч → авто-аппрув реджектит **100%** постов | Critical | S | M0 | **NEW** — блокер включения автономии |
-| SEC-1 | XFF обходит LocalhostGuard | Critical | S | M0 | = `SEC1` |
+| SEC-1 | XFF обходит LocalhostGuard | Critical | S | M0 | ✅ = `SEC1` |
 | SEC-2 | `startsWith('172.2')` пускает публичные IP как внутренние | High | S | M0 | **NEW** (≠ backlog `SEC2`=FB-cookie) |
 | BUG-2 | engagement не планируется после дня 1 | High | S | M3 | = `EN6` |
-| BUG-3 | engagement rate-limit режет лайки до 1/день | High | M | M0 | = `R1` |
+| BUG-3 | engagement rate-limit режет лайки до 1/день | High | M | M0 | ✅ = `R1` |
 | BUG-4 | детекция постинга → ложные POSTED/FAILED | High | L | M1 | = `P1` |
 | BUG-5 | Threads-куки `.threads.net` ≠ `threads.com` → cookie-auth мёртв | High | S | M0 | **NEW** |
 | BUG-6 | тред через home-page fallback теряет ответы (потеря контента) | High | M | M1 | **NEW** |
@@ -97,7 +132,7 @@ HEAD`, независимая верификация на каждую нахо�
 | BUG-9 | resume не восстанавливает `pendingWrites` → повтор/дубли нод | Medium | M | M1 | **NEW** (часть exactly-once) |
 | BUG-10 | невалидное окно (`NaN`) рушит весь тик планирования | Medium | S | M3 | **NEW** (engagement hardening) |
 | BUG-11 | `BULLMQ_MAX_RETRIES=0` молча → 3 (дубли постов) | Medium | S | M0 | **NEW** |
-| BUG-12 | полоса HUMAN_REVIEW недостижима (autoCheckMin 6 > review 4) | Medium | S | M1 | **NEW** (= часть `A1`) |
+| BUG-12 | полоса HUMAN_REVIEW недостижима (autoCheckMin 6 > review 4) | Medium | S | M1 | ✅ done (= часть `A1`) |
 | BUG-13 | `GenerateOptions.maxTokens` игнорируется адаптером | Medium | S | M3 | ≈ `EN5` |
 
 > **Новое в M0 (Спринт 1):** BUG-1, SEC-2, BUG-5, BUG-7, BUG-8, BUG-11 — мелкие по усилию, но три из
@@ -108,11 +143,11 @@ HEAD`, независимая верификация на каждую нахо�
 ### Critical — в M0/M1
 | ID | Что | Усилие | Майлстоун | Примечание |
 |----|-----|--------|-----------|------------|
-| RC1 | `recyclePost` без `@Param` | S | M0 | 1 строка + тест |
-| R1 | engagement rate-limit режет лайки до 1/день | M | M0 | отдельный `checkInteractionLimit` |
-| AU2 | авто-аппрув fail-open при отсутствии score | S | M0 | сделать fail-closed (DRAFT) |
-| AU1 | активный авто-аппрув обходит `AutoCheck` | M | M0 | единый gate (= `A1`) |
-| SEC1 | XFF обходит LocalhostGuard | S | M0 | доверять XFF только от known-proxy |
+| ✅ RC1 | `recyclePost` без `@Param` | S | M0 | 1 строка + тест |
+| ✅ R1 | engagement rate-limit режет лайки до 1/день | M | M0 | отдельный `checkInteractionLimit` |
+| ✅ AU2 | авто-аппрув fail-open при отсутствии score | S | M0 | сделано fail-closed (DRAFT) |
+| ✅ AU1 | активный авто-аппрув обходит `AutoCheck` | M | M0 | единый gate (= `A1`) |
+| ✅ SEC1 | XFF обходит LocalhostGuard | S | M0 | доверять XFF только от known-proxy |
 | SEC2 | FB-cookie в плейнтексте `/tmp/spa-profiles` | M | M0/M1 | шифр-том или вынести профиль |
 | RP1 | авто-reply блокирует крон `setTimeout` 5–30мин | M | M1 | в BullMQ delayed (`jobId=commentId`) + re-entrancy guard |
 | P1 | детекция успеха постинга даёт ложные POSTED/FAILED | L | M1 | нативный permalink + нормализация |
@@ -120,18 +155,18 @@ HEAD`, независимая верификация на каждую нахо�
 ### High — M1/M2
 | ID | Что | Усилие | Майлстоун |
 |----|-----|--------|-----------|
-| P2 | `networkidle` на X/Threads (верификация/скрейп) | M | M1 |
-| P3/P4 | ретрай/self-recovery → дубль; идемпотентный ключ | M | M1 |
-| (03) | reaper stuck-POSTING | M | M1 |
-| P5 | FB один persistent-context — гонки страниц | M | M1 |
-| P7 | `fullPage`-скриншоты без очистки (disk-leak) | S | M0 |
+| ✅ P2 | `networkidle` на X/Threads (верификация/скрейп) | M | M1 |
+| ✅ P3/P4 | ретрай/self-recovery → дубль; идемпотентный ключ | M | M1 |
+| ✅ (03) | reaper stuck-POSTING | M | M1 |
+| ✅ P5 | FB один persistent-context — гонки страниц | M | M1 |
+| ✅ P7 | `fullPage`-скриншоты без очистки (disk-leak) | S | M0 |
 | SE1 | auto-login формой синхронно в постинге | M | M2 |
 | EN6 | engagement не планируется после дня 1 | S | M3 |
-| RP2 | `commentId` из обрезанного текста → кириллица коллапсирует | M | M3 |
-| RP3 | LLM-reply обходит фильтр чувствительных тем | M | M3 |
+| ✅ RP2 | `commentId` из обрезанного текста → кириллица коллапсирует | M | M3 |
+| ✅ RP3 | LLM-reply обходит фильтр чувствительных тем | M | M3 |
 | RC2/RC3 | recycling не запускается / дословный дубль | M | M3 |
-| AU3 | двойной enqueue/расхождение решений | S | M0 (часть A1) |
-| AU5 | trend-guardrail fail-open + injection | M | M3 |
+| ✅ AU3 | двойной enqueue/расхождение решений | S | M0 (часть A1) |
+| ✅ AU5 | trend-guardrail fail-open + injection | M | M3 |
 | PO1 | `approve/reject` без валидации перехода | S | M0 |
 | QC1 | quote-cards: Satori `fonts:[]` | M | M3 |
 | B5/SEC4 | uncaughtException глушится | S | M0 |
