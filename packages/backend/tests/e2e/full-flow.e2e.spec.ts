@@ -528,6 +528,9 @@ describe('E2E Sprint D: Full Flow — generate → approve → post', () => {
 
   beforeEach(() => {
     clearHookCache();
+    // PO1: each test must start with a fresh DRAFT post-e2e-1 — approve/reject now return 409
+    // for a non-DRAFT post, and the stateful prisma mock otherwise leaks status across tests.
+    delete (prisma as Record<string, unknown>).__storedPost;
   });
 
   it('E2E-D1-1: GET /health returns 200', async () => {
