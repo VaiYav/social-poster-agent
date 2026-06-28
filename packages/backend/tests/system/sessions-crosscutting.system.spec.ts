@@ -26,6 +26,10 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } 
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SseEventListener } from '../../src/events/listeners/sse-event.listener';
 import { AutoApproveListener } from '../../src/events/listeners/auto-approve.listener';
+import { AutoCheckService } from '../../src/modules/autonomy/auto-check.service';
+import { AutoApproveService } from '../../src/modules/autonomy/auto-approve.service';
+import { AutonomousRunnerService } from '../../src/modules/autonomy/autonomous-runner.service';
+import { FlowControlService } from '../../src/modules/flow-control/flow-control.service';
 import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service';
 import { NotificationsModule } from '../../src/infrastructure/notifications/notifications.module';
 import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service';
@@ -304,6 +308,10 @@ function restoreAllDesignParamtypes(): void {
   defineParamtypes(LlmService, [ConfigService]);
   defineParamtypes(ContentReader, [ConfigService]);
   defineParamtypes(BrowserFactory, [ConfigService]);
+  defineParamtypes(AutoCheckService, [ConfigService, PrismaService]);
+  defineParamtypes(AutoApproveService, [ConfigService, PrismaService, SseService, AutoCheckService]);
+  defineParamtypes(AutonomousRunnerService, [ConfigService, PrismaService, SseService, FlowControlService, AutoApproveService, ModuleRef]);
+  defineParamtypes(AutoApproveListener, [PostsService, PrismaService, ModuleRef, ConfigService]);
   defineParamtypes(SseService, [ConfigService, Object, Object]);
   defineParamtypes(RedisCheckpointSaver, [ConfigService, Object]);
   defineParamtypes(QueueFactory, [ConfigService, DiscordNotificationService]);
