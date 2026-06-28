@@ -19,12 +19,42 @@ export class QuoteCardService {
   private readonly outputDir: string;
   private readonly width: number;
   private readonly height: number;
+  // QC1: Satori requires real font data (it does NOT fall back to system fonts).
+  // Lazily load + cache the bundled Inter subset (latin) once per process.
+  private fontsCache:
+    | Array<{ name: 'Inter'; data: Buffer; weight: 400 | 600; style: 'normal' | 'italic' }>
+    | null = null;
 
   constructor(private readonly configService: ConfigService) {
     this.enabled = parseBool(this.configService.get<string>('QUOTE_CARDS_ENABLED', 'false'));
     this.outputDir = this.configService.get<string>('QUOTE_CARDS_DIR', '/app/quote-cards');
     this.width = this.configService.get<number>('QUOTE_CARD_WIDTH', 1200);
     this.height = this.configService.get<number>('QUOTE_CARD_HEIGHT', 675);
+  }
+
+  /**
+   * QC1: load the bundled Inter font subset Satori needs (400/600 normal + 400
+   * italic — matching the card's quote weight and italic author line). Resolved
+   * via `require.resolve` so it works regardless of node_modules layout (pnpm,
+   * Docker). Cached after first use.
+   */
+  private async loadFonts(): Promise<
+    Array<{ name: 'Inter'; data: Buffer; weight: 400 | 600; style: 'normal' | 'italic' }>
+  > {
+    if (this.fontsCache) return this.fontsCache;
+    const read = (file: string): Promise<Buffer> =>
+      fs.readFile(require.resolve(`@fontsource/inter/files/${file}`));
+    const [normal, semibold, italic] = await Promise.all([
+      read('inter-latin-400-normal.woff'),
+      read('inter-latin-600-normal.woff'),
+      read('inter-latin-400-italic.woff'),
+    ]);
+    this.fontsCache = [
+      { name: 'Inter', data: normal, weight: 400, style: 'normal' },
+      { name: 'Inter', data: semibold, weight: 600, style: 'normal' },
+      { name: 'Inter', data: italic, weight: 400, style: 'italic' },
+    ];
+    return this.fontsCache;
   }
 
   /**
@@ -65,7 +95,7 @@ export class QuoteCardService {
               height: '100%',
               background: `linear-gradient(135deg, ${bg[0]}, ${bg[1]})`,
               padding: 60,
-              fontFamily: 'sans-serif',
+              fontFamily: 'Inter',
             },
             children: [
               {
@@ -100,7 +130,7 @@ export class QuoteCardService {
         {
           width: this.width,
           height: this.height,
-          fonts: [], // Use system fonts
+          fonts: await this.loadFonts(),
         },
       );
 
