@@ -7,7 +7,7 @@
  * Traces to: REQ-B5 (dedup)
  */
 import { describe, it, expect } from 'vitest';
-import { simhash, hammingDistance, isNearDuplicate, isDuplicateAgainstCorpus } from '../../../src/modules/generation/simhash.js';
+import { simhash, hammingDistance, isNearDuplicate, isDuplicateAgainstCorpus, isDuplicateHash } from '../../../src/modules/generation/simhash.js';
 
 describe('SimHash (B5 — Dedup)', () => {
   // ── simhash() ──
@@ -182,6 +182,28 @@ describe('SimHash (B5 — Dedup)', () => {
     // Candidate is exact duplicate of one in corpus
     const candidate = 'Scorpio water sign intense passionate';
     expect(isDuplicateAgainstCorpus(candidate, corpus)).toBe(true);
+  });
+
+  // ── isDuplicateHash() — A6: precomputed-hash variant (no recompute) ──
+
+  it('DH-001: true when the candidate hash is within threshold of an existing hash', () => {
+    const text = 'Venus in Libra brings harmony to relationships';
+    expect(isDuplicateHash(simhash(text), [simhash(text)])).toBe(true);
+  });
+
+  it('DH-002: false against a corpus of different content', () => {
+    const corpus = [simhash('Mars in Aries brings courage'), simhash('Saturn in Capricorn brings discipline')];
+    expect(isDuplicateHash(simhash('Neptune in Pisces brings dreams and intuition'), corpus)).toBe(false);
+  });
+
+  it('DH-003: false for an empty corpus', () => {
+    expect(isDuplicateHash(simhash('anything at all'), [])).toBe(false);
+  });
+
+  it('DH-004: isDuplicateAgainstCorpus delegates to isDuplicateHash', () => {
+    const text = 'Leo fire sign confident generous';
+    const corpus = [simhash(text)];
+    expect(isDuplicateAgainstCorpus(text, corpus)).toBe(isDuplicateHash(simhash(text), corpus));
   });
 
   // ── Dedup threshold boundary (≤ 3 vs > 3) ──

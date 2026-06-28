@@ -117,6 +117,21 @@ export function isNearDuplicate(text1: string, text2: string, threshold = 3): bo
 }
 
 /**
+ * Check a PRECOMPUTED candidate SimHash against a set of existing hashes.
+ * Returns true if within `threshold` Hamming distance of any of them.
+ *
+ * Prefer this over isDuplicateAgainstCorpus when the caller already holds the
+ * candidate hash (e.g. it also stores it) — avoids recomputing simhash().
+ */
+export function isDuplicateHash(
+  candidateHash: string,
+  existingHashes: string[],
+  threshold = 3,
+): boolean {
+  return existingHashes.some((existing) => hammingDistance(candidateHash, existing) <= threshold);
+}
+
+/**
  * Check a candidate text against a set of existing hashes.
  * Returns true if the candidate is a near-duplicate of any existing text.
  */
@@ -125,6 +140,5 @@ export function isDuplicateAgainstCorpus(
   existingHashes: string[],
   threshold = 3,
 ): boolean {
-  const candidateHash = simhash(candidateText);
-  return existingHashes.some((existing) => hammingDistance(candidateHash, existing) <= threshold);
+  return isDuplicateHash(simhash(candidateText), existingHashes, threshold);
 }

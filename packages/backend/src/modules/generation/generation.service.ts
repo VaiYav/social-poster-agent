@@ -20,7 +20,7 @@ import {
 import type { ContentTopic } from '@spa/shared';
 import { buildGenerationGraph, createInitialState, type GeneratedPost, type ProgressPublisher } from './generation.graph.js';
 import { Command } from '@langchain/langgraph';
-import { simhash, hammingDistance } from './simhash.js';
+import { simhash, isDuplicateHash } from './simhash.js';
 import { prioritizeTopics as prioritizeTopicsByFreshness } from './topic-prioritization.js';
 import { checkTrendSafety } from '../content-enhancements/trend-guardrail.js';
 import {
@@ -537,9 +537,7 @@ export class GenerationService {
 
       // B5: SimHash dedup check
       const candidateHash = simhash(genPost.content);
-      const isDup = recentHashes.some(
-        (existing) => hammingDistance(candidateHash, existing) <= 3,
-      );
+      const isDup = isDuplicateHash(candidateHash, recentHashes);
 
       if (isDup) {
         this.logger.warn(
@@ -1103,9 +1101,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
               if (!genPost.content) continue;
 
               const candidateHash = simhash(genPost.content);
-              const isDup = recentHashes.some(
-                (existing) => hammingDistance(candidateHash, existing) <= 3,
-              );
+              const isDup = isDuplicateHash(candidateHash, recentHashes);
               if (isDup) {
                 this.logger.warn(`Resume: skipping near-duplicate for ${genPost.network} / "${topic.topic}"`);
                 continue;
@@ -1196,7 +1192,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
       if (!genPost.content) continue;
 
       const candidateHash = simhash(genPost.content);
-      const isDup = recentHashes.some((existing) => hammingDistance(candidateHash, existing) <= 3);
+      const isDup = isDuplicateHash(candidateHash, recentHashes);
       if (isDup) {
         this.logger.warn(`Review resume: skipping near-duplicate for ${genPost.network} / "${topic}"`);
         continue;

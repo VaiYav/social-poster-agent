@@ -22,7 +22,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SocialNetwork } from '@prisma/client';
 import { detectEngagementBait } from '../content-enhancements/engagement-bait.detector.js';
-import { simhash, hammingDistance } from '../generation/simhash.js';
+import { simhash, isDuplicateHash } from '../generation/simhash.js';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 
 export interface CheckResult {
@@ -50,8 +50,6 @@ const FORBIDDEN_PATTERNS: RegExp[] = [
   /\b(?:financial|investment|stock|crypto)\s+advice\b/i,
   /\b(?:doom|catastrophe|apocalypse|end of the world)\b/i,
 ];
-
-const SIMHASH_THRESHOLD = 3; // Hamming distance ≤ 3 = near-duplicate
 
 @Injectable()
 export class AutoCheckService {
@@ -102,7 +100,7 @@ export class AutoCheckService {
     // 4. SimHash dedup
     const candidateHash = simhash(content);
     const recentHashes = await this.loadRecentHashes(network);
-    const isDup = recentHashes.some((h) => hammingDistance(candidateHash, h) <= SIMHASH_THRESHOLD);
+    const isDup = isDuplicateHash(candidateHash, recentHashes);
     checks.push({
       name: 'simhash_dedup',
       passed: !isDup,
