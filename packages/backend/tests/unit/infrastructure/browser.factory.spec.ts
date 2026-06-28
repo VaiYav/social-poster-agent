@@ -145,6 +145,19 @@ describe('BrowserFactory', () => {
     expect(mocks.browserNewContext).not.toHaveBeenCalled();
   });
 
+  it('UTC-401b: concurrent createContext(FACEBOOK) → single Camoufox launch, shared context (P5 race)', async () => {
+    // Two callers hit the cold cache at the same time (e.g. a posting job and a
+    // warmup task). Without in-flight memoization each would launch its own
+    // Camoufox process on the SAME user_data_dir (Firefox profile-lock conflict).
+    const [a, b] = await Promise.all([
+      factory.createContext('FACEBOOK'),
+      factory.createContext('FACEBOOK'),
+    ]);
+
+    expect(mocks.camoufoxLaunch).toHaveBeenCalledOnce();
+    expect(a).toBe(b); // both share the one launched persistent context
+  });
+
   it('UTC-402: createContext(THREADS, storageState) → standard context (not persistent)', async () => {
     // Act
     const ctx = await factory.createContext('THREADS', JSON.stringify({ cookies: [], origins: [] }));

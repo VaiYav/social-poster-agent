@@ -46,6 +46,9 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
   // to avoid "suspicious login" challenges on every run.
   // Key: network → persistent BrowserContext
   private readonly persistentContexts = new Map<SocialNetwork, BrowserContext>();
+  // P5: key network → in-flight launch promise, so concurrent callers share a
+  // single Camoufox launch instead of racing two processes onto one user_data_dir.
+  private readonly persistentContextPromises = new Map<SocialNetwork, Promise<BrowserContext>>();
   private readonly profileDir: string;
 
   // Sprint K: Context pool — reuse contexts per network to avoid repeated creation overhead.
@@ -125,15 +128,30 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
    *            camofox-browser (session isolation + cookie import),
    *            Camoufox `user_data_dir` option.
    */
-  private async getOrCreatePersistentContext(
-    network: SocialNetwork,
-  ): Promise<BrowserContext> {
-    // Return cached persistent context if available
+  private getOrCreatePersistentContext(network: SocialNetwork): Promise<BrowserContext> {
+    // Fast path: an already-resolved context.
     const cached = this.persistentContexts.get(network);
-    if (cached) {
-      return cached;
-    }
+    if (cached) return Promise.resolve(cached);
 
+    // P5: share an in-flight launch. Without this, two concurrent callers (e.g.
+    // a posting job and a warmup/engagement task — createContext() and
+    // acquireContext() both funnel here) both miss the cache and launch two
+    // Camoufox processes on the SAME user_data_dir, a Firefox profile-lock
+    // conflict that corrupts the persistent session.
+    const inFlight = this.persistentContextPromises.get(network);
+    if (inFlight) return inFlight;
+
+    const launch = this.launchPersistentContext(network);
+    this.persistentContextPromises.set(network, launch);
+    // Clear the in-flight slot once settled; the resolved context is cached
+    // inside launchPersistentContext(). Errors still reach awaiters of `launch`;
+    // the trailing no-op .catch only keeps this bookkeeping chain from surfacing
+    // as an unhandled rejection.
+    void launch.finally(() => this.persistentContextPromises.delete(network)).catch(() => {});
+    return launch;
+  }
+
+  private async launchPersistentContext(network: SocialNetwork): Promise<BrowserContext> {
     // Create profile directory if it doesn't exist
     const profilePath = join(this.profileDir, network.toLowerCase());
     try {
