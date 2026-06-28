@@ -139,6 +139,7 @@ function createMockPostsService() {
       content: data.content,
       status: PostStatus.DRAFT,
     })),
+    emitDraftGenerated: vi.fn(),
     findById: vi.fn(),
     updateStatus: vi.fn().mockResolvedValue(undefined),
     findMany: vi.fn().mockResolvedValue([]),
@@ -663,6 +664,8 @@ describe('GenerationService', () => {
       }));
       // Root + 2 continuations = 3 posts
       expect(posts.create).toHaveBeenCalledTimes(3);
+      // H1: continuations emit DRAFT_GENERATED only AFTER the tx commits (2 continuations).
+      expect(posts.emitDraftGenerated).toHaveBeenCalledTimes(2);
     });
 
     it('UTC-223: P4 thread assembly runs inside a DB transaction (A4 atomicity)', async () => {
@@ -698,6 +701,8 @@ describe('GenerationService', () => {
       // F2: root + 1 continuation = 2 posts
       expect(posts.create).toHaveBeenCalledTimes(2);
       expect(prisma.postThread.create).toHaveBeenCalled();
+      // H1: the F2 continuation emits DRAFT_GENERATED after the tx commits.
+      expect(posts.emitDraftGenerated).toHaveBeenCalledTimes(1);
     });
 
     it('UTC-222: Facebook never gets threads even with multiStage', async () => {

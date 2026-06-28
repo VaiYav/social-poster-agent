@@ -408,17 +408,24 @@ export class XPoster extends BasePoster {
         return { url: postUrl };
       }
 
-      // P1: only record a genuine permalink. If we couldn't capture one, do NOT
-      // return the compose/home URL as if it were the post — that's a false POSTED
-      // (pollutes analytics, breaks thread-reply targeting). Mark it failed so
-      // posting self-recovery (verifyPosted against the profile) reconciles it
-      // without creating a duplicate or a bogus "POSTED" row.
+      // P1: only record a genuine permalink. We already tried the profile check
+      // above (validatePostOnProfile); if we STILL have no permalink, do NOT
+      // return the compose/home URL as if it were the post — that's a false
+      // POSTED (pollutes analytics, breaks thread-reply targeting). Report a
+      // failure so it is never recorded as a successful permalink — same end
+      // state as before (posting.service.isValidPostUrl already rejected the
+      // bogus URL → FAILED), but without storing a junk postUrl.
+      //
+      // CAVEAT: this is NOT auto-reconciled — posting self-recovery only fires on
+      // session-expiry errors, so a tweet that DID publish but whose permalink we
+      // couldn't capture is left FAILED, and a manual re-approve could duplicate.
+      // A universal "verifyPosted before (re)posting" guard is tracked separately.
       const fallbackPermalink = normalizePermalink(currentUrl, 'X');
       if (fallbackPermalink) {
         return { url: fallbackPermalink };
       }
-      this.logger.warn(`X fallback: submitted but no permalink captured (${currentUrl}) — leaving for self-recovery`);
-      return { error: 'submitted but permalink not captured — pending self-recovery verification' };
+      this.logger.warn(`X fallback: submitted but no verifiable permalink captured (${currentUrl}) — marking failed`);
+      return { error: 'submitted but no verifiable permalink captured' };
     } catch (err) {
       this.logger.error(`X fallback posting failed: ${(err as Error).message}`);
       return { error: `X fallback failed: ${(err as Error).message}` };

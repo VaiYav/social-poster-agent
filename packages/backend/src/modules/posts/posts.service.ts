@@ -86,10 +86,25 @@ export class PostsService {
   // thread assembly in GenerationService). Defaults to the non-transactional
   // client, so every existing caller is unaffected.
   client: Prisma.TransactionClient = this.prisma,
+  // H1: when persisting inside a transaction, pass `{ emitEvent: false }` and
+  // emit DRAFT_GENERATED via emitDraftGenerated() AFTER the tx commits —
+  // otherwise the async auto-approve + SSE listeners query a row that is not
+  // yet committed (null read / pre-commit race).
+  opts: { emitEvent?: boolean } = {},
   ) {
     const post = await client.post.create({ data });
-    this.eventEmitter.emit(PostEvents.DRAFT_GENERATED, { postId: post.id, network: post.network });
+    if (opts.emitEvent !== false) {
+      this.emitDraftGenerated(post.id, post.network);
+    }
     return post;
+  }
+
+  /**
+   * Emit DRAFT_GENERATED for a persisted draft. Call this AFTER a transaction
+   * commits when create() was used with `{ emitEvent: false }` inside that tx.
+   */
+  emitDraftGenerated(postId: string, network: SocialNetwork): void {
+    this.eventEmitter.emit(PostEvents.DRAFT_GENERATED, { postId, network });
   }
 
   async updateStatus(id: string, dto: UpdatePostStatusDto) {

@@ -655,6 +655,7 @@ export class GenerationService {
                         },
                       },
                       tx,
+                      { emitEvent: false }, // H1: emit after the tx commits, not inside it
                     ),
                   );
                 }
@@ -663,6 +664,11 @@ export class GenerationService {
                 );
                 return created;
               });
+              // H1: emit DRAFT_GENERATED only AFTER the tx commits, so the async
+              // auto-approve + SSE listeners never read a not-yet-committed row.
+              for (const cp of contPosts) {
+                this.postsService.emitDraftGenerated(cp.id, genPost.network);
+              }
               savedPosts.push(...contPosts);
             }
           } catch (err) {
@@ -723,10 +729,13 @@ export class GenerationService {
           },
         },
         tx,
+        { emitEvent: false }, // H1: emit after the tx commits, not inside it
       );
       this.logger.debug(`F2: Created continuation post for ${genPost.network} thread ${thread.id}`);
       return created;
     });
+    // H1: emit DRAFT_GENERATED only AFTER the tx commits.
+    this.postsService.emitDraftGenerated(continuationPost.id, genPost.network);
     savedPosts.push(continuationPost);
   }
 
