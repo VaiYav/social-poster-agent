@@ -10,6 +10,7 @@ import {
   HttpStatus,
   NotFoundException,
   BadRequestException,
+  ConflictException,
   Logger,
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
@@ -148,7 +149,16 @@ export class PostsController {
 
       return post;
     } catch (err) {
-      if (err instanceof BadRequestException) throw err;
+      // PO1/PO3: surface the real error — 409 for invalid transition, 404 for
+      // missing, 400 for bad body. Don't mask DB errors as 404.
+      if (
+        err instanceof BadRequestException ||
+        err instanceof ConflictException ||
+        err instanceof NotFoundException
+      ) {
+        throw err;
+      }
+      this.logger.error(`Approve failed for post ${id}: ${(err as Error).message}`);
       throw new NotFoundException(`Post ${id} not found`);
     }
   }
@@ -161,8 +171,9 @@ export class PostsController {
   @ApiResponse({ status: 404, description: 'Post not found' })
   async reject(@Param('id') id: string) {
     try {
-      return await this.postsService.updateStatus(id, { status: 'REJECTED' });
-    } catch {
+      return await this.postsService.reject(id);
+    } catch (err) {
+      if (err instanceof ConflictException || err instanceof NotFoundException) throw err;
       throw new NotFoundException(`Post ${id} not found`);
     }
   }

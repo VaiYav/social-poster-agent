@@ -26,6 +26,9 @@ import { SessionStatus, PostStatus, SocialNetwork } from '@prisma/client';
 export class HealthMonitorService implements OnModuleInit {
   private readonly logger = new Logger(HealthMonitorService.name);
   private readonly banThreshold: number;
+  // M1: a POSTING post older than this grace window with no active BullMQ job is treated
+  // as orphaned (crash mid-post) and reaped to FAILED. Grace avoids racing a just-started post.
+  private readonly stuckPostingGraceMin: number;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -37,6 +40,7 @@ export class HealthMonitorService implements OnModuleInit {
     private readonly schedulerRegistry: SchedulerRegistry,
   ) {
     this.banThreshold = this.configService?.get<number>('HEALTH_MONITOR_BAN_THRESHOLD', 5) ?? 5;
+    this.stuckPostingGraceMin = this.configService?.get<number>('STUCK_POSTING_GRACE_MIN', 5) ?? 5;
   }
 
   onModuleInit(): void {
@@ -63,7 +67,10 @@ export class HealthMonitorService implements OnModuleInit {
       'RECONCILIATION_SCHEDULE',
       '30 * * * *',
     ) ?? '30 * * * *';
-    const reconJob = new CronJob(reconExpr, async () => { await this.runReconciliation(); });
+    const reconJob = new CronJob(reconExpr, async () => {
+      await this.runReconciliation();
+      await this.reapStuckPosting();
+    });
     try {
       this.schedulerRegistry?.addCronJob('reconciliation', reconJob);
       reconJob.start();
@@ -154,6 +161,92 @@ export class HealthMonitorService implements OnModuleInit {
       `Reconciliation complete: ${requeued} requeued, ${skipped} skipped, ${deduplicated} deduplicated`,
     );
     return { requeued, skipped, deduplicated };
+  }
+
+  /**
+   * M1: Reaper for orphaned POSTING posts.
+   *
+   * A post in POSTING means a worker picked it up and set the status, then was expected to
+   * finish. If the process/browser crashed mid-post, the post stays POSTING forever — and the
+   * worker's status guard (POSTING → "already being posted") blocks any re-attempt, so it is
+   * silently lost (orphaned-POSTING, audit `03 §1`).
+   *
+   * Detection is by the absence of an in-flight BullMQ job: with concurrency=1 and jobId=postId,
+   * a post is only set to POSTING by the active job processing it. If there is no
+   * active/waiting/delayed job for this post, no worker is (or will be) processing it → orphaned.
+   *
+   * Policy: mark FAILED with an explicit warning. We deliberately do NOT auto-re-enqueue —
+   * we cannot know whether the post went live before the crash, and a blind re-post would risk
+   * a duplicate. A human verifies the timeline. (Reliable verify-then-resolve lands with P1.)
+   */
+  async reapStuckPosting(): Promise<{ reaped: number; skipped: number }> {
+    const graceMs = Number(this.stuckPostingGraceMin) * 60 * 1000;
+    const cutoff = new Date(Date.now() - graceMs);
+
+    const postingPosts = await this.prisma.post.findMany({
+      where: { status: PostStatus.POSTING, approvedAt: { lt: cutoff } },
+    });
+    if (postingPosts.length === 0) return { reaped: 0, skipped: 0 };
+
+    let reaped = 0;
+    let skipped = 0;
+
+    for (const post of postingPosts) {
+      // If BullMQ still has an in-flight/pending job, the post is genuinely being processed.
+      try {
+        const queue = this.queueFactory.getQueue(post.network, 'posting');
+        const job = await queue.getJob(post.id);
+        if (job) {
+          const state = await job.getState();
+          if (state === 'active' || state === 'waiting' || state === 'delayed') {
+            skipped++;
+            continue;
+          }
+        }
+      } catch (queueErr) {
+        // Can't determine job state — be conservative and skip (never reap blindly).
+        this.logger.debug(
+          `Reaper: cannot check queue state for post ${post.id}: ${(queueErr as Error).message}`,
+        );
+        skipped++;
+        continue;
+      }
+
+      const errorMessage =
+        'Stuck in POSTING with no active job (likely crash mid-post). Marked FAILED by reaper — ' +
+        'VERIFY the account timeline before re-approving: the post MAY already be live.';
+
+      try {
+        await this.prisma.post.update({
+          where: { id: post.id },
+          data: { status: PostStatus.FAILED, errorMessage },
+        });
+      } catch (updateErr) {
+        this.logger.error(
+          `Reaper: failed to mark post ${post.id} FAILED: ${(updateErr as Error).message}`,
+        );
+        skipped++;
+        continue;
+      }
+
+      await this.sseService.publish({
+        type: 'post_status',
+        postId: post.id,
+        status: 'FAILED',
+        network: post.network,
+        error: errorMessage,
+      });
+      await this.discord
+        .warning('Stuck POSTING reaped', `Post **${post.id}** (${post.network}): ${errorMessage}`)
+        .catch(() => void 0);
+      this.logger.warn(`Reaper: post ${post.id} (${post.network}) reaped (POSTING → FAILED)`);
+      reaped++;
+    }
+
+    if (reaped > 0 || skipped > 0) {
+      this.logger.log(`Reaper: ${reaped} stuck POSTING reaped, ${skipped} skipped (in-flight)`);
+    }
+    return { reaped, skipped };
   }
 
   /**

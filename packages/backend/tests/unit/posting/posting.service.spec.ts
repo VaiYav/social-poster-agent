@@ -291,6 +291,36 @@ describe('MOD-03: PostingService', () => {
 
   // ── postById() — Network Routing ───────────────────────────────────────────
 
+  it('M1-P3: self-recovery does NOT re-post when the original attempt already published (dup guard)', async () => {
+    const mockContext = createMockContext();
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
+    ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
+    ctx.postsService.findById.mockResolvedValue({
+      ...APPROVED_POST_X,
+      id: 'post-dup',
+      network: SocialNetwork.X,
+    });
+    // 1st session resolve → active; recovery resolve → a *fresh* session (different id).
+    ctx.sessionsService.getOrCreateSession
+      .mockResolvedValueOnce(ACTIVE_SESSION)
+      .mockResolvedValueOnce({ ...ACTIVE_SESSION, id: 'sess-fresh' });
+    // The post attempt reports a session-expired error → triggers self-recovery…
+    ctx.xPoster.post.mockResolvedValue({ error: 'Not logged in — session expired, relogin needed' });
+    // …but verification finds the post is already live → must NOT re-post (avoid duplicate).
+    ctx.xPoster.verifyPosted = vi.fn().mockResolvedValue('https://x.com/user/status/999');
+
+    const result = await ctx.service.postById('post-dup');
+
+    expect(ctx.xPoster.verifyPosted).toHaveBeenCalledTimes(1);
+    expect(ctx.xPoster.post).toHaveBeenCalledTimes(1); // no duplicate re-post
+    expect(result).toEqual({ success: true, url: 'https://x.com/user/status/999' });
+    const postedCall = ctx.postsService.updateStatus.mock.calls.find(
+      (c: unknown[]) => (c[1] as { status?: PostStatus })?.status === PostStatus.POSTED,
+    );
+    expect(postedCall).toBeDefined();
+    expect((postedCall![1] as { postUrl?: string }).postUrl).toBe('https://x.com/user/status/999');
+  });
+
   it('UTC-047: postById() posts to X via XPoster when network is X', async () => {
     const mockContext = createMockContext();
     ctx.browser.acquireContext.mockResolvedValue(mockContext);

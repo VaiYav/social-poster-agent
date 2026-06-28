@@ -81,17 +81,41 @@ const MIN_OPPORTUNITY_SCORE = 4;
  * getTrendingTopics(). The path prefix is the reliable identifier.
  */
 export function isTrendingSource(sourceType: string, path: string): boolean {
-  // Path-based check is the reliable identifier (sourceType is 'topic' for trending)
-  return path.startsWith('trending/') || path.includes('trending/');
+  // B16: startsWith is a strict subset of includes. Match a path *segment* "trending/" (at
+  // start or after a slash) so an unrelated slug like "blog/trending-now/x" isn't force-routed
+  // through the guardrail.
+  return /(^|\/)trending\//.test(path ?? '');
 }
 
 /**
- * Layer 1 — deterministic blocklist check.
+ * Keywords matched as a prefix/stem (e.g. "casualt" → casualty/casualties), not as a
+ * whole word. Everything else is matched on word boundaries so short words like "war"
+ * no longer false-positive inside "forward"/"warm"/"reward" (B11).
+ */
+const STEM_KEYWORDS: ReadonlySet<string> = new Set([
+  'casualt', 'homophob', 'transphob', 'islamophob', 'antisemit',
+]);
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Precompiled matchers: leading word boundary always; trailing boundary only when the
+ * keyword ends in an ASCII word char and is not a stem (so phrases and stems still match,
+ * but "war" stops matching inside "forward").
+ */
+const BLOCKLIST_MATCHERS: readonly RegExp[] = BLOCKLIST_KEYWORDS.map((kw) => {
+  const trailing = !STEM_KEYWORDS.has(kw) && /[a-z0-9]$/i.test(kw);
+  return new RegExp(`\\b${escapeRegExp(kw)}${trailing ? '\\b' : ''}`, 'i');
+});
+
+/**
+ * Layer 1 — deterministic blocklist check (word-boundary aware, B11).
  * Returns true if the topic contains a blocked keyword.
  */
 export function isBlocklisted(topic: string): boolean {
-  const lower = topic.toLowerCase();
-  return BLOCKLIST_KEYWORDS.some((kw) => lower.includes(kw));
+  return BLOCKLIST_MATCHERS.some((re) => re.test(topic));
 }
 
 /**
@@ -154,16 +178,15 @@ Evaluate:`;
       decidedBy: 'llm',
     };
   } catch (err) {
-    // Graceful degradation — don't block generation on LLM/parse errors.
-    // Default to safe with a score above MIN_OPPORTUNITY_SCORE so the topic
-    // passes the threshold check in checkTrendSafety(). Using a mid-range
-    // score (5) rather than a high one (10) keeps the topic usable but flags
-    // it as uncertain for logging purposes.
+    // B9: a brand-safety filter must fail CLOSED. On an LLM/parse error we cannot vouch for
+    // the topic, so reject it — the topic is simply skipped and generation continues with
+    // other topics. Failing open (the old default) let off-brand trends through whenever the
+    // LLM hiccuped.
     return {
-      safe: true,
-      opportunityScore: 5,
+      safe: false,
+      opportunityScore: 0,
       suggestedAngle: '',
-      reason: `LLM evaluation failed (${(err as Error).message}) — defaulting to safe with mid score`,
+      reason: `LLM evaluation failed (${(err as Error).message}) — failing closed (topic rejected)`,
       decidedBy: 'llm',
     };
   }

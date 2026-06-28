@@ -22,6 +22,8 @@ import { SseService } from '../../infrastructure/sse/sse.service';
 import { FlowControlService } from '../flow-control/flow-control.service';
 import { AutoApproveService } from './auto-approve.service';
 import { ModuleRef } from '@nestjs/core';
+import { parseBool } from '../../infrastructure/config/parse-bool';
+import { parseTargetNetworks } from './parse-networks';
 
 @Injectable()
 export class AutonomousRunnerService {
@@ -40,14 +42,19 @@ export class AutonomousRunnerService {
     private readonly autoApprove: AutoApproveService,
     private readonly moduleRef: ModuleRef,
   ) {
-    this.enabled = this.configService.get<string>('AUTONOMOUS_RUNNER_ENABLED', 'false') === 'true';
+    this.enabled = parseBool(this.configService.get<string>('AUTONOMOUS_RUNNER_ENABLED', 'false'));
     this.postsPerRun = this.configService.get<number>('AUTONOMOUS_POSTS_PER_RUN', 3);
     this.postingDelayMinMs = this.configService.get<number>('AUTONOMOUS_POSTING_DELAY_MIN_MS', 600000); // 10 min
     this.postingDelayMaxMs = this.configService.get<number>('AUTONOMOUS_POSTING_DELAY_MAX_MS', 3600000); // 1 hour
 
-    // Parse target networks from env (default: all three)
+    // AU4: parse + validate target networks from env (default: all three). Unknown tokens are
+    // dropped (not cast blindly) so a typo can't create a never-drained queue.
     const networksStr = this.configService.get<string>('AUTONOMOUS_TARGET_NETWORKS', 'X,THREADS,FACEBOOK');
-    this.targetNetworks = networksStr.split(',').map((n) => n.trim().toUpperCase()) as SocialNetwork[];
+    const { networks, invalid } = parseTargetNetworks(networksStr);
+    if (invalid.length > 0) {
+      this.logger.warn(`AUTONOMOUS_TARGET_NETWORKS: ignoring unknown network(s): ${invalid.join(', ')}`);
+    }
+    this.targetNetworks = networks;
   }
 
   /**
@@ -178,7 +185,10 @@ export class AutonomousRunnerService {
         return;
       }
 
-      const delay = this.postingDelayMinMs + Math.floor(Math.random() * (this.postingDelayMaxMs - this.postingDelayMinMs));
+      // AU7: clamp so a misconfig (min > max) can't yield a negative delay → immediate post.
+      const lo = Math.min(this.postingDelayMinMs, this.postingDelayMaxMs);
+      const hi = Math.max(this.postingDelayMinMs, this.postingDelayMaxMs);
+      const delay = lo + Math.floor(Math.random() * Math.max(0, hi - lo));
       await queueFactory.enqueuePosting(postId, network, { delay });
       this.logger.log(`Post ${postId} enqueued for ${network} (delay: ${Math.round(delay / 60000)}min)`);
     } catch (err) {

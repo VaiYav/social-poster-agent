@@ -391,12 +391,15 @@ describe('BrowserFactory', () => {
 
   // ── screenshot ──
 
-  it('UTC-417: screenshot → page.screenshot → write file → return path', async () => {
-    // Arrange — use real filesystem (test temp dir); no fs spy needed
+  it('UTC-417: screenshot (enabled) → page.screenshot → write file → return path', async () => {
+    // P7: screenshots are disabled by default — enable them to exercise the write path.
+    const enabled = new BrowserFactory(
+      createMockConfigService({ SPA_SCREENSHOTS: 'true', SPA_SCREENSHOT_FULLPAGE: 'true' }),
+    );
     const page = makeMockPage();
 
     // Act
-    const path = await factory.screenshot(page as never, 'X', 'after-submit');
+    const path = await enabled.screenshot(page as never, 'X', 'after-submit');
 
     // Assert
     expect(path).toContain('x');
@@ -405,6 +408,15 @@ describe('BrowserFactory', () => {
     expect((page as { screenshot: ReturnType<typeof vi.fn> }).screenshot).toHaveBeenCalledWith(
       expect.objectContaining({ fullPage: true, path }),
     );
+  });
+
+  it('UTC-417b: screenshot is disabled by default → returns empty path, no write (P7 disk-leak guard)', async () => {
+    const page = makeMockPage();
+
+    const path = await factory.screenshot(page as never, 'X', 'after-submit');
+
+    expect(path).toBe('');
+    expect((page as { screenshot: ReturnType<typeof vi.fn> }).screenshot).not.toHaveBeenCalled();
   });
 
   // ── dismissDialogs ──

@@ -1,9 +1,10 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { PostStatus, type SocialNetwork, type Prisma, type Post } from '@prisma/client';
 import type { PostQueryDto, UpdatePostStatusDto } from '../../domain/dtos';
 import { PostEvents } from '../../events/enums/post-events.enum';
+import { checkContentLength } from './network-limits.js';
 
 /**
  * Posts service — CRUD + status transitions for Post entities.
@@ -123,6 +124,25 @@ export class PostsService {
   async approve(id: string, editedContent?: string) {
     const post = await this.findById(id);
 
+    // PO1: only DRAFT posts can be approved — block re-approving POSTED/POSTING/
+    // FAILED/REJECTED (would re-post or resurrect a rejected post).
+    if (post.status !== PostStatus.DRAFT) {
+      throw new ConflictException(
+        `Post ${id} cannot be approved from status ${post.status} (only DRAFT)`,
+      );
+    }
+
+    // PO2: validate effective content length against the network limit, so an over-limit
+    // edited (or generated) post can't be approved and then fail at posting time.
+    const effectiveContent =
+      editedContent && editedContent.trim().length > 0 ? editedContent.trim() : post.content;
+    const lengthCheck = checkContentLength(post.network, effectiveContent);
+    if (!lengthCheck.ok) {
+      throw new BadRequestException(
+        `Post ${id} content is ${lengthCheck.length} chars — exceeds the ${post.network} limit of ${lengthCheck.limit}`,
+      );
+    }
+
     const updateData: Prisma.PostUpdateInput = {
       status: PostStatus.APPROVED,
       approvedAt: new Date(),
@@ -141,6 +161,25 @@ export class PostsService {
     });
 
     this.eventEmitter.emit(PostEvents.APPROVED, { postId: id, network: post.network });
+    return updated;
+  }
+
+  /**
+   * PO1: Reject a draft post — only valid from DRAFT (can't resurrect/cancel
+   * posts already in the posting pipeline).
+   */
+  async reject(id: string) {
+    const post = await this.findById(id);
+    if (post.status !== PostStatus.DRAFT) {
+      throw new ConflictException(
+        `Post ${id} cannot be rejected from status ${post.status} (only DRAFT)`,
+      );
+    }
+    const updated = await this.prisma.post.update({
+      where: { id },
+      data: { status: PostStatus.REJECTED },
+    });
+    this.logger.log(`Post ${id}: ${post.status} → REJECTED`);
     return updated;
   }
 

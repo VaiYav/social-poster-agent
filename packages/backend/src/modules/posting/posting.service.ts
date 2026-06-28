@@ -242,6 +242,26 @@ export class PostingService {
               ? this.sessionsService.decryptStorageState(freshSession)
               : undefined;
             context = await this.browser.acquireContext(post.network, freshStorage);
+
+            // M1/P3: before re-posting, verify the original attempt didn't already publish.
+            // If a real post with this content is already live, skip the re-post to avoid a
+            // duplicate (success-detection can misfire into a "session expired"-looking error).
+            const recoveryPoster = this.getPoster(post.network);
+            const existingUrl =
+              typeof recoveryPoster.verifyPosted === 'function'
+                ? await recoveryPoster.verifyPosted(context, post.content).catch(() => null)
+                : null;
+            if (existingUrl && this.isValidPostUrl(existingUrl, post.network)) {
+              this.logger.warn(
+                `Self-recovery: post ${postId} is already live (${existingUrl}) — skipping re-post to avoid a duplicate`,
+              );
+              const recoveredState = await this.browser.saveStorageState(context);
+              await this.sessionsService.updateStorageState(freshSession.id, recoveredState);
+              result = { url: existingUrl };
+              recoverySucceeded = true;
+              break;
+            }
+
             // Retry posting with fresh context
             result = await postFn();
             if (result.error) {
@@ -464,6 +484,20 @@ export class PostingService {
     };
 
     return postPatterns[network].test(url);
+  }
+
+  /** Resolve the concrete poster for a network (used for verification + posting). */
+  private getPoster(network: SocialNetwork) {
+    switch (network) {
+      case SocialNetwork.X:
+        return this.xPoster;
+      case SocialNetwork.THREADS:
+        return this.threadsPoster;
+      case SocialNetwork.FACEBOOK:
+        return this.facebookPoster;
+      default:
+        throw new Error(`Unknown network: ${network as string}`);
+    }
   }
 
   /**

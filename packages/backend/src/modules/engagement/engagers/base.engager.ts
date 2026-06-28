@@ -114,7 +114,8 @@ export abstract class BaseEngager extends BasePoster {
     while (Date.now() < endTime) {
       // Varied scroll (random amplitude, occasionally up) — more human-like
       await this.variedScroll(page);
-      await this.browser.screenshot(page, this.network, 'during-scroll').catch(() => {});
+      // P7: no per-scroll screenshot — it wrote a fullPage PNG every 2-5s for the
+      // whole session (unbounded disk leak). Phase screenshots remain (debug-gated).
 
       // Collect post links — try multiple strategies for resilience.
       // 1. Use the provided postLinkSelector (CSS-based)

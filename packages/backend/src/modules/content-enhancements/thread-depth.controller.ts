@@ -23,6 +23,7 @@ import { ConfigService } from '@nestjs/config';
 import type { ILlmPort } from '../../domain/ports/llm.port.js';
 import { SocialNetwork } from '@prisma/client';
 import { classifyPillar } from './content-pillar.tracker.js';
+import { truncateForThread } from './thread-limit.js';
 
 /** Maximum thread depth (tweet count including root). */
 const MAX_THREAD_DEPTH = 5;
@@ -201,7 +202,7 @@ Write ${continuationCount} continuation tweet(s):`;
 
       const continuations: ThreadContinuationTweet[] = tweets.map((content, i) => ({
         position: i + 1,
-        content,
+        content: truncateForThread(content), // AU8: enforce per-tweet char limit
       }));
 
       return { depth, continuations, reasoning };
@@ -227,10 +228,8 @@ Write ${continuationCount} continuation tweet(s):`;
     const continuations: ThreadContinuationTweet[] = [];
     for (let i = 0; i < count; i++) {
       const fact = keyFacts[i];
-      const content = fact
-        ? `${fact}`
-        : `Discover what this means for your chart ✨`;
-      continuations.push({ position: i + 1, content });
+      const content = fact ? fact : 'Discover what this means for your chart ✨';
+      continuations.push({ position: i + 1, content: truncateForThread(content) }); // AU8
     }
     return continuations;
   }

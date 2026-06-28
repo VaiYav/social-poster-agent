@@ -30,6 +30,8 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { SessionsService } from '../sessions/sessions.service';
 import { IBrowserPort } from '../../domain/ports/browser.port.js';
+import { buildCommentId } from './comment-id.js';
+import { detectSensitive, isLikelyTroll } from './sensitive-filter.js';
 import { LlmService } from '../../infrastructure/llm/llm.service.js';
 import { DiscordNotificationService } from '../../infrastructure/notifications/discord-notification.service.js';
 import { SseService } from '../../infrastructure/sse/sse.service.js';
@@ -268,8 +270,9 @@ export class RepliesMonitorService implements OnModuleInit {
 
           if (!text || text.length < 2) continue;
 
-          // Generate a pseudo-unique commentId from author + text hash
-          const commentId = `${author}-${text.slice(0, 50)}`.replace(/[^a-zA-Z0-9]/g, '').slice(0, 80);
+          // RP2: stable, script-safe commentId — the old strip-non-alnum approach collapsed
+          // Cyrillic/emoji comments into collisions and silently dropped real comments.
+          const commentId = buildCommentId(author, text);
 
           comments.push({ commentId, author, text });
         } catch {
@@ -361,9 +364,8 @@ export class RepliesMonitorService implements OnModuleInit {
     post: { id: string; network: string; content: string },
     comment: { id: string; commentId: string; author: string; text: string },
   ): Promise<ReplyDecision> {
-    // 1. Skip spam/trolls (deterministic check first — free)
-    const trollPatterns = /spam|scam|fake|bot|stupid|idiot|hate|kill|die|racist|nazi/i;
-    if (trollPatterns.test(comment.text)) {
+    // 1. Skip spam/trolls (deterministic check first — free; word-boundary so "about" ≠ "bot")
+    if (isLikelyTroll(comment.text)) {
       return { action: 'skip', reason: 'Potential troll/spam — skipped' };
     }
 
@@ -387,6 +389,17 @@ export class RepliesMonitorService implements OnModuleInit {
     });
     if (existingRepliesCount >= this.maxRepliesPerPost) {
       return { action: 'skip', reason: `Max replies per post reached (${this.maxRepliesPerPost})` };
+    }
+
+    // RP3: deterministic sensitive-topic backstop — runs BEFORE the LLM so a misclassification
+    // can never auto-reply to grief/crisis/complaint. Applies on both LLM and heuristic paths.
+    const sensitive = detectSensitive(comment.text);
+    if (sensitive.sensitive) {
+      return {
+        action: 'human_review',
+        reason: `Sensitive topic (${sensitive.kind}) — requires human review`,
+        reviewReason: sensitive.reason,
+      };
     }
 
     // 4. Use LLM to classify and generate reply
@@ -505,25 +518,14 @@ IMPORTANT: Reply in the SAME LANGUAGE as the comment above. Detect the language 
     // Detect language using Cyrillic + Latin script heuristics
     const lang = this.detectLanguageHeuristic(comment.text);
 
-    // Sensitive topics → human review (multilingual patterns)
-    // NOTE: "гор" is intentionally NOT matched alone — it matches too many
-    // innocent words (город, гора, гордість). Use "горе" (grief) and "горю" instead.
-    const sensitivePatterns = /depress|suicid|anxiety|mental health|abuse|trauma|death|died|grief|crisis|депрес|суицид|тревог|насили|травм|смерт|помер|горе|горю|кризис/i;
-    if (sensitivePatterns.test(text)) {
+    // Sensitive topics / complaints → human review. Shared detector with the decideReply
+    // pre-filter (RP3) so both paths use a single multilingual source of truth.
+    const sensitive = detectSensitive(comment.text);
+    if (sensitive.sensitive) {
       return {
         action: 'human_review',
-        reason: 'Sensitive topic detected — requires human review',
-        reviewReason: 'Comment mentions mental health, crisis, or sensitive topic',
-      };
-    }
-
-    // Complaints/negativity → human review (multilingual)
-    const complaintPatterns = /wrong|disappointed|terrible|awful|hate this|not helpful|misleading|неправил|розчаров|жахлив|ненавиж|не допом|оскорб/i;
-    if (complaintPatterns.test(text)) {
-      return {
-        action: 'human_review',
-        reason: 'Complaint/negative sentiment — requires human review',
-        reviewReason: 'Comment contains complaint or negative sentiment',
+        reason: `Sensitive topic (${sensitive.kind}) — requires human review`,
+        reviewReason: sensitive.reason,
       };
     }
 

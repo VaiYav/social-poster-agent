@@ -23,15 +23,16 @@ import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { ModuleRef } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
+import { PostStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { PostsService } from '../../modules/posts/posts.service';
 import { PostEvents } from '../enums/post-events.enum';
+import { parseBool } from '../../infrastructure/config/parse-bool';
 
 @Injectable()
 export class AutoApproveListener {
   private readonly logger = new Logger(AutoApproveListener.name);
   private readonly enabled: boolean;
-  private readonly minScore: number;
 
   constructor(
     private readonly postsService: PostsService,
@@ -42,15 +43,14 @@ export class AutoApproveListener {
     // SPA_DRY_RUN: disable auto-approve in dry-run mode — the dry-run runner
     // controls the flow manually (approve → postById) to avoid race conditions
     // with the BullMQ worker which would start posting before the session is ready.
-    const isDryRun = configService.get<string>('SPA_DRY_RUN', 'false') === 'true';
-    this.enabled = !isDryRun && configService.get<string>('AUTO_APPROVE_ENABLED', 'false') === 'true';
-    const rawScore = Number(configService.get<string>('AUTO_APPROVE_MIN_SCORE', '7'));
-    this.minScore = Number.isFinite(rawScore) && rawScore >= 1 && rawScore <= 10 ? rawScore : 7;
+    const isDryRun = parseBool(configService.get<string>('SPA_DRY_RUN', 'false'));
+    this.enabled = !isDryRun && parseBool(configService.get<string>('AUTO_APPROVE_ENABLED', 'false'));
     if (isDryRun) {
       this.logger.warn(`AUTO_APPROVE disabled in dry-run mode (SPA_DRY_RUN=true) — runner controls flow manually`);
     } else if (this.enabled) {
       this.logger.warn(
-        `AUTO_APPROVE_ENABLED=true — drafts with quality score ≥ ${this.minScore}/10 will be auto-approved and posted without human review`,
+        'AUTO_APPROVE_ENABLED=true — drafts will be auto-approved via the AutoApprove gate ' +
+          '(AutoCheck + quality thresholds, fail-closed) and posted without human review',
       );
     }
   }
@@ -60,43 +60,39 @@ export class AutoApproveListener {
     if (!this.enabled) return;
 
     try {
-      // Quality gate: check LLM quality score from llmMetadata
       const post = await this.prisma.post.findUnique({
         where: { id: payload.postId },
-        select: { llmMetadata: true, content: true },
+        select: { content: true, network: true, status: true, llmMetadata: true },
       });
-
       if (!post) {
         this.logger.warn(`Auto-approve: post ${payload.postId} not found`);
         return;
       }
+      if (post.status !== PostStatus.DRAFT) return; // already handled by another path
 
-      const metadata = post.llmMetadata as { qualityScore?: number } | null;
-      const score = metadata?.qualityScore;
+      const score = (post.llmMetadata as { qualityScore?: number } | null)?.qualityScore;
 
-      if (score === undefined || score === null) {
-        // No score — fail open (approve) to maintain backward compatibility
-        this.logger.warn(
-          `Auto-approve: post ${payload.postId} has no quality score — approving (backward compat)`,
-        );
-      } else if (score < this.minScore) {
-        // Score below threshold — keep as DRAFT for human review
-        this.logger.log(
-          `Auto-approve: post ${payload.postId} score ${score}/10 < ${this.minScore} — kept as DRAFT for human review`,
-        );
+      // AU1: single gate — delegate to AutoApproveService.evaluate(), which runs the
+      // full AutoCheck (engagement-bait, char-limit, forbidden phrases, SimHash) +
+      // quality thresholds and is fail-closed on a missing score. Resolved lazily via
+      // ModuleRef (AutonomyModule) so this listener's constructor — and the 11 test
+      // paramtypes restorations that pin it — stay unchanged.
+      const { AutoApproveService } = await import('../../modules/autonomy/auto-approve.service.js');
+      const autoApprove = this.moduleRef.get(AutoApproveService, { strict: false });
+      if (!autoApprove) {
+        this.logger.warn(`AutoApproveService not available — post ${payload.postId} left as DRAFT`);
         return;
-      } else {
-        this.logger.log(
-          `Auto-approve: post ${payload.postId} score ${score}/10 ≥ ${this.minScore} — auto-approving`,
-        );
       }
 
-      // Approve the draft — transitions DRAFT → APPROVED, emits PostEvents.APPROVED
-      const approvedPost = await this.postsService.approve(payload.postId);
-      this.logger.log(`Auto-approved post ${payload.postId} (${payload.network})`);
+      const result = await autoApprove.evaluate(payload.postId, post.content, post.network, score);
 
-      // Enqueue to BullMQ posting queue — same lazy resolution as PostsController
-      await this.enqueueForPosting(approvedPost.id, approvedPost.network as string);
+      if (result.decision === 'AUTO_APPROVE') {
+        // Enqueue to BullMQ posting queue — same lazy resolution as PostsController
+        await this.enqueueForPosting(payload.postId, post.network as string);
+        this.logger.log(`Auto-approved post ${payload.postId} (${post.network}) — enqueued`);
+      } else {
+        this.logger.log(`Auto-approve [${result.decision}] post ${payload.postId}: ${result.reason}`);
+      }
     } catch (err) {
       this.logger.error(
         `Auto-approve failed for post ${payload.postId}: ${(err as Error).message}`,

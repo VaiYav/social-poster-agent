@@ -34,6 +34,11 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
   private readonly weeklyLimits: Record<string, number>;
   private readonly minIntervalMs: Record<string, number>;
 
+  // R1: interaction (engagement) limits — keyed by action (like/comment/follow/reply).
+  private readonly interactionDailyLimits: Record<string, number>;
+  private readonly interactionWeeklyLimits: Record<string, number>;
+  private readonly interactionMinIntervalMs: number;
+
   constructor(
     private readonly configService: ConfigService,
     @Inject(SHARED_REDIS) private readonly redis: IORedis,
@@ -63,6 +68,52 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
 
       this.minIntervalMs[net] = globalMinDelay;
     }
+
+    // R1: interaction limits — separate from post limits so engagement keys like
+    // "X-like" don't fall through to the 1/day post default (which silently capped
+    // likes to 1/day and killed the per-session budget). The human-behavior engine
+    // paces actions itself, so the interaction min-interval defaults to 0.
+    const intDaily = (action: string, def: number) =>
+      Number(this.configService.get<string>(`RATE_LIMIT_INTERACTION_${action.toUpperCase()}_MAX_PER_DAY`)) || def;
+    const intWeekly = (action: string, def: number) =>
+      Number(this.configService.get<string>(`RATE_LIMIT_INTERACTION_${action.toUpperCase()}_MAX_PER_WEEK`)) || def;
+    this.interactionDailyLimits = {
+      like: intDaily('like', 60),
+      comment: intDaily('comment', 20),
+      follow: intDaily('follow', 15),
+      reply: intDaily('reply', 20),
+    };
+    this.interactionWeeklyLimits = {
+      like: intWeekly('like', 300),
+      comment: intWeekly('comment', 100),
+      follow: intWeekly('follow', 75),
+      reply: intWeekly('reply', 100),
+    };
+    this.interactionMinIntervalMs =
+      Number(this.configService.get<string>('RATE_LIMIT_INTERACTION_MIN_DELAY_MS')) || 0;
+  }
+
+  /**
+   * Resolve effective limits for a key. Composite keys "{NETWORK}-{action}"
+   * (engagement) use interaction limits; bare network keys use post limits.
+   */
+  private resolveLimits(network: string): { daily: number; weekly: number; intervalMs: number } {
+    const dashIdx = network.indexOf('-');
+    if (dashIdx > 0) {
+      const action = network.slice(dashIdx + 1).toLowerCase();
+      if (action in this.interactionDailyLimits) {
+        return {
+          daily: this.interactionDailyLimits[action]!,
+          weekly: this.interactionWeeklyLimits[action]!,
+          intervalMs: this.interactionMinIntervalMs,
+        };
+      }
+    }
+    return {
+      daily: this.dailyLimits[network] ?? 1,
+      weekly: this.weeklyLimits[network] ?? 5,
+      intervalMs: this.minIntervalMs[network] ?? 300_000,
+    };
   }
 
   onModuleInit(): void {
@@ -97,9 +148,10 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     const weeklyKey = `${this.prefix}:${network}:weekly:${weekStart}`;
     const intervalKey = `${this.prefix}:${network}:interval`;
 
+    const { daily: dailyLimit, weekly: weeklyLimit, intervalMs } = this.resolveLimits(network);
+
     // Check daily limit (read-only — don't increment yet)
     const dailyCount = parseInt((await this.redis.get(dailyKey)) ?? '0', 10);
-    const dailyLimit = this.dailyLimits[network] ?? 1;
     if (dailyCount >= dailyLimit) {
       return {
         allowed: false,
@@ -109,7 +161,6 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
 
     // Check weekly limit
     const weeklyCount = parseInt((await this.redis.get(weeklyKey)) ?? '0', 10);
-    const weeklyLimit = this.weeklyLimits[network] ?? 5;
     if (weeklyCount >= weeklyLimit) {
       return {
         allowed: false,
@@ -117,10 +168,9 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
       };
     }
 
-    // Check minimum interval between posts
+    // Check minimum interval (0 = no interval gate; engine paces interactions)
     const lastPostTs = await this.redis.get(intervalKey);
-    const intervalMs = this.minIntervalMs[network] ?? 300_000;
-    if (lastPostTs) {
+    if (lastPostTs && intervalMs > 0) {
       const elapsed = now - parseInt(lastPostTs, 10);
       if (elapsed < intervalMs) {
         const waitMs = intervalMs - elapsed;
@@ -146,7 +196,7 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     const dailyKey = `${this.prefix}:${network}:daily:${today}`;
     const weeklyKey = `${this.prefix}:${network}:weekly:${weekStart}`;
     const intervalKey = `${this.prefix}:${network}:interval`;
-    const intervalMs = this.minIntervalMs[network] ?? 300_000;
+    const intervalMs = this.resolveLimits(network).intervalMs;
 
     // Increment daily counter (set TTL on first increment)
     const dailyCount = await this.redis.incr(dailyKey);
@@ -160,8 +210,10 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
       await this.redis.expire(weeklyKey, 7 * 86400 + 3600); // 7 days + 1h TTL
     }
 
-    // Update interval timestamp
-    await this.redis.set(intervalKey, Date.now().toString(), 'PX', intervalMs);
+    // Update interval timestamp (skip when no interval gate is configured)
+    if (intervalMs > 0) {
+      await this.redis.set(intervalKey, Date.now().toString(), 'PX', intervalMs);
+    }
   }
 
   /**
@@ -175,14 +227,16 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     lastPostAt: number | null;
     minIntervalMs: number;
   }> {
+    const { daily: dailyLimit, weekly: weeklyLimit, intervalMs } = this.resolveLimits(network);
+
     if (!this.redis) {
       return {
         dailyCount: 0,
-        dailyLimit: this.dailyLimits[network] ?? 1,
+        dailyLimit,
         weeklyCount: 0,
-        weeklyLimit: this.weeklyLimits[network] ?? 5,
+        weeklyLimit,
         lastPostAt: null,
-        minIntervalMs: this.minIntervalMs[network] ?? 300_000,
+        minIntervalMs: intervalMs,
       };
     }
 
@@ -200,11 +254,11 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
 
     return {
       dailyCount: dailyCountStr ? parseInt(dailyCountStr, 10) : 0,
-      dailyLimit: this.dailyLimits[network] ?? 1,
+      dailyLimit,
       weeklyCount: weeklyCountStr ? parseInt(weeklyCountStr, 10) : 0,
-      weeklyLimit: this.weeklyLimits[network] ?? 5,
+      weeklyLimit,
       lastPostAt: lastPostTs ? parseInt(lastPostTs, 10) : null,
-      minIntervalMs: this.minIntervalMs[network] ?? 300_000,
+      minIntervalMs: intervalMs,
     };
   }
 

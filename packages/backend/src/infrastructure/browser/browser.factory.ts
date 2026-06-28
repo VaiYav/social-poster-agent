@@ -10,6 +10,7 @@ import type {
 } from '../../domain/ports/browser.port.js';
 import { mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { parseBool } from '../config/parse-bool.js';
 
 /**
  * Browser factory — creates Camoufox (stealth Firefox fork) browser contexts.
@@ -38,6 +39,8 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
   private readonly targetOs: 'windows' | 'macos' | 'linux';
   private readonly proxyUrl: string | undefined;
   private readonly screenshotDir: string;
+  private readonly screenshotsEnabled: boolean;
+  private readonly screenshotFullPage: boolean;
   private browser: Browser | null = null;
   // Persistent context for Facebook — stores fingerprint + cookies on disk
   // to avoid "suspicious login" challenges on every run.
@@ -64,6 +67,11 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
       | 'linux';
     this.proxyUrl = this.configService.get<string | undefined>('CAMOUFOX_PROXY_URL');
     this.screenshotDir = this.configService.get<string>('SPA_SCREENSHOT_DIR', '/tmp/spa-screenshots');
+    // P7: screenshots OFF by default — they were written on every posting phase and
+    // every engagement scroll tick (fullPage) with no cleanup → unbounded disk leak.
+    // Enable for debugging via SPA_SCREENSHOTS=true; fullPage via SPA_SCREENSHOT_FULLPAGE=true.
+    this.screenshotsEnabled = parseBool(this.configService.get<string>('SPA_SCREENSHOTS', 'false'));
+    this.screenshotFullPage = parseBool(this.configService.get<string>('SPA_SCREENSHOT_FULLPAGE', 'false'));
     this.poolSize = Math.max(1, this.configService.get<number>('BROWSER_POOL_SIZE', 3));
     this.poolAcquireTimeoutMs = Math.max(1000, this.configService.get<number>('BROWSER_POOL_ACQUIRE_TIMEOUT_MS', 60000));
     // Persistent browser profiles directory — stores fingerprint + cookies per network
@@ -502,19 +510,22 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
     network: SocialNetwork,
     phase: ScreenshotPhase,
   ): Promise<string> {
+    // P7: disabled by default — return empty path without writing to disk.
+    if (!this.screenshotsEnabled) return '';
     const networkDir = join(this.screenshotDir, network.toLowerCase());
-    if (!existsSync(networkDir)) {
-      mkdirSync(networkDir, { recursive: true });
-    }
     const filename = `${phase}-${Date.now()}.png`;
     const filepath = join(networkDir, filename);
     try {
-      await page.screenshot({ path: filepath, fullPage: true });
+      if (!existsSync(networkDir)) {
+        mkdirSync(networkDir, { recursive: true });
+      }
+      await page.screenshot({ path: filepath, fullPage: this.screenshotFullPage });
       this.logger.debug(`Screenshot saved: ${filepath}`);
+      return filepath;
     } catch (err) {
       this.logger.warn(`Screenshot failed: ${(err as Error).message}`);
+      return '';
     }
-    return filepath;
   }
 
   /**

@@ -18,8 +18,12 @@ import { SocialNetwork, PostStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { SseService } from '../../infrastructure/sse/sse.service';
 import { AutoCheckService, type AutoCheckResult } from './auto-check.service';
+import { parseBool } from '../../infrastructure/config/parse-bool';
 
-export type ApproveDecision = 'AUTO_APPROVE' | 'HUMAN_REVIEW' | 'REJECT';
+export type ApproveDecision = 'AUTO_APPROVE' | 'HUMAN_REVIEW' | 'REJECT' | 'SKIP';
+
+/** Synthetic AutoCheck result for SKIP outcomes (no checks were run). */
+const SKIPPED_CHECK: AutoCheckResult = { passed: true, checks: [] };
 
 export interface ApproveResult {
   decision: ApproveDecision;
@@ -43,7 +47,7 @@ export class AutoApproveService {
     private readonly sseService: SseService,
     private readonly autoCheck: AutoCheckService,
   ) {
-    this.enabled = this.configService.get<string>('AUTO_APPROVE_ENABLED', 'false') === 'true';
+    this.enabled = parseBool(this.configService.get<string>('AUTO_APPROVE_ENABLED', 'false'));
     this.autoApproveThreshold = this.configService.get<number>('AUTO_APPROVE_MIN_SCORE', 7);
     this.humanReviewThreshold = this.configService.get<number>('AUTO_APPROVE_REVIEW_SCORE', 4);
     this.rejectStreakAlertLimit = this.configService.get<number>('AUTO_APPROVE_REJECT_STREAK_ALERT', 3);
@@ -64,6 +68,26 @@ export class AutoApproveService {
     network: SocialNetwork,
     qualityScore?: number,
   ): Promise<ApproveResult> {
+    // AU3: idempotency — only act on posts still in DRAFT. Prevents double-processing
+    // when both the DRAFT_GENERATED listener and the autonomous runner evaluate the
+    // same post (they would otherwise race on Post.status and may diverge).
+    const existing = await this.prisma.post.findUnique({
+      where: { id: postId },
+      select: { status: true },
+    });
+    if (!existing) {
+      return { decision: 'SKIP', postId, qualityScore: qualityScore ?? null, checkResult: SKIPPED_CHECK, reason: 'Post not found' };
+    }
+    if (existing.status !== PostStatus.DRAFT) {
+      return {
+        decision: 'SKIP',
+        postId,
+        qualityScore: qualityScore ?? null,
+        checkResult: SKIPPED_CHECK,
+        reason: `Post not in DRAFT (status=${existing.status}) — already handled`,
+      };
+    }
+
     // Run AutoCheck first
     const checkResult = await this.autoCheck.check(content, network, qualityScore);
 
@@ -79,7 +103,14 @@ export class AutoApproveService {
         'Auto-approve disabled — manual review required');
     }
 
-    const score = qualityScore ?? 0;
+    // AU2: fail-closed — never auto-publish without a quality score. A missing score
+    // (LLM/critique failure or schema drift) routes to human review, not auto-approve.
+    if (qualityScore === undefined || qualityScore === null) {
+      return this.makeDecision(postId, 'HUMAN_REVIEW', null, checkResult,
+        'Missing quality score — fail-closed to human review');
+    }
+
+    const score = qualityScore;
 
     // Decision matrix
     let decision: ApproveDecision;
@@ -118,17 +149,37 @@ export class AutoApproveService {
         ? PostStatus.REJECTED
         : PostStatus.DRAFT; // HUMAN_REVIEW stays as DRAFT
 
-    await this.prisma.post.update({
+    // Merge with existing llmMetadata — do NOT clobber generation metadata
+    // (model, tokens, qualityScore, angleType, simhash live here too).
+    const current = await this.prisma.post.findUnique({
       where: { id: postId },
+      select: { llmMetadata: true },
+    });
+    const prevMeta =
+      current?.llmMetadata && typeof current.llmMetadata === 'object'
+        ? (current.llmMetadata as Record<string, unknown>)
+        : {};
+
+    // AU3: conditional transition — only from DRAFT, so concurrent paths can't
+    // double-apply or diverge. If the row is no longer DRAFT, another path won.
+    const updated = await this.prisma.post.updateMany({
+      where: { id: postId, status: PostStatus.DRAFT },
       data: {
         status: newStatus,
+        ...(decision === 'AUTO_APPROVE' ? { approvedAt: new Date() } : {}),
         llmMetadata: {
+          ...prevMeta,
           autoApproveDecision: decision,
           autoApproveReason: reason,
           autoCheckChecks: checkResult.checks.map((c) => ({ name: c.name, passed: c.passed, reason: c.reason })),
         },
       },
     });
+
+    if (updated.count === 0) {
+      this.logger.debug(`AutoApprove skip: post ${postId} no longer DRAFT (concurrent transition)`);
+      return { ...result, decision: 'SKIP', reason: 'Concurrent transition — already handled' };
+    }
 
     // SSE event for dashboard
     await this.sseService.publish({

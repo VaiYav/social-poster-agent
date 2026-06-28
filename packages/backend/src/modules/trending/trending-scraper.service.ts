@@ -30,6 +30,7 @@ import { IBrowserPort } from '../../domain/ports/browser.port.js';
 import { LlmService } from '../../infrastructure/llm/llm.service.js';
 import type { BrowserContext, Page } from 'playwright-core';
 import { SocialNetwork } from '@prisma/client';
+import { parseGoogleTrendsRss as parseGoogleTrendsRssPure } from './google-trends-rss.js';
 
 // ── Types ──
 
@@ -249,36 +250,16 @@ export class TrendingScraperService implements OnModuleInit {
    * Uses regex-based parsing (no XML dependency needed for simple RSS).
    */
   private parseGoogleTrendsRss(xml: string, limit: number): ScrapedTrendingTopic[] {
-    const topics: ScrapedTrendingTopic[] = [];
+    // TR1: delegate to the hardened pure parser (CDATA + multiline titles + entity decoding).
     const now = new Date();
-
-    // Match <item> blocks
-    const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
-    const titleRegex = /<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>(.*?)<\/title>/i;
-    const trafficRegex = /<ht:approx_traffic>(.*?)<\/ht:approx_traffic>/i;
-    const linkRegex = /<link>(.*?)<\/link>/i;
-
-    let match: RegExpExecArray | null;
-    while ((match = itemRegex.exec(xml)) !== null && topics.length < limit) {
-      const itemXml = match[1] ?? '';
-      const titleMatch = titleRegex.exec(itemXml);
-      const trafficMatch = trafficRegex.exec(itemXml);
-      const linkMatch = linkRegex.exec(itemXml);
-
-      const topic = titleMatch?.[1] ?? titleMatch?.[2];
-      if (!topic) continue;
-
-      topics.push({
-        source: 'google_trends',
-        topic: topic.trim(),
-        rank: topics.length + 1,
-        url: linkMatch?.[1]?.trim(),
-        traffic: trafficMatch?.[1]?.trim(),
-        scrapedAt: now,
-      });
-    }
-
-    return topics;
+    return parseGoogleTrendsRssPure(xml, limit).map((t): ScrapedTrendingTopic => ({
+      source: 'google_trends',
+      topic: t.topic,
+      rank: t.rank,
+      url: t.url,
+      traffic: t.traffic,
+      scrapedAt: now,
+    }));
   }
 
   // ── X Trends (browser scraping) ──

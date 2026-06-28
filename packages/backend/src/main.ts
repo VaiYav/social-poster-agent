@@ -1,26 +1,55 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, Logger } from '@nestjs/common';
+import { ValidationPipe, Logger, type INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { initSentry } from './infrastructure/monitoring/sentry';
 
-// Playwright/Camoufox can throw unhandled exceptions on page errors (e.g. malformed
-// pageError.location). Catch them at process level to prevent the backend from crashing.
+// Held so the process-level handlers can shut the app down gracefully.
+let app: INestApplication | undefined;
+let shuttingDown = false;
+
+/**
+ * B5/SEC4: graceful shutdown on a fatal uncaught error.
+ * After an uncaughtException the process is in an undefined state — log, close the
+ * app (BullMQ/Redis/browser via OnModuleDestroy), then exit so the orchestrator
+ * restarts cleanly. Continuing to serve from a corrupted state is worse.
+ */
+function fatalShutdown(label: string, err: unknown): void {
+  const e = err as Error;
+  new Logger('Process').error(`${label}: ${e?.message ?? String(err)}`, e?.stack);
+  if (shuttingDown) return;
+  shuttingDown = true;
+  const timer = setTimeout(() => process.exit(1), 10_000);
+  timer.unref();
+  void Promise.resolve(app?.close())
+    .catch(() => undefined)
+    .finally(() => process.exit(1));
+}
+
+// Playwright/Camoufox throws benign uncaught errors on page errors (e.g. malformed
+// pageError.location) — those are non-fatal and suppressed. Everything else triggers
+// a graceful shutdown rather than silently continuing in an undefined state.
 process.on('uncaughtException', (err) => {
-  // Only log — don't crash. Browser automation errors are non-fatal.
   if (err.message?.includes('pageError') || err.message?.includes('location.url')) {
     new Logger('Process').warn(`Suppressed Playwright pageError bug: ${err.message}`);
     return;
   }
-  new Logger('Process').error(`Uncaught exception: ${err.message}`, err.stack);
+  fatalShutdown('Uncaught exception', err);
+});
+
+// Surface unhandled promise rejections (logged + captured by Sentry). Not force-exiting
+// to avoid destabilizing on benign fire-and-forget rejections — but these are bugs.
+process.on('unhandledRejection', (reason) => {
+  const e = reason as Error;
+  new Logger('Process').error(`Unhandled promise rejection: ${e?.message ?? String(reason)}`, e?.stack);
 });
 
 async function bootstrap(): Promise<void> {
   // Initialize Sentry before app bootstrap (no-op if SENTRY_DSN not set)
   initSentry();
 
-  const app = await NestFactory.create(AppModule, {
+  app = await NestFactory.create(AppModule, {
     rawBody: true,
   });
 

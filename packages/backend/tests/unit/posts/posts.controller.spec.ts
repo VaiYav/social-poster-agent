@@ -23,6 +23,7 @@ describe('MOD-02: PostsController', () => {
     create: ReturnType<typeof vi.fn>;
     updateStatus: ReturnType<typeof vi.fn>;
     approve: ReturnType<typeof vi.fn>;
+    reject: ReturnType<typeof vi.fn>;
   };
   let moduleRef: { get: ReturnType<typeof vi.fn> };
   let queueService: { enqueuePosting: ReturnType<typeof vi.fn> };
@@ -35,6 +36,7 @@ describe('MOD-02: PostsController', () => {
       create: vi.fn(),
       updateStatus: vi.fn(),
       approve: vi.fn(),
+      reject: vi.fn(),
     };
     queueService = {
       enqueuePosting: vi.fn().mockResolvedValue(undefined),
@@ -241,18 +243,16 @@ describe('MOD-02: PostsController', () => {
 
   // ── POST /:id/reject ────────────────────────────────────────
 
-  it('UTC-C-reject: reject() calls updateStatus with REJECTED', async () => {
-    postsService.updateStatus.mockResolvedValue({ status: 'REJECTED' });
+  it('UTC-C-reject: reject() delegates to postsService.reject', async () => {
+    postsService.reject.mockResolvedValue({ status: 'REJECTED' });
 
     await controller.reject('post-1');
 
-    expect(postsService.updateStatus).toHaveBeenCalledWith('post-1', {
-      status: 'REJECTED',
-    });
+    expect(postsService.reject).toHaveBeenCalledWith('post-1');
   });
 
   it('UTC-C-reject-404: reject() throws NotFoundException when service throws', async () => {
-    postsService.updateStatus.mockRejectedValue(new Error('not found'));
+    postsService.reject.mockRejectedValue(new Error('not found'));
 
     await expect(controller.reject('missing')).rejects.toThrow(NotFoundException);
   });

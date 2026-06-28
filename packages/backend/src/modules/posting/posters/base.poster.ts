@@ -455,7 +455,10 @@ export abstract class BasePoster {
    */
   protected async detectPostShadowban(page: Page, postUrl: string, expectedContent: string): Promise<boolean> {
     try {
-      await page.goto(postUrl, { waitUntil: 'networkidle', timeout: 15000 });
+      // P2: X/Threads never reach networkidle (constant polling) — using it here always
+      // times out at 15s. Use domcontentloaded + wait for the post body to render.
+      await page.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      await page.waitForSelector(this.getProfilePostContentSelector(), { timeout: 8000 }).catch(() => {});
       await this.browser.randomDelay(2000, 4000);
 
       const bodyText = await page.textContent('body').catch(() => '');
@@ -504,7 +507,11 @@ export abstract class BasePoster {
    */
   protected async verifyPostVisible(page: Page, postUrl: string, expectedContent?: string): Promise<boolean> {
     try {
-      await page.goto(postUrl, { waitUntil: 'networkidle', timeout: 15000 });
+      // P2: X/Threads never reach networkidle (constant polling) — using it here always
+      // times out and falsely reports the post as not visible. Use domcontentloaded +
+      // wait for the post body to render.
+      await page.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      await page.waitForSelector(this.getProfilePostContentSelector(), { timeout: 10000 }).catch(() => {});
       await this.browser.randomDelay(2000, 5000);
 
       // Generic check: page loaded and URL matches
@@ -559,5 +566,68 @@ export abstract class BasePoster {
       }
     }
     throw lastErr;
+  }
+
+  // ── M1: idempotent verification ──────────────────────────────────
+
+  /**
+   * M1/P3: Check whether a post with the given content is already live on the account's
+   * public profile. Returns the post URL if found, else null.
+   *
+   * Used by the posting service's self-recovery to avoid re-publishing (a duplicate) when a
+   * post actually went out but success-detection misfired into a "session expired"-looking
+   * error. This is a heuristic (profile + content match) — callers should additionally confirm
+   * the returned URL looks like a real post URL before trusting it. Reliable permalink capture
+   * is tracked as P1.
+   */
+  async verifyPosted(context: BrowserContext, content: string): Promise<string | null> {
+    const profileUrl = this.getVerificationProfileUrl();
+    if (!profileUrl) {
+      this.logger.warn(`verifyPosted: no profile URL configured for ${this.network} — cannot verify`);
+      return null;
+    }
+    let page: Page | null = null;
+    try {
+      page = await context.newPage();
+      return await this.validatePostOnProfile(page, profileUrl, content, this.getVerificationUrlPattern());
+    } catch {
+      // Not found / not verifiable — treat as "not posted" (caller will re-post).
+      return null;
+    } finally {
+      if (page) await page.close().catch(() => {});
+    }
+  }
+
+  /** Resolve the account's public profile URL for verification (from env, per network). */
+  private getVerificationProfileUrl(): string | null {
+    switch (this.network) {
+      case 'X': {
+        const handle = process.env.SOCIAL_X_USERNAME;
+        return handle ? `https://x.com/${handle}` : null;
+      }
+      case 'THREADS': {
+        const handle = process.env.SOCIAL_THREADS_USERNAME;
+        return handle ? `https://www.threads.com/@${handle}` : null;
+      }
+      case 'FACEBOOK': {
+        const slug = process.env.SOCIAL_FACEBOOK_PAGE_SLUG;
+        return slug ? `https://www.facebook.com/${slug}` : null;
+      }
+      default:
+        return null;
+    }
+  }
+
+  /** Per-network regex that matches a real post URL (not a profile/home URL). */
+  private getVerificationUrlPattern(): RegExp {
+    switch (this.network) {
+      case 'THREADS':
+        return /\/@[^/]+\/post\/[A-Za-z0-9_-]+/;
+      case 'FACEBOOK':
+        return /\/(posts|permalink|photos)\/\d+/;
+      case 'X':
+      default:
+        return /\/status\/[A-Za-z0-9]+/;
+    }
   }
 }

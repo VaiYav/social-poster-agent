@@ -1,7 +1,7 @@
 /**
  * Sprint O / F13: Recycling Controller — REST endpoints for content recycling.
  */
-import { Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { RecyclingService } from './recycling.service';
 import { LocalhostGuard } from '../../infrastructure/guards/localhost.guard';
 
@@ -24,7 +24,7 @@ export class RecyclingController {
 
   @Post(':postId/recycle')
   @UseGuards(LocalhostGuard) // Triggers DB writes — restrict to localhost
-  recyclePost(postId: string) {
+  recyclePost(@Param('postId') postId: string) {
     return this.recyclingService.recyclePost(postId);
   }
 }

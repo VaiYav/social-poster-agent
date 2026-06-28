@@ -37,25 +37,26 @@ import { CaptchaModule } from './infrastructure/captcha/captcha.module';
 import { ProxyModule } from './infrastructure/proxy/proxy.module';
 import { EventsEdaModule } from './events/events.module';
 import { RedisModule } from './infrastructure/redis/redis.module';
+import { parseBool } from './infrastructure/config/parse-bool';
 
 /**
  * F1 Engagement module is experimental (Phase 2-3).
  * Gated behind ENGAGEMENT_ENABLED env var (default: false).
  * When disabled, routes are not registered — no engagement endpoints exposed.
  */
-const engagementImports = process.env.ENGAGEMENT_ENABLED === 'true' ? [EngagementModule] : [];
+const engagementImports = parseBool(process.env.ENGAGEMENT_ENABLED) ? [EngagementModule] : [];
 
 /**
  * Sprint O: Feature-flagged modules.
  * Each is gated behind its own env var (default: false).
  * When disabled, the module is not registered — no services or routes exposed.
  */
-const captchaImports = process.env.CAPTCHA_SOLVER_ENABLED === 'true' ? [CaptchaModule] : [];
-const proxyImports = process.env.PROXY_ROTATION_ENABLED === 'true' ? [ProxyModule] : [];
-const quoteCardImports = process.env.QUOTE_CARDS_ENABLED === 'true' ? [QuoteCardModule] : [];
+const captchaImports = parseBool(process.env.CAPTCHA_SOLVER_ENABLED) ? [CaptchaModule] : [];
+const proxyImports = parseBool(process.env.PROXY_ROTATION_ENABLED) ? [ProxyModule] : [];
+const quoteCardImports = parseBool(process.env.QUOTE_CARDS_ENABLED) ? [QuoteCardModule] : [];
 const repliesImports =
-  process.env.REPLIES_ENABLED === 'true'
-    ? [process.env.ENGAGEMENT_ENABLED === 'true' ? RepliesModule.withEngagement(EngagementModule) : RepliesModule]
+  parseBool(process.env.REPLIES_ENABLED)
+    ? [parseBool(process.env.ENGAGEMENT_ENABLED) ? RepliesModule.withEngagement(EngagementModule) : RepliesModule]
     : [];
 
 @Module({

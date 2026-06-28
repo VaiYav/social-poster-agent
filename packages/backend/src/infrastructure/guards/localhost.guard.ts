@@ -33,31 +33,45 @@ export class LocalhostGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest<Request>();
     const socket = request.socket as Socket | undefined;
-    const remoteAddress = socket?.remoteAddress ?? '';
-    const forwardedFor = request.headers['x-forwarded-for'] as string | undefined;
+    const remoteAddress = this.normalizeIp(socket?.remoteAddress ?? '');
 
-    // Allow loopback (IPv4 + IPv6)
-    const allowedRemote = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
-    if (allowedRemote.includes(remoteAddress)) return true;
+    // Allow loopback and the Docker internal network (UI container → backend).
+    if (this.isLoopback(remoteAddress) || this.isDockerPrivate(remoteAddress)) return true;
 
-    // Allow Docker internal network (172.16.0.0/12) — the UI container calls backend
-    if (remoteAddress.startsWith('172.16.') || remoteAddress.startsWith('172.17.') ||
-        remoteAddress.startsWith('172.18.') || remoteAddress.startsWith('172.19.') ||
-        remoteAddress.startsWith('172.2') || remoteAddress.startsWith('172.30.') ||
-        remoteAddress.startsWith('172.31.')) {
-      return true;
-    }
-
-    // When behind nginx, check X-Forwarded-For (nginx sets this to the real client)
-    // If XFF is present and is localhost, allow (nginx on same host)
-    if (forwardedFor) {
-      const firstIp = forwardedFor.split(',')[0]?.trim() ?? '';
-      if (allowedRemote.includes(firstIp)) return true;
+    // SEC1: only consult X-Forwarded-For when the DIRECT peer is a configured trusted
+    // proxy. Otherwise any client could send `X-Forwarded-For: 127.0.0.1` and bypass
+    // the guard. TRUSTED_PROXY_IPS is empty by default → XFF is ignored entirely.
+    const trustedProxies = (process.env.TRUSTED_PROXY_IPS ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (trustedProxies.includes(remoteAddress)) {
+      const xff = request.headers['x-forwarded-for'];
+      const raw = Array.isArray(xff) ? xff[0] : (xff ?? '');
+      const firstIp = this.normalizeIp((raw.split(',')[0] ?? '').trim());
+      if (this.isLoopback(firstIp) || this.isDockerPrivate(firstIp)) return true;
     }
 
     this.logger.warn(
       `Blocked non-localhost access to guarded endpoint: ${request.method} ${request.url} from ${remoteAddress}`,
     );
     throw new ForbiddenException('This endpoint is only accessible from localhost');
+  }
+
+  /** Strip the IPv4-mapped IPv6 prefix (::ffff:127.0.0.1 → 127.0.0.1). */
+  private normalizeIp(ip: string): string {
+    return ip.replace(/^::ffff:/i, '');
+  }
+
+  private isLoopback(ip: string): boolean {
+    return ip === '127.0.0.1' || ip === '::1';
+  }
+
+  /** True for the Docker private range 172.16.0.0/12 (172.16.x – 172.31.x). */
+  private isDockerPrivate(ip: string): boolean {
+    const m = /^172\.(\d{1,3})\./.exec(ip);
+    if (!m) return false;
+    const second = Number(m[1]);
+    return second >= 16 && second <= 31;
   }
 }
