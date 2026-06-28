@@ -403,7 +403,7 @@ function restoreAllDesignParamtypes(): void {
 
   // Events
   defineParamtypes(EventsController, [SseService]);
-  defineParamtypes(AutoApproveListener, [PostsService, PrismaService, ModuleRef, ConfigService]);
+  defineParamtypes(AutoApproveListener, [PostsService, PrismaService, ModuleRef, ConfigService, Object]);
   defineParamtypes(SseEventListener, [SseService]);
 
   // Queue
@@ -441,7 +441,7 @@ function restoreAllDesignParamtypes(): void {
   defineParamtypes(FlowControlController, [FlowControlService]);
   defineParamtypes(AutoCheckService, [ConfigService, PrismaService]);
   defineParamtypes(AutoApproveService, [ConfigService, PrismaService, SseService, AutoCheckService]);
-  defineParamtypes(AutonomousRunnerService, [ConfigService, PrismaService, SseService, FlowControlService, AutoApproveService, ModuleRef]);
+  defineParamtypes(AutonomousRunnerService, [ConfigService, PrismaService, SseService, FlowControlService, AutoApproveService, ModuleRef, Object]);
 }
 
 // ── Mock helpers ─────────────────────────────────────────────────────────────

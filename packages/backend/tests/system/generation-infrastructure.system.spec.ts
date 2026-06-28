@@ -279,8 +279,8 @@ function restoreAllDesignParamtypes(): void {
   defineParamtypes(BrowserFactory, [ConfigService]);
   defineParamtypes(AutoCheckService, [ConfigService, PrismaService]);
   defineParamtypes(AutoApproveService, [ConfigService, PrismaService, SseService, AutoCheckService]);
-  defineParamtypes(AutonomousRunnerService, [ConfigService, PrismaService, SseService, FlowControlService, AutoApproveService, ModuleRef]);
-  defineParamtypes(AutoApproveListener, [PostsService, PrismaService, ModuleRef, ConfigService]);
+  defineParamtypes(AutonomousRunnerService, [ConfigService, PrismaService, SseService, FlowControlService, AutoApproveService, ModuleRef, Object]);
+  defineParamtypes(AutoApproveListener, [PostsService, PrismaService, ModuleRef, ConfigService, Object]);
   defineParamtypes(SseService, [ConfigService, Object, Object]);
   defineParamtypes(RedisCheckpointSaver, [ConfigService, Object]);
   defineParamtypes(QueueFactory, [ConfigService, DiscordNotificationService]);
@@ -363,7 +363,7 @@ function restoreAllDesignParamtypes(): void {
 
   // Events
   defineParamtypes(EventsController, [SseService]);
-  defineParamtypes(AutoApproveListener, [PostsService, PrismaService, ModuleRef, ConfigService]);
+  defineParamtypes(AutoApproveListener, [PostsService, PrismaService, ModuleRef, ConfigService, Object]);
   defineParamtypes(SseEventListener, [SseService]);
 
   // Queue

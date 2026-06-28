@@ -56,6 +56,6 @@ export async function restoreSprintOParamtypes(
   // in system/integration/acceptance/e2e specs — audit D3).
   defineFn(AutoCheckService, [ConfigService, PrismaService]);
   defineFn(AutoApproveService, [ConfigService, PrismaService, SseService, AutoCheckService]);
-  defineFn(AutonomousRunnerService, [ConfigService, PrismaService, SseService, FlowControlService, AutoApproveService, ModuleRef]);
-  defineFn(AutoApproveListener, [PostsService, PrismaService, ModuleRef, ConfigService]);
+  defineFn(AutonomousRunnerService, [ConfigService, PrismaService, SseService, FlowControlService, AutoApproveService, ModuleRef, Object]);
+  defineFn(AutoApproveListener, [PostsService, PrismaService, ModuleRef, ConfigService, Object]);
 }

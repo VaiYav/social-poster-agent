@@ -11,6 +11,7 @@ import { ConfigModule } from '@nestjs/config';
 import { SseModule } from '../infrastructure/sse/sse.module';
 import { PrismaModule } from '../infrastructure/prisma/prisma.module';
 import { PostsModule } from '../modules/posts/posts.module';
+import { QueueModule as QueueInfraModule } from '../infrastructure/queue/queue.module';
 import { SseEventListener } from './listeners/sse-event.listener';
 import { AutoApproveListener } from './listeners/auto-approve.listener';
 
@@ -28,6 +29,7 @@ import { AutoApproveListener } from './listeners/auto-approve.listener';
     SseModule,
     PrismaModule,
     PostsModule,
+    QueueInfraModule, // A5: provides IPostingQueuePort for AutoApproveListener
   ],
   providers: [SseEventListener, AutoApproveListener],
   exports: [EventEmitterModule],

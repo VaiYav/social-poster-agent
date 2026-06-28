@@ -15,9 +15,10 @@ import { AutonomousRunnerService } from './autonomous-runner.service';
 import { FlowControlModule } from '../flow-control/flow-control.module';
 import { PrismaModule } from '../../infrastructure/prisma/prisma.module';
 import { SseModule } from '../../infrastructure/sse/sse.module';
+import { QueueModule as QueueInfraModule } from '../../infrastructure/queue/queue.module';
 
 @Module({
-  imports: [FlowControlModule, PrismaModule, SseModule],
+  imports: [FlowControlModule, PrismaModule, SseModule, QueueInfraModule], // A5: IPostingQueuePort
   providers: [AutoCheckService, AutoApproveService, AutonomousRunnerService],
   exports: [AutoCheckService, AutoApproveService, AutonomousRunnerService],
 })

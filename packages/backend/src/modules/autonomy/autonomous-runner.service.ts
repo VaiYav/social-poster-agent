@@ -13,7 +13,7 @@
  * Schedule: configurable via AUTONOMOUS_RUNNER_SCHEDULE (default: every 4 hours).
  * Feature flag: AUTONOMOUS_RUNNER_ENABLED (default: false).
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { SocialNetwork, PostStatus } from '@prisma/client';
@@ -23,6 +23,7 @@ import { FlowControlService } from '../flow-control/flow-control.service';
 import { AutoApproveService } from './auto-approve.service';
 import { ModuleRef } from '@nestjs/core';
 import { parseBool } from '../../infrastructure/config/parse-bool';
+import { IPostingQueuePort } from '../../domain/ports/posting-queue.port.js';
 import { parseTargetNetworks } from './parse-networks';
 
 @Injectable()
@@ -41,6 +42,7 @@ export class AutonomousRunnerService {
     private readonly flowControl: FlowControlService,
     private readonly autoApprove: AutoApproveService,
     private readonly moduleRef: ModuleRef,
+    @Inject(IPostingQueuePort) private readonly postingQueue: IPostingQueuePort,
   ) {
     this.enabled = parseBool(this.configService.get<string>('AUTONOMOUS_RUNNER_ENABLED', 'false'));
     this.postsPerRun = this.configService.get<number>('AUTONOMOUS_POSTS_PER_RUN', 3);
@@ -176,20 +178,12 @@ export class AutonomousRunnerService {
    */
   private async enqueueForPosting(postId: string, network: SocialNetwork): Promise<void> {
     try {
-      const queueFactory = this.moduleRef.get(
-        await import('../../infrastructure/queue/queue.factory.js').then((m) => m.QueueFactory),
-        { strict: false },
-      );
-      if (!queueFactory) {
-        this.logger.warn(`QueueFactory not available — post ${postId} approved but not enqueued`);
-        return;
-      }
-
       // AU7: clamp so a misconfig (min > max) can't yield a negative delay → immediate post.
       const lo = Math.min(this.postingDelayMinMs, this.postingDelayMaxMs);
       const hi = Math.max(this.postingDelayMinMs, this.postingDelayMaxMs);
       const delay = lo + Math.floor(Math.random() * Math.max(0, hi - lo));
-      await queueFactory.enqueuePosting(postId, network, { delay });
+      // A5: enqueue via IPostingQueuePort (no ModuleRef hack for the queue).
+      await this.postingQueue.enqueuePosting(postId, network, { delay });
       this.logger.log(`Post ${postId} enqueued for ${network} (delay: ${Math.round(delay / 60000)}min)`);
     } catch (err) {
       this.logger.error(`Failed to enqueue post ${postId}: ${(err as Error).message}`);

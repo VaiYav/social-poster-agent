@@ -19,11 +19,12 @@
  * same pattern as PostsController — PostsModule → QueueModule → PostingModule
  * → PostsModule would be circular.
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { ModuleRef } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
-import { PostStatus } from '@prisma/client';
+import { PostStatus, SocialNetwork } from '@prisma/client';
+import { IPostingQueuePort } from '../../domain/ports/posting-queue.port.js';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { PostsService } from '../../modules/posts/posts.service';
 import { PostEvents } from '../enums/post-events.enum';
@@ -39,6 +40,7 @@ export class AutoApproveListener {
     private readonly prisma: PrismaService,
     private readonly moduleRef: ModuleRef,
     configService: ConfigService,
+    @Inject(IPostingQueuePort) private readonly postingQueue: IPostingQueuePort,
   ) {
     // SPA_DRY_RUN: disable auto-approve in dry-run mode — the dry-run runner
     // controls the flow manually (approve → postById) to avoid race conditions
@@ -102,16 +104,9 @@ export class AutoApproveListener {
 
   private async enqueueForPosting(postId: string, network: string): Promise<void> {
     try {
-      const { QueueService } = await import('../../modules/queue/queue.service.js');
-      const queueService = this.moduleRef.get(QueueService, { strict: false });
-      if (queueService) {
-        await queueService.enqueuePosting(postId, network as 'X' | 'THREADS' | 'FACEBOOK');
-        this.logger.log(`Auto-approved post ${postId} enqueued for ${network}`);
-      } else {
-        this.logger.warn(
-          `QueueService not available — post ${postId} auto-approved but not enqueued (reconciliation cron will pick it up)`,
-        );
-      }
+      // A5: enqueue via IPostingQueuePort (no ModuleRef hack for the queue).
+      await this.postingQueue.enqueuePosting(postId, network as SocialNetwork);
+      this.logger.log(`Auto-approved post ${postId} enqueued for ${network}`);
     } catch (err) {
       this.logger.error(`Failed to enqueue auto-approved post ${postId}: ${(err as Error).message}`);
     }
