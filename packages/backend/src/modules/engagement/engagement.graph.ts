@@ -20,7 +20,7 @@
 // Math.random() loop). Warmup gating happens inside the graph, not outside.
 
 import { StateGraph, END, START, Annotation } from '@langchain/langgraph';
-import type { Page } from 'playwright-core';
+import type { Page } from '../../domain/ports/browser-primitives';
 import { SocialNetwork } from '@prisma/client';
 import { Logger } from '@nestjs/common';
 import type { IEngagementDecisionPort, PostContext, ActionDecision, EngagementSource } from '../../domain/ports/engagement-decision.port.js';

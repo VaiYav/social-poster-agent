@@ -15,7 +15,7 @@
 // locator interactions return a dummy locator (no-ops).
 
 import { Logger } from '@nestjs/common';
-import type { BrowserContext, Locator, Page } from 'playwright-core';
+import type { BrowserContext, Locator, Page } from '../domain/ports/browser-primitives';
 import type { SocialNetwork } from '@prisma/client';
 import type {
   IBrowserPort,

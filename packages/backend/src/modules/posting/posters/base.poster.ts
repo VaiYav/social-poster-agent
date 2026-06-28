@@ -6,7 +6,7 @@
 // and implement the network-specific posting and engagement logic.
 
 import { Logger } from '@nestjs/common';
-import type { BrowserContext, Locator, Page } from 'playwright-core';
+import type { BrowserContext, Locator, Page } from '../../../domain/ports/browser-primitives';
 import type { SocialNetwork } from '@spa/shared';
 import type { IBrowserPort, ScreenshotPhase } from '../../../domain/ports/browser.port.js';
 import {

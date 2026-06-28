@@ -8,7 +8,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { Page } from 'playwright-core';
+import type { Page } from '../../domain/ports/browser-primitives';
 import { parseBool } from '../config/parse-bool';
 
 @Injectable()

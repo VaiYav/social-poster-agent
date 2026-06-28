@@ -2,7 +2,7 @@
 // Uses aria-label and role-based selectors for resilience.
 
 import { Injectable, Logger, Inject } from '@nestjs/common';
-import type { Page } from 'playwright-core';
+import type { Page } from '../../../domain/ports/browser-primitives';
 import { IBrowserPort } from '../../../domain/ports/browser.port.js';
 import { BaseEngager } from './base.engager.js';
 import type { EngagementResult } from '../../posting/posters/base.poster.js';

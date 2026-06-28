@@ -5,7 +5,7 @@
 // network-specific engagement logic using the selectors from the selector files.
 
 import { Logger } from '@nestjs/common';
-import type { Page } from 'playwright-core';
+import type { Page } from '../../../domain/ports/browser-primitives';
 import type { SocialNetwork } from '@spa/shared';
 import type { IBrowserPort } from '../../../domain/ports/browser.port.js';
 import { BasePoster, type EngagementResult } from '../../posting/posters/base.poster.js';

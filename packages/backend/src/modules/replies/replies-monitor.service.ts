@@ -37,7 +37,7 @@ import { DiscordNotificationService } from '../../infrastructure/notifications/d
 import { SseService } from '../../infrastructure/sse/sse.service.js';
 import { EngagementService } from '../engagement/engagement.service.js';
 import { PostStatus, SocialNetwork, CommentStatus } from '@prisma/client';
-import type { Page } from 'playwright-core';
+import type { Page } from '../../domain/ports/browser-primitives';
 import { parseBool } from '../../infrastructure/config/parse-bool';
 
 export interface ScrapedComment {

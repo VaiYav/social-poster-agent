@@ -28,7 +28,7 @@ import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import { IBrowserPort } from '../../domain/ports/browser.port.js';
 import { LlmService } from '../../infrastructure/llm/llm.service.js';
-import type { BrowserContext, Page } from 'playwright-core';
+import type { BrowserContext, Page } from '../../domain/ports/browser-primitives';
 import { SocialNetwork } from '@prisma/client';
 import { parseGoogleTrendsRss as parseGoogleTrendsRssPure } from './google-trends-rss.js';
 import { parseBool } from '../../infrastructure/config/parse-bool';

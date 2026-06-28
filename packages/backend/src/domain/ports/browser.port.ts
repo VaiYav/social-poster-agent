@@ -2,7 +2,7 @@
 // Implementation: BrowserFactory (Camoufox).
 // Unit tests can inject a mock without touching real browser.
 
-import type { BrowserContext, Locator, Page } from 'playwright-core';
+import type { BrowserContext, Locator, Page } from './browser-primitives';
 import type { SocialNetwork } from '@spa/shared';
 
 export const IBrowserPort = Symbol('IBrowserPort');

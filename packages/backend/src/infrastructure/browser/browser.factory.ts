@@ -1,6 +1,6 @@
 import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { Browser, BrowserContext, Locator, Page } from 'playwright-core';
+import type { Browser, BrowserContext, Locator, Page } from '../../domain/ports/browser-primitives';
 import type { SocialNetwork } from '@prisma/client';
 import { Camoufox, type LaunchOptions } from 'camoufox-js';
 import type {

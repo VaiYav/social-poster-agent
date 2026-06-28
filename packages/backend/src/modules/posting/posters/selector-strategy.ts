@@ -17,7 +17,7 @@
 //   };
 //   const locator = await resolveSelector(page, strategy);
 
-import type { Locator, Page } from 'playwright-core';
+import type { Locator, Page } from '../../../domain/ports/browser-primitives';
 import type { SocialNetwork } from '@spa/shared';
 import type { SelectorHealthService } from '../../../infrastructure/browser/selector-health.service.js';
 

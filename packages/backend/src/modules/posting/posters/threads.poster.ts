@@ -1,5 +1,5 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
-import type { BrowserContext, Page } from 'playwright-core';
+import type { BrowserContext, Page } from '../../../domain/ports/browser-primitives';
 import { IBrowserPort } from '../../../domain/ports/browser.port.js';
 import { BasePoster, type PostResult } from './base.poster.js';
 import { THREADS_SELECTORS } from './selectors/threads.selectors.js';
