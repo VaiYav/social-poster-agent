@@ -24,6 +24,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ILlmPort } from '../../domain/ports/llm.port.js';
 import { SocialNetwork } from '@prisma/client';
+import { parseBool } from '../../infrastructure/config/parse-bool';
 
 /**
  * A single A/B variant.
@@ -67,7 +68,7 @@ export class ABVariantGenerator {
     private readonly configService: ConfigService,
     @Optional() private readonly llm?: ILlmPort,
   ) {
-    this.enabled = this.configService.get<string>('AB_VARIANTS_ENABLED', 'false') === 'true';
+    this.enabled = parseBool(this.configService.get<string>('AB_VARIANTS_ENABLED', 'false'));
   }
 
   isEnabled(): boolean {

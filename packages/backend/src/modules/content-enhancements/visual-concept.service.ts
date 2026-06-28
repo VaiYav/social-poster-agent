@@ -21,6 +21,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ILlmPort } from '../../domain/ports/llm.port.js';
 import { SocialNetwork } from '@prisma/client';
+import { parseBool } from '../../infrastructure/config/parse-bool';
 
 /**
  * Visual concept for a post — describes what image to generate/attach.
@@ -72,7 +73,7 @@ export class VisualConceptService {
     private readonly configService: ConfigService,
     @Optional() private readonly llm?: ILlmPort,
   ) {
-    this.enabled = this.configService.get<string>('VISUAL_CARDS_ENABLED', 'false') === 'true';
+    this.enabled = parseBool(this.configService.get<string>('VISUAL_CARDS_ENABLED', 'false'));
   }
 
   isEnabled(): boolean {

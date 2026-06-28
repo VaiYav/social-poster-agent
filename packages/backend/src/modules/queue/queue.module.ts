@@ -8,6 +8,7 @@ import { PostingService } from '../posting/posting.service';
 import { QueueService } from './queue.service';
 import { QueueController } from './queue.controller';
 import { SocialNetwork } from '@prisma/client';
+import { parseBool } from '../../infrastructure/config/parse-bool';
 
 /**
  * Queue module — wires BullMQ workers to PostingService and BrowsingSessionService.
@@ -40,7 +41,7 @@ export class QueueModule implements OnModuleInit {
     // SPA_DRY_RUN: skip worker registration in dry-run mode — the dry-run runner
     // calls postById() directly to avoid race conditions with BullMQ workers
     // that would start posting before the browser session is established.
-    const isDryRun = this.configService.get<string>('SPA_DRY_RUN', 'false') === 'true';
+    const isDryRun = parseBool(this.configService.get<string>('SPA_DRY_RUN', 'false'));
     if (isDryRun) {
       this.logger.warn('SPA_DRY_RUN=true — BullMQ workers NOT registered (dry-run runner controls flow)');
       return;

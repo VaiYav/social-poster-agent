@@ -10,6 +10,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { promises as fs } from 'fs';
 import { join } from 'path';
+import { parseBool } from '../../infrastructure/config/parse-bool';
 
 @Injectable()
 export class QuoteCardService {
@@ -20,7 +21,7 @@ export class QuoteCardService {
   private readonly height: number;
 
   constructor(private readonly configService: ConfigService) {
-    this.enabled = this.configService.get<string>('QUOTE_CARDS_ENABLED', 'false') === 'true';
+    this.enabled = parseBool(this.configService.get<string>('QUOTE_CARDS_ENABLED', 'false'));
     this.outputDir = this.configService.get<string>('QUOTE_CARDS_DIR', '/app/quote-cards');
     this.width = this.configService.get<number>('QUOTE_CARD_WIDTH', 1200);
     this.height = this.configService.get<number>('QUOTE_CARD_HEIGHT', 675);

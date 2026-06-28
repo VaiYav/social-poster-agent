@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { SocialNetwork } from '@prisma/client';
 import { WarmupService } from '../sessions/warmup.service.js';
+import { parseBool } from '../../infrastructure/config/parse-bool';
 
 /**
  * Accounts service — manages social account records.
@@ -46,19 +47,19 @@ export class AccountsService implements OnModuleInit {
         network: SocialNetwork.X,
         handle: this.configService.get<string>('SOCIAL_X_USERNAME', 'myzodiacai'),
         credentialsRef: 'SOCIAL_X_USERNAME/PASSWORD',
-        warmup: this.configService.get<string>('SOCIAL_X_WARMUP', 'false') === 'true',
+        warmup: parseBool(this.configService.get<string>('SOCIAL_X_WARMUP', 'false')),
       },
       {
         network: SocialNetwork.THREADS,
         handle: this.configService.get<string>('SOCIAL_THREADS_USERNAME', 'myzodiacai'),
         credentialsRef: 'SOCIAL_THREADS_USERNAME/PASSWORD',
-        warmup: this.configService.get<string>('SOCIAL_THREADS_WARMUP', 'false') === 'true',
+        warmup: parseBool(this.configService.get<string>('SOCIAL_THREADS_WARMUP', 'false')),
       },
       {
         network: SocialNetwork.FACEBOOK,
         handle: this.configService.get<string>('SOCIAL_FACEBOOK_EMAIL', 'myzodiacai@facebook.com'),
         credentialsRef: 'SOCIAL_FACEBOOK_EMAIL/PASSWORD',
-        warmup: this.configService.get<string>('SOCIAL_FACEBOOK_WARMUP', 'false') === 'true',
+        warmup: parseBool(this.configService.get<string>('SOCIAL_FACEBOOK_WARMUP', 'false')),
       },
     ];
 

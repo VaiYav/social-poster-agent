@@ -11,6 +11,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { parseBool } from '../config/parse-bool';
 
 export interface ProxyConfig {
   server: string;
@@ -29,7 +30,7 @@ export class ProxyRotationService {
   private stickySessions = new Map<string, { proxy: ProxyConfig; assignedAt: number }>();
 
   constructor(private readonly configService: ConfigService) {
-    this.enabled = this.configService.get<string>('PROXY_ROTATION_ENABLED', 'false') === 'true';
+    this.enabled = parseBool(this.configService.get<string>('PROXY_ROTATION_ENABLED', 'false'));
     this.gatewayUrl = this.configService.get<string>('PROXY_GATEWAY_URL', '') || null;
     this.stickyMinutes = this.configService.get<number>('PROXY_STICKY_MINUTES', 10);
 

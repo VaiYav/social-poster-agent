@@ -38,6 +38,7 @@ import { SseService } from '../../infrastructure/sse/sse.service.js';
 import { EngagementService } from '../engagement/engagement.service.js';
 import { PostStatus, SocialNetwork, CommentStatus } from '@prisma/client';
 import type { Page } from 'playwright-core';
+import { parseBool } from '../../infrastructure/config/parse-bool';
 
 export interface ScrapedComment {
   commentId: string;
@@ -74,11 +75,11 @@ export class RepliesMonitorService implements OnModuleInit {
     @Optional() @Inject(IBrowserPort) private readonly browser?: IBrowserPort,
     @Optional() private readonly engagementService?: EngagementService,
   ) {
-    this.enabled = this.configService.get<string>('REPLIES_ENABLED', 'false') === 'true';
+    this.enabled = parseBool(this.configService.get<string>('REPLIES_ENABLED', 'false'));
     this.cronSchedule = this.configService.get<string>('REPLIES_CRON_SCHEDULE', '0 */4 * * *');
     const rawMax = Number(this.configService.get<string>('REPLIES_MAX_PER_POST', '3'));
     this.maxRepliesPerPost = Number.isFinite(rawMax) && rawMax >= 0 ? Math.floor(rawMax) : 3;
-    this.llmEnabled = this.configService.get<string>('REPLIES_LLM_ENABLED', 'true') === 'true';
+    this.llmEnabled = parseBool(this.configService.get<string>('REPLIES_LLM_ENABLED', 'true'));
     const rawComplexity = this.configService.get<string>('REPLIES_AUTO_REPLY_COMPLEXITY', 'medium');
     this.autoReplyComplexity = rawComplexity === 'low' || rawComplexity === 'medium' || rawComplexity === 'high' ? rawComplexity : 'medium';
   }

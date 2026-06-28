@@ -8,6 +8,7 @@ import { DiscordNotificationService } from '../../infrastructure/notifications/d
 import { SessionStatus, SocialNetwork, type Prisma } from '@prisma/client';
 import { withRetry, navigateWithRetry, type RetryOptions } from '../../domain/retry.js';
 import { CircuitBreakerRegistry, CircuitOpenError } from '../../domain/circuit-breaker.js';
+import { parseBool } from '../../infrastructure/config/parse-bool';
 
 /**
  * Session manager — persistent browser sessions via Playwright storageState.
@@ -421,7 +422,7 @@ export class SessionsService {
       this.logger.log(`Login page loaded for ${network}: ${page.url()}`);
 
       // DEBUG: dump page HTML for login troubleshooting (only in dry-run mode)
-      if (process.env.SPA_DRY_RUN === 'true') {
+      if (parseBool(process.env.SPA_DRY_RUN)) {
         try {
           const html = await page.content();
           const fs = await import('node:fs/promises');

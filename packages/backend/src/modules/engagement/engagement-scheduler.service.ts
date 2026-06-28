@@ -18,6 +18,7 @@ import { Injectable, Logger, type OnModuleInit, type OnModuleDestroy } from '@ne
 import { ConfigService } from '@nestjs/config';
 import { SocialNetwork } from '@prisma/client';
 import { QueueFactory } from '../../infrastructure/queue/queue.factory.js';
+import { parseBool } from '../../infrastructure/config/parse-bool';
 
 @Injectable()
 export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy {
@@ -34,7 +35,7 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
     private readonly configService: ConfigService,
     private readonly queueFactory: QueueFactory,
   ) {
-    this.enabled = this.configService.get<string>('ENGAGEMENT_SCHEDULER_ENABLED', 'false') === 'true';
+    this.enabled = parseBool(this.configService.get<string>('ENGAGEMENT_SCHEDULER_ENABLED', 'false'));
     this.sessionsPerDay = Number(this.configService.get<string>('ENGAGEMENT_SESSIONS_PER_DAY', '3'));
     this.sessionWindows = this.parseWindows(
       this.configService.get<string>('ENGAGEMENT_SESSION_WINDOWS', '09:00,13:00,18:00'),

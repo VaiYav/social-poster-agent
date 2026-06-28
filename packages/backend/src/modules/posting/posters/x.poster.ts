@@ -4,6 +4,7 @@ import { IBrowserPort } from '../../../domain/ports/browser.port.js';
 import { BasePoster, type PostResult } from './base.poster.js';
 import { X_SELECTORS } from './selectors/x.selectors.js';
 import { ValidationError } from '../../../domain/errors.js';
+import { parseBool } from '../../../infrastructure/config/parse-bool';
 
 /**
  * X.com (Twitter) poster — browser automation for posting tweets and threads.
@@ -64,7 +65,7 @@ export class XPoster extends BasePoster {
 
       // Debug logging — only when SPA_DEBUG_SELECTORS env var is set
       // (avoids overhead in production while keeping diagnostic capability)
-      if (process.env.SPA_DEBUG_SELECTORS === 'true') {
+      if (parseBool(process.env.SPA_DEBUG_SELECTORS)) {
         const composeHtml = await page.content().catch(() => '');
         this.logger.debug(`X compose page HTML length: ${composeHtml.length}`);
         const testIds = await page.locator('[data-testid]').evaluateAll((els) =>

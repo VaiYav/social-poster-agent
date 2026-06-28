@@ -31,6 +31,7 @@ import { LlmService } from '../../infrastructure/llm/llm.service.js';
 import type { BrowserContext, Page } from 'playwright-core';
 import { SocialNetwork } from '@prisma/client';
 import { parseGoogleTrendsRss as parseGoogleTrendsRssPure } from './google-trends-rss.js';
+import { parseBool } from '../../infrastructure/config/parse-bool';
 
 // ── Types ──
 
@@ -127,9 +128,9 @@ export class TrendingScraperService implements OnModuleInit {
     @Optional() @Inject(IBrowserPort) private readonly browser?: IBrowserPort,
   ) {
     this.cacheTtlMs = this.configService.get<number>('TRENDING_CACHE_TTL_MS', DEFAULT_CACHE_TTL_MS);
-    this.enabled = this.configService.get<string>('TRENDING_SCRAPING_ENABLED', 'true') === 'true';
-    this.xScrapeEnabled = this.configService.get<string>('X_TRENDS_SCRAPING_ENABLED', 'true') === 'true';
-    this.llmFilterEnabled = this.configService.get<string>('TRENDING_LLM_FILTER_ENABLED', 'true') === 'true';
+    this.enabled = parseBool(this.configService.get<string>('TRENDING_SCRAPING_ENABLED', 'true'));
+    this.xScrapeEnabled = parseBool(this.configService.get<string>('X_TRENDS_SCRAPING_ENABLED', 'true'));
+    this.llmFilterEnabled = parseBool(this.configService.get<string>('TRENDING_LLM_FILTER_ENABLED', 'true'));
   }
 
   /**
@@ -145,7 +146,7 @@ export class TrendingScraperService implements OnModuleInit {
     }
 
     // SPA_DRY_RUN: skip cron registration in dry-run mode
-    const isDryRun = this.configService.get<string>('SPA_DRY_RUN', 'false') === 'true';
+    const isDryRun = parseBool(this.configService.get<string>('SPA_DRY_RUN', 'false'));
     if (isDryRun) {
       this.logger.warn('SPA_DRY_RUN=true — trending scraper cron NOT registered');
       return;

@@ -5,6 +5,7 @@ import { CronJob } from 'cron';
 import { GenerationService } from './generation.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { GenerationTrigger } from '@prisma/client';
+import { parseBool } from '../../infrastructure/config/parse-bool';
 
 /**
  * Cron service — triggers generation on schedule.
@@ -30,7 +31,7 @@ export class CronService implements OnModuleInit {
     // Minor-29: seedFromEnv moved to AccountsService.onModuleInit
 
     // SPA_DRY_RUN: skip cron registration in dry-run mode
-    const isDryRun = this.configService?.get<string>('SPA_DRY_RUN', 'false') === 'true';
+    const isDryRun = parseBool(this.configService?.get<string>('SPA_DRY_RUN', 'false'));
     if (isDryRun) {
       this.logger.warn('SPA_DRY_RUN=true — cron jobs NOT registered');
       return;

@@ -8,6 +8,7 @@ import { DiscordNotificationService } from '../../infrastructure/notifications/d
 import { QueueService } from '../queue/queue.service';
 import { QueueFactory } from '../../infrastructure/queue/queue.factory';
 import { SessionStatus, PostStatus, SocialNetwork } from '@prisma/client';
+import { parseBool } from '../../infrastructure/config/parse-bool';
 
 /**
  * F21: Account Health Monitor — hourly cron that checks:
@@ -45,7 +46,7 @@ export class HealthMonitorService implements OnModuleInit {
 
   onModuleInit(): void {
     // SPA_DRY_RUN: skip cron registration in dry-run mode
-    const isDryRun = this.configService?.get<string>('SPA_DRY_RUN', 'false') === 'true';
+    const isDryRun = parseBool(this.configService?.get<string>('SPA_DRY_RUN', 'false'));
     if (isDryRun) {
       this.logger.warn('SPA_DRY_RUN=true — health monitor cron jobs NOT registered');
       return;

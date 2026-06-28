@@ -57,9 +57,9 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
   private readonly contextWaiters = new Map<SocialNetwork, Array<{ resolve: () => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> }>>();
 
   constructor(private readonly configService: ConfigService) {
-    this.headless = this.configService.get<string>('CAMOUFOX_HEADLESS', 'true') === 'true';
-    this.humanize = this.configService.get<string>('CAMOUFOX_HUMANIZE', 'true') === 'true';
-    this.geoip = this.configService.get<string>('CAMOUFOX_GEOIP', 'true') === 'true';
+    this.headless = parseBool(this.configService.get<string>('CAMOUFOX_HEADLESS', 'true'));
+    this.humanize = parseBool(this.configService.get<string>('CAMOUFOX_HUMANIZE', 'true'));
+    this.geoip = parseBool(this.configService.get<string>('CAMOUFOX_GEOIP', 'true'));
     this.locale = this.configService.get<string>('CAMOUFOX_LOCALE', 'en-US');
     this.targetOs = this.configService.get<string>('CAMOUFOX_OS', 'windows') as
       | 'windows'

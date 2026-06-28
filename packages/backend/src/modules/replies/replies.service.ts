@@ -11,6 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { PostStatus, SocialNetwork } from '@prisma/client';
+import { parseBool } from '../../infrastructure/config/parse-bool';
 
 export interface Comment {
   id: string;
@@ -37,7 +38,7 @@ export class RepliesService {
     private readonly configService: ConfigService,
     private readonly accountsService: AccountsService,
   ) {
-    this.enabled = this.configService.get<string>('REPLIES_ENABLED', 'false') === 'true';
+    this.enabled = parseBool(this.configService.get<string>('REPLIES_ENABLED', 'false'));
     this.maxRepliesPerPost = this.configService.get<number>('REPLIES_MAX_PER_POST', 3);
     this.replyDelayMinMs = this.configService.get<number>('REPLIES_DELAY_MIN_MS', 300000); // 5 min
   }

@@ -9,6 +9,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Page } from 'playwright-core';
+import { parseBool } from '../config/parse-bool';
 
 @Injectable()
 export class CaptchaSolverService {
@@ -19,7 +20,7 @@ export class CaptchaSolverService {
   private readonly maxPollAttempts: number;
 
   constructor(private readonly configService: ConfigService) {
-    this.enabled = this.configService.get<string>('CAPTCHA_SOLVER_ENABLED', 'false') === 'true';
+    this.enabled = parseBool(this.configService.get<string>('CAPTCHA_SOLVER_ENABLED', 'false'));
     this.apiKey = this.configService.get<string>('TWO_CAPTCHA_API_KEY', '');
     this.pollIntervalMs = this.configService.get<number>('CAPTCHA_POLL_INTERVAL_MS', 5000);
     this.maxPollAttempts = this.configService.get<number>('CAPTCHA_MAX_POLL_ATTEMPTS', 24); // 2 min total
