@@ -50,7 +50,14 @@
   методов, дорогой `paramtypes`-ripple ради ~55 строк) — оставлен осознанно; `sessions.service` не тронут.
 
 **Баги (разделы 2) — закрыто:** RC1, R1, AU1/AU2/AU3 (в составе A1), SEC1, B5/SEC4, P2, P3/P4,
-reaper stuck-POSTING, P5, PO2, RP2, RP3, AU4/AU7/AU8, AU5 (trend-guardrail), TR1, BUG-12.
+reaper stuck-POSTING, P5, PO2, RP2, RP3, AU4/AU7/AU8, AU5 (trend-guardrail), TR1, BUG-12, P1.
+
+**P1 — нюанс:** корректность («не врать POSTED») уже обеспечена: `posting.service.isValidPostUrl`
+ставит **FAILED** на не-permalink (не bogus POSTED), а published-but-no-permalink реконсилит M1
+self-recovery через `verifyPosted` по профилю (подтверждено dry-run). Добавлен `permalink.ts` guard в
+X-fallback (`6645e1e`, step 1a). **Не сделано (осознанно):** сетевой перехват ответа CreateTweet для
+захвата нативного permalink с первой попытки — это оптимизация capture-rate, самый хрупкий (живая форма
+ответа) путь, ROI убывающий.
 
 **Доп. находка вне списка:** `tsc`-сборка была **сломана** (`localhost.guard`, от SEC1; не ловилась —
 vitest транслирует через esbuild без типов, а в CI не было build-шага → `pnpm build`/`pnpm dry-run` не
@@ -150,7 +157,7 @@ HEAD`, независимая верификация на каждую нахо�
 | ✅ SEC1 | XFF обходит LocalhostGuard | S | M0 | доверять XFF только от known-proxy |
 | SEC2 | FB-cookie в плейнтексте `/tmp/spa-profiles` | M | M0/M1 | шифр-том или вынести профиль |
 | RP1 | авто-reply блокирует крон `setTimeout` 5–30мин | M | M1 | в BullMQ delayed (`jobId=commentId`) + re-entrancy guard |
-| P1 | детекция успеха постинга даёт ложные POSTED/FAILED | L | M1 | нативный permalink + нормализация |
+| ✅ P1 | детекция успеха постинга даёт ложные POSTED/FAILED | L | M1 | нормализация есть: сервис `isValidPostUrl`→FAILED (не bogus POSTED) + M1 self-recovery `verifyPosted` по профилю + `permalink.ts` guard (1a, `6645e1e`). Сетевой перехват CreateTweet — опц. оптимизация capture-rate, отложена |
 
 ### High — M1/M2
 | ID | Что | Усилие | Майлстоун |
