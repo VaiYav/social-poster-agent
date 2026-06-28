@@ -21,6 +21,7 @@ import type { ContentTopic } from '@spa/shared';
 import { buildGenerationGraph, createInitialState, type GeneratedPost, type ProgressPublisher } from './generation.graph.js';
 import { Command } from '@langchain/langgraph';
 import { simhash, hammingDistance } from './simhash.js';
+import { prioritizeTopics as prioritizeTopicsByFreshness } from './topic-prioritization.js';
 import { checkTrendSafety } from '../content-enhancements/trend-guardrail.js';
 import {
   ContentPillarTracker,
@@ -836,37 +837,13 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
   }
 
   private prioritizeTopics(topics: ContentTopic[], count: number): ContentTopic[] {
-    // Sort by publishedAt descending (freshest first); topics without date go last
-    const sorted = [...topics].sort((a, b) => {
-      const aTime = a.publishedAt?.getTime() ?? 0;
-      const bTime = b.publishedAt?.getTime() ?? 0;
-      return bTime - aTime;
-    });
-
-    // Rotate categories — pick topics round-robin from different categories
-    const result: ContentTopic[] = [];
-    const remaining = [...sorted];
-    let lastCategory: string | null = null;
-
-    while (remaining.length > 0 && result.length < count) {
-      // Find first topic with a different category than last picked
-      let idx = remaining.findIndex(
-        (t) => (t.category ?? 'uncategorized') !== lastCategory,
-      );
-
-      // If all remaining are same category, just take the first
-      if (idx === -1) idx = 0;
-
-      const picked = remaining.splice(idx, 1)[0]!;
-      result.push(picked);
-      lastCategory = picked.category ?? 'uncategorized';
-    }
-
+    // A6: pure sort + round-robin lives in topic-prioritization.ts; the wrapper
+    // keeps the B5 debug log.
+    const result = prioritizeTopicsByFreshness(topics, count);
     this.logger.debug(
       `B5: Prioritized ${result.length}/${topics.length} topics — ` +
         `categories: ${result.map((t) => t.category ?? 'uncategorized').join(', ')}`,
     );
-
     return result;
   }
 
