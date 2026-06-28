@@ -47,7 +47,9 @@ export class LocalhostGuard implements CanActivate {
       .filter(Boolean);
     if (trustedProxies.includes(remoteAddress)) {
       const xff = request.headers['x-forwarded-for'];
-      const raw = Array.isArray(xff) ? xff[0] : (xff ?? '');
+      // `xff[0]` is `string | undefined` (empty array / noUncheckedIndexedAccess),
+      // so coalesce to '' to keep `raw` a string.
+      const raw = (Array.isArray(xff) ? xff[0] : xff) ?? '';
       const firstIp = this.normalizeIp((raw.split(',')[0] ?? '').trim());
       if (this.isLoopback(firstIp) || this.isDockerPrivate(firstIp)) return true;
     }
