@@ -52,6 +52,13 @@ jobs:
       - name: Lint (oxlint)
         run: pnpm lint
 
+      - name: Typecheck (nest build)
+        # esbuild-based vitest does NOT typecheck, so a type error can pass the
+        # whole test suite while breaking `pnpm build` / `pnpm dry-run` (both run
+        # nest build). This step is what would have caught the LocalhostGuard tsc
+        # break. @spa/shared is already built above.
+        run: pnpm --filter @spa/backend build
+
       - name: Backend test suite
         # `pnpm test` -> `vitest run` in @spa/backend = the full layered suite.
         # External I/O (Prisma, Redis, browser) is mocked, so no Postgres/Redis
