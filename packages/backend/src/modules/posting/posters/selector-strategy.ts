@@ -18,6 +18,8 @@
 //   const locator = await resolveSelector(page, strategy);
 
 import type { Locator, Page } from 'playwright-core';
+import type { SocialNetwork } from '@spa/shared';
+import type { SelectorHealthService } from '../../../infrastructure/browser/selector-health.service.js';
 
 /** Selector strategy — multiple approaches to find the same element. */
 export interface SelectorStrategy {
@@ -44,9 +46,33 @@ export interface SelectorResolution {
  * Resolve a selector strategy to a Locator on the page.
  * Tries each approach in priority order, returns the first match.
  *
+ * @param page Playwright page
+ * @param strategy Multi-fallback selector strategy
+ * @param healthTracking Optional — (network, selectorKey, success) for health monitoring
  * @throws if no selector matches (caller should catch and create SelectorNotFoundError)
  */
 export async function resolveSelector(
+  page: Page,
+  strategy: SelectorStrategy,
+  healthTracking?: { network: SocialNetwork; selectorKey: string; healthService: SelectorHealthService },
+): Promise<SelectorResolution> {
+  let result: SelectorResolution | null = null;
+  try {
+    result = await resolveSelectorInner(page, strategy);
+    return result;
+  } finally {
+    if (healthTracking) {
+      if (result) {
+        healthTracking.healthService.recordSuccess(healthTracking.network, healthTracking.selectorKey);
+      } else {
+        healthTracking.healthService.recordFailure(healthTracking.network, healthTracking.selectorKey);
+      }
+    }
+  }
+}
+
+/** Internal resolver — does the actual selector matching. */
+async function resolveSelectorInner(
   page: Page,
   strategy: SelectorStrategy,
 ): Promise<SelectorResolution> {
@@ -131,12 +157,13 @@ export async function waitForSelector(
   page: Page,
   strategy: SelectorStrategy,
   timeoutMs = 15000,
+  healthTracking?: { network: SocialNetwork; selectorKey: string; healthService: SelectorHealthService },
 ): Promise<SelectorResolution> {
   const startTime = Date.now();
 
   while (Date.now() - startTime < timeoutMs) {
     try {
-      const result = await resolveSelector(page, strategy);
+      const result = await resolveSelector(page, strategy, healthTracking);
       return result;
     } catch {
       // Not found yet — wait and retry
@@ -145,7 +172,7 @@ export async function waitForSelector(
   }
 
   // Final attempt — will throw if still not found
-  return resolveSelector(page, strategy);
+  return resolveSelector(page, strategy, healthTracking);
 }
 
 /** Check if a locator is visible (with short timeout to avoid blocking). */

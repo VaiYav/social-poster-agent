@@ -1,47 +1,273 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
+import {
+  FileText,
+  CheckCircle,
+  CheckCircle2,
+  XCircle,
+  Ban,
+  ArrowRight,
+  Zap,
+  Pause,
+  Play,
+  AlertTriangle,
+  Award,
+  Bot,
+} from '@lucide/vue';
 import { usePostsStore } from '../stores/posts';
 import { useStatsStore } from '../stores/stats';
+import { useApi } from '../composables/useApi';
+import { Card, Button, SectionHeader, Badge } from '../components/ui';
 import StatCard from '../components/StatCard.vue';
 import PostCard from '../components/PostCard.vue';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import ErrorState from '../components/ErrorState.vue';
+import { useRouter } from 'vue-router';
 
 const postsStore = usePostsStore();
 const statsStore = useStatsStore();
+const router = useRouter();
+const api = useApi();
+
+// Flow control + autonomous status
+interface FlowControlState {
+  generationPaused: boolean;
+  postingPaused: boolean;
+  engagementPaused: boolean;
+  repliesPaused: boolean;
+  crisisMode: boolean;
+}
+const flowState = ref<FlowControlState | null>(null);
+const avgQualityScore = ref<number | null>(null);
+const autonomousRuns = ref<number | null>(null);
 
 onMounted(async () => {
   await Promise.all([
     statsStore.fetchStats(),
     postsStore.fetchPosts({ limit: 5 }),
+    fetchFlowControl(),
+    fetchQualityMetrics(),
   ]);
 });
+
+async function fetchFlowControl() {
+  try {
+    const res = await api.get<FlowControlState>('/flow-control/state');
+    flowState.value = res.data;
+  } catch {
+    // Endpoint may not exist in all environments
+  }
+}
+
+async function fetchQualityMetrics() {
+  try {
+    // Fetch hook performance to get avg quality
+    const res = await api.get<{
+      networks: Record<string, Record<string, { avgQuality: number; qualityCount: number }>>;
+      lastUpdated: number | null;
+    }>('/analytics/hook-performance');
+    if (res.data.lastUpdated) {
+      // Compute weighted average quality across all networks
+      let totalScore = 0;
+      let totalCount = 0;
+      for (const networkStats of Object.values(res.data.networks)) {
+        for (const stats of Object.values(networkStats)) {
+          if (stats.qualityCount > 0) {
+            totalScore += stats.avgQuality * stats.qualityCount;
+            totalCount += stats.qualityCount;
+          }
+        }
+      }
+      avgQualityScore.value = totalCount > 0 ? totalScore / totalCount : null;
+    }
+  } catch {
+    // Graceful degradation
+  }
+}
+
+const allPaused = computed(() => {
+  if (!flowState.value) return false;
+  return flowState.value.crisisMode ||
+    (flowState.value.generationPaused && flowState.value.postingPaused);
+});
+
+const statItems = [
+  { label: 'Drafts', value: 'drafts', icon: FileText, color: 'text-status-draft' },
+  { label: 'Approved', value: 'approved', icon: CheckCircle, color: 'text-status-approved' },
+  { label: 'Posted', value: 'posted', icon: CheckCircle2, color: 'text-status-posted' },
+  { label: 'Failed', value: 'failed', icon: XCircle, color: 'text-status-failed' },
+  { label: 'Rejected', value: 'rejected', icon: Ban, color: 'text-status-rejected' },
+] as const;
 </script>
 
 <template>
   <div>
-    <h1 class="text-2xl font-bold text-gray-900">Dashboard</h1>
+    <SectionHeader
+      title="Dashboard"
+      description="Overview of your content pipeline, autonomous status, and recent activity."
+    />
+
+    <!-- Crisis mode banner -->
+    <div
+      v-if="allPaused"
+      class="mb-6 flex items-center gap-3 rounded-lg border border-error/30 bg-error/10 p-4"
+    >
+      <AlertTriangle class="h-5 w-5 text-error" />
+      <div class="flex-1">
+        <p class="font-medium text-error">All flows paused</p>
+        <p class="text-sm text-text-secondary">
+          {{ flowState?.crisisMode ? 'Crisis mode is active.' : 'Generation and posting are paused.' }}
+        </p>
+      </div>
+      <Button size="sm" variant="outline" @click="router.push('/flow-control')">
+        Manage
+        <ArrowRight class="h-4 w-4" />
+      </Button>
+    </div>
 
     <LoadingSpinner v-if="statsStore.loading" />
     <ErrorState v-else-if="statsStore.error" :message="statsStore.error" />
     <template v-else>
-      <div class="mt-6 grid grid-cols-5 gap-4">
-        <StatCard label="Drafts" :value="statsStore.stats.drafts" color="text-yellow-600" />
-        <StatCard label="Approved" :value="statsStore.stats.approved" color="text-blue-600" />
-        <StatCard label="Posted" :value="statsStore.stats.posted" color="text-green-600" />
-        <StatCard label="Failed" :value="statsStore.stats.failed" color="text-red-600" />
-        <StatCard label="Rejected" :value="statsStore.stats.rejected" color="text-gray-500" />
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <StatCard
+          v-for="item in statItems"
+          :key="item.value"
+          :label="item.label"
+          :value="statsStore.stats[item.value]"
+          :icon="item.icon"
+          :color="item.color"
+        />
       </div>
     </template>
 
-    <h2 class="mt-8 text-lg font-semibold text-gray-900">Recent Posts</h2>
-    <LoadingSpinner v-if="postsStore.loading" />
-    <ErrorState v-else-if="postsStore.error" :message="postsStore.error" />
-    <div v-else-if="postsStore.posts.length === 0" class="mt-4">
-      <p class="text-gray-500">No posts yet. Generate some from the Generate page.</p>
+    <!-- Autonomous + Quality mini widgets -->
+    <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <!-- Avg Quality Score -->
+      <Card>
+        <div class="flex items-center gap-3">
+          <div class="rounded-lg bg-primary/10 p-3">
+            <Award class="h-6 w-6 text-primary" />
+          </div>
+          <div>
+            <p class="text-sm text-text-secondary">Avg Quality Score</p>
+            <p class="text-2xl font-bold text-text-primary">
+              {{ avgQualityScore !== null ? avgQualityScore.toFixed(1) : '—' }}
+              <span class="text-sm font-normal text-text-muted">/ 10</span>
+            </p>
+          </div>
+        </div>
+      </Card>
+
+      <!-- Autonomous Status -->
+      <Card>
+        <div class="flex items-center gap-3">
+          <div class="rounded-lg bg-primary/10 p-3">
+            <Bot class="h-6 w-6 text-primary" />
+          </div>
+          <div>
+            <p class="text-sm text-text-secondary">Autonomous Mode</p>
+            <div class="flex items-center gap-2">
+              <Badge :variant="flowState && !allPaused ? 'success' : 'warning'">
+                {{ flowState && !allPaused ? 'Active' : 'Paused' }}
+              </Badge>
+              <Button size="sm" variant="ghost" @click="router.push('/flow-control')">
+                Configure
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      <!-- Flow Control Quick -->
+      <Card>
+        <div class="flex items-center gap-3">
+          <div class="rounded-lg bg-primary/10 p-3">
+            <Zap class="h-6 w-6 text-primary" />
+          </div>
+          <div class="flex-1">
+            <p class="text-sm text-text-secondary">Flow Status</p>
+            <div class="flex flex-wrap gap-1.5 mt-1">
+              <Badge v-if="flowState" :variant="flowState.generationPaused ? 'warning' : 'success'" class="text-xs">
+                Gen {{ flowState.generationPaused ? 'off' : 'on' }}
+              </Badge>
+              <Badge v-if="flowState" :variant="flowState.postingPaused ? 'warning' : 'success'" class="text-xs">
+                Post {{ flowState.postingPaused ? 'off' : 'on' }}
+              </Badge>
+              <Badge v-if="flowState" :variant="flowState.engagementPaused ? 'warning' : 'success'" class="text-xs">
+                Eng {{ flowState.engagementPaused ? 'off' : 'on' }}
+              </Badge>
+            </div>
+          </div>
+        </div>
+      </Card>
     </div>
-    <div v-else class="mt-4 space-y-2">
-      <PostCard v-for="post in postsStore.posts" :key="post.id" :post="post" :truncate="100" />
+
+    <div class="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3">
+      <!-- Recent Posts -->
+      <Card class="lg:col-span-2">
+        <template #header>
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="text-lg font-semibold text-text-primary">Recent Posts</h2>
+              <p class="text-sm text-text-secondary">Latest activity across all networks</p>
+            </div>
+            <Button variant="outline" size="sm" @click="router.push('/history')">
+              View all
+              <ArrowRight class="h-4 w-4" />
+            </Button>
+          </div>
+        </template>
+
+        <LoadingSpinner v-if="postsStore.loading" />
+        <ErrorState v-else-if="postsStore.error" :message="postsStore.error" />
+        <div v-else-if="postsStore.posts.length === 0" class="py-8 text-center">
+          <p class="text-sm text-text-muted">
+            No posts yet. Generate some from the Generate page.
+          </p>
+          <Button class="mt-4" size="sm" @click="router.push('/generate')">
+            Generate posts
+          </Button>
+        </div>
+        <div v-else class="space-y-4">
+          <PostCard
+            v-for="post in postsStore.posts"
+            :key="post.id"
+            :post="post"
+            :truncate="120"
+          />
+        </div>
+      </Card>
+
+      <!-- Quick Actions -->
+      <Card>
+        <template #header>
+          <h2 class="text-lg font-semibold text-text-primary">Quick Actions</h2>
+          <p class="text-sm text-text-secondary">Jump to common workflows</p>
+        </template>
+
+        <div class="space-y-2">
+          <Button class="w-full justify-between" @click="router.push('/queue')">
+            Review queue
+            <ArrowRight class="h-4 w-4" />
+          </Button>
+          <Button class="w-full justify-between" variant="secondary" @click="router.push('/generate')">
+            Generate posts
+            <ArrowRight class="h-4 w-4" />
+          </Button>
+          <Button class="w-full justify-between" variant="outline" @click="router.push('/analytics')">
+            View analytics
+            <ArrowRight class="h-4 w-4" />
+          </Button>
+          <Button class="w-full justify-between" variant="outline" @click="router.push('/flow-control')">
+            Flow control
+            <ArrowRight class="h-4 w-4" />
+          </Button>
+          <Button class="w-full justify-between" variant="outline" @click="router.push('/reports')">
+            Reports
+            <ArrowRight class="h-4 w-4" />
+          </Button>
+        </div>
+      </Card>
     </div>
   </div>
 </template>

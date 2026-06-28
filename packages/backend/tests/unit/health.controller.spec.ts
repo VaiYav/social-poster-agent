@@ -17,22 +17,16 @@ import { createMockPrismaService } from '../mocks/index';
 import { createControllerTestingModule } from '../helpers/nest';
 import { HealthController } from '../../src/modules/health/health.controller';
 import { PrismaService } from '../../src/infrastructure/prisma/prisma.service';
+import { SHARED_REDIS } from '../../src/infrastructure/redis/redis.module';
 
 // vitest transpiles via esbuild which does NOT emit `design:paramtypes` metadata,
 // so NestJS DI-by-type fails. We attach it explicitly to the controller class.
-Reflect.defineMetadata('design:paramtypes', [PrismaService, ConfigService], HealthController);
+Reflect.defineMetadata('design:paramtypes', [PrismaService, Object], HealthController);
 
-// ioredis is instantiated directly inside HealthController.check() via
-// `new IORedis(url, opts)`, so we mock the module. vi.hoisted ensures the
-// mock instance is available to the hoisted vi.mock factory. The factory
-// returns a constructor that, when invoked with `new`, returns the shared
-// mock instance (because a constructor returning an object wins over `this`).
+// Sprint L: Redis is now injected via SHARED_REDIS token instead of created locally.
+// Mock the shared Redis instance.
 const { mockRedisInstance } = vi.hoisted(() => ({
   mockRedisInstance: { ping: vi.fn() },
-}));
-
-vi.mock('ioredis', () => ({
-  default: vi.fn(() => mockRedisInstance),
 }));
 
 describe('HealthController (MOD-07 — UTC-115..119)', () => {
@@ -51,13 +45,13 @@ describe('HealthController (MOD-07 — UTC-115..119)', () => {
       }),
     };
 
-    // Fresh redis ping mock per test (controller caches `this.redis`, but a
-    // new controller is built each test so the IORedis ctor is re-invoked).
+    // Fresh redis ping mock per test
     mockRedisInstance.ping = vi.fn().mockResolvedValue('PONG');
 
     const { controller: ctrl } = await createControllerTestingModule(HealthController, [
       { provide: PrismaService, useValue: prismaMock },
       { provide: ConfigService, useValue: configService },
+      { provide: SHARED_REDIS, useValue: mockRedisInstance },
     ]);
     controller = ctrl;
   });

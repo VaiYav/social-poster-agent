@@ -54,12 +54,30 @@ RUN pnpm install --frozen-lockfile --prod
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/packages/backend/dist ./packages/backend/dist
 COPY --from=builder /app/packages/backend/prisma ./packages/backend/prisma
-COPY --from=builder /app/node_modules/.pnpm/@prisma+client*/node_modules/@prisma/client ./node_modules/.pnpm/@prisma+client-placeholder/node_modules/@prisma/client
+
+# Copy generated Prisma client from builder to the correct pnpm store path.
+# The glob COPY extracts the contents to /tmp; we then find the actual
+# @prisma/client directory in the production pnpm store and overwrite it.
+# This must run before USER spa (needs root to write to node_modules).
+COPY --from=builder /app/node_modules/.pnpm/@prisma+client*/node_modules/@prisma/client /tmp/prisma-generated
+RUN CLIENT_DIR=$(find /app/node_modules/.pnpm -path '*/@prisma/client' -type d | head -1) && \
+    cp -r /tmp/prisma-generated/* "$CLIENT_DIR/" && \
+    rm -rf /tmp/prisma-generated
 
 # Copy brand voice
 COPY brand-voice.md ./
 
+# Sprint N: Add non-root user for security
+RUN groupadd -r spa && useradd -r -g spa spa && chown -R spa:spa /app
+USER spa
+
 EXPOSE 3100
+
+# Sprint N: Healthcheck — verify the API is responding.
+# Uses node (always available in the image) with built-in fetch.
+# The health endpoint is at /api/v1/health (setGlobalPrefix in main.ts).
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD node -e "fetch('http://localhost:3100/api/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))" || exit 1
 
 ENV NODE_ENV=production
 ENV SPA_API_PORT=3100

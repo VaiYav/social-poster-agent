@@ -9,7 +9,10 @@ import {
   HttpCode,
   HttpStatus,
   NotFoundException,
+  BadRequestException,
+  Logger,
 } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiParam } from '@nestjs/swagger';
 import { PostsService } from './posts.service';
 import {
@@ -26,7 +29,32 @@ import {
 @ApiTags('posts')
 @Controller('posts')
 export class PostsController {
-  constructor(private readonly postsService: PostsService) {}
+  private readonly logger = new Logger(PostsController.name);
+
+  constructor(
+    private readonly postsService: PostsService,
+    private readonly moduleRef: ModuleRef,
+  ) {}
+
+  /**
+   * P0 fix: Lazily resolve QueueService via ModuleRef to avoid circular dependency.
+   * PostsModule → QueueModule → PostingModule → PostsModule would be circular,
+   * so we don't import QueueModule in PostsModule. Instead, we resolve it at
+   * runtime — it's always available in the AppModule context.
+   */
+  private async enqueueForPosting(postId: string, network: string): Promise<void> {
+    try {
+      const { QueueService } = await import('../queue/queue.service.js');
+      const queueService = this.moduleRef.get(QueueService, { strict: false });
+      if (queueService) {
+        await queueService.enqueuePosting(postId, network as 'X' | 'THREADS' | 'FACEBOOK');
+      } else {
+        this.logger.warn(`QueueService not available — post ${postId} approved but not enqueued (will be picked up by reconciliation cron)`);
+      }
+    } catch (err) {
+      this.logger.error(`Failed to enqueue post ${postId}: ${(err as Error).message}`);
+    }
+  }
 
   @Get()
   @HttpCode(HttpStatus.OK)
@@ -65,7 +93,13 @@ export class PostsController {
   @ApiOperation({ summary: 'Create a new post manually' })
   @ApiResponse({ status: 201, description: 'Post created' })
   async create(@Body() rawBody: unknown) {
-    const dto = CreatePostDtoSchema.parse(rawBody) as CreatePostDto;
+    // Minor-30: return 400 for Zod validation errors instead of 500
+    let dto: CreatePostDto;
+    try {
+      dto = CreatePostDtoSchema.parse(rawBody) as CreatePostDto;
+    } catch (err) {
+      throw new BadRequestException((err as Error).message);
+    }
     return this.postsService.create(dto);
   }
 
@@ -74,9 +108,16 @@ export class PostsController {
   @ApiOperation({ summary: 'Update post status' })
   @ApiParam({ name: 'id', type: String })
   @ApiResponse({ status: 200, description: 'Status updated' })
+  @ApiResponse({ status: 400, description: 'Invalid status value' })
   @ApiResponse({ status: 404, description: 'Post not found' })
   async updateStatus(@Param('id') id: string, @Body() rawBody: unknown) {
-    const dto = UpdatePostStatusDtoSchema.parse(rawBody) as UpdatePostStatusDto;
+    // Minor-30: return 400 for Zod validation errors instead of 500
+    let dto: UpdatePostStatusDto;
+    try {
+      dto = UpdatePostStatusDtoSchema.parse(rawBody) as UpdatePostStatusDto;
+    } catch (err) {
+      throw new BadRequestException((err as Error).message);
+    }
     try {
       return await this.postsService.updateStatus(id, dto);
     } catch {
@@ -86,16 +127,28 @@ export class PostsController {
 
   @Post(':id/approve')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Approve a draft post (optionally with edited content) — moves to posting queue' })
+  @ApiOperation({ summary: 'Approve a draft post (optionally with edited content) — enqueues to BullMQ posting queue' })
   @ApiParam({ name: 'id', type: String })
-  @ApiResponse({ status: 200, description: 'Post approved' })
+  @ApiResponse({ status: 200, description: 'Post approved and enqueued for posting' })
   @ApiResponse({ status: 404, description: 'Post not found' })
   async approve(@Param('id') id: string, @Body() rawBody: unknown) {
+    // Minor-30: return 400 for Zod validation errors instead of 404
+    let dto: ApprovePostDto;
     try {
-      // D2: accept optional editedContent — operator can edit post before approving
-      const dto = ApprovePostDtoSchema.parse(rawBody ?? {}) as ApprovePostDto;
-      return await this.postsService.approve(id, dto.editedContent);
-    } catch {
+      dto = ApprovePostDtoSchema.parse(rawBody ?? {}) as ApprovePostDto;
+    } catch (err) {
+      throw new BadRequestException((err as Error).message);
+    }
+    try {
+      const post = await this.postsService.approve(id, dto.editedContent);
+
+      // P0 fix: enqueue to BullMQ posting queue — this is the core approve→post happy path
+      await this.enqueueForPosting(post.id, post.network as string);
+      this.logger.log(`Post ${id} approved and enqueued for ${post.network}`);
+
+      return post;
+    } catch (err) {
+      if (err instanceof BadRequestException) throw err;
       throw new NotFoundException(`Post ${id} not found`);
     }
   }

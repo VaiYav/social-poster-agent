@@ -11,7 +11,7 @@
  *   - ioredis: vi.mock (Map-backed store — SSE/RateLimit/Checkpoint use it)
  *   - camoufox-js / @langchain/openai: vi.mock (avoid native binary / network)
  *
- * Spec: features/spa/v-model/system-test/system-test-cases.md
+ * Spec: CONSTITUTION.md §14 (Testing) — test case IDs are inline
  * Standard: ISO/IEC/IEEE 29119:2021
  *
  * NOTE: Vitest transforms with esbuild, which does NOT emit
@@ -20,10 +20,28 @@
  */
 import 'reflect-metadata';
 import http from 'node:http';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { SseEventListener } from '../../src/events/listeners/sse-event.listener';
+import { AutoApproveListener } from '../../src/events/listeners/auto-approve.listener';
+import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service';
+import { NotificationsModule } from '../../src/infrastructure/notifications/notifications.module';
+import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service';
+import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator';
+import { ThreadDepthController } from '../../src/modules/content-enhancements/thread-depth.controller';
+import { ContentPillarTracker } from '../../src/modules/content-enhancements/content-pillar.tracker';
+import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook-performance-bank';
+import { ThreadProgressService } from '../../src/modules/posting/thread-progress.service';
+import { HumanBehaviorEngine } from '../../src/modules/engagement/human-behavior-engine';
+import { TargetingService } from '../../src/modules/engagement/targeting.service';
+import { RepliesMonitorService } from '../../src/modules/replies/replies-monitor.service';
+import { EngagementSchedulerService } from '../../src/modules/engagement/engagement-scheduler.service';
+import { SchedulerRegistry } from '@nestjs/schedule';
+import { MetricsScraperService } from '../../src/modules/analytics/metrics-scraper.service';
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { TestingModule } from '@nestjs/testing';
-import { INestApplication, Controller, Get } from '@nestjs/common';
+import { INestApplication, Controller, Get } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import request from 'supertest';
@@ -44,6 +62,8 @@ import { SseService } from '../../src/infrastructure/sse/sse.service';
 import { SseModule } from '../../src/infrastructure/sse/sse.module';
 import { QueueFactory } from '../../src/infrastructure/queue/queue.factory';
 import { QueueModule } from '../../src/modules/queue/queue.module';
+import { EncryptionService } from '../../src/infrastructure/crypto/encryption.service';
+import { TrendingScraperService } from '../../src/modules/trending/trending-scraper.service';
 import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint';
 
 // Services / Controllers
@@ -67,6 +87,7 @@ import { AccountsService } from '../../src/modules/accounts/accounts.service';
 import { AccountsController } from '../../src/modules/accounts/accounts.controller';
 import { RateLimitService } from '../../src/modules/rate-limit/rate-limit.service';
 import { GenerationService } from '../../src/modules/generation/generation.service';
+import { clearHookCache } from '../../src/modules/generation/generation.graph';
 import { GenerationController } from '../../src/modules/generation/generation.controller';
 import { CronService } from '../../src/modules/generation/cron.service';
 import { ContentSourceService } from '../../src/modules/content-source/content-source.service';
@@ -74,6 +95,16 @@ import { ContentSourceController } from '../../src/modules/content-source/conten
 import { QueueService } from '../../src/modules/queue/queue.service';
 import { QueueController } from '../../src/modules/queue/queue.controller';
 import { EventsController } from '../../src/modules/events/events.controller';
+// Sprint O: New Features
+import { CaptchaSolverService } from '../../src/infrastructure/captcha/captcha-solver.service';
+import { ProxyRotationService } from '../../src/infrastructure/proxy/proxy-rotation.service';
+import { AnalyticsService } from '../../src/modules/analytics/analytics.service';
+import { AnalyticsController } from '../../src/modules/analytics/analytics.controller';
+import { RecyclingService } from '../../src/modules/recycling/recycling.service';
+import { RecyclingController } from '../../src/modules/recycling/recycling.controller';
+import { QuoteCardService } from '../../src/modules/quote-cards/quote-card.service';
+import { QuoteCardController } from '../../src/modules/quote-cards/quote-card.controller';
+import { RepliesService } from '../../src/modules/replies/replies.service';
 import { HealthController } from '../../src/modules/health/health.controller';
 
 import { createMockLlmPort, createMockBrowserPort, createMockPrismaService } from '../mocks/index';
@@ -232,9 +263,9 @@ vi.mock('@langchain/openai', () => ({
 // ── Metadata restoration (esbuild compatibility) ────────────────────────────
 
 function defineParamtypes(target: unknown, types: unknown[]): void {
-  if (Reflect.getMetadata('design:paramtypes', target) == null) {
-    Reflect.defineMetadata('design:paramtypes', types, target);
-  }
+  // Always set — esbuild doesn't emit design:paramtypes, and we need the
+  // latest constructor signature even if a previous test file set older metadata
+  Reflect.defineMetadata('design:paramtypes', types, target);
 }
 
 function restoreAllDesignParamtypes(): void {
@@ -242,37 +273,48 @@ function restoreAllDesignParamtypes(): void {
   defineParamtypes(LlmService, [ConfigService]);
   defineParamtypes(ContentReader, [ConfigService]);
   defineParamtypes(BrowserFactory, [ConfigService]);
-  defineParamtypes(SseService, [ConfigService]);
-  defineParamtypes(RedisCheckpointSaver, [ConfigService]);
-  defineParamtypes(QueueFactory, [ConfigService]);
+  defineParamtypes(SseService, [ConfigService, Object, Object]);
+  defineParamtypes(RedisCheckpointSaver, [ConfigService, Object]);
+  defineParamtypes(QueueFactory, [ConfigService, DiscordNotificationService]);
+  defineParamtypes(EncryptionService, [ConfigService]);
+  defineParamtypes(DiscordNotificationService, [ConfigService]);
 
   // Module classes with constructor DI
   defineParamtypes(SseModule, [SseService]);
-  defineParamtypes(QueueModule, [QueueFactory, PostingService]);
+  defineParamtypes(QueueModule, [QueueFactory, PostingService, ModuleRef, ConfigService]);
 
   // Accounts
-  defineParamtypes(AccountsService, [PrismaService, ConfigService]);
+  defineParamtypes(AccountsService, [PrismaService, ConfigService, WarmupService]);
   defineParamtypes(AccountsController, [AccountsService]);
 
   // Content source
   defineParamtypes(ContentSourceService, [ContentReader]);
   defineParamtypes(ContentSourceController, [ContentSourceService]);
 
-  // Generation — @Inject(ILlmPort) param is Object (token-based, separate metadata)
+  // Generation — 14 params: 7 required + 7 @Optional()
   defineParamtypes(GenerationService, [
-    Object,
+    Object, // @Inject(ILlmPort)
     ContentSourceService,
     AccountsService,
     PostsService,
     PrismaService,
     RedisCheckpointSaver,
+    SseService,
+    Object, // @Optional() TrendingService
+    Object, // @Optional() TrendingScraperService
+    Object, // @Optional() ContentPillarTracker
+    Object, // @Optional() HookPerformanceBank
+    Object, // @Optional() VisualConceptService
+    Object, // @Optional() ThreadDepthController
+    Object, // @Optional() ABVariantGenerator
   ]);
   defineParamtypes(GenerationController, [GenerationService]);
   defineParamtypes(CronService, [GenerationService, AccountsService, ConfigService]);
 
   // Posts
-  defineParamtypes(PostsService, [PrismaService]);
-  defineParamtypes(PostsController, [PostsService]);
+  defineParamtypes(PostsService, [PrismaService, EventEmitter2]);
+  defineParamtypes(MetricsScraperService, [PrismaService, SseService, Object]);
+  defineParamtypes(PostsController, [PostsService, ModuleRef]);
 
   // Posting — @Inject(IBrowserPort) param is Object
   defineParamtypes(PostingService, [
@@ -283,9 +325,11 @@ function restoreAllDesignParamtypes(): void {
     PostsService,
     RateLimitService,
     SseService,
+    ThreadProgressService,
     XPoster,
     ThreadsPoster,
     FacebookPoster,
+    Object, // @Optional() QueueFactory
   ]);
   defineParamtypes(PostingController, [PostingService]);
   defineParamtypes(FacebookPoster, [Object, ConfigService]); // [IBrowserPort, ConfigService]
@@ -294,28 +338,44 @@ function restoreAllDesignParamtypes(): void {
   defineParamtypes(XEngager, [Object]); // [IBrowserPort]
   defineParamtypes(ThreadsEngager, [Object]); // [IBrowserPort]
   defineParamtypes(FacebookEngager, [Object, ConfigService]); // [IBrowserPort, ConfigService]
-  defineParamtypes(BrowsingSessionService, [PrismaService, SessionsService, Object, ConfigService, SseService, RateLimitService, XEngager, ThreadsEngager, FacebookEngager]);
+  defineParamtypes(BrowsingSessionService, [PrismaService, SessionsService, Object, ConfigService, SseService, RateLimitService, XEngager, ThreadsEngager, FacebookEngager, HumanBehaviorEngine, TargetingService, Object]);
   defineParamtypes(EngagementService, [PrismaService, SessionsService, Object, SseService, RateLimitService, XEngager, ThreadsEngager, FacebookEngager]);
   defineParamtypes(EngagementController, [EngagementService]);
+  defineParamtypes(HumanBehaviorEngine, [PrismaService, Object, SseService, RateLimitService, Object]);
+  defineParamtypes(TargetingService, [ConfigService]);
+  defineParamtypes(EngagementSchedulerService, [ConfigService, QueueFactory]);
 
   // Sessions — @Inject(IBrowserPort) param is Object
-  defineParamtypes(SessionsService, [PrismaService, AccountsService, Object, ConfigService]);
+  defineParamtypes(SessionsService, [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService]);
   defineParamtypes(WarmupService, [PrismaService, ConfigService]);
   defineParamtypes(SessionsController, [SessionsService]);
 
   // Rate limit
-  defineParamtypes(RateLimitService, [ConfigService]);
+  defineParamtypes(RateLimitService, [ConfigService, Object]);
 
   // Events
   defineParamtypes(EventsController, [SseService]);
+  defineParamtypes(AutoApproveListener, [PostsService, PrismaService, ModuleRef, ConfigService]);
+  defineParamtypes(SseEventListener, [SseService]);
 
   // Queue
   defineParamtypes(QueueService, [QueueFactory]);
   defineParamtypes(QueueController, [QueueService]);
 
   // Health
-  defineParamtypes(HealthController, [PrismaService, ConfigService]);
-}
+  defineParamtypes(HealthController, [PrismaService, Object]);
+
+  // Content Enhancements
+  defineParamtypes(VisualConceptService, [ConfigService, Object]);
+  defineParamtypes(ABVariantGenerator, [ConfigService, Object]);
+  defineParamtypes(ThreadDepthController, [ConfigService, Object]);
+  defineParamtypes(ContentPillarTracker, [Object]);
+  defineParamtypes(HookPerformanceBank, [Object, PrismaService]);
+
+  // Replies
+  defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object]);
+  defineParamtypes(RepliesService, [PrismaService, ConfigService, AccountsService]);
+ }
 
 // ── Test controller (CLS correlationId verification for STC-047) ─────────────
 
@@ -338,7 +398,7 @@ defineParamtypes(CorrelationTestController, [ClsService]);
  */
 function createSystemPrismaService() {
   const prisma = createMockPrismaService();
-  (prisma as any).socialAccount = {
+  (prisma as unknown).socialAccount = {
     create: vi.fn(),
     createMany: vi.fn(),
     findUnique: vi.fn(),
@@ -495,7 +555,16 @@ async function buildAndStartApp(): Promise<void> {
     .useValue(queueFactory)
     .overrideProvider(ContentReader)
     .useValue(mockContentReader)
-    .compile();
+    .overrideProvider(EncryptionService)
+    .useValue({ encrypt: (data: unknown) => data, decrypt: (data: string) => data, isEnabled: () => false })
+    .overrideProvider(TrendingScraperService)
+    .useValue({
+      getGoogleTrends: () => Promise.resolve([]),
+      getXTrends: () => Promise.resolve([]),
+      getMergedTrends: () => Promise.resolve([]),
+      getCacheStatus: () => Promise.resolve({ googleTrends: null, xTrends: null }),
+    })
+    .overrideProvider(SseEventListener).useValue({ handleDraftGenerated: () => {}, handleApproved: () => {}, handlePostingStarted: () => {}, handlePosted: () => {}, handleFailed: () => {} }).compile();
 
   app = moduleRef.createNestApplication();
   app.setGlobalPrefix('api/v1');
@@ -573,7 +642,7 @@ function setupDefaultMocks(): void {
   prisma.generationRun.findUnique.mockResolvedValue(null);
 
   // Prisma — post
-  prisma.post.create.mockImplementation((args: any) =>
+  prisma.post.create.mockImplementation((args: unknown) =>
     Promise.resolve({
       id: `post-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       status: PostStatus.DRAFT,
@@ -588,7 +657,7 @@ function setupDefaultMocks(): void {
   prisma.post.count.mockResolvedValue(0);
 
   // Prisma — socialAccount (return correct account per network)
-  prisma.socialAccount.findFirst.mockImplementation((args: any) => {
+  prisma.socialAccount.findFirst.mockImplementation((args: unknown) => {
     const network = args?.where?.network as SocialNetwork | undefined;
     if (network && ACCOUNTS[network]) {
       return Promise.resolve(ACCOUNTS[network]);
@@ -617,6 +686,7 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
   beforeEach(() => {
     vi.clearAllMocks();
     sharedRedisStore.clear();
+    clearHookCache(); // Clear hook cache — previous tests may have cached hooks
     setupDefaultMocks();
   });
 
@@ -654,7 +724,7 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
 
     // Verify run was marked COMPLETED
     const updateCall = prisma.generationRun.update.mock.calls.find(
-      (c: any[]) => c[0]?.data?.status === GenerationRunStatus.COMPLETED,
+      (c: unknown[]) => c[0]?.data?.status === GenerationRunStatus.COMPLETED,
     );
     expect(updateCall).toBeDefined();
 
@@ -690,7 +760,7 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
     // 3 posts created — one per network
     expect(prisma.post.create).toHaveBeenCalledTimes(3);
     const networks = prisma.post.create.mock.calls.map(
-      (c: any[]) => c[0].data.network,
+      (c: unknown[]) => c[0].data.network,
     );
     expect(networks).toContain(SocialNetwork.X);
     expect(networks).toContain(SocialNetwork.THREADS);
@@ -916,7 +986,7 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
 
     // Verify generationRun.create was called with triggeredBy = CRON
     const cronCreateCall = prisma.generationRun.create.mock.calls.find(
-      (c: any[]) => c[0]?.data?.triggeredBy === GenerationTrigger.CRON,
+      (c: unknown[]) => c[0]?.data?.triggeredBy === GenerationTrigger.CRON,
     );
     expect(cronCreateCall).toBeDefined();
     expect(cronCreateCall[0].data.triggeredBy).toBe(GenerationTrigger.CRON);
@@ -1078,8 +1148,8 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
     // Verify each operation has tags, summary (ApiOperation), responses (ApiResponse)
     // Skip paths from test-only controllers that don't have Swagger decorators
     const knownTags = ['generation', 'posts', 'posting', 'sessions', 'content-source', 'queue', 'events', 'health'];
-    for (const [path, methods] of Object.entries<any>(jsonRes.body.paths)) {
-      for (const [method, operation] of Object.entries<any>(methods)) {
+    for (const [path, methods] of Object.entries<unknown>(jsonRes.body.paths)) {
+      for (const [method, operation] of Object.entries<unknown>(methods)) {
         if (['get', 'post', 'patch', 'put', 'delete'].includes(method)) {
           // Only verify metadata for operations with known controller tags
           // (test controllers like CorrelationTestController don't have @ApiTags)

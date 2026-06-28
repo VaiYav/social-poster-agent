@@ -1,95 +1,114 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue';
-import { RouterView, RouterLink } from 'vue-router';
+import { ref, watch } from 'vue';
+import { RouterView } from 'vue-router';
+import { Menu } from '@lucide/vue';
 import { usePostsStore } from './stores/posts';
+import { useMonitoringStore } from './stores/monitoring';
 import { useToast } from './composables/useToast';
+import { useSSE } from './composables/useSSE';
+import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts';
+import { Sidebar, StatusDot } from './components/ui';
 import ToastContainer from './components/ToastContainer.vue';
 
 /**
  * B6: Global SSE connection — listens for real-time post status updates
  * and dispatches events to the appropriate Pinia stores.
  * Toast notifications on POSTED/FAILED/health_alert events.
+ *
+ * Uses useSSE composable with exponential backoff reconnection (P0-H4).
  */
 const postsStore = usePostsStore();
+const monitoringStore = useMonitoringStore();
 const toast = useToast();
-const sseConnected = ref(false);
-let eventSource: EventSource | null = null;
+const mobileMenuOpen = ref(false);
 
-function connectSSE(): void {
-  // In dev: Vite proxy forwards /api → http://localhost:3100
-  // In prod: nginx proxies /api → backend container (with SSE no-buffering)
-  const apiBase = import.meta.env.VITE_API_URL ?? '/api/v1';
-  const sseUrl = `${apiBase}/events/sse`;
-  eventSource = new EventSource(sseUrl);
+// Global keyboard shortcuts (Ctrl+K=queue, Ctrl+G=generate, etc.)
+useKeyboardShortcuts();
 
-  eventSource.onopen = () => {
-    sseConnected.value = true;
-    postsStore.setSseConnected(true);
-  };
-
-  eventSource.onerror = () => {
-    sseConnected.value = false;
-    postsStore.setSseConnected(false);
-    // Auto-reconnect after 5 seconds
-    eventSource?.close();
-    setTimeout(() => connectSSE(), 5000);
-  };
-
-  eventSource.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data) as { type: string; postId?: string; status?: string; network?: string; error?: string };
-      postsStore.handleSseEvent(data);
-
-      // Toast notifications for key events
-      if (data.type === 'post_status') {
-        if (data.status === 'POSTED') {
-          toast.success(`Post ${data.postId?.slice(0, 8)}… posted on ${data.network}`);
-        } else if (data.status === 'FAILED') {
-          toast.error(`Post ${data.postId?.slice(0, 8)}… failed on ${data.network}: ${data.error ?? 'unknown error'}`);
-        }
-      } else if (data.type === 'health_alert') {
-        toast.warning(`Health alert: ${data.error ?? 'session issue detected'}`);
-      }
-    } catch {
-      // ignore malformed events
-    }
-  };
-}
-
-onMounted(() => {
-  connectSSE();
+const apiBase = import.meta.env.VITE_API_URL ?? '/api/v1';
+const sseUrl = `${apiBase}/events/sse`;
+const { data: sseData, isConnected: sseConnected, error: sseError } = useSSE(sseUrl, {
+  maxRetries: 50,
+  baseDelayMs: 1000,
+  maxDelayMs: 30000,
 });
 
-onUnmounted(() => {
-  eventSource?.close();
+// Sync connection state to stores
+watch(sseConnected, (connected) => {
+  postsStore.setSseConnected(connected);
+});
+
+// Show toast on SSE connection errors
+watch(sseError, (err) => {
+  if (err) toast.error(`SSE: ${err}`);
+});
+
+// Dispatch SSE events to stores + toasts
+watch(sseData, (data) => {
+  if (!data || typeof data !== 'object') return;
+  const evt = data as { type: string; postId?: string; status?: string; network?: string; error?: string; repliesPosted?: number; humanReview?: number };
+  postsStore.handleSseEvent(evt);
+  monitoringStore.handleSseEvent(evt);
+
+  if (evt.type === 'post_status') {
+    if (evt.status === 'POSTED') {
+      toast.success(`Post ${evt.postId?.slice(0, 8)}… posted on ${evt.network}`);
+    } else if (evt.status === 'FAILED') {
+      toast.error(`Post ${evt.postId?.slice(0, 8)}… failed on ${evt.network}: ${evt.error ?? 'unknown error'}`);
+    }
+  } else if (evt.type === 'health_alert') {
+    toast.warning(`Health alert: ${evt.error ?? 'session issue detected'}`);
+  } else if (evt.type === 'reply_posted') {
+    toast.success(`Reply posted on ${evt.network}`);
+  } else if (evt.type === 'replies_monitor') {
+    toast.info(`Replies cycle: ${evt.repliesPosted ?? 0} posted, ${evt.humanReview ?? 0} need review`);
+  }
 });
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-50">
-    <nav class="border-b border-gray-200 bg-white px-6 py-3">
-      <div class="mx-auto flex max-w-6xl items-center gap-6">
-        <RouterLink to="/" class="text-lg font-bold text-gray-900">SPA</RouterLink>
-        <div class="flex gap-4">
-          <RouterLink to="/" class="text-sm text-gray-600 hover:text-gray-900">Dashboard</RouterLink>
-          <RouterLink to="/queue" class="text-sm text-gray-600 hover:text-gray-900">Queue</RouterLink>
-          <RouterLink to="/history" class="text-sm text-gray-600 hover:text-gray-900">History</RouterLink>
-          <RouterLink to="/generate" class="text-sm text-gray-600 hover:text-gray-900">Generate</RouterLink>
-          <RouterLink to="/sessions" class="text-sm text-gray-600 hover:text-gray-900">Sessions</RouterLink>
-        </div>
-        <!-- B6: SSE connection indicator -->
-        <div class="ml-auto flex items-center gap-2 text-xs">
-          <span
-            class="inline-block h-2 w-2 rounded-full"
-            :class="sseConnected ? 'bg-green-500' : 'bg-red-400'"
+  <div class="flex min-h-screen bg-background">
+    <Sidebar v-model:mobile-open="mobileMenuOpen">
+      <template #footer>
+        <div class="flex items-center justify-between rounded-lg border border-border bg-surface-elevated px-3 py-2">
+          <StatusDot
+            :state="sseConnected ? 'connected' : 'disconnected'"
+            :pulse="sseConnected"
           />
-          <span class="text-gray-500">{{ sseConnected ? 'Live' : 'Disconnected' }}</span>
         </div>
-      </div>
-    </nav>
-    <main class="mx-auto max-w-6xl px-6 py-8">
-      <RouterView />
-    </main>
+      </template>
+    </Sidebar>
+
+    <!-- Mobile overlay -->
+    <div
+      v-if="mobileMenuOpen"
+      class="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm lg:hidden"
+      @click="mobileMenuOpen = false"
+    />
+
+    <div class="flex flex-1 flex-col overflow-hidden">
+      <header class="flex h-16 items-center justify-between border-b border-border px-4 lg:px-8">
+        <div class="flex items-center gap-3">
+          <button
+            class="lg:hidden rounded-lg p-2 text-text-secondary hover:bg-surface-elevated"
+            @click="mobileMenuOpen = true"
+          >
+            <Menu class="h-5 w-5" />
+          </button>
+          <h2 class="text-sm font-medium text-text-secondary">
+            Social Poster Agent for My Zodiac AI
+          </h2>
+        </div>
+        <div class="flex items-center gap-4">
+          <span class="text-xs text-text-muted">v0.5.2</span>
+        </div>
+      </header>
+
+      <main class="flex-1 overflow-y-auto p-4 lg:p-8">
+        <RouterView />
+      </main>
+    </div>
+
     <ToastContainer />
   </div>
 </template>

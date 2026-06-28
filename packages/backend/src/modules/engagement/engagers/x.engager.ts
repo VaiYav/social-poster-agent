@@ -19,7 +19,7 @@ export class XEngager extends BaseEngager {
 
   async like(page: Page, postUrl: string): Promise<EngagementResult> {
     try {
-      await this.navigate(page, postUrl);
+      await this.navigate(page, postUrl, 'domcontentloaded');
 
       const screenshotPath = await this.screenshot(page, 'before-like');
       const liked = await this.performLike(
@@ -41,7 +41,7 @@ export class XEngager extends BaseEngager {
 
   async comment(page: Page, postUrl: string, text: string): Promise<EngagementResult> {
     try {
-      await this.navigate(page, postUrl);
+      await this.navigate(page, postUrl, 'domcontentloaded');
 
       const screenshotPath = await this.screenshot(page, 'before-comment');
       await this.performComment(
@@ -66,7 +66,7 @@ export class XEngager extends BaseEngager {
         ? handleOrUrl
         : `https://x.com/${handleOrUrl.replace('@', '')}`;
 
-      await this.navigate(page, profileUrl);
+      await this.navigate(page, profileUrl, 'domcontentloaded');
 
       const screenshotPath = await this.screenshot(page, 'before-like');
       const followed = await this.performFollow(page, X_SELECTORS.engagement.follow);
@@ -87,7 +87,28 @@ export class XEngager extends BaseEngager {
    * Scroll the X.com feed and collect post URLs.
    */
   async scrollFeed(page: Page, durationSec: number): Promise<string[]> {
-    await this.navigate(page, X_SELECTORS.feed.url);
+    await this.navigate(page, X_SELECTORS.feed.url, 'domcontentloaded');
     return this.doScrollFeed(page, durationSec, X_SELECTORS.feed.tweetLink);
+  }
+
+  /**
+   * Extract the visible text content of an X.com post.
+   */
+  async extractPostText(page: Page, postUrl: string): Promise<{ text: string; hasMedia: boolean; authorHandle?: string }> {
+    return this.doExtractPostText(page, postUrl, X_SELECTORS.feed.tweetArticle, {
+      css: ['article img', 'div[data-testid="tweetPhoto"]', 'video'],
+    });
+  }
+
+  /**
+   * Open the comments thread of an X.com post to read replies.
+   */
+  async openCommentsThread(page: Page, postUrl: string): Promise<number> {
+    return this.doOpenCommentsThread(
+      page,
+      postUrl,
+      X_SELECTORS.engagement.reply,
+      { css: ['article[data-testid="tweet"]', 'div[data-testid="tweetText"]'] },
+    );
   }
 }

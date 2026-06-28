@@ -1,7 +1,9 @@
-import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, Optional, Inject, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI } from '@langchain/openai';
+import { createHash } from 'node:crypto';
 import type { ILlmPort, GenerateOptions, LlmResponse } from '../../domain/ports/llm.port.js';
+import { PromptRegistry } from './prompt-registry.js';
 
 /**
  * Provider definition — each provider is tried in order until one succeeds.
@@ -13,6 +15,29 @@ interface LlmProviderConfig {
   apiKey: string;
   baseURL?: string;
   temperature: number;
+  /**
+   * Whether this provider/model accepts a `temperature` parameter.
+   * OpenAI reasoning models (gpt-5-nano, o1, o3, etc.) reject temperature
+   * with HTTP 400 — only the default (1) is supported. Set to false for
+   * those models so we skip sending temperature entirely.
+   */
+  supportsTemperature: boolean;
+}
+
+/**
+ * Sprint J: Circuit breaker state per provider.
+ * Tracks consecutive failures and cooldown period.
+ */
+interface CircuitBreakerState {
+  failures: number;
+  lastFailureAt: number;
+  tripped: boolean;
+}
+
+/** Sprint J: Cache entry for content caching. */
+interface CacheEntry {
+  response: LlmResponse;
+  expiresAt: number;
 }
 
 /**
@@ -24,7 +49,7 @@ interface LlmProviderConfig {
  *   2. OpenRouter FREE (meta-llama/llama-3.3-70b-instruct:free)
  *   3. DeepSeek (cheap — deepseek-chat)
  *   4. Cerebras (FREE, fast — llama-3.3-70b)
- *   5. OpenAI (gpt-4o-mini — paid overflow)
+ *   5. OpenAI (gpt-5-nano — paid overflow)
  *   6. Ollama local (gemma4 — last resort, no API key needed)
  *
  * Implements ILlmPort for testability — unit tests inject a mock ILlmPort.
@@ -37,7 +62,29 @@ export class LlmService implements ILlmPort, OnModuleInit {
   private models: Map<string, ChatOpenAI> = new Map();
   private lastWorkingProvider: string | null = null;
 
-  constructor(private readonly configService: ConfigService) {}
+  // Sprint J: Circuit breaker — per-provider failure tracking
+  private readonly circuitBreakers = new Map<string, CircuitBreakerState>();
+  private readonly cbThreshold: number; // failures before tripping
+  private readonly cbCooldownMs: number; // cooldown after tripping
+
+  // Sprint J: Response cache — avoids re-calling LLM for identical prompts
+  private readonly cache = new Map<string, CacheEntry>();
+  private readonly cacheTtlMs: number;
+  private readonly cacheMaxSize: number;
+
+  // Sprint J: Prompt version — bumped when prompts change, stored in llmMetadata
+  // Sprint P: Now sourced from PromptRegistry when available, falls back to static constant
+  static readonly PROMPT_VERSION = '0.4.0-sprint-j';
+
+  constructor(
+    private readonly configService: ConfigService,
+    @Optional() private readonly promptRegistry?: PromptRegistry,
+  ) {
+    this.cbThreshold = this.configService.get<number>('LLM_CB_THRESHOLD', 3);
+    this.cbCooldownMs = this.configService.get<number>('LLM_CB_COOLDOWN_MS', 60_000);
+    this.cacheTtlMs = this.configService.get<number>('LLM_CACHE_TTL_MS', 300_000); // 5 min
+    this.cacheMaxSize = this.configService.get<number>('LLM_CACHE_MAX_SIZE', 100);
+  }
 
   onModuleInit(): void {
     this.providers = this.buildProviderChain();
@@ -51,6 +98,18 @@ export class LlmService implements ILlmPort, OnModuleInit {
       .map((p) => `${p.name}/${p.model}`)
       .join(' → ');
     this.logger.log(`LLM provider chain (${this.providers.length}): ${summary}`);
+  }
+
+  /**
+   * List available LLM models for UI model picker (F3).
+   * Returns provider name, model id, and whether it's free or paid.
+   */
+  getAvailableModels(): Array<{ provider: string; model: string; free: boolean }> {
+    return this.providers.map((p) => ({
+      provider: p.name,
+      model: p.model,
+      free: p.name !== 'openai',
+    }));
   }
 
   /**
@@ -70,6 +129,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
         apiKey: groqKey,
         baseURL: 'https://api.groq.com/openai/v1',
         temperature: defaultTemp,
+        supportsTemperature: true,
       });
     }
 
@@ -85,6 +145,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
         apiKey: openrouterKey,
         baseURL: 'https://openrouter.ai/api/v1',
         temperature: defaultTemp,
+        supportsTemperature: true,
       });
     }
 
@@ -97,6 +158,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
         apiKey: deepseekKey,
         baseURL: 'https://api.deepseek.com',
         temperature: defaultTemp,
+        supportsTemperature: true,
       });
     }
 
@@ -109,21 +171,54 @@ export class LlmService implements ILlmPort, OnModuleInit {
         apiKey: cerebrasKey,
         baseURL: 'https://api.cerebras.ai/v1',
         temperature: defaultTemp,
+        supportsTemperature: true,
       });
     }
 
     // 5. OpenAI — paid overflow (may be quota-limited)
+    // gpt-5-nano and other reasoning models (o1, o3, o4-mini) do NOT accept
+    // `temperature` — only the default (1) is supported. We detect reasoning
+    // models by name and set supportsTemperature=false so the caller skips it.
     const openaiKey = this.configService.get<string>('OPENAI_API_KEY', '');
     if (openaiKey) {
+      const openaiModel = this.configService.get<string>('LLM_DEFAULT_MODEL', 'gpt-5-nano');
+      const isReasoningModel = /^(gpt-5|o1|o3|o4-mini)/.test(openaiModel);
       chain.push({
         name: 'openai',
-        model: this.configService.get<string>('LLM_DEFAULT_MODEL', 'gpt-4o-mini'),
+        model: openaiModel,
         apiKey: openaiKey,
         temperature: defaultTemp,
+        supportsTemperature: !isReasoningModel,
       });
     }
 
-    // 6. Ollama — local, last resort (no API key needed)
+    // 6. Google Gemini — free tier (1500 RPD), strong multilingual (OpenAI-compatible endpoint)
+    const googleKey = this.configService.get<string>('GOOGLE_API_KEY', '');
+    if (googleKey) {
+      chain.push({
+        name: 'google',
+        model: this.configService.get<string>('GOOGLE_MODEL', 'gemini-2.5-flash'),
+        apiKey: googleKey,
+        baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+        temperature: defaultTemp,
+        supportsTemperature: true,
+      });
+    }
+
+    // 7. NVIDIA NIM — free ~40 req/min, general multilingual (OpenAI-compatible)
+    const nvidiaKey = this.configService.get<string>('NVIDIA_API_KEY', '');
+    if (nvidiaKey) {
+      chain.push({
+        name: 'nvidia',
+        model: this.configService.get<string>('NVIDIA_MODEL', 'meta/llama-3.3-70b-instruct'),
+        apiKey: nvidiaKey,
+        baseURL: 'https://integrate.api.nvidia.com/v1',
+        temperature: defaultTemp,
+        supportsTemperature: true,
+      });
+    }
+
+    // 8. Ollama — local, last resort (no API key needed)
     const ollamaUrl = this.configService.get<string>('OLLAMA_URL', 'http://localhost:11434');
     const ollamaModel = this.configService.get<string>('OLLAMA_DEFAULT_MODEL', 'gemma4');
     chain.push({
@@ -132,6 +227,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
       apiKey: 'ollama', // Ollama doesn't need a real key, but ChatOpenAI requires non-empty
       baseURL: `${ollamaUrl}/v1`,
       temperature: defaultTemp,
+      supportsTemperature: true,
     });
 
     return chain;
@@ -139,27 +235,130 @@ export class LlmService implements ILlmPort, OnModuleInit {
 
   /**
    * Get or create a ChatOpenAI instance for a specific provider.
+   * For models that don't support `temperature` (OpenAI reasoning models),
+   * the parameter is omitted entirely — passing it would cause HTTP 400.
    */
   private getModelForProvider(provider: LlmProviderConfig): ChatOpenAI {
     const key = `${provider.name}:${provider.model}`;
     let model = this.models.get(key);
     if (!model) {
-      model = new ChatOpenAI({
+      const ctorArgs: Record<string, unknown> = {
         model: provider.model,
         apiKey: provider.apiKey,
         configuration: { baseURL: provider.baseURL },
-        temperature: provider.temperature,
         timeout: 30000,
         maxRetries: 0, // we handle fallback ourselves
-      });
+      };
+      if (provider.supportsTemperature) {
+        ctorArgs.temperature = provider.temperature;
+      }
+      model = new ChatOpenAI(ctorArgs as ConstructorParameters<typeof ChatOpenAI>[0]);
       this.models.set(key, model);
     }
     return model;
   }
 
   /**
+   * Sprint J: Estimate token count from text length.
+   * Rough heuristic: ~4 characters per token for English text.
+   */
+  private estimateTokens(text: string): number {
+    return Math.ceil(text.length / 4);
+  }
+
+  /**
+   * Sprint J: Circuit breaker — check if a provider is available.
+   * Returns false if provider has exceeded failure threshold and is in cooldown.
+   */
+  private isProviderAvailable(providerName: string): boolean {
+    const cb = this.circuitBreakers.get(providerName);
+    if (!cb || !cb.tripped) return true;
+    // Check if cooldown has elapsed
+    if (Date.now() - cb.lastFailureAt > this.cbCooldownMs) {
+      cb.tripped = false;
+      cb.failures = 0;
+      this.logger.log(`Circuit breaker reset for ${providerName} (cooldown elapsed)`);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Sprint J: Record a provider failure in the circuit breaker.
+   */
+  private recordFailure(providerName: string): void {
+    const cb = this.circuitBreakers.get(providerName) ?? {
+      failures: 0,
+      lastFailureAt: 0,
+      tripped: false,
+    };
+    cb.failures += 1;
+    cb.lastFailureAt = Date.now();
+    if (cb.failures >= this.cbThreshold && !cb.tripped) {
+      cb.tripped = true;
+      this.logger.warn(
+        `Circuit breaker TRIPPED for ${providerName} (${cb.failures} failures) — cooldown ${this.cbCooldownMs}ms`,
+      );
+    }
+    this.circuitBreakers.set(providerName, cb);
+  }
+
+  /**
+   * Sprint J: Record a provider success — resets the circuit breaker.
+   */
+  private recordSuccess(providerName: string): void {
+    this.circuitBreakers.delete(providerName);
+  }
+
+  /**
+   * Sprint J: Generate cache key from prompts + options.
+   */
+  private cacheKey(systemPrompt: string, userPrompt: string, options?: GenerateOptions): string {
+    // Include temperature in the cache key to prevent collisions between
+    // calls with different temperature values (0.7 vs 0.9 would return the
+    // same cached response, which is semantically wrong).
+    // For reasoning models that ignore temperature, normalize undefined/0
+    // to a single canonical value so they still get cache hits.
+    const temp = options?.temperature;
+    const tempKey = temp === undefined || temp === 0 ? 'reasoning' : String(temp);
+    const input = `${systemPrompt}||${userPrompt}||t=${tempKey}`;
+    return createHash('sha256').update(input).digest('hex').slice(0, 32);
+  }
+
+  /**
+   * Sprint J: Check cache for a response.
+   */
+  private getFromCache(key: string): LlmResponse | null {
+    const entry = this.cache.get(key);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAt) {
+      this.cache.delete(key);
+      return null;
+    }
+    this.logger.debug(`LLM cache hit (key: ${key.slice(0, 8)})`);
+    return entry.response;
+  }
+
+  /**
+   * Sprint J: Store a response in cache.
+   * Evicts oldest entries if cache is full (simple FIFO eviction).
+   */
+  private setInCache(key: string, response: LlmResponse): void {
+    if (this.cache.size >= this.cacheMaxSize) {
+      // Evict oldest entry (first inserted)
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey) this.cache.delete(oldestKey);
+    }
+    this.cache.set(key, {
+      response,
+      expiresAt: Date.now() + this.cacheTtlMs,
+    });
+  }
+
+  /**
    * Try each provider in the chain until one succeeds.
    * If lastWorkingProvider is set, try it first (sticky).
+   * Sprint J: Adds circuit breaker, caching, token counting, prompt versioning.
    */
   private async invokeWithFallback(
     systemPrompt: string,
@@ -169,6 +368,11 @@ export class LlmService implements ILlmPort, OnModuleInit {
     if (this.providers.length === 0) {
       throw new Error('No LLM providers configured');
     }
+
+    // Sprint J: Check cache first
+    const key = this.cacheKey(systemPrompt, userPrompt, options);
+    const cached = this.getFromCache(key);
+    if (cached) return cached;
 
     // Reorder: try last working provider first
     let ordered = this.providers;
@@ -188,9 +392,19 @@ export class LlmService implements ILlmPort, OnModuleInit {
     const errors: string[] = [];
 
     for (const provider of ordered) {
+      // Sprint J: Skip providers with tripped circuit breaker
+      if (!this.isProviderAvailable(provider.name)) {
+        this.logger.debug(`Skipping ${provider.name} — circuit breaker tripped`);
+        errors.push(`${provider.name}: circuit breaker open`);
+        continue;
+      }
+
       try {
         const model = this.getModelForProvider(provider);
-        if (options?.temperature !== undefined) {
+        // Only override temperature if the provider supports it.
+        // OpenAI reasoning models (gpt-5-nano, o1, o3) reject non-default
+        // temperature with HTTP 400, so we skip the override for them.
+        if (options?.temperature !== undefined && provider.supportsTemperature) {
           model.temperature = options.temperature;
         }
 
@@ -212,15 +426,26 @@ export class LlmService implements ILlmPort, OnModuleInit {
         }
 
         this.lastWorkingProvider = provider.name;
+        this.recordSuccess(provider.name);
         this.logger.debug(`LLM success via ${provider.name}/${provider.model}`);
 
-        return {
+        // Sprint J: Token counting (estimated) + prompt version
+        const inputTokens = this.estimateTokens(systemPrompt + userPrompt);
+        const outputTokens = this.estimateTokens(content);
+        const llmResponse: LlmResponse = {
           content,
           model: `${provider.name}/${provider.model}`,
+          tokens: inputTokens + outputTokens,
         };
+
+        // Sprint J: Cache the response
+        this.setInCache(key, llmResponse);
+
+        return llmResponse;
       } catch (err) {
         const msg = (err as Error).message;
         errors.push(`${provider.name}: ${msg}`);
+        this.recordFailure(provider.name);
         this.logger.warn(
           `LLM provider ${provider.name} failed: ${msg.slice(0, 120)}`,
         );
@@ -246,9 +471,57 @@ export class LlmService implements ILlmPort, OnModuleInit {
   }
 
   /**
-   * Health check — returns the list of configured providers.
+   * Health check — returns the list of configured providers with circuit breaker status.
    */
-  getProviderStatus(): { name: string; model: string }[] {
-    return this.providers.map((p) => ({ name: p.name, model: p.model }));
+  getProviderStatus(): Array<{ name: string; model: string; circuitOpen: boolean; failures: number }> {
+    return this.providers.map((p) => {
+      const cb = this.circuitBreakers.get(p.name);
+      return {
+        name: p.name,
+        model: p.model,
+        circuitOpen: cb?.tripped ?? false,
+        failures: cb?.failures ?? 0,
+      };
+    });
+  }
+
+  /**
+   * Sprint J/P: Get the current prompt version for tracking in llmMetadata.
+   * Sprint P: Sources from PromptRegistry when available, falls back to static constant.
+   */
+  getPromptVersion(): string {
+    if (this.promptRegistry) {
+      return this.promptRegistry.getCurrentVersion();
+    }
+    return LlmService.PROMPT_VERSION;
+  }
+
+  /**
+   * Sprint J: Clear the response cache (for testing or manual invalidation).
+   */
+  clearCache(): void {
+    this.cache.clear();
+  }
+
+  /**
+   * Sprint J: Get cache stats for monitoring.
+   */
+  getCacheStats(): { size: number; maxSize: number; ttlMs: number } {
+    return { size: this.cache.size, maxSize: this.cacheMaxSize, ttlMs: this.cacheTtlMs };
+  }
+
+  /**
+   * Sprint P: Get a prompt template from the registry.
+   * Returns undefined when no registry is configured (backward compat).
+   */
+  getPromptTemplate(name: string): { systemPrompt: string; userPromptTemplate: string; version: string } | undefined {
+    if (!this.promptRegistry) return undefined;
+    const version = this.promptRegistry.getCurrentVersion();
+    const tpl = this.promptRegistry.get(version, name);
+    return {
+      systemPrompt: tpl.systemPrompt,
+      userPromptTemplate: tpl.userPromptTemplate,
+      version: tpl.version,
+    };
   }
 }

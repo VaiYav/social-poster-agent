@@ -8,33 +8,37 @@ import type { SelectorStrategy } from '../selector-strategy.js';
 export const FACEBOOK_SELECTORS = {
   // ── Login ──────────────────────────────────────────────────────
   login: {
-    url: 'https://www.facebook.com/login',
+    // Use mbasic.facebook.com (basic mobile) for login — simplest HTML, stable IDs,
+    // least anti-automation detection. Cookies work on www.facebook.com (same domain).
+    url: 'https://mbasic.facebook.com/login',
     // Facebook's new login page uses labeled textboxes, not input#email
     email: {
-      label: { label: 'Email address or mobile number' },
+      // Mobile login uses #m_login_email; desktop uses input[name="email"]
+      label: { label: 'Phone or email' },
       css: [
+        '#m_login_email',
+        'input[name="email"]',
+        'input#email',
         'input[aria-label*="Email"]',
         'input[aria-label*="email"]',
         'input[placeholder*="Email"]',
-        'input[placeholder*="email"]',
-        'input#email',
-        'input[name="email"]',
       ],
     } satisfies SelectorStrategy,
     password: {
       label: { label: 'Password' },
       css: [
-        'input[aria-label*="Password"]',
-        'input[aria-label*="password"]',
-        'input[type="password"]',
-        'input#pass',
+        '#m_login_password',
         'input[name="pass"]',
+        'input#pass',
+        'input[aria-label*="Password"]',
+        'input[type="password"]',
       ],
     } satisfies SelectorStrategy,
     submit: {
       role: { role: 'button', name: 'Log in' },
       text: { text: 'Log in', exact: true },
-      css: ['button:has-text("Log in")', 'button[name="login"]', 'button[type="submit"]'],
+      // mbasic uses <input type="submit" value="Log In">; mobile uses <button value="Log In">
+      css: ['input[value="Log In"]', 'button[value="Log In"]', 'div[aria-label="Log In"]', 'div[role="button"][aria-label="Log In"]', 'button:has-text("Log in")', 'button[name="login"]', 'button[type="submit"]'],
     } satisfies SelectorStrategy,
     // After login, Facebook shows the main navigation bar
     successIndicator: {

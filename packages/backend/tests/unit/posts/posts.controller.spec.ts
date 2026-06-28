@@ -5,10 +5,11 @@
  * Hazards: HAZ-003, HAZ-004
  *
  * Source: packages/backend/src/modules/posts/posts.controller.ts
- * Spec:   features/spa/v-model/unit-test/unit-test-cases.md (MOD-02 controller coverage)
+ * Spec:   CONSTITUTION.md §14 (Testing) — test case IDs are inline (MOD-02 controller coverage)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { PostsController } from '../../../src/modules/posts/posts.controller';
 import { PostsService } from '../../../src/modules/posts/posts.service';
 import { fixturePost } from '../../mocks/index';
@@ -23,6 +24,8 @@ describe('MOD-02: PostsController', () => {
     updateStatus: ReturnType<typeof vi.fn>;
     approve: ReturnType<typeof vi.fn>;
   };
+  let moduleRef: { get: ReturnType<typeof vi.fn> };
+  let queueService: { enqueuePosting: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
     postsService = {
@@ -33,7 +36,16 @@ describe('MOD-02: PostsController', () => {
       updateStatus: vi.fn(),
       approve: vi.fn(),
     };
-    controller = new PostsController(postsService as unknown as PostsService);
+    queueService = {
+      enqueuePosting: vi.fn().mockResolvedValue(undefined),
+    };
+    moduleRef = {
+      get: vi.fn().mockReturnValue(queueService),
+    };
+    controller = new PostsController(
+      postsService as unknown as PostsService,
+      moduleRef as unknown as ModuleRef,
+    );
   });
 
   // ── GET / (findMany) ────────────────────────────────────────
@@ -180,7 +192,7 @@ describe('MOD-02: PostsController', () => {
   // ── POST /:id/approve ───────────────────────────────────────
 
   it('UTC-C-035b: approve() calls postsService.approve with id (D2: no editedContent)', async () => {
-    postsService.approve.mockResolvedValue({ status: 'APPROVED' });
+    postsService.approve.mockResolvedValue({ ...fixturePost, id: 'post-1', status: 'APPROVED', network: 'X' });
 
     await controller.approve('post-1', {});
 
@@ -188,11 +200,37 @@ describe('MOD-02: PostsController', () => {
   });
 
   it('UTC-C-035b2: approve() passes editedContent to service (D2)', async () => {
-    postsService.approve.mockResolvedValue({ status: 'APPROVED', content: 'edited' });
+    postsService.approve.mockResolvedValue({ ...fixturePost, id: 'post-1', status: 'APPROVED', network: 'X', content: 'edited' });
 
     await controller.approve('post-1', { editedContent: 'edited text' });
 
     expect(postsService.approve).toHaveBeenCalledWith('post-1', 'edited text');
+  });
+
+  it('P0-fix: approve() enqueues to BullMQ posting queue after approval', async () => {
+    const approvedPost = { ...fixturePost, id: 'post-1', status: 'APPROVED', network: 'X' };
+    postsService.approve.mockResolvedValue(approvedPost);
+
+    await controller.approve('post-1', {});
+
+    expect(queueService.enqueuePosting).toHaveBeenCalledWith('post-1', 'X');
+  });
+
+  it('P0-fix: approve() does NOT enqueue if service throws', async () => {
+    postsService.approve.mockRejectedValue(new Error('not found'));
+
+    await expect(controller.approve('missing', {})).rejects.toThrow(NotFoundException);
+    expect(queueService.enqueuePosting).not.toHaveBeenCalled();
+  });
+
+  it('P0-fix: approve() gracefully handles QueueService not available', async () => {
+    const approvedPost = { ...fixturePost, id: 'post-1', status: 'APPROVED', network: 'X' };
+    postsService.approve.mockResolvedValue(approvedPost);
+    moduleRef.get.mockReturnValue(null); // QueueService not registered
+
+    await controller.approve('post-1', {}); // should not throw
+
+    expect(queueService.enqueuePosting).not.toHaveBeenCalled();
   });
 
   it('UTC-C-035c: approve() throws NotFoundException when service throws', async () => {

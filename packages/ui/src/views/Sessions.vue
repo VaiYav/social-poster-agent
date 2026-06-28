@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { onMounted } from 'vue';
+import { Globe, HeartPulse, Gauge, Timer, Activity } from '@lucide/vue';
 import { useSessionsStore } from '../stores/sessions';
+import { Card, Button, Badge, ProgressBar, SectionHeader } from '../components/ui';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import ErrorState from '../components/ErrorState.vue';
 import EmptyState from '../components/EmptyState.vue';
@@ -21,9 +23,9 @@ function warmupDaysElapsed(startedAt: string | null): number {
 }
 
 function warmupPhase(days: number): string {
-  if (days <= 2) return 'Browse-only (days 1-2)';
-  if (days <= 5) return 'Light interactions (days 3-5)';
-  if (days <= 7) return 'Moderate (days 6-7)';
+  if (days <= 2) return 'Browse-only (days 1–2)';
+  if (days <= 5) return 'Light interactions (days 3–5)';
+  if (days <= 7) return 'Moderate (days 6–7)';
   return 'Full activity (day 8+)';
 }
 
@@ -31,60 +33,104 @@ function rateLimitFor(network: string | undefined) {
   if (!network) return null;
   return sessionsStore.rateLimits[network] ?? null;
 }
+
+const statusVariant: Record<string, 'success' | 'warning' | 'info' | 'error' | 'neutral'> = {
+  ACTIVE: 'success',
+  EXPIRED: 'warning',
+  WARMUP: 'info',
+  ERROR: 'error',
+  BANNED: 'error',
+};
+
+const networkIcons: Record<string, string> = {
+  X: '𝕏',
+  THREADS: '🧵',
+  FACEBOOK: '📘',
+};
 </script>
 
 <template>
   <div>
-    <h1 class="text-2xl font-bold text-gray-900">Sessions</h1>
+    <SectionHeader
+      title="Sessions"
+      description="Account health, warm-up progress, and rate limits."
+    />
 
     <LoadingSpinner v-if="sessionsStore.loading" />
     <ErrorState v-else-if="sessionsStore.error" :message="sessionsStore.error" />
     <EmptyState v-else-if="sessionsStore.sessions.length === 0" message="No sessions configured." />
-    <div v-else class="mt-6 space-y-3">
-      <div v-for="session in sessionsStore.sessions" :key="session.id" class="rounded-lg border border-gray-200 bg-white p-4">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <span class="text-sm font-medium text-gray-700">{{ session.account?.network ?? 'Unknown' }}</span>
-            <span class="text-xs text-gray-400">@{{ session.account?.handle ?? 'N/A' }}</span>
+    <div v-else class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <Card
+        v-for="session in sessionsStore.sessions"
+        :key="session.id"
+        hoverable
+      >
+        <template #header>
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-highlight text-lg">
+                {{ networkIcons[session.account?.network ?? ''] ?? '?' }}
+              </div>
+              <div>
+                <h2 class="font-semibold text-text-primary">
+                  {{ session.account?.network ?? 'Unknown' }}
+                </h2>
+                <p class="text-xs text-text-muted">@{{ session.account?.handle ?? 'N/A' }}</p>
+              </div>
+            </div>
+            <Badge :variant="statusVariant[session.status] ?? 'neutral'">
+              <template #dot><span /></template>
+              {{ session.status }}
+            </Badge>
           </div>
-          <span class="rounded px-2 py-0.5 text-xs" :class="{
-            'bg-green-100 text-green-700': session.status === 'ACTIVE',
-            'bg-yellow-100 text-yellow-700': session.status === 'EXPIRED',
-            'bg-blue-100 text-blue-700': session.status === 'WARMUP',
-            'bg-red-100 text-red-700': session.status === 'ERROR' || session.status === 'BANNED',
-          }">{{ session.status }}</span>
-        </div>
+        </template>
 
         <!-- Warm-up status (F20) -->
-        <div v-if="session.account?.warmupEnabled" class="mt-2 rounded bg-blue-50 p-2">
-          <div class="flex items-center gap-2">
-            <span class="text-xs font-medium text-blue-700">Warm-up Mode</span>
-            <span class="text-xs text-blue-500">
+        <div
+          v-if="session.account?.warmupEnabled"
+          class="mb-4 rounded-lg bg-info-subtle p-3"
+        >
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2 text-sm font-medium text-info">
+              <Activity class="h-4 w-4" />
+              Warm-up Mode
+            </div>
+            <span class="text-xs text-info">
               Day {{ warmupDaysElapsed(session.account?.warmupStartedAt ?? null) }} / {{ session.account?.warmupDaysTotal ?? 7 }}
             </span>
           </div>
-          <p class="mt-1 text-xs text-blue-600">
+          <ProgressBar
+            class="mt-2"
+            :value="Math.min(100, (warmupDaysElapsed(session.account?.warmupStartedAt ?? null) / (session.account?.warmupDaysTotal ?? 7)) * 100)"
+            color="info"
+            :show-label="false"
+          />
+          <p class="mt-2 text-xs text-text-secondary">
             {{ warmupPhase(warmupDaysElapsed(session.account?.warmupStartedAt ?? null)) }}
           </p>
         </div>
 
-        <div class="mt-2 text-xs text-gray-500">
-          Last check: {{ session.lastHealthCheck ?? 'never' }}
-        </div>
-
         <!-- Rate limit status -->
-        <div v-if="rateLimitFor(session.account?.network)" class="mt-2 rounded bg-gray-50 p-2">
-          <div class="flex items-center justify-between text-xs">
-            <span class="font-medium text-gray-600">Rate Limits</span>
-            <span :class="{
-              'text-green-600': rateLimitFor(session.account?.network)!.dailyCount < rateLimitFor(session.account?.network)!.dailyLimit,
-              'text-red-600': rateLimitFor(session.account?.network)!.dailyCount >= rateLimitFor(session.account?.network)!.dailyLimit,
-            }">
+        <div
+          v-if="rateLimitFor(session.account?.network)"
+          class="mb-4 rounded-lg bg-surface-elevated p-3"
+        >
+          <div class="flex items-center justify-between text-sm">
+            <span class="flex items-center gap-1.5 text-text-secondary">
+              <Gauge class="h-4 w-4" />
+              Rate Limits
+            </span>
+            <span
+              :class="rateLimitFor(session.account?.network)!.dailyCount < rateLimitFor(session.account?.network)!.dailyLimit ? 'text-success' : 'text-error'"
+            >
               {{ rateLimitFor(session.account?.network)!.dailyCount }} / {{ rateLimitFor(session.account?.network)!.dailyLimit }} daily
             </span>
           </div>
-          <div class="mt-1 flex items-center justify-between text-xs text-gray-500">
-            <span>Weekly: {{ rateLimitFor(session.account?.network)!.weeklyCount }} / {{ rateLimitFor(session.account?.network)!.weeklyLimit }}</span>
+          <div class="mt-2 flex items-center justify-between text-xs text-text-muted">
+            <span class="flex items-center gap-1.5">
+              <Timer class="h-3.5 w-3.5" />
+              Weekly: {{ rateLimitFor(session.account?.network)!.weeklyCount }} / {{ rateLimitFor(session.account?.network)!.weeklyLimit }}
+            </span>
             <span v-if="rateLimitFor(session.account?.network)!.lastPostAt">
               Last: {{ new Date(rateLimitFor(session.account?.network)!.lastPostAt!).toLocaleTimeString() }}
             </span>
@@ -92,10 +138,17 @@ function rateLimitFor(network: string | undefined) {
           </div>
         </div>
 
-        <button @click="healthCheck(session.account?.network ?? '')" class="mt-2 rounded bg-gray-100 px-3 py-1 text-xs hover:bg-gray-200">
-          Health Check
-        </button>
-      </div>
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-1.5 text-xs text-text-muted">
+            <HeartPulse class="h-3.5 w-3.5" />
+            Last check: {{ session.lastHealthCheck ?? 'never' }}
+          </div>
+          <Button variant="outline" size="sm" @click="healthCheck(session.account?.network ?? '')">
+            <Globe class="h-3.5 w-3.5" />
+            Health Check
+          </Button>
+        </div>
+      </Card>
     </div>
   </div>
 </template>

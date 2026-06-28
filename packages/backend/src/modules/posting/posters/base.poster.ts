@@ -19,14 +19,18 @@ import {
   SpaError,
   SelectorNotFoundError,
   ValidationError,
+  AccountRestrictedError,
   classifyPlaywrightError,
 } from '../../../domain/errors.js';
+import { navigateWithRetry, withRetry } from '../../../domain/retry.js';
 
 /** Result of a posting operation. */
 export interface PostResult {
   url?: string;
   error?: string;
   screenshotPath?: string;
+  /** P0-H2: Per-reply results for thread posting (partial failure tracking). */
+  threadReplyResults?: Array<{ index: number; success: boolean; error?: string }>;
 }
 
 /** Result of an engagement operation (like, comment, follow). */
@@ -92,10 +96,39 @@ export abstract class BasePoster {
   }
 
   /**
+   * Stealth human-like typing — types character by character with randomized
+   * per-key delay (40-120ms) and 5% chance of "thinking" pause (200-600ms).
+   * More human-like than humanType — evades anti-bot typing pattern detection.
+   * Used for compose textareas where stealth matters most.
+   */
+  protected async typeHuman(page: Page, text: string, locator?: Locator): Promise<void> {
+    await this.browser.typeHuman(page, text, locator);
+  }
+
+  /**
    * Click a locator using human-like click (tries normal, falls back to force).
    */
   protected async humanClick(locator: Locator, timeoutMs = 15000): Promise<void> {
     await this.browser.humanClick(locator, { timeoutMs });
+  }
+
+  /**
+   * Human-like pre-action behavior — scroll element into view, hover briefly,
+   * then random short pause. Simulates a user noticing an element before acting.
+   */
+  protected async humanPreAction(page: Page, locator: Locator): Promise<void> {
+    try {
+      await locator.scrollIntoViewIfNeeded({ timeout: 5000 });
+    } catch {
+      // ignore scroll failures
+    }
+    await this.browser.randomDelay(200, 600);
+    try {
+      await locator.hover({ timeout: 3000 });
+    } catch {
+      // hover non-critical
+    }
+    await this.browser.randomDelay(100, 300);
   }
 
   // ── Screenshots ────────────────────────────────────────────────
@@ -127,9 +160,12 @@ export abstract class BasePoster {
   ): Promise<string> {
     await this.browser.randomDelay(3000, 6000);
 
-    // Navigate to profile
-    await page.goto(profileUrl, { waitUntil: 'networkidle' });
-    await this.browser.randomDelay(3000, 8000);
+    // Navigate to profile — use domcontentloaded (X/Threads never reach networkidle due to polling)
+    await page.goto(profileUrl, { waitUntil: 'domcontentloaded' });
+    // Wait for post elements to load — network-specific selectors
+    const postContentSelector = this.getProfilePostContentSelector();
+    await page.waitForSelector(postContentSelector, { timeout: 15000 }).catch(() => {});
+    await page.waitForTimeout(3000);
 
     // Take screenshot of profile for debugging
     await this.screenshot(page, 'after-validate');
@@ -142,15 +178,32 @@ export abstract class BasePoster {
     }
 
     // Look for the posted content on the profile page
-    // Use the first ~100 chars of content to match (avoid truncation issues)
-    const contentSnippet = content.slice(0, 100).trim();
-    const pageText = await page.textContent('body').catch(() => '');
+    // Use innerText (visible text only) — textContent includes <style> tags with CSS
+    // Strip leading/trailing quotes — X may not display them
+    const contentSnippet = content.slice(0, 40).trim().replace(/^["']+|["']+$/g, '');
+    const pageText = await page.innerText('body').catch(() => '');
+
+    this.logger.debug(`Profile page text length: ${pageText?.length ?? 0}, looking for: "${contentSnippet}"`);
 
     if (!pageText || !pageText.includes(contentSnippet)) {
-      throw new ValidationError(this.network, 'Posted content not found on profile page', {
-        expectedPattern: contentSnippet,
-        actualUrl: page.url(),
-      });
+      // Try without quotes — X strips leading/trailing quotes
+      const noQuoteSnippet = content.replace(/^["']+|["']+$/g, '').slice(0, 30).trim();
+      if (pageText && pageText.includes(noQuoteSnippet)) {
+        this.logger.log(`Content found without quotes: "${noQuoteSnippet}"`);
+      } else {
+        // Try searching in post text elements specifically (network-specific selectors)
+        const postTexts = await page.locator(postContentSelector).allInnerTexts().catch(() => []);
+        this.logger.debug(`Found ${postTexts.length} post text elements on profile`);
+        const foundInPost = postTexts.find((t) => t.includes(noQuoteSnippet) || t.includes(contentSnippet));
+        if (foundInPost) {
+          this.logger.log(`Content found in post text element: "${foundInPost.slice(0, 60)}..."`);
+        } else {
+          throw new ValidationError(this.network, 'Posted content not found on profile page', {
+            expectedPattern: contentSnippet,
+            actualUrl: page.url(),
+          });
+        }
+      }
     }
 
     // Try to find the post URL from the profile
@@ -169,6 +222,23 @@ export abstract class BasePoster {
     // (some networks don't show explicit post URLs on profile)
     this.logger.warn(`Content found on profile but no post URL link detected`);
     return page.url();
+  }
+
+  /**
+   * Get the CSS selector for post content elements on a profile page.
+   * Network-specific: X uses [data-testid="tweetText"], Threads uses [data-contents="true"] or div[dir="auto"].
+   */
+  private getProfilePostContentSelector(): string {
+    switch (this.network) {
+      case 'X':
+        return '[data-testid="tweetText"], article';
+      case 'THREADS':
+        return 'div[data-contents="true"], div[dir="auto"], article, div[role="article"]';
+      case 'FACEBOOK':
+        return 'div[data-testid="post_message"], div[dir="auto"], article';
+      default:
+        return 'article, [data-testid="tweetText"]';
+    }
   }
 
   /**
@@ -237,20 +307,55 @@ export abstract class BasePoster {
 
   /**
    * Navigate to a URL and wait for the page to load.
+   * Uses navigateWithRetry for resilient page loading (retries on timeout/network errors).
    * Dismisses any dialogs/popups that might appear.
    */
   protected async navigate(page: Page, url: string, waitUntil: 'networkidle' | 'domcontentloaded' = 'networkidle'): Promise<void> {
-    await page.goto(url, { waitUntil });
+    await navigateWithRetry(page, url, {
+      waitUntil,
+      timeoutMs: 30000,
+      maxRetries: 3,
+      onRetry: (attempt, delayMs, err) => {
+        this.logger.warn(
+          `Navigation retry ${attempt} for ${url} after ${(err as Error).message} — waiting ${delayMs}ms`,
+        );
+      },
+    });
     await this.browser.randomDelay(3000, 8000);
     await this.browser.dismissDialogs(page);
   }
 
   /**
    * Check if the current page is a login/auth page (session expired).
+   *
+   * Async — checks both URL pattern and DOM login indicators (X may show login
+   * overlay without URL change). Uses short timeout (1s) for DOM checks to avoid
+   * blocking when page is not a login page.
    */
-  protected isOnLoginPage(page: Page): boolean {
+  protected async isOnLoginPage(page: Page): Promise<boolean> {
     const url = page.url();
-    return url.includes('/login') || url.includes('/auth') || url.includes('/login.php');
+    if (url.includes('/login') || url.includes('/auth') || url.includes('/login.php')) {
+      return true;
+    }
+    // X may show login overlay without URL change — check for login indicators in DOM
+    // Use short timeout — if element doesn't exist within 1s, not a login page
+    const loginIndicators = [
+      '[data-testid="google_sign_in_container"]',
+      'input[autocomplete="username"]',
+      'input[name="username_or_email"]',
+      '[data-testid="LoginForm_Login_Button"]',
+      // Threads login indicators
+      'input[aria-label*="Username"]',
+      'input[aria-label*="username"]',
+      // Facebook login indicators
+      '#m_login_email',
+      'input[name="email"]',
+    ];
+    for (const selector of loginIndicators) {
+      const count = await page.locator(selector).count().catch(() => 0);
+      if (count > 0) return true;
+    }
+    return false;
   }
 
   /**
@@ -265,5 +370,194 @@ export abstract class BasePoster {
       url.includes('2fa') ||
       url.includes('captcha')
     );
+  }
+
+  // ── Shadowban / Restriction Detection ──────────────────────────
+
+  /**
+   * Detect if the account is shadowbanned or restricted.
+   *
+   * Shadowbans are silent restrictions where posts appear to succeed but
+   * are not visible to other users. Detection approaches:
+   *   1. Check for restriction banners/toasts on the page
+   *   2. Check for "sensitive content" warnings on the compose page
+   *   3. Check URL patterns that indicate account limitations
+   *
+   * Called after navigation and before posting. If detected, throws
+   * AccountRestrictedError so the posting service can handle it.
+   */
+  protected async detectShadowban(page: Page): Promise<void> {
+    const url = page.url();
+    const bodyText = await page.textContent('body').catch(() => '');
+
+    // Network-specific restriction indicators
+    const restrictionIndicators: Record<string, string[]> = {
+      X: [
+        'Account suspended',
+        'Account locked',
+        'Your account is temporarily limited',
+        'Your account is restricted',
+        'sensitive content',
+        'Your Tweet could not be sent',
+      ],
+      THREADS: [
+        'Your account has been restricted',
+        'Action blocked',
+        'We restrict certain activity',
+        'Your account is temporarily blocked',
+      ],
+      FACEBOOK: [
+        'Your account is temporarily unavailable',
+        'You\'re temporarily restricted',
+        'We restricted this account',
+        'Your Page has been restricted',
+        'You can\'t post right now',
+        'You can not post right now',
+        'temporarily blocked from posting',
+      ],
+    };
+
+    const indicators = restrictionIndicators[this.network] ?? [];
+    const matched = indicators.find((indicator) =>
+      bodyText?.toLowerCase().includes(indicator.toLowerCase()),
+    );
+
+    if (matched) {
+      this.logger.error(`Shadowban/restriction detected on ${this.network}: "${matched}"`);
+      throw new AccountRestrictedError(
+        this.network,
+        `Account restricted on ${this.network}: ${matched} (URL: ${url})`,
+      );
+    }
+
+    // Check URL patterns for restriction pages
+    if (
+      url.includes('/suspended') ||
+      url.includes('/restricted') ||
+      url.includes('/account-limited') ||
+      url.includes('/appeal')
+    ) {
+      this.logger.error(`Restriction page detected on ${this.network}: ${url}`);
+      throw new AccountRestrictedError(
+        this.network,
+        `Account restricted on ${this.network} (redirected to restriction page: ${url})`,
+      );
+    }
+  }
+
+  /**
+   * Detect if a post was shadowbanned — submitted successfully but not visible.
+   *
+   * After posting, navigate to the post URL and check if the content is visible.
+   * If the page shows "post not found" or similar, the post may have been shadowbanned.
+   *
+   * @returns true if the post appears to be shadowbanned, false otherwise.
+   */
+  protected async detectPostShadowban(page: Page, postUrl: string, expectedContent: string): Promise<boolean> {
+    try {
+      await page.goto(postUrl, { waitUntil: 'networkidle', timeout: 15000 });
+      await this.browser.randomDelay(2000, 4000);
+
+      const bodyText = await page.textContent('body').catch(() => '');
+      if (!bodyText) return false;
+
+      // Check for "post not found" / "content unavailable" indicators
+      const notFoundIndicators = [
+        'post no longer available',
+        'this post is no longer available',
+        'content not available',
+        'this content is not available',
+        'post not found',
+        'this post was deleted',
+        'no longer exists',
+      ];
+
+      const isNotFound = notFoundIndicators.some((indicator) =>
+        bodyText.toLowerCase().includes(indicator),
+      );
+
+      if (isNotFound) {
+        this.logger.warn(`Post may be shadowbanned on ${this.network}: content not visible at ${postUrl}`);
+        return true;
+      }
+
+      // Check if expected content is visible
+      const contentSnippet = expectedContent.slice(0, 50).trim();
+      if (contentSnippet && !bodyText.includes(contentSnippet)) {
+        this.logger.warn(`Post content not visible on ${this.network} at ${postUrl} — possible shadowban`);
+        return true;
+      }
+
+      return false;
+    } catch (err) {
+      this.logger.warn(`Shadowban detection failed for ${this.network}: ${(err as Error).message}`);
+      return false;
+    }
+  }
+
+  // ── Sprint K: Post Verification ──────────────────────────────────
+
+  /**
+   * Sprint K: Verify that a post is actually visible on the page after posting.
+   * Navigates to the post URL and checks for content visibility.
+   * Subclasses can override with network-specific selectors.
+   */
+  protected async verifyPostVisible(page: Page, postUrl: string, expectedContent?: string): Promise<boolean> {
+    try {
+      await page.goto(postUrl, { waitUntil: 'networkidle', timeout: 15000 });
+      await this.browser.randomDelay(2000, 5000);
+
+      // Generic check: page loaded and URL matches
+      if (page.url() !== postUrl && !page.url().startsWith(postUrl)) {
+        this.logger.warn(`Post verification: URL mismatch (expected ${postUrl}, got ${page.url()})`);
+        return false;
+      }
+
+      // If content provided, check it appears on the page
+      if (expectedContent) {
+        const pageText = await page.textContent('body').catch(() => '');
+        if (!pageText?.includes(expectedContent.slice(0, 50))) {
+          this.logger.warn(`Post verification: content not found on page`);
+          return false;
+        }
+      }
+
+      return true;
+    } catch (err) {
+      this.logger.warn(`Post verification failed: ${(err as Error).message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Retry an operation with exponential backoff.
+   * Used for thread replies and other operations that may fail transiently.
+   *
+   * @param operation - The operation to retry (should throw on failure)
+   * @param maxRetries - Maximum number of retry attempts (default: 2)
+   * @param baseDelayMs - Base delay between retries (default: 5000ms)
+   * @returns The result of the operation, or throws the last error
+   */
+  protected async retryWithBackoff<T>(
+    operation: () => Promise<T>,
+    maxRetries = 2,
+    baseDelayMs = 5000,
+  ): Promise<T> {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (err) {
+        lastErr = err;
+        if (attempt < maxRetries) {
+          const delay = baseDelayMs * Math.pow(2, attempt) * (0.75 + Math.random() * 0.5);
+          this.logger.warn(
+            `Retry ${attempt + 1}/${maxRetries} after ${(err as Error).message} — waiting ${Math.round(delay)}ms`,
+          );
+          await this.browser.randomDelay(Math.round(delay * 0.75), Math.round(delay * 1.25));
+        }
+      }
+    }
+    throw lastErr;
   }
 }

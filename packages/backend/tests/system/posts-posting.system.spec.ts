@@ -4,7 +4,7 @@
  * HTTP E2E system tests exercising the full AppModule via supertest.
  * Covers SYS-02 (Post Management) and SYS-03 (Posting) subsystems.
  *
- * Spec: features/spa/v-model/system-test/system-test-cases.md
+ * Spec: CONSTITUTION.md §14 (Testing) — test case IDs are inline
  * Standard: ISO/IEC/IEEE 29119:2021
  *
  * Architecture (mirrors big-bang.integration.spec.ts):
@@ -21,9 +21,27 @@
  */
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { SseEventListener } from '../../src/events/listeners/sse-event.listener';
+import { AutoApproveListener } from '../../src/events/listeners/auto-approve.listener';
+import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service';
+import { NotificationsModule } from '../../src/infrastructure/notifications/notifications.module';
+import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service';
+import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator';
+import { ThreadDepthController } from '../../src/modules/content-enhancements/thread-depth.controller';
+import { ContentPillarTracker } from '../../src/modules/content-enhancements/content-pillar.tracker';
+import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook-performance-bank';
+import { ThreadProgressService } from '../../src/modules/posting/thread-progress.service';
+import { HumanBehaviorEngine } from '../../src/modules/engagement/human-behavior-engine';
+import { TargetingService } from '../../src/modules/engagement/targeting.service';
+import { RepliesMonitorService } from '../../src/modules/replies/replies-monitor.service';
+import { EngagementSchedulerService } from '../../src/modules/engagement/engagement-scheduler.service';
+import { SchedulerRegistry } from '@nestjs/schedule';
+import { MetricsScraperService } from '../../src/modules/analytics/metrics-scraper.service';
 import { Test } from '@nestjs/testing';
 import type { TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import request from 'supertest';
 import { PostStatus, SessionStatus, SocialNetwork } from '@prisma/client';
@@ -40,6 +58,8 @@ import { ContentReader } from '../../src/infrastructure/content/content-reader';
 import { SseService } from '../../src/infrastructure/sse/sse.service';
 import { SseModule } from '../../src/infrastructure/sse/sse.module';
 import { QueueFactory } from '../../src/infrastructure/queue/queue.factory';
+import { EncryptionService } from '../../src/infrastructure/crypto/encryption.service';
+import { TrendingScraperService } from '../../src/modules/trending/trending-scraper.service';
 import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint';
 
 // Modules
@@ -71,6 +91,7 @@ import { AccountsService } from '../../src/modules/accounts/accounts.service';
 import { AccountsController } from '../../src/modules/accounts/accounts.controller';
 import { RateLimitService } from '../../src/modules/rate-limit/rate-limit.service';
 import { GenerationService } from '../../src/modules/generation/generation.service';
+import { clearHookCache } from '../../src/modules/generation/generation.graph';
 import { GenerationController } from '../../src/modules/generation/generation.controller';
 import { CronService } from '../../src/modules/generation/cron.service';
 import { ContentSourceService } from '../../src/modules/content-source/content-source.service';
@@ -79,6 +100,16 @@ import { QueueService } from '../../src/modules/queue/queue.service';
 import { QueueController } from '../../src/modules/queue/queue.controller';
 import { QueueModule } from '../../src/modules/queue/queue.module';
 import { EventsController } from '../../src/modules/events/events.controller';
+// Sprint O: New Features
+import { CaptchaSolverService } from '../../src/infrastructure/captcha/captcha-solver.service';
+import { ProxyRotationService } from '../../src/infrastructure/proxy/proxy-rotation.service';
+import { AnalyticsService } from '../../src/modules/analytics/analytics.service';
+import { AnalyticsController } from '../../src/modules/analytics/analytics.controller';
+import { RecyclingService } from '../../src/modules/recycling/recycling.service';
+import { RecyclingController } from '../../src/modules/recycling/recycling.controller';
+import { QuoteCardService } from '../../src/modules/quote-cards/quote-card.service';
+import { QuoteCardController } from '../../src/modules/quote-cards/quote-card.controller';
+import { RepliesService } from '../../src/modules/replies/replies.service';
 import { HealthController } from '../../src/modules/health/health.controller';
 
 import { createMockLlmPort, createMockBrowserPort, createMockPrismaService } from '../mocks/index';
@@ -201,40 +232,73 @@ vi.mock('@langchain/openai', () => ({
 // ── Metadata restoration (esbuild compatibility) ────────────────────────────
 
 function defineParamtypes(target: unknown, types: unknown[]): void {
-  if (Reflect.getMetadata('design:paramtypes', target) == null) {
-    Reflect.defineMetadata('design:paramtypes', types, target);
-  }
+  // Always set — esbuild doesn't emit design:paramtypes, and we need the
+  // latest constructor signature even if a previous test file set older metadata
+  Reflect.defineMetadata('design:paramtypes', types, target);
 }
 
 function restoreAllDesignParamtypes(): void {
+  // Infrastructure
   defineParamtypes(LlmService, [ConfigService]);
   defineParamtypes(ContentReader, [ConfigService]);
   defineParamtypes(BrowserFactory, [ConfigService]);
-  defineParamtypes(SseService, [ConfigService]);
+  defineParamtypes(SseService, [ConfigService, Object, Object]);
   defineParamtypes(RedisCheckpointSaver, [ConfigService]);
-  defineParamtypes(QueueFactory, [ConfigService]);
+  defineParamtypes(QueueFactory, [ConfigService, DiscordNotificationService]);
+  defineParamtypes(EncryptionService, [ConfigService]);
+  defineParamtypes(DiscordNotificationService, [ConfigService]);
 
+  // Module classes with constructor DI
   defineParamtypes(SseModule, [SseService]);
-  defineParamtypes(QueueModule, [QueueFactory, PostingService]);
+  defineParamtypes(QueueModule, [QueueFactory, PostingService, ModuleRef, ConfigService]);
 
-  defineParamtypes(AccountsService, [PrismaService, ConfigService]);
+  // Accounts
+  defineParamtypes(AccountsService, [PrismaService, ConfigService, WarmupService]);
   defineParamtypes(AccountsController, [AccountsService]);
 
+  // Content source
   defineParamtypes(ContentSourceService, [ContentReader]);
   defineParamtypes(ContentSourceController, [ContentSourceService]);
 
+  // Generation — 14 params: 7 required + 7 @Optional()
   defineParamtypes(GenerationService, [
-    Object, ContentSourceService, AccountsService, PostsService, PrismaService, RedisCheckpointSaver,
+    Object, // @Inject(ILlmPort)
+    ContentSourceService,
+    AccountsService,
+    PostsService,
+    PrismaService,
+    RedisCheckpointSaver,
+    SseService,
+    Object, // @Optional() TrendingService
+    Object, // @Optional() TrendingScraperService
+    Object, // @Optional() ContentPillarTracker
+    Object, // @Optional() HookPerformanceBank
+    Object, // @Optional() VisualConceptService
+    Object, // @Optional() ThreadDepthController
+    Object, // @Optional() ABVariantGenerator
   ]);
   defineParamtypes(GenerationController, [GenerationService]);
   defineParamtypes(CronService, [GenerationService, AccountsService, ConfigService]);
 
-  defineParamtypes(PostsService, [PrismaService]);
-  defineParamtypes(PostsController, [PostsService]);
+  // Posts
+  defineParamtypes(PostsService, [PrismaService, EventEmitter2]);
+  defineParamtypes(MetricsScraperService, [PrismaService, SseService, Object]);
+  defineParamtypes(PostsController, [PostsService, ModuleRef]);
 
+  // Posting — @Inject(IBrowserPort) param is Object
   defineParamtypes(PostingService, [
-    Object, AccountsService, SessionsService, WarmupService, PostsService, RateLimitService, SseService,
-    XPoster, ThreadsPoster, FacebookPoster,
+    Object,
+    AccountsService,
+    SessionsService,
+    WarmupService,
+    PostsService,
+    RateLimitService,
+    SseService,
+    ThreadProgressService,
+    XPoster,
+    ThreadsPoster,
+    FacebookPoster,
+    Object, // @Optional() QueueFactory
   ]);
   defineParamtypes(PostingController, [PostingService]);
   defineParamtypes(FacebookPoster, [Object, ConfigService]); // [IBrowserPort, ConfigService]
@@ -243,29 +307,60 @@ function restoreAllDesignParamtypes(): void {
   defineParamtypes(XEngager, [Object]); // [IBrowserPort]
   defineParamtypes(ThreadsEngager, [Object]); // [IBrowserPort]
   defineParamtypes(FacebookEngager, [Object, ConfigService]); // [IBrowserPort, ConfigService]
-  defineParamtypes(BrowsingSessionService, [PrismaService, SessionsService, Object, ConfigService, SseService, RateLimitService, XEngager, ThreadsEngager, FacebookEngager]);
+  defineParamtypes(BrowsingSessionService, [PrismaService, SessionsService, Object, ConfigService, SseService, RateLimitService, XEngager, ThreadsEngager, FacebookEngager, HumanBehaviorEngine, TargetingService, Object]);
   defineParamtypes(EngagementService, [PrismaService, SessionsService, Object, SseService, RateLimitService, XEngager, ThreadsEngager, FacebookEngager]);
   defineParamtypes(EngagementController, [EngagementService]);
+  defineParamtypes(HumanBehaviorEngine, [PrismaService, Object, SseService, RateLimitService, Object]);
+  defineParamtypes(TargetingService, [ConfigService]);
+  defineParamtypes(EngagementSchedulerService, [ConfigService, QueueFactory]);
 
-  defineParamtypes(SessionsService, [PrismaService, AccountsService, Object, ConfigService]);
+  // Sessions — @Inject(IBrowserPort) param is Object
+  defineParamtypes(SessionsService, [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService]);
   defineParamtypes(WarmupService, [PrismaService, ConfigService]);
   defineParamtypes(SessionsController, [SessionsService]);
 
-  defineParamtypes(RateLimitService, [ConfigService]);
+  // Rate limit
+  defineParamtypes(RateLimitService, [ConfigService, Object]);
 
+  // Events
   defineParamtypes(EventsController, [SseService]);
+  defineParamtypes(AutoApproveListener, [PostsService, PrismaService, ModuleRef, ConfigService]);
+  defineParamtypes(SseEventListener, [SseService]);
 
+  // Queue
   defineParamtypes(QueueService, [QueueFactory]);
   defineParamtypes(QueueController, [QueueService]);
 
-  defineParamtypes(HealthController, [PrismaService, ConfigService]);
+  // Health
+  defineParamtypes(HealthController, [PrismaService, Object]);
+
+  // Content Enhancements
+  defineParamtypes(VisualConceptService, [ConfigService, Object]);
+  defineParamtypes(ABVariantGenerator, [ConfigService, Object]);
+  defineParamtypes(ThreadDepthController, [ConfigService, Object]);
+  defineParamtypes(ContentPillarTracker, [Object]);
+  defineParamtypes(HookPerformanceBank, [Object, PrismaService]);
+
+  // Replies
+  defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object]);
+  defineParamtypes(RepliesService, [PrismaService, ConfigService, AccountsService]);
+
+  // Sprint O: New Features
+  defineParamtypes(CaptchaSolverService, [ConfigService]);
+  defineParamtypes(ProxyRotationService, [ConfigService]);
+  defineParamtypes(AnalyticsService, [PrismaService]);
+  defineParamtypes(AnalyticsController, [AnalyticsService]);
+  defineParamtypes(RecyclingService, [PrismaService]);
+  defineParamtypes(RecyclingController, [RecyclingService]);
+  defineParamtypes(QuoteCardService, [ConfigService]);
+  defineParamtypes(QuoteCardController, [QuoteCardService]);
 }
 
 // ── Mock helpers ─────────────────────────────────────────────────────────────
 
 function createIntegrationPrismaService() {
   const prisma = createMockPrismaService();
-  (prisma as any).socialAccount = {
+  (prisma as unknown).socialAccount = {
     create: vi.fn(),
     createMany: vi.fn(),
     findUnique: vi.fn(),
@@ -324,7 +419,7 @@ const ACTIVE_SESSION_X = {
   createdAt: NOW, updatedAt: NOW,
 };
 
-function makePost(overrides: Partial<Record<string, any>> = {}) {
+function makePost(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     id: 'post-000',
     network: SocialNetwork.X,
@@ -403,7 +498,16 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
       .overrideProvider(XPoster).useValue(xPoster)
       .overrideProvider(ThreadsPoster).useValue(threadsPoster)
       .overrideProvider(FacebookPoster).useValue(facebookPoster)
-      .compile();
+    .overrideProvider(EncryptionService)
+    .useValue({ encrypt: (data: unknown) => data, decrypt: (data: string) => data, isEnabled: () => false })
+    .overrideProvider(TrendingScraperService)
+    .useValue({
+      getGoogleTrends: () => Promise.resolve([]),
+      getXTrends: () => Promise.resolve([]),
+      getMergedTrends: () => Promise.resolve([]),
+      getCacheStatus: () => Promise.resolve({ googleTrends: null, xTrends: null }),
+    })
+    .overrideProvider(SseEventListener).useValue({ handleDraftGenerated: () => {}, handleApproved: () => {}, handlePostingStarted: () => {}, handlePosted: () => {}, handleFailed: () => {} }).compile();
 
     sseService = moduleRef.get(SseService);
     rateLimitService = moduleRef.get(RateLimitService);
@@ -428,6 +532,7 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
 
   beforeEach(() => {
     sharedRedisStore.clear();
+    clearHookCache();
     vi.clearAllMocks();
     // Restore default poster implementations after clearAllMocks
     xPoster.post.mockResolvedValue({ url: 'https://x.com/test_x_user/status/123' });
@@ -442,7 +547,7 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
     prisma.socialAccount.findFirst.mockResolvedValue({ ...ACCOUNT_X });
     prisma.session.findFirst.mockResolvedValue({ ...ACTIVE_SESSION_X });
     prisma.session.update.mockResolvedValue({});
-    browserPort.createContext.mockResolvedValue({
+    browserPort.acquireContext.mockResolvedValue({
       newPage: vi.fn().mockResolvedValue({}),
       close: vi.fn().mockResolvedValue(undefined),
       storageState: vi.fn().mockResolvedValue({ cookies: [], origins: [] }),
@@ -639,7 +744,7 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
     expect(res1.body.status).toBe('APPROVED');
     // Verify DB update called with APPROVED
     const updateCall = prisma.post.update.mock.calls.find(
-      (c: any[]) => c[0]?.data?.status === PostStatus.APPROVED,
+      (c: unknown[]) => c[0]?.data?.status === PostStatus.APPROVED,
     );
     expect(updateCall).toBeDefined();
     expect(updateCall[0].where.id).toBe('post-draft-x');
@@ -682,7 +787,7 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
     expect(res1.body.status).toBe('APPROVED');
     // Verify updateStatus was called with APPROVED and approvedAt was set
     const updateCall = prisma.post.update.mock.calls.find(
-      (c: any[]) => c[0]?.data?.status === PostStatus.APPROVED,
+      (c: unknown[]) => c[0]?.data?.status === PostStatus.APPROVED,
     );
     expect(updateCall).toBeDefined();
     expect(updateCall[0].data.approvedAt).toBeInstanceOf(Date);
@@ -710,7 +815,7 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
     expect(res1.status).toBe(200);
     expect(res1.body.status).toBe('REJECTED');
     const updateCall = prisma.post.update.mock.calls.find(
-      (c: any[]) => c[0]?.data?.status === PostStatus.REJECTED,
+      (c: unknown[]) => c[0]?.data?.status === PostStatus.REJECTED,
     );
     expect(updateCall).toBeDefined();
     expect(updateCall[0].where.id).toBe('post-draft-x');
@@ -739,14 +844,14 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
 
     // Verify post status updated to POSTED with postUrl
     const postedUpdate = prisma.post.update.mock.calls.find(
-      (c: any[]) => c[0]?.data?.status === PostStatus.POSTED,
+      (c: unknown[]) => c[0]?.data?.status === PostStatus.POSTED,
     );
     expect(postedUpdate).toBeDefined();
     expect(postedUpdate[0].where.id).toBe('post-appr-x');
     expect(postedUpdate[0].data.postUrl).toBe('https://x.com/test_x_user/status/123');
 
-    // Verify browser context was created (Camoufox mock invoked)
-    expect(browserPort.createContext).toHaveBeenCalledTimes(1);
+    // Verify browser context was acquired (Camoufox mock invoked)
+    expect(browserPort.acquireContext).toHaveBeenCalledTimes(1);
     expect(xPoster.post).toHaveBeenCalledTimes(1);
   });
 
@@ -761,15 +866,15 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
 
     // findUnique returns the right post per ID (called by postById → postsService.findById)
     const postsMap = new Map(approvedPosts.map((p) => [p.id, { ...p }]));
-    prisma.post.findUnique.mockImplementation(({ where }: any) =>
+    prisma.post.findUnique.mockImplementation(({ where }: unknown) =>
       Promise.resolve(postsMap.get(where.id) ?? null),
     );
-    prisma.post.update.mockImplementation(({ where, data }: any) =>
+    prisma.post.update.mockImplementation(({ where, data }: unknown) =>
       Promise.resolve({ ...postsMap.get(where.id), ...data }),
     );
 
     // Account + session mocks per network
-    prisma.socialAccount.findFirst.mockImplementation(({ where }: any) => {
+    prisma.socialAccount.findFirst.mockImplementation(({ where }: unknown) => {
       if (where.network === SocialNetwork.X) return Promise.resolve({ ...ACCOUNT_X });
       if (where.network === SocialNetwork.THREADS) return Promise.resolve({ ...ACCOUNT_THREADS });
       if (where.network === SocialNetwork.FACEBOOK) return Promise.resolve({ ...ACCOUNT_FB });
@@ -778,7 +883,7 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
     prisma.session.findFirst.mockResolvedValue({ ...ACTIVE_SESSION_X });
     prisma.session.update.mockResolvedValue({});
 
-    browserPort.createContext.mockResolvedValue({
+    browserPort.acquireContext.mockResolvedValue({
       newPage: vi.fn().mockResolvedValue({}),
       close: vi.fn().mockResolvedValue(undefined),
       storageState: vi.fn().mockResolvedValue({ cookies: [], origins: [] }),
@@ -803,7 +908,7 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
 
     // Verify all 3 posts have POSTED status updates
     const postedUpdates = prisma.post.update.mock.calls.filter(
-      (c: any[]) => c[0]?.data?.status === PostStatus.POSTED,
+      (c: unknown[]) => c[0]?.data?.status === PostStatus.POSTED,
     );
     expect(postedUpdates).toHaveLength(3);
   });
@@ -828,12 +933,12 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
 
     // Verify post status was NOT updated to POSTING or POSTED
     const postingUpdate = prisma.post.update.mock.calls.find(
-      (c: any[]) => c[0]?.data?.status === PostStatus.POSTING,
+      (c: unknown[]) => c[0]?.data?.status === PostStatus.POSTING,
     );
     expect(postingUpdate).toBeUndefined();
 
     // Verify browser was NOT called
-    expect(browserPort.createContext).not.toHaveBeenCalled();
+    expect(browserPort.acquireContext).not.toHaveBeenCalled();
 
     // Verify recordPost was NOT called (rate limit blocked before posting)
     expect(recordPostSpy).not.toHaveBeenCalled();
@@ -878,7 +983,7 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
 
     // Verify POSTING event published before the post
     const postingEvent = publishSpy.mock.calls.find(
-      (c: any[]) => c[0]?.status === 'POSTING',
+      (c: unknown[]) => c[0]?.status === 'POSTING',
     );
     expect(postingEvent).toBeDefined();
     expect(postingEvent[0]).toMatchObject({
@@ -890,7 +995,7 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
 
     // Verify POSTED event published after success, with URL
     const postedEvent = publishSpy.mock.calls.find(
-      (c: any[]) => c[0]?.status === 'POSTED',
+      (c: unknown[]) => c[0]?.status === 'POSTED',
     );
     expect(postedEvent).toBeDefined();
     expect(postedEvent[0]).toMatchObject({
@@ -903,10 +1008,10 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
 
     // Verify ordering: POSTING before POSTED
     const postingOrder = publishSpy.mock.invocationCallOrder[
-      publishSpy.mock.calls.findIndex((c: any[]) => c[0]?.status === 'POSTING')
+      publishSpy.mock.calls.findIndex((c: unknown[]) => c[0]?.status === 'POSTING')
     ];
     const postedOrder = publishSpy.mock.invocationCallOrder[
-      publishSpy.mock.calls.findIndex((c: any[]) => c[0]?.status === 'POSTED')
+      publishSpy.mock.calls.findIndex((c: unknown[]) => c[0]?.status === 'POSTED')
     ];
     expect(postingOrder).toBeLessThan(postedOrder);
 
@@ -926,13 +1031,13 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
 
     // Verify POSTING event
     const postingEvent2 = publishSpy.mock.calls.find(
-      (c: any[]) => c[0]?.status === 'POSTING',
+      (c: unknown[]) => c[0]?.status === 'POSTING',
     );
     expect(postingEvent2).toBeDefined();
 
     // Verify FAILED event with error message
     const failedEvent = publishSpy.mock.calls.find(
-      (c: any[]) => c[0]?.status === 'FAILED',
+      (c: unknown[]) => c[0]?.status === 'FAILED',
     );
     expect(failedEvent).toBeDefined();
     expect(failedEvent[0]).toMatchObject({
@@ -953,8 +1058,9 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
     // poster is called 3 times with exponential backoff config in place.
 
     // Verify BullMQ retry config from ConfigService (QueueFactory reads these)
-    const maxRetries = configService.get<number>('BULLMQ_MAX_RETRIES', 3);
-    const retryDelayMs = configService.get<number>('BULLMQ_RETRY_DELAY_MS', 60000);
+    // ConfigService returns strings from env vars — coerce to number for comparison
+    const maxRetries = Number(configService.get<string>('BULLMQ_MAX_RETRIES', '3'));
+    const retryDelayMs = Number(configService.get<string>('BULLMQ_RETRY_DELAY_MS', '60000'));
     expect(maxRetries).toBe(3);
     expect(retryDelayMs).toBe(60000); // 60s base → exponential: 60s, 120s, 240s
 
@@ -979,7 +1085,7 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
 
     // Verify final status update to FAILED with errorMessage
     const failedUpdates = prisma.post.update.mock.calls.filter(
-      (c: any[]) => c[0]?.data?.status === PostStatus.FAILED,
+      (c: unknown[]) => c[0]?.data?.status === PostStatus.FAILED,
     );
     expect(failedUpdates.length).toBeGreaterThanOrEqual(1);
     const lastFailed = failedUpdates[failedUpdates.length - 1];
@@ -997,16 +1103,16 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
 
     // Set up mocks for each post in the thread
     const postsMap = new Map(threadPosts.map((p) => [p.id, { ...p }]));
-    prisma.post.findUnique.mockImplementation(({ where }: any) =>
+    prisma.post.findUnique.mockImplementation(({ where }: unknown) =>
       Promise.resolve(postsMap.get(where.id) ?? null),
     );
-    prisma.post.update.mockImplementation(({ where, data }: any) =>
+    prisma.post.update.mockImplementation(({ where, data }: unknown) =>
       Promise.resolve({ ...postsMap.get(where.id), ...data }),
     );
     prisma.socialAccount.findFirst.mockResolvedValue({ ...ACCOUNT_X });
     prisma.session.findFirst.mockResolvedValue({ ...ACTIVE_SESSION_X });
     prisma.session.update.mockResolvedValue({});
-    browserPort.createContext.mockResolvedValue({
+    browserPort.acquireContext.mockResolvedValue({
       newPage: vi.fn().mockResolvedValue({}),
       close: vi.fn().mockResolvedValue(undefined),
       storageState: vi.fn().mockResolvedValue({ cookies: [], origins: [] }),
@@ -1033,12 +1139,12 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
     expect(xPoster.post).toHaveBeenCalledTimes(3);
 
     // Verify the poster was called in threadPosition order (1, 2, 3)
-    const callContents = xPoster.post.mock.calls.map((c: any[]) => c[2]); // content arg
+    const callContents = xPoster.post.mock.calls.map((c: unknown[]) => c[2]); // content arg
     expect(callContents).toHaveLength(3);
 
     // Verify all 3 have POSTED status updates
     const postedUpdates = prisma.post.update.mock.calls.filter(
-      (c: any[]) => c[0]?.data?.status === PostStatus.POSTED,
+      (c: unknown[]) => c[0]?.data?.status === PostStatus.POSTED,
     );
     expect(postedUpdates).toHaveLength(3);
 
@@ -1056,8 +1162,8 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
     // --- Case 1: Post already POSTED → returns success without re-posting ---
     prisma.post.findUnique.mockResolvedValue({ ...POSTED_POST });
     prisma.post.update.mockResolvedValue({ ...POSTED_POST });
-    browserPort.createContext.mockReset();
-    browserPort.createContext.mockResolvedValue({ close: vi.fn().mockResolvedValue(undefined) });
+    browserPort.acquireContext.mockReset();
+    browserPort.acquireContext.mockResolvedValue({ close: vi.fn().mockResolvedValue(undefined) });
 
     const res1 = await request(app.getHttpServer())
       .post('/api/v1/posting/post-posted');
@@ -1066,13 +1172,13 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
     expect(res1.body.success).toBe(true);
     expect(res1.body.url).toBe('https://x.com/test_x_user/status/999');
     // Verify browser NOT called (idempotent — no re-posting)
-    expect(browserPort.createContext).not.toHaveBeenCalled();
+    expect(browserPort.acquireContext).not.toHaveBeenCalled();
     expect(xPoster.post).not.toHaveBeenCalled();
 
     // --- Case 2: Post currently POSTING → returns error without re-posting ---
     vi.clearAllMocks();
     prisma.post.findUnique.mockResolvedValue({ ...POSTING_POST });
-    browserPort.createContext.mockResolvedValue({ close: vi.fn().mockResolvedValue(undefined) });
+    browserPort.acquireContext.mockResolvedValue({ close: vi.fn().mockResolvedValue(undefined) });
 
     const res2 = await request(app.getHttpServer())
       .post('/api/v1/posting/post-posting');
@@ -1081,7 +1187,7 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
     expect(res2.body.success).toBe(false);
     expect(res2.body.error).toBeDefined();
     // Verify browser NOT called
-    expect(browserPort.createContext).not.toHaveBeenCalled();
+    expect(browserPort.acquireContext).not.toHaveBeenCalled();
     expect(xPoster.post).not.toHaveBeenCalled();
   });
 });

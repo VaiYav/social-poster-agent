@@ -39,3 +39,6 @@ process.env.FACEBOOK_PASSWORD = 'test_fb_pass';
 // Content source — path to test fixtures
 process.env.CAP_RUNS_DIR = './tests/fixtures/cap-runs';
 process.env.BLOG_CONTENT_DIR = './tests/fixtures/blog';
+
+// Browser — always headless in tests (override .env which may set headed mode for debugging)
+process.env.CAMOUFOX_HEADLESS = 'true';

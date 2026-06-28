@@ -74,12 +74,17 @@ export function createMockLocator() {
   locator.focus = vi.fn().mockResolvedValue(undefined);
   locator.isVisible = vi.fn().mockResolvedValue(true);
   locator.isEnabled = vi.fn().mockResolvedValue(true);
+  locator.isDisabled = vi.fn().mockResolvedValue(false);
   locator.isHidden = vi.fn().mockResolvedValue(false);
-  locator.count = vi.fn().mockResolvedValue(1);
+  locator.count = vi.fn().mockResolvedValue(0);
   locator.first = vi.fn().mockReturnValue(locator);
   locator.last = vi.fn().mockReturnValue(locator);
   locator.nth = vi.fn().mockReturnValue(locator);
+  locator.or = vi.fn().mockReturnValue(locator);
   locator.all = vi.fn().mockResolvedValue([locator]);
+  locator.allInnerTexts = vi.fn().mockResolvedValue([]);
+  locator.evaluate = vi.fn().mockResolvedValue(undefined);
+  locator.evaluateAll = vi.fn().mockResolvedValue([]);
   locator.getAttribute = vi.fn().mockResolvedValue(null);
   locator.textContent = vi.fn().mockResolvedValue('');
   locator.innerText = vi.fn().mockResolvedValue('');
@@ -87,7 +92,7 @@ export function createMockLocator() {
   locator.pressSequentially = vi.fn().mockResolvedValue(undefined);
   locator.press = vi.fn().mockResolvedValue(undefined);
   locator.type = vi.fn().mockResolvedValue(undefined);
-  return locator as any;
+  return locator as unknown;
 }
 
 /**
@@ -124,46 +129,66 @@ export function createMockPage(opts: {
       press: vi.fn().mockResolvedValue(undefined),
     },
     textContent: vi.fn().mockResolvedValue(opts.bodyText ?? ''),
+    innerText: vi.fn().mockResolvedValue(opts.bodyText ?? ''),
     screenshot: vi.fn().mockResolvedValue('/tmp/mock-screenshot.png'),
     evaluate: vi.fn().mockResolvedValue(undefined),
+    evaluateAll: vi.fn().mockResolvedValue([]),
+    content: vi.fn().mockResolvedValue('<html></html>'),
     waitForTimeout: vi.fn().mockResolvedValue(undefined),
     waitForLoadState: vi.fn().mockResolvedValue(undefined),
+    waitForSelector: vi.fn().mockResolvedValue(undefined),
+    waitForFunction: vi.fn().mockResolvedValue(true),
+    waitForNavigation: vi.fn().mockResolvedValue(undefined),
+    addInitScript: vi.fn().mockResolvedValue(undefined),
+    on: vi.fn().mockReturnValue(undefined),
+    goBack: vi.fn().mockResolvedValue(undefined),
     _locator: mockLocator,
   };
   return page;
 }
 
 /** Build a mock BrowserContext whose newPage() resolves to the supplied page. */
-export function createMockContext(page: ReturnType<typeof createMockPage>) {
+export function createMockContext(
+  page: ReturnType<typeof createMockPage>,
+  opts?: { cookies?: Array<{ name: string; value: string; domain: string; expires?: number }> },
+) {
   return {
     newPage: vi.fn().mockResolvedValue(page),
     close: vi.fn().mockResolvedValue(undefined),
     pages: vi.fn().mockReturnValue([page]),
     storageState: vi.fn().mockResolvedValue({}),
+    cookies: vi.fn().mockResolvedValue(opts?.cookies ?? []),
+    addCookies: vi.fn().mockResolvedValue(undefined),
   };
 }
 
 export function createMockBrowserPort(): IBrowserPort {
-  return {
-    createContext: vi.fn().mockResolvedValue({
-      newPage: vi.fn().mockResolvedValue({
-        goto: vi.fn(),
-        click: vi.fn(),
-        fill: vi.fn(),
-        waitForSelector: vi.fn(),
-        screenshot: vi.fn(),
-        close: vi.fn(),
-      }),
+  const mockContext = {
+    newPage: vi.fn().mockResolvedValue({
+      goto: vi.fn(),
+      click: vi.fn(),
+      fill: vi.fn(),
+      waitForSelector: vi.fn(),
+      screenshot: vi.fn(),
       close: vi.fn(),
-      storageState: vi.fn().mockResolvedValue({}),
-    } as any),
+    }),
+    close: vi.fn(),
+    storageState: vi.fn().mockResolvedValue({}),
+  } as unknown;
+  return {
+    createContext: vi.fn().mockResolvedValue(mockContext),
+    acquireContext: vi.fn().mockResolvedValue(mockContext),
+    releaseContext: vi.fn(),
     saveStorageState: vi.fn().mockResolvedValue(
       JSON.stringify({ cookies: [], origins: [] }),
     ),
     randomDelay: vi.fn().mockResolvedValue(undefined),
     // New methods added in Phase 1.1
     humanType: vi.fn().mockResolvedValue(undefined),
+    // Stealth human-like typing (stealth-x approach) — used for X login
+    typeHuman: vi.fn().mockResolvedValue(undefined),
     humanClick: vi.fn().mockResolvedValue(undefined),
+    hover: vi.fn().mockResolvedValue(undefined),
     scrollPage: vi.fn().mockResolvedValue(undefined),
     scrollToElement: vi.fn().mockResolvedValue(undefined),
     screenshot: vi.fn().mockResolvedValue('/tmp/mock-screenshot.png'),
@@ -211,6 +236,9 @@ export function createMockPrismaService() {
       ...createModelMock(),
     },
     account: {
+      ...createModelMock(),
+    },
+    socialAccount: {
       ...createModelMock(),
     },
     $connect: vi.fn(),
@@ -269,11 +297,27 @@ export function createMockSseService() {
   };
 }
 
+// ── Encryption Service Mock ──
+
+/**
+ * P0-H3: Mock EncryptionService — passthrough mode (no encryption).
+ * encrypt() returns JSON.stringify(data), decrypt() returns JSON.parse(data).
+ * This matches the behavior when SESSION_ENCRYPTION_KEY is not set.
+ */
+export function createMockEncryptionService() {
+  return {
+    encrypt: vi.fn((data: unknown) => JSON.stringify(data)),
+    decrypt: vi.fn((s: string) => JSON.parse(s)),
+    isEnabled: vi.fn().mockReturnValue(false),
+    isEncrypted: vi.fn((s: string) => s.startsWith('v1:')),
+  };
+}
+
 // ── Rate Limit Service Mock ──
 
 export function createMockRateLimitService() {
   return {
-    checkRateLimit: vi.fn().mockResolvedValue(undefined), // no error = allowed
+    checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }),
     recordPost: vi.fn().mockResolvedValue(undefined),
     getStats: vi.fn().mockResolvedValue({
       dailyCount: 0,
@@ -281,6 +325,24 @@ export function createMockRateLimitService() {
       lastPostAt: null,
       minIntervalMs: 120000,
     }),
+  };
+}
+
+// ── Thread Progress Service Mock ──
+
+/**
+ * P0-H2: Mock ThreadProgressService — all methods resolve successfully.
+ * Used by PostingService tests to verify per-reply persistence calls.
+ */
+export function createMockThreadProgressService() {
+  return {
+    initThread: vi.fn().mockResolvedValue(undefined),
+    markReplyPosted: vi.fn().mockResolvedValue(undefined),
+    markReplyFailed: vi.fn().mockResolvedValue(undefined),
+    getPendingReplies: vi.fn().mockResolvedValue([]),
+    getThreadProgress: vi.fn().mockResolvedValue([]),
+    isThreadComplete: vi.fn().mockResolvedValue(true),
+    getThreadStats: vi.fn().mockResolvedValue({ total: 0, posted: 0, failed: 0, pending: 0 }),
   };
 }
 

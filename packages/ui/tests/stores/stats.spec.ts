@@ -153,6 +153,7 @@ describe('MOD-06 / stats store', () => {
       count: 5,
       networks: ['X'],
       sourceType: 'MANUAL',
+      multiStage: false,
     });
     // fetchRuns called after success (GET /generation/runs)
     expect(api.get).toHaveBeenCalledWith('/generation/runs', { params: { limit: 20 } });

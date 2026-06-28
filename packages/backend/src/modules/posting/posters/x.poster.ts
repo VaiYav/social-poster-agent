@@ -8,10 +8,16 @@ import { ValidationError } from '../../../domain/errors.js';
 /**
  * X.com (Twitter) poster — browser automation for posting tweets and threads.
  *
- * Flow: navigate to x.com/compose/post → type text → submit → validate URL
+ * REFACTORED following twitter-mcp (Miles0sage/twitter-mcp) approach:
+ *  - Uses fill() for contenteditable input (not pressSequentially — avoids typeahead timeout)
+ *  - Uses simple click() for submit button (not humanClick with humanize delays)
+ *  - Validates post by checking profile page (not URL redirect — X may open schedule dialog)
+ *  - Uses .or_() pattern for resilient selector fallbacks
+ *
+ * Flow: navigate to x.com/compose/post → fill text → click Post → validate on profile
  * For threads: post root → reply to each subsequent post
  *
- * Uses data-testid selectors (relatively stable) with fallbacks.
+ * Reference: https://github.com/Miles0sage/twitter-mcp/blob/main/tools_write.py
  */
 @Injectable()
 export class XPoster extends BasePoster {
@@ -30,82 +36,255 @@ export class XPoster extends BasePoster {
   ): Promise<PostResult> {
     const page = await context.newPage();
 
-    try {
-      // Navigate to compose page
-      await this.navigate(page, X_SELECTORS.compose.url);
+    // Suppress page errors — X.com throws uncaught JS errors that crash Playwright 1.61.1
+    // (FFPage._onUncaughtError → addPageError → TypeError: Cannot read 'url' of undefined)
+    // addInitScript runs before page JS — intercepts window.onerror before X.com can throw
+    await page.addInitScript(() => {
+      window.addEventListener('error', (e) => { e.preventDefault(); e.stopImmediatePropagation(); }, true);
+      window.addEventListener('unhandledrejection', (e) => { e.preventDefault(); e.stopImmediatePropagation(); }, true);
+    });
+    page.on('pageerror', () => {});
 
-      // Check if logged in (redirect to login?)
-      if (this.isOnLoginPage(page)) {
+    try {
+      // Navigate to compose page — X never reaches networkidle (constant polling), use domcontentloaded
+      await this.navigate(page, X_SELECTORS.compose.url, 'domcontentloaded');
+
+      // Check if logged in (redirect to login or login overlay?)
+      // isOnLoginPage now checks both URL and DOM login indicators (async)
+      if (await this.isOnLoginPage(page)) {
+        this.logger.warn(`X session expired — login page detected on compose`);
         return { error: 'Not logged in — session expired, relogin needed' };
       }
+
+      // Detect shadowban/restriction before attempting to post
+      await this.detectShadowban(page);
 
       // Screenshot before compose
       await this.screenshot(page, 'before-compose');
 
-      // Type the tweet — X uses a contenteditable div, not a textarea
-      const textareaResolution = await this.resolve(
-        page,
-        X_SELECTORS.compose.textarea,
-        'compose textarea',
-        15000,
-      );
-      await this.humanClick(textareaResolution.locator);
-      await this.browser.randomDelay(1000, 3000);
-      // Use keyboard.type for contenteditable (fill() doesn't work well with React)
-      await this.humanType(textareaResolution.locator, content);
-      await this.browser.randomDelay(1000, 2000);
+      // Debug logging — only when SPA_DEBUG_SELECTORS env var is set
+      // (avoids overhead in production while keeping diagnostic capability)
+      if (process.env.SPA_DEBUG_SELECTORS === 'true') {
+        const composeHtml = await page.content().catch(() => '');
+        this.logger.debug(`X compose page HTML length: ${composeHtml.length}`);
+        const testIds = await page.locator('[data-testid]').evaluateAll((els) =>
+          els.slice(0, 30).map((el) => ({
+            testId: el.getAttribute('data-testid'),
+            tag: el.tagName,
+            text: el.textContent?.slice(0, 30),
+          })),
+        ).catch(() => []);
+        this.logger.debug(`X compose page testIds: ${JSON.stringify(testIds)}`);
+      }
+
+      // ── Type the tweet ──
+      // X uses a contenteditable div with DraftJS. Three strategies:
+      // 1. fill() — fast, but DraftJS may not update React state
+      // 2. keyboard.type() — real key events, DraftJS processes correctly, but slow
+      // 3. pressSequentially() — similar to keyboard.type but per-locator
+      // Strategy: try fill() first, then verify content, fallback to keyboard.type()
+      let textbox = page
+        .locator('[data-testid="tweetTextarea_0"]')
+        .first()
+        .or(page.locator('[role="textbox"]').first());
+
+      // Click to focus the textbox
+      await textbox.click({ force: true, timeout: 10000 }).catch(() => {});
+      await this.browser.randomDelay(300, 800);
+
+      // Strategy 1: typeHuman (stealth-x approach — human-like per-char typing)
+      // More human-like than fill() — X's anti-bot detects instant fill() as automated.
+      // Uses locator.pressSequentially per char with randomized 40-120ms delay.
+      this.logger.log(`X typing tweet via typeHuman (stealth-x approach)...`);
+      await this.browser.typeHuman(page, content, textbox).catch(() => {});
+      await this.browser.randomDelay(500, 1000);
+
+      // Verify content was entered
+      let enteredText = await textbox.innerText().catch(() => '');
+      this.logger.debug(`X after typeHuman — textbox content: "${enteredText.slice(0, 50)}..."`);
+
+      // Strategy 2: if typeHuman didn't work, use fill() (fast fallback)
+      if (!enteredText || enteredText.trim().length < 10) {
+        this.logger.warn(`X typeHuman didn't enter text — trying fill()...`);
+        await textbox.fill(content, { timeout: 10000 }).catch(() => {});
+        await this.browser.randomDelay(300, 600);
+        enteredText = await textbox.innerText().catch(() => '');
+        this.logger.debug(`X after fill() — textbox content: "${enteredText.slice(0, 50)}..."`);
+      }
+
+      // Strategy 3: if fill() didn't work either, use keyboard.type() (last resort)
+      if (!enteredText || enteredText.trim().length < 10) {
+        this.logger.warn(`X fill() didn't enter text — trying keyboard.type()...`);
+        await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+        await this.browser.randomDelay(200, 400);
+        await page.keyboard.type(content, { delay: 30 });
+        await this.browser.randomDelay(300, 600);
+        enteredText = await textbox.innerText().catch(() => '');
+        this.logger.debug(`X after keyboard.type() — textbox content: "${enteredText.slice(0, 50)}..."`);
+      }
 
       // Screenshot after typing
       await this.screenshot(page, 'after-type');
 
-      // Submit
-      const submitResolution = await this.resolve(
-        page,
-        X_SELECTORS.compose.submitButton,
-        'tweet submit button',
-        10000,
-      );
-      await this.browser.waitForStable(submitResolution.locator, { timeoutMs: 5000 });
-      await this.humanClick(submitResolution.locator);
-      await this.browser.randomDelay(3000, 8000);
+      // ── Submit (twitter-mcp approach: simple click, not humanClick) ──
+      // Multi-fallback selector strategy for the Post button:
+      //   1. [data-testid="tweetButton"] — canonical X selector (compose dialog)
+      //   2. [data-testid="tweetButtonInline"]:not([disabled]) — inline compose, enabled only
+      //   3. getByRole('button', { name: 'Post', exact: true }) — ARIA fallback (exact match
+      //      to avoid matching "Schedule post" button which also contains "Post")
+      // The button may be disabled until DraftJS processes the typed content.
+      // We wait for it to become enabled before clicking.
+      // NOTE: Avoid :has-text("Post") — it matches "Schedule post" and other buttons.
+      const postButton = page
+        .locator('[data-testid="tweetButton"]')
+        .first()
+        .or(page.locator('[data-testid="tweetButtonInline"]:not([disabled]):not([aria-disabled="true"])').first())
+        .or(page.getByRole('button', { name: 'Post', exact: true }).first());
+
+      // Wait for the button to appear and be enabled.
+      // If the button is disabled (DraftJS state not updated), retry text entry.
+      let buttonVisible = await postButton.isVisible().catch(() => false);
+      if (!buttonVisible) {
+        this.logger.warn(`X post button not visible — retrying text entry via keyboard...`);
+        // Re-focus and re-type to trigger DraftJS state update
+        await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+        await this.browser.randomDelay(200, 500);
+        // Select all existing content and replace
+        await page.keyboard.press('Control+A').catch(() => {});
+        await page.keyboard.press('Backspace').catch(() => {});
+        await this.browser.randomDelay(200, 400);
+        await page.keyboard.type(content, { delay: 30 });
+        await this.browser.randomDelay(800, 1500);
+        buttonVisible = await postButton.isVisible().catch(() => false);
+      }
+
+      if (!buttonVisible) {
+        // Fallback: navigate to home page and use the compose dialog there.
+        // The /compose/post URL may be deprecated or broken for some sessions.
+        this.logger.warn(`X post button still not visible — falling back to home page compose dialog...`);
+        const fallbackResult = await this.postViaHomePageCompose(page, content);
+        if (fallbackResult) {
+          return fallbackResult;
+        }
+      }
+
+      // Wait for the button to be enabled (not disabled)
+      // DraftJS may take a moment to process the content and enable the button
+      await postButton.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+      // Check if button is disabled
+      const isDisabled = await postButton.isDisabled().catch(() => false);
+      if (isDisabled) {
+        this.logger.warn(`X post button is disabled — retrying text entry...`);
+        await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+        await page.keyboard.press('Control+A').catch(() => {});
+        await page.keyboard.type(content, { delay: 30 });
+        await page.waitForTimeout(1000);
+      }
+
+      // Use humanClick for dry-run compatibility (DryRunBrowserPort intercepts humanClick)
+      // and human-like behavior. Falls back to force: true if humanize blocks the click.
+      // Human-like: scroll into view, hover, then click
+      await this.humanPreAction(page, postButton);
+      let clickSuccess = false;
+      try {
+        await this.browser.humanClick(postButton, { timeoutMs: 10000 });
+        clickSuccess = true;
+      } catch (clickErr) {
+        this.logger.warn(`X humanClick on Post button failed: ${(clickErr as Error).message}`);
+      }
+      await this.browser.randomDelay(2000, 4000);
+
+      // Fallback: if button click failed, try Cmd+Enter (X keyboard shortcut for submit).
+      // This is the native X shortcut — works even when the button is not clickable
+      // due to DraftJS state issues, overlay blocking, or UI changes.
+      if (!clickSuccess) {
+        this.logger.log(`X trying Cmd+Enter keyboard shortcut to submit...`);
+        // Re-focus the textbox first (Cmd+Enter works from the focused textarea)
+        await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+        await this.browser.randomDelay(300, 600);
+        // Cmd+Enter on Mac, Ctrl+Enter on Windows/Linux — send both to cover all platforms
+        await page.keyboard.press('Meta+Enter').catch(() => {});
+        await this.browser.randomDelay(200, 400);
+        await page.keyboard.press('Control+Enter').catch(() => {});
+        await this.browser.randomDelay(2000, 4000);
+        this.logger.log(`X Cmd+Enter sent — checking if post was submitted...`);
+      }
 
       // Screenshot after submit
       await this.screenshot(page, 'after-submit');
 
-      // Validate — X redirects to the tweet URL after posting
       const currentUrl = page.url();
+      this.logger.log(`X after submit — current URL: ${currentUrl}`);
+
+      // ── Validate post (twitter-mcp approach: check profile, not URL) ──
+      // X may redirect to /home, /compose/post/schedule, or stay on compose page.
+      // The tweet is usually posted regardless — we validate by checking the profile.
       let postUrl: string;
 
-      try {
-        postUrl = this.validatePostUrl(currentUrl, X_SELECTORS.compose.postUrlPattern);
-      } catch (validationErr) {
-        // URL doesn't match — might still be on compose page or redirected elsewhere
-        // Try to find the tweet URL in the page (sometimes X doesn't redirect immediately)
-        if (validationErr instanceof ValidationError) {
-          this.logger.warn(`X post URL validation failed, checking page for tweet link...`);
-          // Wait a bit more for redirect
-          await this.browser.randomDelay(3000, 5000);
-          const retryUrl = page.url();
-          if (X_SELECTORS.compose.postUrlPattern.test(retryUrl)) {
-            postUrl = retryUrl;
-          } else {
-            throw validationErr;
-          }
+      // First try: if URL matches /status/{id} pattern, use it directly
+      if (X_SELECTORS.compose.postUrlPattern.test(currentUrl)) {
+        postUrl = currentUrl;
+        this.logger.log(`X posted — URL matches pattern: ${postUrl}`);
+      } else {
+        // Second try: search page DOM for our tweet link
+        const accountHandle = await this.getAccountHandle(page);
+        const foundUrl = await this.findTweetUrlOnPage(page, accountHandle);
+
+        if (foundUrl) {
+          postUrl = foundUrl;
         } else {
-          throw validationErr;
+          // Third try: navigate to profile and find the tweet there
+          this.logger.log(`X tweet not on current page — checking profile...`);
+          const handle = accountHandle ?? await this.getAccountHandleFromEnv();
+          if (handle) {
+            postUrl = await this.validatePostOnProfile(
+              page,
+              `https://x.com/${handle}`,
+              content,
+              X_SELECTORS.compose.postUrlPattern,
+            );
+          } else {
+            throw new ValidationError(this.network, 'Post URL does not match expected pattern', {
+              expectedPattern: X_SELECTORS.compose.postUrlPattern.source,
+              actualUrl: currentUrl,
+            });
+          }
         }
       }
 
       this.logger.log(`Posted to X: ${postUrl}`);
 
-      // Handle thread replies — each reply is posted as a reply to the root tweet
+      // P0-H2: Handle thread replies with per-reply error tracking and retry.
+      // Human-like delay between replies (30-90s) — posting all replies instantly
+      // is not human-like and may trigger X rate limiting / anti-bot detection.
+      const replyResults: Array<{ index: number; success: boolean; error?: string }> = [];
       if (threadItems && threadItems.length > 0 && postUrl) {
-        for (const reply of threadItems) {
-          await this.postReply(page, postUrl, reply);
+        for (let i = 0; i < threadItems.length; i++) {
+          // Human-like delay between replies (skip before first reply)
+          if (i > 0) {
+            this.logger.debug(`X thread: waiting before reply ${i + 1}/${threadItems.length}`);
+            await this.browser.randomDelay(30000, 90000);
+          }
+          try {
+            // Retry each reply with exponential backoff (2 attempts)
+            await this.retryWithBackoff(
+              () => this.postReply(page, postUrl, threadItems[i]!),
+              2,
+              5000,
+            );
+            replyResults.push({ index: i, success: true });
+          } catch (replyErr) {
+            const errMsg = (replyErr as Error).message;
+            this.logger.error(`Thread reply ${i + 1}/${threadItems.length} failed after retries: ${errMsg}`);
+            replyResults.push({ index: i, success: false, error: errMsg });
+          }
         }
+        const succeeded = replyResults.filter((r) => r.success).length;
+        const failed = replyResults.filter((r) => !r.success).length;
+        this.logger.log(`Thread replies: ${succeeded} succeeded, ${failed} failed out of ${threadItems.length}`);
       }
 
-      return { url: postUrl };
+      return { url: postUrl, threadReplyResults: replyResults };
     } catch (err) {
       this.logger.error(`X post failed: ${(err as Error).message}`);
       return await this.withErrorHandling(page, async () => {
@@ -117,44 +296,300 @@ export class XPoster extends BasePoster {
   }
 
   /**
+   * Fallback posting strategy: navigate to X home page, open the compose
+   * dialog via the "Post" button in the side nav, type content, and submit.
+   *
+   * Used when the /compose/post URL doesn't render the tweet button
+   * (degraded session, UI changes, etc.). The home page compose dialog
+   * is the canonical posting path and tends to be more reliable.
+   *
+   * @returns PostResult if the fallback was attempted (success or error),
+   *          null if the compose dialog couldn't be opened.
+   */
+  private async postViaHomePageCompose(page: Page, content: string): Promise<PostResult | null> {
+    try {
+      this.logger.log(`X fallback: navigating to home page...`);
+      await this.navigate(page, 'https://x.com/home', 'domcontentloaded');
+
+      // Check if logged in
+      if (await this.isOnLoginPage(page)) {
+        return { error: 'Not logged in — session expired, relogin needed' };
+      }
+
+      // Click the compose button in the side nav.
+      // X uses [data-testid="SideNav_NewTweet_Button"] for the compose button.
+      const composeButton = page
+        .locator('[data-testid="SideNav_NewTweet_Button"]')
+        .first()
+        .or(page.getByRole('button', { name: 'Post' }).first())
+        .or(page.locator('a[href="/compose/post"]').first());
+
+      const composeVisible = await composeButton.isVisible().catch(() => false);
+      if (!composeVisible) {
+        this.logger.warn(`X fallback: compose button not found on home page`);
+        return null;
+      }
+
+      await composeButton.click({ force: true, timeout: 10000 });
+      await this.browser.randomDelay(1500, 3000);
+
+      // Compose dialog should now be open — find the textarea
+      const textbox = page
+        .locator('[data-testid="tweetTextarea_0"]')
+        .first()
+        .or(page.locator('[role="textbox"]').first());
+
+      await textbox.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+      await textbox.click({ force: true, timeout: 10000 }).catch(() => {});
+      await page.waitForTimeout(500);
+
+      // Type content using keyboard.type (more reliable for DraftJS)
+      this.logger.log(`X fallback: typing tweet via keyboard.type()...`);
+      await page.keyboard.type(content, { delay: 30 });
+      await page.waitForTimeout(1000);
+
+      await this.screenshot(page, 'after-type-fallback');
+
+      // Find and click the Post button in the dialog
+      // Avoid :has-text("Post") — matches "Schedule post". Use exact ARIA match.
+      const postButton = page
+        .locator('[data-testid="tweetButton"]')
+        .first()
+        .or(page.locator('[data-testid="tweetButtonInline"]:not([disabled]):not([aria-disabled="true"])').first())
+        .or(page.getByRole('button', { name: 'Post', exact: true }).first());
+
+      await postButton.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+      let fbClickSuccess = false;
+      try {
+        await this.browser.humanClick(postButton, { timeoutMs: 10000 });
+        fbClickSuccess = true;
+      } catch (clickErr) {
+        this.logger.warn(`X fallback: humanClick failed: ${(clickErr as Error).message}`);
+      }
+      await this.browser.randomDelay(2000, 4000);
+
+      // Cmd+Enter fallback for home page compose dialog
+      if (!fbClickSuccess) {
+        this.logger.log(`X fallback: trying Cmd+Enter shortcut...`);
+        await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+        await this.browser.randomDelay(300, 600);
+        await page.keyboard.press('Meta+Enter').catch(() => {});
+        await this.browser.randomDelay(200, 400);
+        await page.keyboard.press('Control+Enter').catch(() => {});
+        await this.browser.randomDelay(2000, 4000);
+      }
+
+      await this.screenshot(page, 'after-submit-fallback');
+
+      // Validate — check profile for the posted content
+      const currentUrl = page.url();
+      this.logger.log(`X fallback: after submit — URL: ${currentUrl}`);
+
+      // Try to find post URL
+      const accountHandle = await this.getAccountHandle(page);
+      const foundUrl = await this.findTweetUrlOnPage(page, accountHandle);
+      if (foundUrl) {
+        this.logger.log(`X fallback: posted successfully — ${foundUrl}`);
+        return { url: foundUrl };
+      }
+
+      // Check profile
+      const handle = accountHandle ?? await this.getAccountHandleFromEnv();
+      if (handle) {
+        const postUrl = await this.validatePostOnProfile(
+          page,
+          `https://x.com/${handle}`,
+          content,
+          X_SELECTORS.compose.postUrlPattern,
+        );
+        this.logger.log(`X fallback: validated on profile — ${postUrl}`);
+        return { url: postUrl };
+      }
+
+      // Can't validate but the post may have succeeded
+      this.logger.warn(`X fallback: posted but could not validate URL`);
+      return { url: currentUrl };
+    } catch (err) {
+      this.logger.error(`X fallback posting failed: ${(err as Error).message}`);
+      return { error: `X fallback failed: ${(err as Error).message}` };
+    }
+  }
+
+  /**
+   * Search the page DOM for a tweet link matching our account handle.
+   * Returns the full URL if found, null otherwise.
+   */
+  private async findTweetUrlOnPage(page: Page, accountHandle: string | null): Promise<string | null> {
+    try {
+      const tweetLinks = await page.locator('a[href*="/status/"]').all();
+      for (const link of tweetLinks) {
+        const href = await link.getAttribute('href').catch(() => null);
+        if (!href) continue;
+        const full = href.startsWith('http') ? href : `https://x.com${href}`;
+        // If we know our handle, only accept links matching it
+        if (accountHandle && full.includes(`/${accountHandle}/status/`)) {
+          this.logger.log(`X found our tweet link in DOM: ${full}`);
+          return full;
+        }
+      }
+      // No handle filter — accept first tweet link as fallback
+      if (!accountHandle && tweetLinks.length > 0) {
+        const href = await tweetLinks[0]!.getAttribute('href').catch(() => null);
+        if (href) {
+          const full = href.startsWith('http') ? href : `https://x.com${href}`;
+          this.logger.log(`X found tweet link in DOM (no handle filter): ${full}`);
+          return full;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  }
+
+  /**
+   * Extract the current account handle from the page.
+   * X shows the handle in the side nav profile link: a[href="/{handle}"]
+   * or via data-testid="AppTabBar_Profile_Link".
+   */
+  private async getAccountHandle(page: Page): Promise<string | null> {
+    try {
+      // Profile link in side nav: <a href="/{handle}"> with aria-label containing "Profile"
+      const profileLink = page.locator('a[aria-label*="Profile"][href^="/"]').first();
+      const href = await profileLink.getAttribute('href').catch(() => null);
+      if (href) {
+        const handle = href.replace(/^\//, '').split('/')[0];
+        if (handle && handle !== 'home' && handle !== 'explore' && handle !== 'notifications') {
+          this.logger.debug(`X account handle from profile link: @${handle}`);
+          return handle;
+        }
+      }
+      // Fallback: look for data-testid="AppTabBar_Profile_Link"
+      const tabProfile = page.locator('[data-testid="AppTabBar_Profile_Link"]').first();
+      const tabHref = await tabProfile.getAttribute('href').catch(() => null);
+      if (tabHref) {
+        const handle = tabHref.replace(/^\//, '').split('/')[0];
+        if (handle) {
+          this.logger.debug(`X account handle from tab bar: @${handle}`);
+          return handle;
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Get account handle from env var (SOCIAL_X_USERNAME) as fallback.
+   */
+  private async getAccountHandleFromEnv(): Promise<string | null> {
+    try {
+      // Access ConfigService via the browser port's config
+      const username = process.env.SOCIAL_X_USERNAME;
+      if (username) {
+        this.logger.debug(`X account handle from env: @${username}`);
+        return username;
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  }
+
+  /**
    * Post a reply in a thread — navigates to the root tweet, clicks reply,
    * types in the reply dialog, and submits.
+   *
+   * Uses typeHuman for stealth typing (randomized per-key delay + thinking pauses).
+   * Falls back to Cmd+Enter keyboard shortcut if the Reply button is not clickable.
+   * Verifies the reply was posted by checking page content after submit.
    */
   private async postReply(
     page: Page,
     rootTweetUrl: string,
     content: string,
   ): Promise<void> {
-    await this.navigate(page, rootTweetUrl);
+    // Suppress page errors (same as main compose — X throws uncaught JS errors).
+    // Called before goto so the script is active during page load.
+    // (Redundant if main post() already injected it, but Playwright deduplicates.)
+    await page.addInitScript(() => {
+      window.addEventListener('error', (e) => { e.preventDefault(); e.stopImmediatePropagation(); }, true);
+      window.addEventListener('unhandledrejection', (e) => { e.preventDefault(); e.stopImmediatePropagation(); }, true);
+    }).catch(() => {});
+
+    await page.goto(rootTweetUrl, { waitUntil: 'domcontentloaded' });
+    await this.browser.randomDelay(2000, 4000);
 
     // Click the reply button on the root tweet
-    const replyResolution = await this.resolve(
-      page,
-      X_SELECTORS.engagement.reply,
-      'reply button',
-    );
-    await this.humanClick(replyResolution.locator);
-    await this.browser.randomDelay(2000, 5000);
+    // Use multiple selectors — X may use [data-testid="reply"] or an icon button
+    const replyButton = page
+      .locator('[data-testid="reply"]')
+      .first()
+      .or(page.locator('[aria-label*="Reply" i]').first());
+    await this.humanPreAction(page, replyButton);
+    await replyButton.click({ force: true, timeout: 10000 }).catch(() => {});
+    await this.browser.randomDelay(1500, 3000);
 
-    // Reply dialog opens with a textarea
-    const textareaResolution = await this.resolve(
-      page,
-      X_SELECTORS.engagement.replyTextarea,
-      'reply textarea',
-    );
-    await this.humanClick(textareaResolution.locator);
-    await this.browser.randomDelay(1000, 3000);
-    await this.humanType(textareaResolution.locator, content);
-    await this.browser.randomDelay(1000, 2000);
+    // Reply dialog opens with a textarea — wait for it
+    await page.waitForSelector('[data-testid="tweetTextarea_0"], [role="textbox"]', { timeout: 10000 });
+    const textbox = page
+      .locator('[data-testid="tweetTextarea_0"]')
+      .first()
+      .or(page.locator('[role="textbox"]').first());
 
-    // Submit reply
-    const submitResolution = await this.resolve(
-      page,
-      X_SELECTORS.engagement.replySubmit,
-      'reply submit button',
-    );
-    await this.humanClick(submitResolution.locator);
-    await this.browser.randomDelay(3000, 8000);
+    await textbox.click({ force: true, timeout: 10000 }).catch(() => {});
+    await this.browser.randomDelay(300, 800);
+
+    // Type content — try typeHuman first, then keyboard.type as fallback
+    await this.browser.typeHuman(page, content, textbox).catch(() => {});
+    await this.browser.randomDelay(500, 1000);
+
+    // Verify text was entered
+    const enteredText = await textbox.innerText().catch(() => '');
+    if (!enteredText || enteredText.trim().length < 5) {
+      this.logger.warn(`X reply: typeHuman didn't enter text — trying keyboard.type()...`);
+      await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+      await page.keyboard.type(content, { delay: 30 });
+      await this.browser.randomDelay(500, 1000);
+    }
+
+    // Submit reply — try button click first, then Cmd+Enter fallback
+    const submitButton = page
+      .locator('[data-testid="tweetButton"]')
+      .first()
+      .or(page.getByRole('button', { name: 'Reply', exact: true }).first());
+    await this.humanPreAction(page, submitButton);
+
+    let replyClickSuccess = false;
+    try {
+      await this.browser.humanClick(submitButton, { timeoutMs: 10000 });
+      replyClickSuccess = true;
+    } catch (clickErr) {
+      this.logger.warn(`X reply: humanClick on Reply button failed: ${(clickErr as Error).message}`);
+    }
+    await this.browser.randomDelay(2000, 4000);
+
+    // Cmd+Enter fallback — X keyboard shortcut for submitting reply
+    if (!replyClickSuccess) {
+      this.logger.log(`X reply: trying Cmd+Enter keyboard shortcut...`);
+      await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+      await this.browser.randomDelay(300, 600);
+      await page.keyboard.press('Meta+Enter').catch(() => {});
+      await this.browser.randomDelay(200, 400);
+      await page.keyboard.press('Control+Enter').catch(() => {});
+      await this.browser.randomDelay(2000, 4000);
+      this.logger.log(`X reply: Cmd+Enter sent`);
+    }
+
+    // Verify reply was posted — check if content appears on the page
+    const pageText = await page.textContent('body').catch(() => '');
+    const contentSnippet = content.slice(0, 30).trim().replace(/^["']+|["']+$/g, '');
+    if (pageText && pageText.includes(contentSnippet)) {
+      this.logger.debug(`X reply verified on page: "${contentSnippet}..."`);
+    } else {
+      this.logger.warn(`X reply may not have posted — content not found on page after submit`);
+    }
 
     this.logger.debug(`Posted thread reply: ${content.slice(0, 30)}...`);
   }

@@ -31,4 +31,9 @@ export interface ILlmPort {
     userPrompt: string,
     options?: GenerateOptions,
   ): Promise<LlmResponse>;
+
+  /**
+   * Sprint J: Get the current prompt version for tracking in llmMetadata.
+   */
+  getPromptVersion?(): string;
 }

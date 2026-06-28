@@ -24,7 +24,11 @@ describe('MOD-06 / queue store', () => {
   // ---------------------------------------------------------------------------
   it('UTC-105: fetchStats(network) populates stats[network] with queue counts', async () => {
     const statsData = { waiting: 5, active: 2, completed: 10, failed: 1, delayed: 3 };
-    (api.get as ReturnType<typeof vi.fn>).mockResolvedValue({ data: statsData });
+    (api.get as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      url.endsWith('/paused')
+        ? Promise.resolve({ data: { paused: false } })
+        : Promise.resolve({ data: statsData }),
+    );
 
     const store = useQueueStore();
     await store.fetchStats('X');
@@ -36,6 +40,7 @@ describe('MOD-06 / queue store', () => {
     expect(store.stats['X']?.completed).toBe(10);
     expect(store.stats['X']?.failed).toBe(1);
     expect(store.stats['X']?.delayed).toBe(3);
+    expect(store.paused['X']).toBe(false);
     expect(store.loading).toBe(false);
     expect(store.error).toBeNull();
   });
@@ -78,21 +83,50 @@ describe('MOD-06 / queue store', () => {
   // fetchAll() — fetches stats and failed for all 3 networks
   // ---------------------------------------------------------------------------
   it('fetchAll() fetches stats and failed jobs for X, THREADS, and FACEBOOK', async () => {
-    (api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
-      data: { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 },
-    });
+    (api.get as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      url.endsWith('/paused')
+        ? Promise.resolve({ data: { paused: false } })
+        : Promise.resolve({ data: { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 } }),
+    );
 
     const store = useQueueStore();
     await store.fetchAll();
 
-    // 3 networks × 2 calls (stats + failed) = 6 GET calls
-    expect(api.get).toHaveBeenCalledTimes(6);
+    // 3 networks × 3 calls (stats + failed + paused) = 9 GET calls
+    expect(api.get).toHaveBeenCalledTimes(9);
     expect(api.get).toHaveBeenCalledWith('/queue/X/stats');
     expect(api.get).toHaveBeenCalledWith('/queue/X/failed');
+    expect(api.get).toHaveBeenCalledWith('/queue/X/paused');
     expect(api.get).toHaveBeenCalledWith('/queue/THREADS/stats');
     expect(api.get).toHaveBeenCalledWith('/queue/THREADS/failed');
+    expect(api.get).toHaveBeenCalledWith('/queue/THREADS/paused');
     expect(api.get).toHaveBeenCalledWith('/queue/FACEBOOK/stats');
     expect(api.get).toHaveBeenCalledWith('/queue/FACEBOOK/failed');
+    expect(api.get).toHaveBeenCalledWith('/queue/FACEBOOK/paused');
+  });
+
+  // ---------------------------------------------------------------------------
+  // F5 — pauseQueue / resumeQueue
+  // ---------------------------------------------------------------------------
+  it('F5: pauseQueue(network) calls POST /queue/:network/pause and sets paused=true', async () => {
+    (api.post as ReturnType<typeof vi.fn>).mockResolvedValue({ data: { paused: true, network: 'X' } });
+
+    const store = useQueueStore();
+    await store.pauseQueue('X');
+
+    expect(api.post).toHaveBeenCalledWith('/queue/X/pause');
+    expect(store.paused['X']).toBe(true);
+  });
+
+  it('F5: resumeQueue(network) calls POST /queue/:network/resume and sets paused=false', async () => {
+    (api.post as ReturnType<typeof vi.fn>).mockResolvedValue({ data: { paused: false, network: 'X' } });
+
+    const store = useQueueStore();
+    store.paused['X'] = true;
+    await store.resumeQueue('X');
+
+    expect(api.post).toHaveBeenCalledWith('/queue/X/resume');
+    expect(store.paused['X']).toBe(false);
   });
 
   // ---------------------------------------------------------------------------

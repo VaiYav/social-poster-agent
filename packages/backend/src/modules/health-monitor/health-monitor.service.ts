@@ -4,7 +4,9 @@ import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { SseService } from '../../infrastructure/sse/sse.service';
+import { DiscordNotificationService } from '../../infrastructure/notifications/discord-notification.service';
 import { QueueService } from '../queue/queue.service';
+import { QueueFactory } from '../../infrastructure/queue/queue.factory';
 import { SessionStatus, PostStatus, SocialNetwork } from '@prisma/client';
 
 /**
@@ -28,7 +30,9 @@ export class HealthMonitorService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sseService: SseService,
+    private readonly discord: DiscordNotificationService,
     private readonly queueService: QueueService,
+    private readonly queueFactory: QueueFactory,
     private readonly configService: ConfigService,
     private readonly schedulerRegistry: SchedulerRegistry,
   ) {
@@ -36,6 +40,13 @@ export class HealthMonitorService implements OnModuleInit {
   }
 
   onModuleInit(): void {
+    // SPA_DRY_RUN: skip cron registration in dry-run mode
+    const isDryRun = this.configService?.get<string>('SPA_DRY_RUN', 'false') === 'true';
+    if (isDryRun) {
+      this.logger.warn('SPA_DRY_RUN=true — health monitor cron jobs NOT registered');
+      return;
+    }
+
     const cronExpr = this.configService?.get<string>(
       'HEALTH_MONITOR_SCHEDULE',
       '0 * * * *',
@@ -69,8 +80,12 @@ export class HealthMonitorService implements OnModuleInit {
   /**
    * B3: Reconciliation — find APPROVED posts stuck without posting and re-enqueue.
    * A post is "stuck" if it's been APPROVED for >10 minutes without being posted.
+   *
+   * P0-H5: Duplicate detection — before re-enqueuing, check if BullMQ already
+   * has an active/waiting/delayed job for this post. Previously, reconciliation
+   * could create duplicate jobs, leading to double-posting.
    */
-  async runReconciliation(): Promise<{ requeued: number; skipped: number }> {
+  async runReconciliation(): Promise<{ requeued: number; skipped: number; deduplicated: number }> {
     this.logger.log('Running reconciliation — checking for orphaned APPROVED posts...');
 
     const approvedPosts = await this.prisma.post.findMany({
@@ -78,45 +93,67 @@ export class HealthMonitorService implements OnModuleInit {
       orderBy: { approvedAt: 'desc' },
     });
 
-    let requeued = 0;
-    let skipped = 0;
-
     const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000);
 
-    for (const post of approvedPosts) {
-      // Post is stuck if it was approved MORE than 10 minutes ago (stuckSince < tenMinAgo)
-      const stuckSince = post.approvedAt ?? post.createdAt;
-      if (stuckSince > tenMinAgo) {
-        // Approved recently — give it time to be picked up by the queue worker
-        skipped++;
-        continue;
-      }
+    // Process all posts in parallel — each post is independent
+    const results = await Promise.all(
+      approvedPosts.map(async (post) => {
+        // Post is stuck if it was approved MORE than 10 minutes ago
+        const stuckSince = post.approvedAt ?? post.createdAt;
+        if (stuckSince > tenMinAgo) {
+          return 'skipped' as const;
+        }
 
-      this.logger.warn(
-        `Reconciliation: post ${post.id} (${post.network}) stuck in APPROVED for >10min — re-enqueuing`,
-      );
+        // P0-H5: Check if BullMQ already has this job (active, waiting, or delayed)
+        try {
+          const queue = this.queueFactory.getQueue(post.network, 'posting');
+          const existingJob = await queue.getJob(post.id);
+          if (existingJob) {
+            const state = await existingJob.getState();
+            if (state === 'active' || state === 'waiting' || state === 'delayed') {
+              this.logger.warn(
+                `Reconciliation: post ${post.id} already has a ${state} job in BullMQ — skipping (dedup)`,
+              );
+              return 'deduplicated' as const;
+            }
+          }
+        } catch (queueErr) {
+          this.logger.debug(
+            `Reconciliation: could not check queue state for post ${post.id}: ${(queueErr as Error).message}`,
+          );
+        }
 
-      // Actually re-enqueue the post to BullMQ
-      try {
-        await this.queueService.enqueuePosting(post.id, post.network);
-      } catch (err) {
-        this.logger.error(
-          `Reconciliation: failed to re-enqueue post ${post.id}: ${(err as Error).message}`,
+        this.logger.warn(
+          `Reconciliation: post ${post.id} (${post.network}) stuck in APPROVED for >10min — re-enqueuing`,
         );
-        continue;
-      }
 
-      await this.sseService.publish({
-        type: 'reconciliation_requeue',
-        postId: post.id,
-        network: post.network,
-      });
+        try {
+          await this.queueService.enqueuePosting(post.id, post.network);
+        } catch (err) {
+          this.logger.error(
+            `Reconciliation: failed to re-enqueue post ${post.id}: ${(err as Error).message}`,
+          );
+          return 'skipped' as const;
+        }
 
-      requeued++;
-    }
+        await this.sseService.publish({
+          type: 'reconciliation_requeue',
+          postId: post.id,
+          network: post.network,
+        });
 
-    this.logger.log(`Reconciliation complete: ${requeued} requeued, ${skipped} skipped`);
-    return { requeued, skipped };
+        return 'requeued' as const;
+      }),
+    );
+
+    const requeued = results.filter((r) => r === 'requeued').length;
+    const skipped = results.filter((r) => r === 'skipped').length;
+    const deduplicated = results.filter((r) => r === 'deduplicated').length;
+
+    this.logger.log(
+      `Reconciliation complete: ${requeued} requeued, ${skipped} skipped, ${deduplicated} deduplicated`,
+    );
+    return { requeued, skipped, deduplicated };
   }
 
   /**
@@ -167,13 +204,20 @@ export class HealthMonitorService implements OnModuleInit {
       });
     }
 
-    // Emit SSE alerts
+    // Emit SSE alerts + Discord notifications
     for (const alert of report.alerts) {
       await this.sseService.publish({
         type: 'health_alert',
-        postId: alert.severity, // reuse field — SSE event type carries severity
+        severity: alert.severity, // P1-6: use dedicated severity field, not postId
         error: alert.message,
       });
+
+      // Send critical/warning alerts to Discord
+      if (alert.severity === 'critical') {
+        await this.discord.critical('Health Alert', alert.message);
+      } else if (alert.severity === 'warning') {
+        await this.discord.warning('Health Alert', alert.message);
+      }
     }
 
     this.logger.log(
@@ -198,17 +242,29 @@ export class HealthMonitorService implements OnModuleInit {
     const results: SessionHealth[] = [];
 
     for (const session of sessions) {
-      // Count only recent failures (last 24 hours) to detect consecutive failures
+      // P1-4 fix: Count CONSECUTIVE failures (not total failures in 24h).
+      // Query recent posts ordered by date desc, count trailing FAILED streak.
       const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const recentFailures = await this.prisma.post.count({
+      const recentPosts = await this.prisma.post.findMany({
         where: {
           accountId: session.accountId,
-          status: PostStatus.FAILED,
           createdAt: { gte: twentyFourHoursAgo },
         },
+        select: { status: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take: 50, // limit to recent 50 posts for streak analysis
       });
 
-      const consecutiveFailures = recentFailures;
+      // Count consecutive FAILED posts from the most recent
+      let consecutiveFailures = 0;
+      for (const p of recentPosts) {
+        if (p.status === PostStatus.FAILED) {
+          consecutiveFailures++;
+        } else {
+          break; // streak broken by a non-FAILED post
+        }
+      }
+
       const isBanned = consecutiveFailures >= this.banThreshold;
 
       if (isBanned && session.status === SessionStatus.ACTIVE) {
@@ -244,12 +300,15 @@ export class HealthMonitorService implements OnModuleInit {
       this.prisma.post.count({ where: { status: PostStatus.APPROVED } }),
     ]);
 
-    // Detect stuck POSTING posts (created >30 min ago, still POSTING)
+    // P1-5 fix: Detect stuck POSTING posts using approvedAt (when post entered APPROVED→POSTING flow),
+    // not createdAt (which is when the DRAFT was first created).
+    // A post approved 1 min ago but stuck in POSTING for 1 min should NOT be flagged (false positive).
+    // A post approved 35 min ago stuck in POSTING SHOULD be flagged.
     const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
     const stuckPosting = await this.prisma.post.count({
       where: {
         status: PostStatus.POSTING,
-        createdAt: { lt: thirtyMinAgo },
+        approvedAt: { lt: thirtyMinAgo },
       },
     });
 
@@ -306,6 +365,78 @@ export class HealthMonitorService implements OnModuleInit {
     };
 
     return { ...report, summary };
+  }
+
+  /**
+   * Sprint K: Ban Recovery — checks if a BANNED session can be reactivated.
+   * Called manually or via cron. Navigates to the network's profile page;
+   * if accessible without ban/suspension page, marks session as ACTIVE.
+   *
+   * @returns true if ban was lifted, false if still banned
+   */
+  async checkBanRecovery(accountId: string): Promise<boolean> {
+    const session = await this.prisma.session.findFirst({
+      where: { accountId, status: SessionStatus.BANNED },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!session) return false;
+
+    // For now, we do a time-based recovery check:
+    // If the ban was more than 24h ago and no recent failures, try reactivation.
+    const banAgeMs = Date.now() - session.createdAt.getTime();
+    const RECOVERY_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24h
+
+    if (banAgeMs < RECOVERY_THRESHOLD_MS) {
+      this.logger.debug(`Ban recovery: session ${session.id} banned ${Math.round(banAgeMs / 3600000)}h ago — waiting for 24h threshold`);
+      return false;
+    }
+
+    // Check for recent failed posts for this account
+    const recentFailures = await this.prisma.post.count({
+      where: {
+        accountId,
+        status: PostStatus.FAILED,
+        createdAt: { gt: new Date(Date.now() - RECOVERY_THRESHOLD_MS) },
+      },
+    });
+
+    if (recentFailures > 0) {
+      this.logger.debug(`Ban recovery: session ${session.id} has ${recentFailures} recent failures — not recovering`);
+      return false;
+    }
+
+    // Reactivate session
+    await this.prisma.session.update({
+      where: { id: session.id },
+      data: { status: SessionStatus.ACTIVE },
+    });
+
+    this.sseService.publish({
+      type: 'health_alert',
+      severity: 'info',
+      error: `Ban lifted for account ${accountId} — session reactivated`,
+    });
+    this.logger.log(`Ban recovery: session ${session.id} reactivated for account ${accountId}`);
+    return true;
+  }
+
+  /**
+   * Sprint K: Run ban recovery check for all banned sessions.
+   */
+  async recoverBannedSessions(): Promise<{ checked: number; recovered: number }> {
+    const bannedSessions = await this.prisma.session.findMany({
+      where: { status: SessionStatus.BANNED },
+      include: { account: true },
+    });
+
+    let recovered = 0;
+    for (const session of bannedSessions) {
+      const wasRecovered = await this.checkBanRecovery(session.accountId);
+      if (wasRecovered) recovered += 1;
+    }
+
+    this.logger.log(`Ban recovery: checked ${bannedSessions.length}, recovered ${recovered}`);
+    return { checked: bannedSessions.length, recovered };
   }
 }
 

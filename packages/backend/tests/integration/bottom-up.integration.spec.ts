@@ -16,6 +16,7 @@
 
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Test } from '@nestjs/testing';
 import type { TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
@@ -26,6 +27,7 @@ import { PrismaService } from '../../src/infrastructure/prisma/prisma.service';
 import { PostsService } from '../../src/modules/posts/posts.service';
 import { HealthController } from '../../src/modules/health/health.controller';
 import { SessionsService } from '../../src/modules/sessions/sessions.service';
+import { EncryptionService } from '../../src/infrastructure/crypto/encryption.service.js';
 import { AccountsService } from '../../src/modules/accounts/accounts.service';
 import { RateLimitService } from '../../src/modules/rate-limit/rate-limit.service';
 import { SseService } from '../../src/infrastructure/sse/sse.service';
@@ -36,14 +38,16 @@ import { ILlmPort } from '../../src/domain/ports/llm.port';
 import { IBrowserPort } from '../../src/domain/ports/browser.port';
 import { IContentPort } from '../../src/domain/ports/content.port';
 import { createMockPrismaService, createMockBrowserPort, createMockContentPort } from '../mocks/index';
+import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER } from '../../src/infrastructure/redis/redis.module';
 
 // ── ioredis mock (hoisted) ──
-const { redisStore } = vi.hoisted(() => ({
+const { redisStore, sseMessageHandlers } = vi.hoisted(() => ({
   redisStore: new Map<string, string>(),
+  sseMessageHandlers: [] as Array<(channel: string, msg: string) => void>,
 }));
 
 vi.mock('ioredis', () => {
-  const messageHandlers: ((channel: string, msg: string) => void)[] = [];
+  const messageHandlers = sseMessageHandlers;
   return {
     default: vi.fn(() => ({
       store: redisStore,
@@ -71,20 +75,21 @@ vi.mock('ioredis', () => {
         if (event === 'message') messageHandlers.push(cb);
       },
       disconnect: () => {},
-      duplicate() { return (this as any); },
+      duplicate() { return (this as unknown); },
     })),
   };
 });
 
 // ── esbuild decorator metadata restoration ──
-function restoreParamtypes(cls: any, types: any[]) {
+function restoreParamtypes(cls: unknown, types: unknown[]) {
   if (Reflect.getMetadata('design:paramtypes', cls) == null) {
     Reflect.defineMetadata('design:paramtypes', types, cls);
   }
 }
 
-restoreParamtypes(PostsService, [PrismaService]);
-restoreParamtypes(SessionsService, [PrismaService, AccountsService, Object, ConfigService]);
+restoreParamtypes(PostsService, [PrismaService, EventEmitter2]);
+restoreParamtypes(SessionsService, [PrismaService, AccountsService, Object, ConfigService, EncryptionService]);
+restoreParamtypes(EncryptionService, [ConfigService]);
 restoreParamtypes(RateLimitService, [ConfigService]);
 restoreParamtypes(SseService, [ConfigService]);
 restoreParamtypes(AccountsService, [PrismaService, ConfigService]);
@@ -120,7 +125,7 @@ function createMockConfigService(overrides: Record<string, unknown> = {}): Confi
 // ── Extend Prisma mock with socialAccount ──
 function createIntegrationPrismaService() {
   const prisma = createMockPrismaService();
-  (prisma as any).socialAccount = {
+  (prisma as unknown).socialAccount = {
     create: vi.fn(),
     findUnique: vi.fn(),
     findFirst: vi.fn(),
@@ -148,8 +153,51 @@ function createMockSseResponse() {
     setHeader: vi.fn(),
     flushHeaders: vi.fn(),
     _written: written,
-  } as any;
+  } as unknown;
 }
+
+// ── Shared Redis mock (uses same redisStore as ioredis mock) ──
+const mockSharedRedis = {
+  get: (key: string) => Promise.resolve(redisStore.get(key) ?? null),
+  set: (key: string, val: unknown) => { redisStore.set(key, String(val)); return Promise.resolve('OK'); },
+  setex: (key: string, _ttl: number, val: string) => { redisStore.set(key, val); return Promise.resolve('OK'); },
+  psetex: (key: string, _ttl: number, val: string) => { redisStore.set(key, val); return Promise.resolve('OK'); },
+  del: (key: string) => { redisStore.delete(key); return Promise.resolve(1); },
+  ping: () => Promise.resolve('PONG'),
+  subscribe: () => Promise.resolve('OK'),
+  unsubscribe: () => Promise.resolve('OK'),
+  on: vi.fn((ev: string, cb: (channel: string, msg: string) => void) => {
+    if (ev === 'message') sseMessageHandlers.push(cb);
+  }),
+  off: vi.fn((ev: string, cb: (channel: string, msg: string) => void) => {
+    if (ev === 'message') {
+      const idx = sseMessageHandlers.indexOf(cb);
+      if (idx >= 0) sseMessageHandlers.splice(idx, 1);
+    }
+  }),
+  publish: (ch: string, msg: string) => { sseMessageHandlers.forEach((h) => h(ch, msg)); return Promise.resolve(1); },
+  keys: (pat: string) => {
+    const prefix = pat.replace(/\*$/, '');
+    return Promise.resolve([...redisStore.keys()].filter((k) => k.startsWith(prefix)));
+  },
+  rpush: () => Promise.resolve(1),
+  expire: () => Promise.resolve(1),
+  pexpire: () => Promise.resolve(1),
+  incr: (key: string) => {
+    const v = parseInt(redisStore.get(key) ?? '0', 10) + 1;
+    redisStore.set(key, String(v));
+    return Promise.resolve(v);
+  },
+  decr: (key: string) => {
+    const v = parseInt(redisStore.get(key) ?? '0', 10) - 1;
+    redisStore.set(key, String(v));
+    return Promise.resolve(v);
+  },
+  quit: () => Promise.resolve('OK'),
+  disconnect: () => undefined,
+  connect: () => Promise.resolve(undefined),
+  duplicate() { return this; },
+} as unknown;
 
 // ═══════════════════════════════════════════════════════════════
 // BOTTOM-UP INTEGRATION TESTS
@@ -164,7 +212,7 @@ describe('Bottom-Up Integration Tests', () => {
     let sseService: SseService;
     let postsService: PostsService;
     let healthController: HealthController;
-    let prisma: any;
+    let prisma: unknown;
     let configService: ConfigService;
 
     beforeAll(async () => {
@@ -180,6 +228,10 @@ describe('Bottom-Up Integration Tests', () => {
           { provide: PrismaService, useValue: prisma },
           { provide: ConfigService, useValue: configService },
           { provide: ILlmPort, useValue: { generate: vi.fn(), generateChat: vi.fn() } },
+          { provide: EventEmitter2, useValue: { emit: vi.fn() } },
+          { provide: SHARED_REDIS, useValue: mockSharedRedis },
+          { provide: SHARED_REDIS_SUBSCRIBER, useValue: mockSharedRedis },
+          { provide: SHARED_REDIS_PUBLISHER, useValue: mockSharedRedis },
         ],
       }).compile();
 
@@ -188,8 +240,8 @@ describe('Bottom-Up Integration Tests', () => {
       postsService = moduleRef.get(PostsService);
       healthController = moduleRef.get(HealthController);
 
-      await (rateLimitService as any).onModuleInit();
-      await (sseService as any).init();
+      await (rateLimitService as unknown).onModuleInit();
+      await (sseService as unknown).init();
     });
 
     afterAll(async () => { await moduleRef.close(); });
@@ -201,14 +253,14 @@ describe('Bottom-Up Integration Tests', () => {
 
     it('ITC-006: RateLimit → Redis (INCR + EXPIRE for daily counter, SET for interval)', async () => {
       // Step 1: checkRateLimit when no prior posts → allowed
-      const result1 = await rateLimitService.checkRateLimit('X' as any);
+      const result1 = await rateLimitService.checkRateLimit('X' as unknown);
       expect(result1.allowed).toBe(true);
 
       // Step 2: recordPost sets interval key
-      await rateLimitService.recordPost('X' as any);
+      await rateLimitService.recordPost('X' as unknown);
 
       // Step 3: checkRateLimit immediately → blocked by interval
-      const result2 = await rateLimitService.checkRateLimit('X' as any);
+      const result2 = await rateLimitService.checkRateLimit('X' as unknown);
       expect(result2.allowed).toBe(false);
       expect(result2.reason).toMatch(/wait|interval/i);
 
@@ -219,7 +271,7 @@ describe('Bottom-Up Integration Tests', () => {
       for (const key of redisStore.keys()) {
         if (key.includes('interval')) redisStore.delete(key);
       }
-      const result3 = await rateLimitService.checkRateLimit('X' as any);
+      const result3 = await rateLimitService.checkRateLimit('X' as unknown);
       expect(result3.allowed).toBe(false);
       expect(result3.reason).toMatch(/daily|limit/i);
     });
@@ -249,8 +301,8 @@ describe('Bottom-Up Integration Tests', () => {
         status: 'DRAFT', createdAt: new Date(),
       });
       const created = await postsService.create({
-        accountId: 'acc-1', network: 'X' as any, content: 'test post',
-      } as any);
+        accountId: 'acc-1', network: 'X' as unknown, content: 'test post',
+      } as unknown);
       expect(created).toBeDefined();
       expect(prisma.post.create).toHaveBeenCalled();
 
@@ -268,7 +320,7 @@ describe('Bottom-Up Integration Tests', () => {
       prisma.post.update.mockResolvedValue({
         id: 'post-crud-1', status: 'APPROVED', approvedAt: new Date(),
       });
-      const updated = await postsService.updateStatus('post-crud-1', { status: 'APPROVED' } as any);
+      const updated = await postsService.updateStatus('post-crud-1', { status: 'APPROVED' } as unknown);
       expect(updated.status).toBe('APPROVED');
       expect(prisma.post.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -284,7 +336,7 @@ describe('Bottom-Up Integration Tests', () => {
       expect(result1.status).toBe('ok');
 
       // Redis down — simulate by making ping fail
-      const redisInstance = (healthController as any).redis;
+      const redisInstance = (healthController as unknown).redis;
       if (redisInstance) {
         vi.spyOn(redisInstance, 'ping').mockRejectedValueOnce(new Error('Connection refused'));
       }
@@ -297,8 +349,8 @@ describe('Bottom-Up Integration Tests', () => {
   describe('ITC-021..022: Sessions → Prisma Integration', () => {
     let moduleRef: TestingModule;
     let sessionsService: SessionsService;
-    let prisma: any;
-    let browserPort: any;
+    let prisma: unknown;
+    let browserPort: unknown;
 
     beforeAll(async () => {
       prisma = createIntegrationPrismaService();
@@ -312,6 +364,10 @@ describe('Bottom-Up Integration Tests', () => {
           { provide: PrismaService, useValue: prisma },
           { provide: ConfigService, useValue: configService },
           { provide: IBrowserPort, useValue: browserPort },
+          { provide: EncryptionService, useValue: { encrypt: (data: unknown) => JSON.stringify(data), decrypt: (data: string) => JSON.parse(data), isEnabled: () => false, isEncrypted: (s: string) => s.startsWith('v1:') } },
+          { provide: SHARED_REDIS, useValue: mockSharedRedis },
+          { provide: SHARED_REDIS_SUBSCRIBER, useValue: mockSharedRedis },
+          { provide: SHARED_REDIS_PUBLISHER, useValue: mockSharedRedis },
         ],
       }).compile();
 
@@ -332,7 +388,7 @@ describe('Bottom-Up Integration Tests', () => {
         id: 'sess-1', network: 'X', status: 'ACTIVE',
         storageState: '{}', accountId: 'acc-1',
       });
-      const session = await sessionsService.getOrCreateSession('X' as any);
+      const session = await sessionsService.getOrCreateSession('X' as unknown);
       expect(session).toBeDefined();
       expect(session.id).toBe('sess-1');
 
@@ -340,11 +396,12 @@ describe('Bottom-Up Integration Tests', () => {
       prisma.session.update.mockResolvedValue({
         id: 'sess-1', status: 'ACTIVE', storageState: '{"cookies":[]}',
       });
-      await (sessionsService as any).updateStorageState('sess-1', '{"cookies":[]}');
+      await (sessionsService as unknown).updateStorageState('sess-1', '{"cookies":[]}');
       expect(prisma.session.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            storageState: { cookies: [] },
+            // P0-H3: storageState is now encrypted (stringified in passthrough mode)
+            storageState: '{"cookies":[]}',
             status: SessionStatus.ACTIVE,
           }),
         }),
@@ -367,12 +424,12 @@ describe('Bottom-Up Integration Tests', () => {
         url: vi.fn().mockReturnValue('https://x.com/login'),
         close: vi.fn(),
       };
-      (browserPort.createContext as any).mockResolvedValue({
+      (browserPort.createContext as unknown).mockResolvedValue({
         newPage: vi.fn().mockResolvedValue(mockPage),
         close: vi.fn(),
       });
 
-      const result = await sessionsService.healthCheck('X' as any);
+      const result = await sessionsService.healthCheck('X' as unknown);
       expect(result.healthy).toBe(false);
     });
 
@@ -407,17 +464,20 @@ describe('Bottom-Up Integration Tests', () => {
           SseService,
           EventsController,
           { provide: ConfigService, useValue: configService },
+          { provide: SHARED_REDIS, useValue: mockSharedRedis },
+          { provide: SHARED_REDIS_SUBSCRIBER, useValue: mockSharedRedis },
+          { provide: SHARED_REDIS_PUBLISHER, useValue: mockSharedRedis },
         ],
       }).compile();
 
       sseService = moduleRef.get(SseService);
-      await (sseService as any).init();
+      await (sseService as unknown).init();
     });
 
     afterAll(async () => { await moduleRef.close(); });
 
     beforeEach(() => {
-      const clients = (sseService as any).clients;
+      const clients = (sseService as unknown).clients;
       if (clients) clients.clear();
       vi.clearAllMocks();
     });
@@ -437,7 +497,7 @@ describe('Bottom-Up Integration Tests', () => {
       expect(sseService.getConnectedCount()).toBe(1);
 
       // Simulate disconnect
-      const clients = (sseService as any).clients;
+      const clients = (sseService as unknown).clients;
       const clientId = clients.keys().next().value;
       sseService.removeClient(clientId);
 
@@ -470,7 +530,7 @@ describe('Bottom-Up Integration Tests', () => {
   describe('ITC-030: ContentSource → Content Port Integration', () => {
     let moduleRef: TestingModule;
     let contentSourceService: ContentSourceService;
-    let mockContentPort: any;
+    let mockContentPort: unknown;
 
     beforeAll(async () => {
       mockContentPort = createMockContentPort();
@@ -480,7 +540,14 @@ describe('Bottom-Up Integration Tests', () => {
           ContentSourceService,
           { provide: ContentReader, useValue: mockContentPort },
         ],
-      }).compile();
+      })
+        .overrideProvider(SHARED_REDIS)
+        .useValue(mockSharedRedis)
+        .overrideProvider(SHARED_REDIS_SUBSCRIBER)
+        .useValue(mockSharedRedis)
+        .overrideProvider(SHARED_REDIS_PUBLISHER)
+        .useValue(mockSharedRedis)
+        .compile();
 
       contentSourceService = moduleRef.get(ContentSourceService);
     });
@@ -508,7 +575,7 @@ describe('Bottom-Up Integration Tests', () => {
   describe('ITC-031: Accounts → Env Config Integration', () => {
     let moduleRef: TestingModule;
     let accountsService: AccountsService;
-    let prisma: any;
+    let prisma: unknown;
 
     beforeAll(async () => {
       prisma = createIntegrationPrismaService();
@@ -524,7 +591,14 @@ describe('Bottom-Up Integration Tests', () => {
           { provide: PrismaService, useValue: prisma },
           { provide: ConfigService, useValue: configService },
         ],
-      }).compile();
+      })
+        .overrideProvider(SHARED_REDIS)
+        .useValue(mockSharedRedis)
+        .overrideProvider(SHARED_REDIS_SUBSCRIBER)
+        .useValue(mockSharedRedis)
+        .overrideProvider(SHARED_REDIS_PUBLISHER)
+        .useValue(mockSharedRedis)
+        .compile();
 
       accountsService = moduleRef.get(AccountsService);
     });
@@ -539,7 +613,7 @@ describe('Bottom-Up Integration Tests', () => {
         id: 'acc-x', network: 'X', handle: 'test_x_user', active: true,
       });
 
-      const account = await accountsService.findByNetwork('X' as any);
+      const account = await accountsService.findByNetwork('X' as unknown);
       expect(account).toBeDefined();
       expect(account.handle).toBe('test_x_user');
       expect(prisma.socialAccount.findFirst).toHaveBeenCalledWith(

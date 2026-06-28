@@ -1,20 +1,22 @@
 <script setup lang="ts">
+import type { Component } from 'vue';
+import { CheckCircle2, XCircle, AlertTriangle, Info, X } from '@lucide/vue';
 import { useToast } from '../composables/useToast';
 
 const { toasts, dismiss } = useToast();
 
 const typeStyles: Record<string, string> = {
-  success: 'bg-green-600',
-  error: 'bg-red-600',
-  info: 'bg-blue-600',
-  warning: 'bg-yellow-600',
+  success: 'bg-success-subtle border-success/30 text-success',
+  error: 'bg-error-subtle border-error/30 text-error',
+  info: 'bg-info-subtle border-info/30 text-info',
+  warning: 'bg-warning-subtle border-warning/30 text-warning',
 };
 
-const typeIcons: Record<string, string> = {
-  success: '✓',
-  error: '✕',
-  info: 'i',
-  warning: '!',
+const typeIcons: Record<string, Component> = {
+  success: CheckCircle2,
+  error: XCircle,
+  info: Info,
+  warning: AlertTriangle,
 };
 </script>
 
@@ -24,17 +26,16 @@ const typeIcons: Record<string, string> = {
       <div
         v-for="toast in toasts"
         :key="toast.id"
-        class="flex items-center gap-3 rounded-lg px-4 py-3 text-sm text-white shadow-lg"
+        class="flex min-w-[320px] max-w-md items-start gap-3 rounded-lg border p-4 shadow-elevated"
         :class="typeStyles[toast.type]"
       >
-        <span class="flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-xs font-bold">
-          {{ typeIcons[toast.type] }}
-        </span>
-        <span class="flex-1">{{ toast.message }}</span>
-        <button @click="dismiss(toast.id)" class="text-white/70 hover:text-white">
-          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
+        <component :is="typeIcons[toast.type]" class="mt-0.5 h-5 w-5 shrink-0" />
+        <span class="flex-1 text-sm font-medium">{{ toast.message }}</span>
+        <button
+          @click="dismiss(toast.id)"
+          class="shrink-0 opacity-70 transition-opacity hover:opacity-100"
+        >
+          <X class="h-4 w-4" />
         </button>
       </div>
     </TransitionGroup>

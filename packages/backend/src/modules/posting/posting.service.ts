@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { IBrowserPort } from '../../domain/ports/browser.port.js';
 import { AccountsService } from '../accounts/accounts.service';
 import { SessionsService } from '../sessions/sessions.service';
@@ -6,10 +6,17 @@ import { WarmupService } from '../sessions/warmup.service.js';
 import { PostsService } from '../posts/posts.service';
 import { RateLimitService } from '../rate-limit/rate-limit.service.js';
 import { SseService } from '../../infrastructure/sse/sse.service.js';
+import { QueueFactory } from '../../infrastructure/queue/queue.factory.js';
+import { ThreadProgressService } from './thread-progress.service.js';
+import { FlowControlService } from '../flow-control/flow-control.service.js';
 import { XPoster } from './posters/x.poster';
 import { ThreadsPoster } from './posters/threads.poster';
 import { FacebookPoster } from './posters/facebook.poster';
+import type { PostResult } from './posters/base.poster.js';
 import { PostStatus, SocialNetwork } from '@prisma/client';
+import { withRetry } from '../../domain/retry.js';
+import { CircuitBreakerRegistry, CircuitOpenError } from '../../domain/circuit-breaker.js';
+import { SpaError, NetworkError } from '../../domain/errors.js';
 
 /**
  * Posting service — orchestrates browser-based posting.
@@ -30,6 +37,7 @@ import { PostStatus, SocialNetwork } from '@prisma/client';
 @Injectable()
 export class PostingService {
   private readonly logger = new Logger(PostingService.name);
+  private readonly circuitBreakers: CircuitBreakerRegistry = new CircuitBreakerRegistry();
 
   constructor(
     @Inject(IBrowserPort) private readonly browser: IBrowserPort,
@@ -39,13 +47,22 @@ export class PostingService {
     private readonly postsService: PostsService,
     private readonly rateLimitService: RateLimitService,
     private readonly sseService: SseService,
+    private readonly threadProgressService: ThreadProgressService,
     private readonly xPoster: XPoster,
     private readonly threadsPoster: ThreadsPoster,
     private readonly facebookPoster: FacebookPoster,
+    @Optional() private readonly queueFactory?: QueueFactory,
+    @Optional() private readonly flowControl?: FlowControlService,
   ) {}
 
   async postById(postId: string): Promise<{ success: boolean; url?: string; error?: string }> {
     const post = await this.postsService.findById(postId);
+
+    // ADR-006: Flow control — skip if posting is paused (crisis mode)
+    if (this.flowControl && await this.flowControl.isPaused('posting')) {
+      this.logger.warn(`Posting flow is paused — deferring post ${postId}`);
+      throw new Error('Posting flow is paused — job will retry when resumed');
+    }
 
     // Idempotent — don't post if already posted/posting
     if (post.status === PostStatus.POSTED) {
@@ -85,6 +102,12 @@ export class PostingService {
       network: networkKey,
     });
 
+    // P0-H1: Context leak fix — track context so it's always released in finally.
+    // Sprint K: Use context pool (acquireContext/releaseContext) instead of
+    // createContext/context.close — enables parallel posting across networks
+    // with shared browser instance and context reuse.
+    let context: Awaited<ReturnType<IBrowserPort['acquireContext']>> | null = null;
+
     try {
       // Get or create session (auto-login if needed — OQ-8)
       const session = await this.sessionsService.getOrCreateSession(post.network);
@@ -92,30 +115,169 @@ export class PostingService {
         throw new Error(`No active session for ${post.network} — auto-login failed`);
       }
 
-      // Create browser context with saved storageState
-      const storageState = session.storageState ? JSON.stringify(session.storageState) : undefined;
-      const context = await this.browser.createContext(post.network, storageState);
+      // Acquire browser context from pool (reuses idle contexts, waits if at capacity)
+      // P0-H3: Decrypt storageState if encrypted (v1: prefix).
+      const storageStateStr = session.storageState
+        ? this.sessionsService.decryptStorageState(session)
+        : undefined;
+      context = await this.browser.acquireContext(post.network, storageStateStr);
 
-      // Post via the appropriate poster
-      let result: { url?: string; error?: string };
-      switch (post.network) {
-        case SocialNetwork.X:
-          result = await this.xPoster.post(context, this.browser, post.content);
-          break;
-        case SocialNetwork.THREADS:
-          result = await this.threadsPoster.post(context, this.browser, post.content);
-          break;
-        case SocialNetwork.FACEBOOK:
-          result = await this.facebookPoster.post(context, this.browser, post.content);
-          break;
-        default:
-          throw new Error(`Unknown network: ${post.network as string}`);
+      // P0-2 fix: If this is a root post (threadPosition=0) with a threadId,
+      // load continuation posts (position > 0) and pass them as threadItems.
+      // This enables multi-stage posting (F2) — hook + continuation as a thread.
+      // P0-H2: Load full post objects (not just content) for per-reply tracking.
+      // P0-H2: Persist per-reply progress to ThreadProgress table so a crash
+      // mid-thread leaves a recoverable record of which replies were posted.
+      const threadItems: string[] = [];
+      let threadPosts: Array<{ id: string; content: string; threadPosition: number }> = [];
+      if (post.threadId && post.threadPosition === 0) {
+        threadPosts = await this.postsService.findThreadContinuations(post.threadId);
+        threadItems.push(...threadPosts.map((p) => p.content));
+        if (threadItems.length > 0) {
+          this.logger.log(`P0-2: Post ${postId} is root of thread ${post.threadId} with ${threadItems.length} continuation(s)`);
+          // P0-H2: Initialize persistent per-reply tracking (idempotent — safe to call on resume)
+          await this.threadProgressService.initThread(
+            postId,
+            threadPosts.map((p) => ({ id: p.id, threadPosition: p.threadPosition })),
+          );
+        }
       }
 
-      // Save updated session state
-      const updatedState = await this.browser.saveStorageState(context);
-      await this.sessionsService.updateStorageState(session.id, updatedState);
-      await context.close();
+      // Post via the appropriate poster — with retry on transient/network errors.
+      // Only retry for NetworkError (transient). SelectorNotFoundError, ValidationError,
+      // AccountRestrictedError, etc. are NOT retried (need code fix or manual intervention).
+      // Reference: twscrape retries network errors infinitely, locks on unknown errors.
+      const postFn = async (): Promise<PostResult> => {
+        switch (post.network) {
+          case SocialNetwork.X:
+            return this.xPoster.post(context!, this.browser, post.content, threadItems.length > 0 ? threadItems : undefined);
+          case SocialNetwork.THREADS:
+            return this.threadsPoster.post(context!, this.browser, post.content, threadItems.length > 0 ? threadItems : undefined);
+          case SocialNetwork.FACEBOOK:
+            return this.facebookPoster.post(context!, this.browser, post.content);
+          default:
+            throw new Error(`Unknown network: ${post.network as string}`);
+        }
+      };
+
+      let result: PostResult;
+      try {
+        result = await withRetry(postFn, {
+          maxRetries: 2,
+          baseDelayMs: 5000,
+          maxDelayMs: 30000,
+          jitter: 0.25,
+          retryable: (err) => {
+            // Only retry transient/network errors
+            if (err instanceof SpaError) {
+              return err.retryable;
+            }
+            const msg = (err as Error).message ?? String(err);
+            return (
+              msg.includes('net::ERR') ||
+              msg.includes('ECONNREFUSED') ||
+              msg.includes('ETIMEDOUT') ||
+              msg.includes('Timeout') ||
+              msg.includes('Navigation failed')
+            );
+          },
+          onRetry: (attempt, delayMs, err) => {
+            this.logger.warn(
+              `Posting retry ${attempt} for ${postId} after ${(err as Error).message} — waiting ${delayMs}ms`,
+            );
+          },
+        });
+      } catch (retryErr) {
+        // All retries exhausted — classify and return error
+        if (retryErr instanceof CircuitOpenError) {
+          throw retryErr;
+        }
+        const message = (retryErr as Error).message;
+        this.logger.error(`Posting failed after retries for ${postId}: ${message}`);
+        throw retryErr;
+      }
+
+      // ── Self-recovery on session expiry ──
+      // If the poster returned a "Not logged in" error (session expired mid-post),
+      // attempt re-login and retry the posting operation with exponential backoff.
+      // Up to 3 recovery attempts with increasing delays (5s, 10s, 20s).
+      if (result.error && /not logged in|session expired|relogin/i.test(result.error)) {
+        const maxRecoveryAttempts = 3;
+        let recoverySucceeded = false;
+        let lastRecoveryError = result.error;
+        let lastSessionId = session.id;
+
+        for (let attempt = 1; attempt <= maxRecoveryAttempts; attempt++) {
+          const delayMs = 5000 * Math.pow(2, attempt - 1); // 5s, 10s, 20s
+          this.logger.warn(
+            `Session expired for ${post.network} post ${postId} — self-recovery attempt ${attempt}/${maxRecoveryAttempts} (waiting ${delayMs}ms)`,
+          );
+          await this.browser.randomDelay(delayMs, delayMs * 2);
+
+          try {
+            // Release the expired context
+            if (context) {
+              try {
+                this.browser.releaseContext(post.network, context);
+              } catch {
+                // non-blocking
+              }
+              context = null;
+            }
+            // Mark the last session as EXPIRED so getOrCreateSession creates a fresh one
+            await this.sessionsService
+              .markSessionExpired(post.network, lastSessionId)
+              .catch(() => {});
+            // Force re-login (getOrCreateSession will auto-login if no active session)
+            const freshSession = await this.sessionsService.getOrCreateSession(post.network);
+            if (!freshSession || freshSession.id === lastSessionId) {
+              this.logger.error(
+                `Self-recovery attempt ${attempt} failed for ${postId} — could not create fresh session`,
+              );
+              continue;
+            }
+            lastSessionId = freshSession.id;
+            this.logger.log(`Self-recovery attempt ${attempt}: new session ${freshSession.id} created for ${post.network}`);
+            const freshStorage = freshSession.storageState
+              ? this.sessionsService.decryptStorageState(freshSession)
+              : undefined;
+            context = await this.browser.acquireContext(post.network, freshStorage);
+            // Retry posting with fresh context
+            result = await postFn();
+            if (result.error) {
+              lastRecoveryError = result.error;
+              this.logger.error(
+                `Self-recovery attempt ${attempt} still failed for ${postId}: ${result.error}`,
+              );
+            } else {
+              this.logger.log(`Self-recovery succeeded on attempt ${attempt} for ${postId} — post published`);
+              // Save fresh session state
+              const updatedState = await this.browser.saveStorageState(context);
+              await this.sessionsService.updateStorageState(freshSession.id, updatedState);
+              recoverySucceeded = true;
+              break;
+            }
+          } catch (recoveryErr) {
+            lastRecoveryError = (recoveryErr as Error).message;
+            this.logger.error(
+              `Self-recovery error on attempt ${attempt} for ${postId}: ${lastRecoveryError}`,
+            );
+          }
+        }
+
+        if (!recoverySucceeded) {
+          this.logger.error(
+            `All ${maxRecoveryAttempts} self-recovery attempts exhausted for ${postId}`,
+          );
+          result = { error: lastRecoveryError };
+        }
+      }
+
+      // Save updated session state (context may be null if self-recovery released it)
+      if (context) {
+        const updatedState = await this.browser.saveStorageState(context);
+        await this.sessionsService.updateStorageState(session.id, updatedState);
+      }
 
       if (result.error) {
         await this.postsService.updateStatus(postId, {
@@ -164,6 +326,72 @@ export class PostingService {
         postUrl: result.url,
       });
 
+      // P0-H2: If this was a thread root with continuations, mark them individually
+      // based on per-reply results. Previously all continuations were marked POSTED
+      // atomically — but if some replies failed, those should be marked FAILED.
+      if (threadPosts.length > 0 && post.threadId && result.threadReplyResults) {
+        for (let i = 0; i < threadPosts.length; i++) {
+          const cp = threadPosts[i];
+          if (!cp) continue;
+          const replyResult = result.threadReplyResults[i];
+          if (replyResult?.success) {
+            await this.postsService.updateStatus(cp.id, {
+              status: PostStatus.POSTED,
+              postUrl: result.url,
+            });
+            await this.sseService.publish({
+              type: 'post_status',
+              postId: cp.id,
+              status: 'POSTED',
+              network: networkKey,
+              url: result.url,
+            });
+            // P0-H2: Persist per-reply success for crash recovery
+            await this.threadProgressService.markReplyPosted(postId, cp.id, result.url ?? '');
+          } else {
+            // P0-H2: Mark failed replies individually
+            const replyError = replyResult?.error ?? 'Thread reply failed';
+            await this.postsService.updateStatus(cp.id, {
+              status: PostStatus.FAILED,
+              errorMessage: replyError,
+            });
+            await this.sseService.publish({
+              type: 'post_status',
+              postId: cp.id,
+              status: 'FAILED',
+              network: networkKey,
+              error: replyError,
+            });
+            // P0-H2: Persist per-reply failure for crash recovery
+            await this.threadProgressService.markReplyFailed(postId, cp.id, replyError);
+          }
+        }
+        const succeededCount = result.threadReplyResults.filter((r: { success: boolean }) => r.success).length;
+        const failedCount = result.threadReplyResults.filter((r: { success: boolean }) => !r.success).length;
+        this.logger.log(
+          `P0-H2: Thread ${post.threadId}: ${succeededCount} replies POSTED, ${failedCount} FAILED`,
+        );
+      } else if (threadItems.length > 0 && post.threadId) {
+        // Fallback: no per-reply results (shouldn't happen with updated posters)
+        const continuationPosts = await this.postsService.findThreadContinuations(post.threadId);
+        for (const cp of continuationPosts) {
+          await this.postsService.updateStatus(cp.id, {
+            status: PostStatus.POSTED,
+            postUrl: result.url,
+          });
+          await this.sseService.publish({
+            type: 'post_status',
+            postId: cp.id,
+            status: 'POSTED',
+            network: networkKey,
+            url: result.url,
+          });
+          // P0-H2: Persist per-reply success for crash recovery
+          await this.threadProgressService.markReplyPosted(postId, cp.id, result.url ?? '');
+        }
+        this.logger.log(`P0-2: Marked ${continuationPosts.length} continuation post(s) as POSTED for thread ${post.threadId}`);
+      }
+
       // G-3: Record successful post for rate limiting
       await this.rateLimitService.recordPost(networkKey);
 
@@ -179,6 +407,8 @@ export class PostingService {
       this.logger.log(`Post ${postId} posted successfully to ${post.network as string}`);
       return { success: true, url: result.url };
     } catch (err) {
+      // P0-H1: Preserve SpaError retry semantics — don't wrap in generic Error.
+      // Previously all errors became generic Error, losing SpaError retry info.
       const message = (err as Error).message;
       this.logger.error(`Posting failed for ${postId}: ${message}`);
       await this.postsService.updateStatus(postId, {
@@ -196,6 +426,12 @@ export class PostingService {
       });
 
       return { success: false, error: message };
+    } finally {
+      // Sprint K: Release context back to pool for reuse (instead of closing).
+      // P0-H1: Guaranteed cleanup regardless of outcome — prevents context leaks.
+      if (context) {
+        this.browser.releaseContext(post.network, context);
+      }
     }
   }
 
@@ -270,5 +506,72 @@ export class PostingService {
 
     this.logger.log(`Batch posting: ${posted} posted, ${failed} failed, ${skipped} skipped`);
     return { posted, failed, skipped };
+  }
+
+  /**
+   * F2: Schedule multi-stage thread posting with delayed continuations.
+   *
+   * Root post (threadPosition=0) is enqueued immediately.
+   * Each continuation (threadPosition=1,2,...) is enqueued with a delay of
+   *   position × THREAD_CONTINUATION_DELAY_MS (default: 30 minutes).
+   *
+   * This creates a natural, human-like cadence between thread replies rather
+   * than posting all replies in a single browser session.
+   *
+   * Requires QueueFactory — if not available (e.g. synchronous mode), falls
+   * back to immediate postById() for the root only.
+   *
+   * @param rootPostId The root post ID (threadPosition=0)
+   * @returns { scheduled: number; immediate: boolean } summary
+   */
+  async scheduleMultiStagePosting(rootPostId: string): Promise<{ scheduled: number; immediate: boolean }> {
+    const rootPost = await this.postsService.findById(rootPostId);
+    if (!rootPost.threadId || rootPost.threadPosition !== 0) {
+      throw new Error(`Post ${rootPostId} is not a thread root (threadId missing or threadPosition != 0)`);
+    }
+
+    // Get all continuations sorted by position
+    const continuations = await this.postsService.findThreadContinuations(rootPost.threadId);
+    // Only schedule APPROVED continuations
+    const approvedConts = continuations.filter((p) => p.status === PostStatus.APPROVED);
+
+    if (!this.queueFactory) {
+      // No queue — post root immediately, skip delayed scheduling
+      this.logger.warn(`F2: No QueueFactory available — posting root ${rootPostId} immediately (no delayed continuations)`);
+      await this.postById(rootPostId);
+      return { scheduled: 0, immediate: true };
+    }
+
+    // Enqueue root post immediately (priority 1 = high)
+    await this.queueFactory.enqueuePosting(rootPostId, rootPost.network, { priority: 1 });
+    this.logger.log(`F2: Enqueued root post ${rootPostId} → ${rootPost.network} (immediate)`);
+
+    // Enqueue continuations with delay = position × delayMs
+    const delayMs = parseInt(process.env.THREAD_CONTINUATION_DELAY_MS ?? '1800000', 10); // default 30 min
+    let scheduled = 0;
+    for (const cont of approvedConts) {
+      const delay = cont.threadPosition * delayMs;
+      await this.queueFactory.enqueuePosting(cont.id, rootPost.network, {
+        priority: 5, // lower priority than root
+        delay,
+      });
+      scheduled++;
+      this.logger.log(
+        `F2: Enqueued continuation ${cont.id} (position ${cont.threadPosition}) → ${rootPost.network} (delay: ${Math.round(delay / 60000)}min)`,
+      );
+    }
+
+    // SSE event — multi-stage scheduled
+    await this.sseService.publish({
+      type: 'post_status',
+      postId: rootPostId,
+      status: 'APPROVED',
+      network: rootPost.network,
+    });
+
+    this.logger.log(
+      `F2: Multi-stage thread scheduled — root ${rootPostId} + ${scheduled} continuations (delay: ${delayMs / 60000}min apart)`,
+    );
+    return { scheduled, immediate: false };
   }
 }

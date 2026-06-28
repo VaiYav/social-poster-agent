@@ -17,7 +17,7 @@ describe('Selector Strategy', () => {
       const page = createMockPage();
       const strategy = { role: { role: 'button', name: 'Post' } };
 
-      const result = await resolveSelector(page as any, strategy);
+      const result = await resolveSelector(page as unknown, strategy);
 
       expect(result.method).toBe('role');
       expect(result.locator).toBeDefined();
@@ -27,7 +27,7 @@ describe('Selector Strategy', () => {
       const page = createMockPage();
       const strategy = { label: { label: 'Email' } };
 
-      const result = await resolveSelector(page as any, strategy);
+      const result = await resolveSelector(page as unknown, strategy);
 
       expect(result.method).toBe('label');
       expect(result.locator).toBeDefined();
@@ -37,7 +37,7 @@ describe('Selector Strategy', () => {
       const page = createMockPage();
       const strategy = { text: { text: 'Publish', exact: true } };
 
-      const result = await resolveSelector(page as any, strategy);
+      const result = await resolveSelector(page as unknown, strategy);
 
       expect(result.method).toBe('text');
       expect(result.locator).toBeDefined();
@@ -47,7 +47,7 @@ describe('Selector Strategy', () => {
       const page = createMockPage();
       const strategy = { css: ['button:has-text("Post")', '[data-testid="tweetButton"]'] };
 
-      const result = await resolveSelector(page as any, strategy);
+      const result = await resolveSelector(page as unknown, strategy);
 
       expect(result.method).toBe('css');
       expect(result.selector).toBe('button:has-text("Post")');
@@ -62,7 +62,7 @@ describe('Selector Strategy', () => {
         css: ['button:has-text("Post")'],
       };
 
-      const result = await resolveSelector(page as any, strategy);
+      const result = await resolveSelector(page as unknown, strategy);
 
       // Should use role first
       expect(result.method).toBe('role');
@@ -72,7 +72,7 @@ describe('Selector Strategy', () => {
       const page = createMockPage();
       const strategy = {};
 
-      await expect(resolveSelector(page as any, strategy)).rejects.toThrow();
+      await expect(resolveSelector(page as unknown, strategy)).rejects.toThrow();
     });
   });
 
@@ -81,7 +81,7 @@ describe('Selector Strategy', () => {
       const page = createMockPage();
       const strategy = { role: { role: 'button', name: 'Post' } };
 
-      const result = await waitForSelector(page as any, strategy, 5000);
+      const result = await waitForSelector(page as unknown, strategy, 5000);
 
       expect(result.locator).toBeDefined();
       expect(result.method).toBe('role');
@@ -96,7 +96,7 @@ describe('Selector Strategy', () => {
 
       const strategy = { css: ['nonexistent'] };
 
-      await expect(waitForSelector(page as any, strategy, 100)).rejects.toThrow();
+      await expect(waitForSelector(page as unknown, strategy, 100)).rejects.toThrow();
     });
   });
 });

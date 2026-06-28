@@ -54,6 +54,7 @@ export const GeneratePostsDtoSchema = z.object({
   count: z.number().int().min(1).max(10).default(3),
   networks: z.array(z.enum(['X', 'THREADS', 'FACEBOOK'])).optional(),
   sourceType: z.enum(['brief', 'article', 'topic', 'create_run']).optional(),
+  multiStage: z.boolean().optional().default(false), // F2: hook + continuation thread
 });
 export type GeneratePostsDto = z.infer<typeof GeneratePostsDtoSchema>;
 
@@ -100,3 +101,39 @@ export const ApiErrorSchema = z.object({
   error: z.string().optional(),
 });
 export type ApiError = z.infer<typeof ApiErrorSchema>;
+
+// ============================================================
+// Sprint N: SSE Event schemas — typed SSE events for UI safety
+// ============================================================
+
+export const SseEventSchema = z.object({
+  type: z.enum([
+    'connected',
+    'post_status',
+    'health_alert',
+    'generation_started',
+    'generation_progress',
+    'generation_completed',
+    'generation_failed',
+    'generation_paused',
+    'generation_resumed',
+    'queue_update',
+    'session_status',
+    'reply_escalation',
+    'reconciliation_requeue',
+  ]),
+  postId: z.string().optional(),
+  status: z.string().optional(),
+  network: z.string().optional(),
+  url: z.string().optional(),
+  error: z.string().optional(),
+  severity: z.enum(['critical', 'warning', 'info']).optional(),
+  runId: z.string().optional(),
+  node: z.string().optional(),
+  topic: z.string().optional(),
+  postCount: z.number().int().optional(),
+  count: z.number().int().optional(),
+  clientId: z.string().optional(),
+  timestamp: z.string().optional(),
+});
+export type SseEvent = z.infer<typeof SseEventSchema>;

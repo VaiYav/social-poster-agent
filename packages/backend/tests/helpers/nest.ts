@@ -18,8 +18,8 @@ import type { Provider, Type } from '@nestjs/common';
 
 export interface TestModuleOptions {
   providers?: Provider[];
-  imports?: any[];
-  controllers?: Type<any>[];
+  imports?: unknown[];
+  controllers?: Type<unknown>[];
 }
 
 export async function createTestingModule(

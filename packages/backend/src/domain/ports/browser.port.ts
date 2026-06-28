@@ -17,7 +17,9 @@ export type ScreenshotPhase =
   | 'before-compose'
   | 'after-compose'
   | 'after-type'
+  | 'after-type-fallback'
   | 'after-submit'
+  | 'after-submit-fallback'
   | 'after-validate'
   | 'on-error'
   | 'before-like'
@@ -34,6 +36,17 @@ export interface IBrowserPort {
    * Used for persistent sessions — restores login state between runs.
    */
   createContext(network: SocialNetwork, storageState?: string): Promise<BrowserContext>;
+
+  /**
+   * Sprint K: Acquire a context from the pool (or create new if pool is empty).
+   * Caller MUST call releaseContext() when done.
+   */
+  acquireContext(network: SocialNetwork, storageState?: string): Promise<BrowserContext>;
+
+  /**
+   * Sprint K: Release a context back to the pool for reuse.
+   */
+  releaseContext(network: SocialNetwork, context: BrowserContext): void;
 
   /**
    * Save storageState from a context to persist session (cookies, localStorage).
@@ -55,10 +68,36 @@ export interface IBrowserPort {
   humanType(locator: Locator, text: string, opts?: { delayMs?: number }): Promise<void>;
 
   /**
+   * Stealth human-like typing — types character by character via page.keyboard.type
+   * with randomized per-key delay (40-120ms) and 5% chance of a "thinking" pause
+   * (200-600ms). More human-like than humanType (pressSequentially with fixed delay).
+   *
+   * Reference: stealth-x (Youhai020616/stealth-x) typeHuman() — used for X login
+   * where X's anti-bot detects uniform typing patterns.
+   *
+   * If a locator is provided, uses locator.pressSequentially() per character (ensures
+   * focus stays on the element — needed for React-controlled inputs like X username).
+   * If no locator, uses page.keyboard.type() (caller must focus element first).
+   *
+   * @param page - Playwright page
+   * @param text - Text to type
+   * @param locator - Optional locator for per-element typing (recommended for React inputs)
+   */
+  typeHuman(page: Page, text: string, locator?: Locator): Promise<void>;
+
+  /**
    * Human-like click — tries normal click first, falls back to force: true
    * if Camoufox humanize blocks the action (element visible/enabled/stable but click times out).
    */
   humanClick(locator: Locator, opts?: { timeoutMs?: number }): Promise<void>;
+
+  /**
+   * Human-like hover — moves mouse to an element and pauses.
+   * Used in engagement to simulate reading/considering before clicking.
+   * Complements Camoufox's built-in humanize (which handles mouse movement
+   * during clicks, but not standalone hovers).
+   */
+  hover(locator: Locator): Promise<void>;
 
   // ── Scrolling ──────────────────────────────────────────────────
 

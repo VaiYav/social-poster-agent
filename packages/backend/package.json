@@ -23,6 +23,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:generate": "prisma generate",
     "prisma:studio": "prisma studio",
+    "dry-run": "nest build && node dist/dry-run/cli.js",
+    "live": "tsc -p tsconfig.build.json && node dist/dry-run/live-run.cli.js",
     "postinstall": "prisma generate"
   },
   "dependencies": {
@@ -33,10 +35,12 @@
     "@nestjs/common": "^11.0.0",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.0.0",
+    "@nestjs/event-emitter": "^3.1.0",
     "@nestjs/platform-express": "^11.0.0",
     "@nestjs/schedule": "^6.0.0",
     "@nestjs/swagger": "^11.0.0",
     "@prisma/client": "^6.0.0",
+    "@resvg/resvg-js": "^2.6.2",
     "@sentry/node": "^10.61.0",
     "@sentry/profiling-node": "^10.61.0",
     "@spa/shared": "workspace:*",
@@ -45,11 +49,14 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "cron": "^4.4.0",
+    "gray-matter": "^4.0.3",
     "ioredis": "^5.0.0",
+    "joi": "^18.2.3",
     "nestjs-cls": "^6.2.1",
     "playwright-core": "^1.49.0",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
+    "satori": "^0.26.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {

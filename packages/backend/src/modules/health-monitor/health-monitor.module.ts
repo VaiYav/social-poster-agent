@@ -5,9 +5,10 @@ import { HealthMonitorService } from './health-monitor.service';
 import { PrismaModule } from '../../infrastructure/prisma/prisma.module';
 import { SseModule } from '../../infrastructure/sse/sse.module';
 import { QueueModule } from '../queue/queue.module';
+import { QueueModule as QueueInfraModule } from '../../infrastructure/queue/queue.module';
 
 @Module({
-  imports: [PrismaModule, SseModule, ScheduleModule, QueueModule],
+  imports: [PrismaModule, SseModule, ScheduleModule, QueueModule, QueueInfraModule],
   controllers: [HealthMonitorController],
   providers: [HealthMonitorService],
   exports: [HealthMonitorService],

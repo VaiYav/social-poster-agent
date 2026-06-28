@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
 import type { Post } from '@spa/shared';
+import { X } from '@lucide/vue';
+import { Button, Textarea } from './ui';
 
 /**
  * PostEditor — modal for editing draft post content before approve.
  * Backend D2: approve() accepts optional editedContent.
- * The editor pre-fills with current content, allows editing,
- * then emits 'save' with editedContent or 'approve' directly.
  */
 const props = defineProps<{
   post: Post | null;
@@ -21,7 +21,6 @@ const editedContent = ref('');
 const charLimit = ref(5000);
 const charCount = computed(() => editedContent.value.length);
 
-// Network-specific character limits
 const NETWORK_LIMITS: Record<string, number> = {
   X: 280,
   THREADS: 500,
@@ -56,53 +55,78 @@ function close() {
 </script>
 
 <template>
-  <div v-if="post" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50" @click.self="close">
-    <div class="w-full max-w-2xl rounded-lg bg-white p-6 shadow-xl">
-      <div class="flex items-center justify-between">
-        <h2 class="text-lg font-bold text-gray-900">Edit Draft Before Approve</h2>
-        <button @click="close" class="text-gray-400 hover:text-gray-600">
-          <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
+  <Transition name="modal">
+    <div
+      v-if="post"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4"
+      @click.self="close"
+    >
+      <div class="absolute inset-0 bg-background/80 backdrop-blur-sm" />
+      <div class="relative w-full max-w-2xl rounded-xl border border-border bg-surface-elevated p-6 shadow-elevated">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-lg font-bold text-text-primary">Edit Draft</h2>
+            <p class="text-sm text-text-secondary">
+              Review and approve before posting to {{ post.network }}
+            </p>
+          </div>
+          <button
+            @click="close"
+            class="rounded-lg p-2 text-text-muted transition-colors hover:bg-surface-highlight hover:text-text-primary"
+          >
+            <X class="h-5 w-5" />
+          </button>
+        </div>
 
-      <div class="mt-4">
-        <label class="block text-sm font-medium text-gray-700">
-          Post content ({{ post.network }})
-        </label>
-        <textarea
-          v-model="editedContent"
-          rows="8"
-          class="mt-1 block w-full rounded-md border border-gray-300 p-3 text-sm text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-          :maxlength="charLimit"
-          placeholder="Edit post content..."
-        />
-        <div class="mt-1 flex items-center justify-between">
-          <p class="text-xs" :class="isOverLimit ? 'text-red-600' : 'text-gray-500'">
-            {{ charCount }} / {{ networkLimit }} characters
-          </p>
-          <p v-if="isOverLimit" class="text-xs text-red-600">
-            Over {{ post.network }} limit by {{ charCount - networkLimit }} chars
-          </p>
+        <div class="mt-5">
+          <Textarea
+            v-model="editedContent"
+            :rows="8"
+            :maxlength="charLimit"
+            :error="isOverLimit ? `Over ${post.network} limit` : undefined"
+            placeholder="Edit post content..."
+          />
+          <div class="mt-2 flex items-center justify-between text-xs">
+            <p :class="isOverLimit ? 'text-error' : 'text-text-muted'">
+              {{ charCount }} / {{ networkLimit }} characters
+            </p>
+            <p v-if="isOverLimit" class="text-error">
+              Over {{ post.network }} limit by {{ charCount - networkLimit }} chars
+            </p>
+          </div>
+        </div>
+
+        <div class="mt-6 flex justify-end gap-3">
+          <Button variant="outline" @click="close">
+            Cancel
+          </Button>
+          <Button
+            :disabled="editedContent.trim().length === 0 || isOverLimit"
+            @click="save"
+          >
+            Save & Approve
+          </Button>
         </div>
       </div>
-
-      <div class="mt-6 flex justify-end gap-3">
-        <button
-          @click="close"
-          class="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-        >
-          Cancel
-        </button>
-        <button
-          @click="save"
-          :disabled="editedContent.trim().length === 0 || isOverLimit"
-          class="rounded-md bg-green-600 px-4 py-2 text-sm text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          Save & Approve
-        </button>
-      </div>
     </div>
-  </div>
+  </Transition>
 </template>
+
+<style scoped>
+.modal-enter-active,
+.modal-leave-active {
+  transition: all 0.2s ease;
+}
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+.modal-enter-active .relative,
+.modal-leave-active .relative {
+  transition: transform 0.2s ease;
+}
+.modal-enter-from .relative,
+.modal-leave-to .relative {
+  transform: scale(0.96);
+}
+</style>

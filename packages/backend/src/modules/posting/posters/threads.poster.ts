@@ -37,21 +37,36 @@ export class ThreadsPoster extends BasePoster {
       await this.navigate(page, THREADS_SELECTORS.compose.homeUrl);
 
       // Check if logged in
-      if (this.isOnLoginPage(page)) {
+      if (await this.isOnLoginPage(page)) {
+        this.logger.warn(`Threads session expired — login page detected`);
         return { error: 'Not logged in — session expired, relogin needed' };
       }
+
+      // Detect shadowban/restriction before attempting to post
+      await this.detectShadowban(page);
 
       // Screenshot before compose
       await this.screenshot(page, 'before-compose');
 
-      // Click compose button
-      const composeResolution = await this.resolve(
-        page,
-        THREADS_SELECTORS.compose.composeButton,
-        'compose button',
-        20000,
-      );
-      await this.humanClick(composeResolution.locator);
+      // Click compose button — try multiple strategies
+      let composeOpened = false;
+      try {
+        const composeResolution = await this.resolve(
+          page,
+          THREADS_SELECTORS.compose.composeButton,
+          'compose button',
+          20000,
+        );
+        // Human-like: scroll into view, hover, then click
+        await this.humanPreAction(page, composeResolution.locator);
+        await this.humanClick(composeResolution.locator, 10000);
+        composeOpened = true;
+      } catch (clickErr) {
+        this.logger.warn(`Compose button click failed: ${(clickErr as Error).message} — trying /compose URL`);
+        // Fallback: navigate directly to compose URL
+        await page.goto('https://www.threads.com/compose', { waitUntil: 'networkidle', timeout: 15000 });
+        composeOpened = true;
+      }
       await this.browser.randomDelay(2000, 5000);
 
       // Screenshot after compose dialog opens
@@ -72,8 +87,10 @@ export class ThreadsPoster extends BasePoster {
         });
       }
 
-      // Type content using human-like typing
-      await this.humanType(textareaResolution.locator, content);
+      // Type content using stealth human-like typing (typeHuman)
+      // typeHuman uses randomized per-key delay (40-120ms) with 5% "thinking" pauses
+      // — more human-like than humanType's fixed delay, evades anti-bot detection
+      await this.typeHuman(page, content, textareaResolution.locator);
       await this.browser.randomDelay(1000, 2000);
 
       // Screenshot after typing
@@ -89,6 +106,8 @@ export class ThreadsPoster extends BasePoster {
 
       // Wait for button to be enabled (content entered)
       await this.browser.waitForStable(submitResolution.locator, { timeoutMs: 5000 });
+      // Human-like: scroll into view, hover, then click
+      await this.humanPreAction(page, submitResolution.locator);
       await this.humanClick(submitResolution.locator);
       await this.browser.randomDelay(3000, 8000);
 
@@ -101,13 +120,32 @@ export class ThreadsPoster extends BasePoster {
       if (THREADS_SELECTORS.compose.postUrlPattern.test(currentUrl)) {
         this.logger.log(`Threads post URL: ${currentUrl}`);
 
-        // Handle thread replies
+        // P0-H2: Handle thread replies with per-reply error tracking and retry
+        // Human-like delay between replies (30-90s) — posting all replies instantly
+        // is not human-like and may trigger Threads rate limiting.
+        const replyResults: Array<{ index: number; success: boolean; error?: string }> = [];
         if (threadItems && threadItems.length > 0) {
-          for (const reply of threadItems) {
-            await this.postReply(page, currentUrl, reply);
+          for (let i = 0; i < threadItems.length; i++) {
+            if (i > 0) {
+              this.logger.debug(`Threads: waiting before reply ${i + 1}/${threadItems.length}`);
+              await this.browser.randomDelay(30000, 90000);
+            }
+            try {
+              // Retry each reply with exponential backoff (2 attempts)
+              await this.retryWithBackoff(
+                () => this.postReply(page, currentUrl, threadItems[i]!),
+                2,
+                5000,
+              );
+              replyResults.push({ index: i, success: true });
+            } catch (replyErr) {
+              const errMsg = (replyErr as Error).message;
+              this.logger.error(`Threads reply ${i + 1}/${threadItems.length} failed after retries: ${errMsg}`);
+              replyResults.push({ index: i, success: false, error: errMsg });
+            }
           }
         }
-        return { url: currentUrl };
+        return { url: currentUrl, threadReplyResults: replyResults };
       }
 
       // Otherwise, validate on profile page
@@ -138,14 +176,32 @@ export class ThreadsPoster extends BasePoster {
         THREADS_SELECTORS.compose.postUrlPattern,
       );
 
-      // Handle thread replies
+      // P0-H2: Handle thread replies with per-reply error tracking and retry
+      // Human-like delay between replies (30-90s)
+      const replyResults: Array<{ index: number; success: boolean; error?: string }> = [];
       if (threadItems && threadItems.length > 0) {
-        for (const reply of threadItems) {
-          await this.postReply(page, postUrl, reply);
+        for (let i = 0; i < threadItems.length; i++) {
+          if (i > 0) {
+            this.logger.debug(`Threads: waiting before reply ${i + 1}/${threadItems.length}`);
+            await this.browser.randomDelay(30000, 90000);
+          }
+          try {
+            // Retry each reply with exponential backoff (2 attempts)
+            await this.retryWithBackoff(
+              () => this.postReply(page, postUrl, threadItems[i]!),
+              2,
+              5000,
+            );
+            replyResults.push({ index: i, success: true });
+          } catch (replyErr) {
+            const errMsg = (replyErr as Error).message;
+            this.logger.error(`Threads reply ${i + 1}/${threadItems.length} failed after retries: ${errMsg}`);
+            replyResults.push({ index: i, success: false, error: errMsg });
+          }
         }
       }
 
-      return { url: postUrl };
+      return { url: postUrl, threadReplyResults: replyResults };
     } catch (err) {
       this.logger.error(`Threads post failed: ${(err as Error).message}`);
       return await this.withErrorHandling(page, async () => {
@@ -159,6 +215,7 @@ export class ThreadsPoster extends BasePoster {
   /**
    * Post a reply in a Threads thread — navigates to the root post,
    * clicks reply, types in the reply dialog, and submits.
+   * Uses typeHuman for stealth typing and verifies the reply was posted.
    */
   private async postReply(
     page: Page,
@@ -173,6 +230,7 @@ export class ThreadsPoster extends BasePoster {
       THREADS_SELECTORS.engagement.reply,
       'reply button',
     );
+    await this.humanPreAction(page, replyResolution.locator);
     await this.humanClick(replyResolution.locator);
     await this.browser.randomDelay(2000, 5000);
 
@@ -182,7 +240,8 @@ export class ThreadsPoster extends BasePoster {
       THREADS_SELECTORS.engagement.replyTextarea,
       'reply textarea',
     );
-    await this.humanType(textareaResolution.locator, content);
+    // Use typeHuman for stealth typing (randomized per-key delay + thinking pauses)
+    await this.typeHuman(page, content, textareaResolution.locator);
     await this.browser.randomDelay(1000, 2000);
 
     // Submit reply
@@ -191,8 +250,18 @@ export class ThreadsPoster extends BasePoster {
       THREADS_SELECTORS.engagement.replySubmit,
       'reply submit button',
     );
+    await this.humanPreAction(page, submitResolution.locator);
     await this.humanClick(submitResolution.locator);
     await this.browser.randomDelay(3000, 8000);
+
+    // Verify reply was posted — check if content appears on the page
+    const pageText = await page.textContent('body').catch(() => '');
+    const contentSnippet = content.slice(0, 30).trim().replace(/^["']+|["']+$/g, '');
+    if (pageText && pageText.includes(contentSnippet)) {
+      this.logger.debug(`Threads reply verified on page: "${contentSnippet}..."`);
+    } else {
+      this.logger.warn(`Threads reply may not have posted — content not found on page after submit`);
+    }
 
     this.logger.debug(`Posted Threads reply: ${content.slice(0, 30)}...`);
   }

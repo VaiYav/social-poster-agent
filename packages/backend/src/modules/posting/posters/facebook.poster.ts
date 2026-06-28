@@ -31,6 +31,7 @@ export class FacebookPoster extends BasePoster {
     context: BrowserContext,
     _browserPort: IBrowserPort,
     content: string,
+    threadItems?: string[],
   ): Promise<PostResult> {
     if (!this.pageSlug) {
       return { error: 'SOCIAL_FACEBOOK_PAGE_SLUG not configured' };
@@ -44,9 +45,13 @@ export class FacebookPoster extends BasePoster {
       await this.navigate(page, pageUrl);
 
       // Check if logged in
-      if (this.isOnLoginPage(page)) {
+      if (await this.isOnLoginPage(page)) {
+        this.logger.warn(`Facebook session expired — login page detected`);
         return { error: 'Not logged in — session expired, relogin needed' };
       }
+
+      // Detect shadowban/restriction before attempting to post
+      await this.detectShadowban(page);
 
       // Screenshot before compose
       await this.screenshot(page, 'before-compose');
@@ -147,6 +152,97 @@ export class FacebookPoster extends BasePoster {
     } finally {
       await page.close().catch(() => {});
     }
+  }
+
+  /**
+   * Sprint K: Post a Facebook thread — root post + comments as thread items.
+   *
+   * Facebook doesn't have native "threads" like X. Instead, a thread is simulated
+   * by posting the root post, then adding comments to it with subsequent items.
+   *
+   * Each comment is tracked individually (P0-H2 partial failure tracking).
+   */
+  async postThread(
+    context: BrowserContext,
+    browserPort: IBrowserPort,
+    rootContent: string,
+    threadItems: string[],
+  ): Promise<PostResult> {
+    // First, post the root content
+    const rootResult = await this.post(context, browserPort, rootContent);
+    if (rootResult.error || !rootResult.url) {
+      return rootResult;
+    }
+
+    const replyResults: Array<{ index: number; success: boolean; error?: string }> = [];
+    const page = await context.newPage();
+
+    try {
+      // Navigate to the root post
+      await this.navigate(page, rootResult.url);
+      await this.browser.randomDelay(3000, 6000);
+
+      for (let i = 0; i < threadItems.length; i++) {
+        try {
+          await this.postComment(page, threadItems[i]!);
+          replyResults.push({ index: i, success: true });
+          this.logger.log(`Facebook thread comment ${i + 1}/${threadItems.length} posted`);
+        } catch (replyErr) {
+          const errMsg = (replyErr as Error).message;
+          this.logger.error(`Thread comment ${i + 1}/${threadItems.length} failed: ${errMsg}`);
+          replyResults.push({ index: i, success: false, error: errMsg });
+          // Continue to next comment — partial success is better than total failure
+        }
+      }
+
+      const succeeded = replyResults.filter((r) => r.success).length;
+      const failed = replyResults.filter((r) => !r.success).length;
+      this.logger.log(`Facebook thread: ${succeeded} comments succeeded, ${failed} failed out of ${threadItems.length}`);
+    } finally {
+      await page.close().catch(() => {});
+    }
+
+    return { url: rootResult.url, threadReplyResults: replyResults };
+  }
+
+  /**
+   * Sprint K: Post a comment on a Facebook post.
+   * Used for thread replies and engagement.
+   */
+  private async postComment(page: Page, content: string): Promise<void> {
+    // Click the comment button on the post
+    const commentBtnResolution = await this.resolve(
+      page,
+      FACEBOOK_SELECTORS.engagement.comment,
+      'comment button',
+    );
+    await this.humanClick(commentBtnResolution.locator);
+    await this.browser.randomDelay(2000, 5000);
+
+    // Find the comment input field
+    const commentInputResolution = await this.resolve(
+      page,
+      FACEBOOK_SELECTORS.engagement.commentInput,
+      'comment input',
+      10000,
+    );
+    await this.humanClick(commentInputResolution.locator);
+    await this.browser.randomDelay(1000, 3000);
+
+    // Type the comment
+    await this.humanType(commentInputResolution.locator, content, 80);
+    await this.browser.randomDelay(1000, 2000);
+
+    // Submit the comment
+    const submitResolution = await this.resolve(
+      page,
+      FACEBOOK_SELECTORS.engagement.commentSubmit,
+      'comment submit button',
+    );
+    await this.humanClick(submitResolution.locator);
+    await this.browser.randomDelay(3000, 8000);
+
+    this.logger.debug(`Posted Facebook comment: ${content.slice(0, 30)}...`);
   }
 
   /**

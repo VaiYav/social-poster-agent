@@ -26,4 +26,36 @@ export class QueueService {
   async getFailedJobs(network: SocialNetwork) {
     return this.queueFactory.getFailedJobs(network);
   }
+
+  async pauseQueue(network: SocialNetwork): Promise<void> {
+    await this.queueFactory.pauseQueue(network);
+  }
+
+  async resumeQueue(network: SocialNetwork): Promise<void> {
+    await this.queueFactory.resumeQueue(network);
+  }
+
+  async isQueuePaused(network: SocialNetwork): Promise<boolean> {
+    return this.queueFactory.isQueuePaused(network);
+  }
+
+  /**
+   * Sprint Q: Retry all failed jobs in a network's posting queue.
+   * Returns the number of jobs that were successfully retried.
+   */
+  async retryAllFailed(network: SocialNetwork): Promise<number> {
+    const failed = await this.queueFactory.getFailedJobs(network);
+    let retried = 0;
+    for (const job of failed) {
+      try {
+        if (job.id) {
+          await this.queueFactory.retryFailedJob(network, job.id);
+          retried++;
+        }
+      } catch {
+        // Skip individual retry failures — continue with the rest
+      }
+    }
+    return retried;
+  }
 }

@@ -36,21 +36,21 @@ export const THREADS_SELECTORS = {
         'button:has-text("Log in"):not(:has-text("Instagram"))',
       ],
     } satisfies SelectorStrategy,
-    // After login, Threads shows a "Create" button in the nav
+    // After login, Threads shows a "New thread" button in the nav
     successIndicator: {
-      role: { role: 'button', name: 'Create' },
-      css: ['button[aria-label="Create"]', 'button:has(img[aria-label="Create"])', 'a[href="/compose"]'],
+      role: { role: 'button', name: 'New thread' },
+      css: ['button:has-text("New thread")', 'div[role="button"]:has-text("New thread")', 'button[aria-label="Create"]', 'button:has(img[aria-label="Create"])', 'a[href="/compose"]'],
     } satisfies SelectorStrategy,
   },
 
   // ── Posting ────────────────────────────────────────────────────
   compose: {
-    // Navigate to home, then click Create button
+    // Navigate to home, then click New thread button
     homeUrl: 'https://www.threads.com/',
-    // Create button opens a compose dialog (modal)
+    // New thread button opens a compose dialog (modal)
     composeButton: {
-      role: { role: 'button', name: 'Create' },
-      css: ['button[aria-label="Create"]', 'button:has(img[aria-label="Create"])', 'a[href="/compose"]'],
+      role: { role: 'button', name: 'New thread' },
+      css: ['button:has-text("New thread")', 'div[role="button"]:has-text("New thread")', 'button[aria-label="Create"]', 'button:has(img[aria-label="Create"])', 'a[href="/compose"]'],
     } satisfies SelectorStrategy,
     // Compose dialog textarea — contenteditable div
     // Note: must be scoped to the dialog, not just any contenteditable on page

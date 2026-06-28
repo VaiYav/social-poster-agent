@@ -9,11 +9,6 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock IORedis at module level so init() creates a mock Redis instance.
-vi.mock('ioredis', () => ({
-  default: vi.fn(),
-}));
-
 import { ConfigService } from '@nestjs/config';
 import { SseService } from '../../../src/infrastructure/sse/sse.service';
 import { createMockRedis } from '../../mocks/index';
@@ -31,8 +26,11 @@ function createMockResponse() {
     write: vi.fn(),
     end: vi.fn(),
     on: vi.fn(),
+    once: vi.fn(),
     headersSent: false,
-  } as any;
+    writableEnded: false,
+    destroyed: false,
+  } as unknown;
 }
 
 // ── Tests ──
@@ -41,19 +39,18 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
   let service: SseService;
   let configService: ConfigService;
   let mockRedis: ReturnType<typeof createMockRedis>;
+  let mockPublisher: ReturnType<typeof createMockRedis>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     mockRedis = createMockRedis();
+    mockPublisher = createMockRedis();
     configService = createMockConfigService({
       REDIS_URL: 'redis://localhost:6380',
       SSE_CHANNEL: 'spa:sse',
     });
-    service = new SseService(configService);
-    // Inject mock Redis into the private fields for non-init tests
-    // redis = subscriber connection, publisher = publisher connection
-    (service as any).redis = mockRedis;
-    (service as any).publisher = mockRedis;
+    // Sprint L: SseService now receives Redis connections via DI
+    service = new SseService(configService, mockRedis, mockPublisher);
   });
 
   // ── UTC-089 ──
@@ -116,17 +113,18 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
 
     await service.publish(event);
 
-    expect(mockRedis.publish).toHaveBeenCalledOnce();
-    expect(mockRedis.publish).toHaveBeenCalledWith('spa:sse', JSON.stringify(event));
+    // Sprint L: publish() uses this.publisher (separate connection)
+    expect(mockPublisher.publish).toHaveBeenCalledOnce();
+    expect(mockPublisher.publish).toHaveBeenCalledWith('spa:sse', JSON.stringify(event));
   });
 
   // ── UTC-094 ──
   it('UTC-094: publish() does nothing when Redis not connected', async () => {
-    (service as any).publisher = null;
+    (service as unknown).publisher = null;
 
     await service.publish({ type: 'post_status' });
 
-    expect(mockRedis.publish).not.toHaveBeenCalled();
+    expect(mockPublisher.publish).not.toHaveBeenCalled();
   });
 
   // ── UTC-095 ──
@@ -141,7 +139,7 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
     mockRes2.write.mockClear();
 
     // broadcast is private — invoke directly
-    (service as any).broadcast('test-event');
+    (service as unknown).broadcast('test-event');
 
     expect(mockRes1.write).toHaveBeenCalledWith('data: test-event\n\n');
     expect(mockRes2.write).toHaveBeenCalledWith('data: test-event\n\n');
@@ -166,7 +164,7 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
     successRes.write.mockClear();
 
     // Trigger broadcast — failing client should be removed
-    (service as any).broadcast('test-event');
+    (service as unknown).broadcast('test-event');
 
     // Failing client removed; succeeding client retained
     expect(service.getConnectedCount()).toBe(1);
@@ -184,15 +182,10 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
 
   // ── UTC-098 ──
   it('UTC-098: init() subscribes to Redis channel and sets up message listener', async () => {
-    // Create a fresh service so init() runs cleanly
-    const freshService = new SseService(configService);
+    // Sprint L: SseService now receives Redis connections via DI
     const initMockRedis = createMockRedis();
-
-    // Configure the mocked IORedis constructor to return our mock instance
-    const IORedisMock = (await import('ioredis')).default as unknown as ReturnType<
-      typeof vi.fn
-    >;
-    IORedisMock.mockImplementation(() => initMockRedis);
+    const initMockPublisher = createMockRedis();
+    const freshService = new SseService(configService, initMockRedis, initMockPublisher);
 
     await freshService.init();
 

@@ -1,6 +1,7 @@
-import { Injectable, Logger, type OnModuleInit, type OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, Inject, type OnModuleInit, type OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import IORedis from 'ioredis';
+import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
 
 /**
  * Rate limiter — Redis-based sliding window per network.
@@ -20,21 +21,23 @@ import IORedis from 'ioredis';
  * - RATE_LIMIT_MIN_DELAY_MS (default: 300000 = 5 min, applied to all networks)
  *
  * Uses Redis INCR + EXPIRE for atomic sliding window counters.
+ *
+ * Sprint L: Uses shared Redis connection from RedisModule.
  */
 @Injectable()
 export class RateLimitService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RateLimitService.name);
-  private readonly redisUrl: string;
   private readonly prefix: string;
-  private redis: IORedis | null = null;
 
   // Per-network limits (env-configurable, defaults per constitution §8/§9)
   private readonly dailyLimits: Record<string, number>;
   private readonly weeklyLimits: Record<string, number>;
   private readonly minIntervalMs: Record<string, number>;
 
-  constructor(private readonly configService: ConfigService) {
-    this.redisUrl = this.configService.get<string>('REDIS_URL', 'redis://localhost:6381');
+  constructor(
+    private readonly configService: ConfigService,
+    @Inject(SHARED_REDIS) private readonly redis: IORedis,
+  ) {
     this.prefix = this.configService.get<string>('RATE_LIMIT_PREFIX', 'spa:ratelimit');
 
     // Global min delay between posts (env: RATE_LIMIT_MIN_DELAY_MS, default 5 min)
@@ -63,9 +66,8 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit(): void {
-    this.redis = new IORedis(this.redisUrl, { maxRetriesPerRequest: null });
     this.logger.log(
-      `Rate limiter connected to Redis (${this.redisUrl}) — ` +
+      `Rate limiter initialized (shared Redis connection) — ` +
         `limits: X=${this.dailyLimits['X']}/day ${this.weeklyLimits['X']}/week, ` +
         `THREADS=${this.dailyLimits['THREADS']}/day ${this.weeklyLimits['THREADS']}/week, ` +
         `FACEBOOK=${this.dailyLimits['FACEBOOK']}/day ${this.weeklyLimits['FACEBOOK']}/week`,
@@ -73,8 +75,7 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleDestroy(): void {
-    this.redis?.disconnect();
-    this.logger.log('Rate limiter Redis connection closed');
+    // Sprint L: Redis connection is managed by RedisModule — don't close here
   }
 
   /**
@@ -210,13 +211,12 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
   /**
    * Get the ISO date string for the start of the current week (Monday-based).
    */
+  // Minor-26 fix: use UTC instead of server local time for consistent week boundaries
   private getWeekStart(): Date {
     const now = new Date();
-    const day = now.getDay(); // 0 = Sunday
+    const day = now.getUTCDay(); // 0 = Sunday (UTC)
     const diff = day === 0 ? -6 : 1 - day; // adjust to Monday
-    const monday = new Date(now);
-    monday.setDate(now.getDate() + diff);
-    monday.setHours(0, 0, 0, 0);
+    const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + diff));
     return monday;
   }
 }

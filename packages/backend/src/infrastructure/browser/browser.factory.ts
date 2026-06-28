@@ -39,6 +39,19 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
   private readonly proxyUrl: string | undefined;
   private readonly screenshotDir: string;
   private browser: Browser | null = null;
+  // Persistent context for Facebook — stores fingerprint + cookies on disk
+  // to avoid "suspicious login" challenges on every run.
+  // Key: network → persistent BrowserContext
+  private readonly persistentContexts = new Map<SocialNetwork, BrowserContext>();
+  private readonly profileDir: string;
+
+  // Sprint K: Context pool — reuse contexts per network to avoid repeated creation overhead.
+  // Each network gets up to `poolSize` contexts. Idle contexts are returned to the pool.
+  private readonly poolSize: number;
+  private readonly poolAcquireTimeoutMs: number;
+  private readonly idleContexts = new Map<SocialNetwork, BrowserContext[]>();
+  private readonly inUseContexts = new Map<SocialNetwork, Set<BrowserContext>>();
+  private readonly contextWaiters = new Map<SocialNetwork, Array<{ resolve: () => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> }>>();
 
   constructor(private readonly configService: ConfigService) {
     this.headless = this.configService.get<string>('CAMOUFOX_HEADLESS', 'true') === 'true';
@@ -51,6 +64,11 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
       | 'linux';
     this.proxyUrl = this.configService.get<string | undefined>('CAMOUFOX_PROXY_URL');
     this.screenshotDir = this.configService.get<string>('SPA_SCREENSHOT_DIR', '/tmp/spa-screenshots');
+    this.poolSize = Math.max(1, this.configService.get<number>('BROWSER_POOL_SIZE', 3));
+    this.poolAcquireTimeoutMs = Math.max(1000, this.configService.get<number>('BROWSER_POOL_ACQUIRE_TIMEOUT_MS', 60000));
+    // Persistent browser profiles directory — stores fingerprint + cookies per network
+    // Facebook requires this to avoid "suspicious login" challenges on every run
+    this.profileDir = this.configService.get<string>('CAMOUFOX_PROFILE_DIR', '/tmp/spa-profiles');
   }
 
   /**
@@ -87,8 +105,78 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
   }
 
   /**
+   * Get or create a persistent browser context for a network.
+   *
+   * Persistent contexts use `user_data_dir` — Camoufox stores the fingerprint,
+   * cookies, localStorage, and session data on disk. This means:
+   * - Same fingerprint between runs (no "new device" detection)
+   * - Cookies persist (no re-login needed if session is still valid)
+   * - Facebook "suspicious login" challenge only appears on first run
+   *
+   * Reference: tas33n/fb-login-bot (cookie persistence),
+   *            camofox-browser (session isolation + cookie import),
+   *            Camoufox `user_data_dir` option.
+   */
+  private async getOrCreatePersistentContext(
+    network: SocialNetwork,
+  ): Promise<BrowserContext> {
+    // Return cached persistent context if available
+    const cached = this.persistentContexts.get(network);
+    if (cached) {
+      return cached;
+    }
+
+    // Create profile directory if it doesn't exist
+    const profilePath = join(this.profileDir, network.toLowerCase());
+    try {
+      mkdirSync(profilePath, { recursive: true });
+    } catch {
+      // directory may already exist
+    }
+
+    const launchOpts: LaunchOptions = {
+      headless: this.headless,
+      humanize: this.humanize,
+      geoip: this.geoip,
+      locale: this.locale,
+      os: this.targetOs,
+    };
+
+    // Proxy support
+    if (this.proxyUrl) {
+      launchOpts.proxy = { server: this.proxyUrl };
+    }
+
+    // Camoufox with user_data_dir returns a BrowserContext (persistent)
+    // instead of a Browser. The fingerprint and cookies are stored on disk.
+    // viewport: null tells Playwright not to call Browser.setDefaultViewport
+    // (Camoufox doesn't support this method — it manages viewport at C++ level)
+    const context = (await Camoufox({
+      ...launchOpts,
+      user_data_dir: profilePath,
+      viewport: null,
+    })) as unknown as BrowserContext;
+
+    this.persistentContexts.set(network, context);
+    this.logger.log(
+      `Persistent context created for ${network} (profile: ${profilePath})`,
+    );
+    return context;
+  }
+
+  /**
    * Create a browser context with optional saved storageState (cookies, localStorage).
    * Used for persistent sessions — restores login state between runs.
+   *
+   * For Facebook: uses persistent context (user_data_dir) to avoid repeated
+   * "suspicious login" challenges. The fingerprint and cookies are stored on disk.
+   * The storageState parameter is ignored for Facebook (cookies come from disk).
+   *
+   * For X/Threads: creates a fresh context with storageState (existing behavior).
+   *
+   * Each call creates a fresh context — callers are responsible for closing it
+   * (P0-H1: PostingService tracks and closes in finally block to prevent leaks).
+   * Note: For Facebook persistent context, the context is NOT closed — it's reused.
    *
    * Camoufox handles fingerprint/UA/viewport automatically via C++ level spoofing,
    * so we don't set them manually (would conflict with Camoufox's identity).
@@ -97,6 +185,15 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
     network: SocialNetwork,
     storageState?: string,
   ): Promise<BrowserContext> {
+    // Facebook: use persistent context to avoid repeated challenges
+    if (network === 'FACEBOOK') {
+      const persistentContext = await this.getOrCreatePersistentContext(network);
+      // Create a new page within the persistent context
+      // The persistent context itself is shared — callers get a new page
+      return persistentContext;
+    }
+
+    // X/Threads: fresh context with storageState (existing behavior)
     const browser = await this.getBrowser();
 
     const contextOptions: Parameters<Browser['newContext']>[0] = {
@@ -113,6 +210,117 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
 
     this.logger.debug(`Context created for ${network}`);
     return context;
+  }
+
+  /**
+   * Sprint K: Acquire a context from the pool, or create a new one if pool is empty.
+   *
+   * If the pool is at capacity (all contexts in use), waits until one is released.
+   * Pooled contexts are reused across posting runs — avoids the overhead of
+   * creating a new browser context (which spawns a new process in Camoufox).
+   *
+   * @param network Target social network
+   * @param storageState Optional saved storage state (cookies, localStorage)
+   * @returns A BrowserContext — caller MUST call releaseContext() when done
+   */
+  async acquireContext(
+    network: SocialNetwork,
+    storageState?: string,
+  ): Promise<BrowserContext> {
+    // Facebook: persistent context is shared (not pooled) — return it directly
+    if (network === 'FACEBOOK') {
+      return this.getOrCreatePersistentContext(network);
+    }
+
+    // Try to get an idle context — loop to handle race between check and pop
+    // (Node is single-threaded but async createContext can yield between check and add)
+    for (;;) {
+      const idle = this.idleContexts.get(network) ?? [];
+      if (idle.length > 0) {
+        const context = idle.pop()!;
+        this.idleContexts.set(network, idle);
+
+        const inUse = this.inUseContexts.get(network) ?? new Set();
+        inUse.add(context);
+        this.inUseContexts.set(network, inUse);
+
+        this.logger.debug(`Context pool: reused idle context for ${network}`);
+        return context;
+      }
+
+      // Check if we're at pool capacity
+      const inUse = this.inUseContexts.get(network) ?? new Set();
+      if (inUse.size < this.poolSize) {
+        // Create a new context (within pool capacity)
+        const context = await this.createContext(network, storageState);
+        // Re-fetch inUse set — createContext is async and another caller may have added
+        const inUseNow = this.inUseContexts.get(network) ?? new Set();
+        // If we exceeded capacity during await (rare), still return — we already created it
+        inUseNow.add(context);
+        this.inUseContexts.set(network, inUseNow);
+        return context;
+      }
+
+      // At capacity — wait for a release. The release will put the context
+      // into idle and resolve our promise. We then loop back to grab it.
+      this.logger.debug(`Context pool: at capacity (${this.poolSize}) for ${network}, waiting…`);
+      await new Promise<void>((resolve, reject) => {
+        const waiters = this.contextWaiters.get(network) ?? [];
+        const timer = setTimeout(() => {
+          // Remove this waiter from the queue (it timed out)
+          const current = this.contextWaiters.get(network) ?? [];
+          const idx = current.indexOf(entry);
+          if (idx >= 0) current.splice(idx, 1);
+          reject(new Error(`Context pool acquire timeout (${this.poolAcquireTimeoutMs}ms) for ${network}`));
+        }, this.poolAcquireTimeoutMs);
+        const entry = { resolve, reject, timer };
+        waiters.push(entry);
+        this.contextWaiters.set(network, waiters);
+      });
+      // Loop back — releaseContext put a context into idle for us
+    }
+  }
+
+  /**
+   * Sprint K: Release a context back to the pool for reuse.
+   *
+   * The context is NOT closed — it stays alive for the next acquireContext() call.
+   * Callers MUST ensure they've finished all page interactions before releasing.
+   *
+   * @param network Target social network
+   * @param context The context to release
+   */
+  releaseContext(network: SocialNetwork, context: BrowserContext): void {
+    // Facebook: persistent context is not pooled — just return (context stays alive)
+    if (network === 'FACEBOOK') {
+      return;
+    }
+
+    const inUse = this.inUseContexts.get(network);
+    if (inUse) {
+      inUse.delete(context);
+    }
+
+    // Always put the context back into the idle pool first.
+    // If a waiter is pending, resolve it — the waiter will loop back in
+    // acquireContext and grab this context from idle. This avoids the
+    // hand-off bug where the context was placed directly into inUse,
+    // causing the waiter's recursive call to see capacity still full.
+    const idle = this.idleContexts.get(network) ?? [];
+    idle.push(context);
+    this.idleContexts.set(network, idle);
+
+    // Wake up one waiter if any — they'll grab the context from idle
+    const waiters = this.contextWaiters.get(network);
+    if (waiters && waiters.length > 0) {
+      const waiter = waiters.shift()!;
+      clearTimeout(waiter.timer);
+      this.contextWaiters.set(network, waiters);
+      waiter.resolve();
+      this.logger.debug(`Context pool: released context for ${network}, woke waiter (idle: ${idle.length})`);
+    } else {
+      this.logger.debug(`Context pool: released context for ${network} (idle: ${idle.length})`);
+    }
   }
 
   /**
@@ -135,14 +343,90 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
   }
 
   /**
+   * Sprint K: Adaptive delay — adjusts pause based on page load performance.
+   * Slow network → longer pause (human reads slower too).
+   * Fast network → normal pause.
+   */
+  async adaptiveDelay(page: Page): Promise<void> {
+    try {
+      const navTiming = await page.evaluate(() => {
+        const entries = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
+        return entries[0] ? { loadEventEnd: entries[0].loadEventEnd, startTime: entries[0].startTime } : null;
+      });
+      const responseTime = navTiming ? navTiming.loadEventEnd - navTiming.startTime : 3000;
+      if (responseTime > 5000) {
+        // Slow network — longer pause
+        await this.randomDelay(15000, 45000);
+      } else {
+        // Fast network — normal pause
+        await this.randomDelay(5000, 20000);
+      }
+    } catch {
+      // Fallback to standard delay
+      await this.randomDelay();
+    }
+  }
+
+  /**
    * Human-like typing — focuses element, types with per-key delay.
    * Uses pressSequentially for React-controlled inputs (fill() doesn't trigger onChange).
    */
   async humanType(locator: Locator, text: string, opts?: { delayMs?: number }): Promise<void> {
     const delay = opts?.delayMs ?? 50; // 50ms per key — human-like
-    await locator.focus();
+    try {
+      await locator.focus({ timeout: 5000 });
+    } catch {
+      // Focus failed (overlay/animation) — try force-click to focus
+      await locator.click({ force: true, timeout: 5000 }).catch(() => {});
+    }
     await this.randomDelay(300, 800);
-    await locator.pressSequentially(text, { delay });
+    // Try pressSequentially first (triggers React onChange) with short timeout
+    try {
+      await locator.pressSequentially(text, { delay, timeout: 15000 });
+    } catch {
+      // pressSequentially failed (typeahead/autocomplete intercepting) — use fill() fallback
+      // fill() sets the value directly without per-key events
+      try {
+        await locator.fill(text, { timeout: 10000 });
+      } catch {
+        // fill() also failed — last resort: set content via evaluate + dispatch input event
+        await locator.evaluate((el: HTMLElement, value: string) => {
+          el.focus();
+          // For contenteditable: set textContent and dispatch input event
+          el.textContent = value;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+        }, text);
+      }
+    }
+  }
+
+  /**
+   * Stealth human-like typing — types character by character via page.keyboard.type
+   * with randomized per-key delay (40-120ms) and 5% chance of a "thinking" pause
+   * (200-600ms). More human-like than humanType (pressSequentially with fixed delay).
+   *
+   * Reference: stealth-x (Youhai020616/stealth-x) typeHuman() — used for X login
+   * where X's anti-bot detects uniform typing patterns.
+   *
+   * Caller is responsible for focusing the element first (click/focus before calling).
+   */
+  async typeHuman(page: Page, text: string, locator?: Locator): Promise<void> {
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i]!;
+      // Random per-key delay 40-120ms (stealth-x: 40 + Math.random() * 80)
+      const delay = 40 + Math.random() * 80;
+      if (locator) {
+        // Per-locator typing — ensures focus stays on the element (React-controlled inputs)
+        await locator.pressSequentially(char, { delay });
+      } else {
+        // Keyboard typing — caller must have focused the element first
+        await page.keyboard.type(char, { delay });
+      }
+      // 5% chance of a longer "thinking" pause (stealth-x)
+      if (Math.random() < 0.05) {
+        await this.randomDelay(200, 600);
+      }
+    }
   }
 
   /**
@@ -169,6 +453,17 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
         throw err;
       }
     }
+  }
+
+  /**
+   * Human-like hover — moves mouse to an element and pauses.
+   * Simulates reading/considering before clicking (engagement sessions).
+   */
+  async hover(locator: Locator): Promise<void> {
+    await locator.hover({ timeout: 5000 }).catch(() => {
+      // Hover is non-critical — ignore failures (element may have scrolled away)
+    });
+    await this.randomDelay(500, 1500);
   }
 
   /**
@@ -285,8 +580,38 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
+    // Close all pooled contexts — guard against undefined entries (defensive)
+    for (const [, contexts] of this.idleContexts) {
+      for (const ctx of contexts) {
+        if (ctx) await ctx.close().catch(() => {});
+      }
+    }
+    this.idleContexts.clear();
+
+    for (const [, contexts] of this.inUseContexts) {
+      for (const ctx of contexts) {
+        if (ctx) await ctx.close().catch(() => {});
+      }
+    }
+    this.inUseContexts.clear();
+
+    // Close persistent contexts (Facebook) — saves cookies/fingerprint to disk
+    for (const [, ctx] of this.persistentContexts) {
+      if (ctx) await ctx.close().catch(() => {});
+    }
+    this.persistentContexts.clear();
+
+    // Reject any pending waiters so they don't hang forever
+    for (const [, waiters] of this.contextWaiters) {
+      for (const w of waiters) {
+        clearTimeout(w.timer);
+        w.reject(new Error('Browser factory shutting down'));
+      }
+    }
+    this.contextWaiters.clear();
+
     if (this.browser) {
-      await this.browser.close();
+      await this.browser.close().catch(() => {});
       this.logger.log('Camoufox browser closed');
     }
   }

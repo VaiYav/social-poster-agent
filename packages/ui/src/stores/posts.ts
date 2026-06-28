@@ -52,18 +52,46 @@ export const usePostsStore = defineStore('posts', () => {
   }
 
   async function approve(id: string, editedContent?: string) {
-    await api.post(`/posts/${id}/approve`, editedContent ? { editedContent } : {});
+    // Sprint N: Optimistic update — update UI immediately, rollback on error
     const post = drafts.value.find((p) => p.id === id);
+    const previousStatus = post?.status;
+    const previousContent = post?.content;
     if (post) {
       post.status = 'APPROVED';
       if (editedContent) post.content = editedContent;
     }
     drafts.value = drafts.value.filter((p) => p.id !== id);
+
+    try {
+      await api.post(`/posts/${id}/approve`, editedContent ? { editedContent } : {});
+      // Success — SSE will confirm with real status
+    } catch (e: unknown) {
+      // Sprint N: Rollback on error
+      if (post) {
+        post.status = previousStatus ?? 'DRAFT';
+        if (previousContent) post.content = previousContent;
+        drafts.value.push(post);
+      }
+      error.value = (e as Error).message;
+      throw e;
+    }
   }
 
   async function reject(id: string) {
-    await api.post(`/posts/${id}/reject`);
+    // Sprint N: Optimistic update — remove from drafts immediately, rollback on error
+    const removedPost = drafts.value.find((p) => p.id === id);
     drafts.value = drafts.value.filter((p) => p.id !== id);
+
+    try {
+      await api.post(`/posts/${id}/reject`);
+    } catch (e: unknown) {
+      // Sprint N: Rollback on error
+      if (removedPost) {
+        drafts.value.push(removedPost);
+      }
+      error.value = (e as Error).message;
+      throw e;
+    }
   }
 
   async function postById(id: string) {

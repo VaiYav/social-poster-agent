@@ -1,0 +1,430 @@
+/**
+ * HumanBehaviorEngine unit tests.
+ *
+ * Tests the LLM-driven engagement behavior loop: decision execution,
+ * interaction recording, budget enforcement, and human-like timing.
+ *
+ * Source: packages/backend/src/modules/engagement/human-behavior-engine.ts
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { HumanBehaviorEngine } from '../../../src/modules/engagement/human-behavior-engine';
+import type { IEngagementDecisionPort, ActionDecision, PostContext } from '../../../src/domain/ports/engagement-decision.port';
+import type { IBrowserPort } from '../../../src/domain/ports/browser.port';
+import type { BaseEngager } from '../../../src/modules/engagement/engagers/base.engager';
+import {
+  createMockBrowserPort,
+  createMockSseService,
+  createMockRateLimitService,
+  createMockPage,
+} from '../../mocks';
+
+// ── Mock Decision Port ──
+
+function createMockDecisionPort(decision: Partial<ActionDecision> = {}): IEngagementDecisionPort {
+  return {
+    decideAction: vi.fn().mockResolvedValue({
+      action: 'scroll',
+      reason: 'test',
+      confidence: 0.5,
+      ...decision,
+    } as ActionDecision),
+    generateComment: vi.fn().mockResolvedValue('Test comment in brand voice.'),
+  };
+}
+
+// ── Mock Engager ──
+
+function createMockEngager(overrides: Partial<BaseEngager> = {}): BaseEngager {
+  return {
+    like: vi.fn().mockResolvedValue({ success: true }),
+    comment: vi.fn().mockResolvedValue({ success: true }),
+    follow: vi.fn().mockResolvedValue({ success: true }),
+    reply: vi.fn().mockResolvedValue({ success: true }),
+    scrollFeed: vi.fn().mockResolvedValue([]),
+    extractPostText: vi.fn().mockResolvedValue({
+      text: 'Mars in Aries brings energy today.',
+      hasMedia: false,
+      authorHandle: 'astrologer',
+    }),
+    openCommentsThread: vi.fn().mockResolvedValue(3),
+    navigateBack: vi.fn().mockResolvedValue(undefined),
+    visitProfile: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  } as unknown as BaseEngager;
+}
+
+// ── Mock Prisma ──
+
+const mockPrisma = {
+  interaction: {
+    create: vi.fn().mockResolvedValue({ id: 'interaction-1' }),
+    update: vi.fn().mockResolvedValue({}),
+  },
+};
+
+describe('HumanBehaviorEngine', () => {
+  let engine: HumanBehaviorEngine;
+  let browser: IBrowserPort;
+  let decisionPort: IEngagementDecisionPort;
+  let engager: BaseEngager;
+
+  const config = {
+    network: 'X' as const,
+    accountId: 'account-1',
+    browsingSessionId: 'session-1',
+    source: 'home-feed' as const,
+    likesMaxPerSession: 15,
+    commentsMaxPerSession: 4,
+    maxPosts: 5,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    browser = createMockBrowserPort();
+    decisionPort = createMockDecisionPort();
+    engager = createMockEngager();
+    engine = new HumanBehaviorEngine(
+      mockPrisma as never,
+      browser,
+      createMockSseService() as never,
+      createMockRateLimitService() as never,
+      decisionPort,
+    );
+  });
+
+  // ── processPosts ──
+
+  it('HB-001: processes all posts up to maxPosts limit', async () => {
+    const postUrls = ['url1', 'url2', 'url3', 'url4', 'url5', 'url6', 'url7'];
+    const page = createMockPage();
+    const results = await engine.processPosts(page, postUrls, engager, config);
+
+    // maxPosts is 5, so only 5 should be processed
+    expect(results.length).toBe(5);
+    expect(decisionPort.decideAction).toHaveBeenCalledTimes(5);
+  });
+
+  it('HB-002: asks LLM for decision on each post', async () => {
+    const postUrls = ['url1', 'url2'];
+    const page = createMockPage();
+    await engine.processPosts(page, postUrls, engager, config);
+
+    expect(decisionPort.decideAction).toHaveBeenCalledTimes(2);
+  });
+
+  it('HB-003: executes like action when LLM decides like', async () => {
+    decisionPort = createMockDecisionPort({ action: 'like', reason: 'relevant', confidence: 0.9 });
+    engine = new HumanBehaviorEngine(
+      mockPrisma as never, browser, createMockSseService() as never,
+      createMockRateLimitService() as never, decisionPort,
+    );
+
+    const page = createMockPage();
+    const results = await engine.processPosts(page, ['url1'], engager, config);
+
+    expect(engager.like).toHaveBeenCalledWith(page, 'url1');
+    expect(results[0]!.success).toBe(true);
+    expect(results[0]!.interactionId).toBe('interaction-1');
+  });
+
+  it('HB-004: executes comment action when LLM decides comment', async () => {
+    decisionPort = createMockDecisionPort({
+      action: 'comment', reason: 'valuable', confidence: 0.8,
+      commentText: 'Great insight about Mars!',
+    });
+    engine = new HumanBehaviorEngine(
+      mockPrisma as never, browser, createMockSseService() as never,
+      createMockRateLimitService() as never, decisionPort,
+    );
+
+    const page = createMockPage();
+    const results = await engine.processPosts(page, ['url1'], engager, config);
+
+    expect(engager.comment).toHaveBeenCalledWith(page, 'url1', 'Great insight about Mars!');
+    expect(results[0]!.success).toBe(true);
+  });
+
+  it('HB-005: generates comment text if LLM decision lacks it', async () => {
+    decisionPort = createMockDecisionPort({ action: 'comment', reason: 'valuable', confidence: 0.8 });
+    engine = new HumanBehaviorEngine(
+      mockPrisma as never, browser, createMockSseService() as never,
+      createMockRateLimitService() as never, decisionPort,
+    );
+
+    const page = createMockPage();
+    await engine.processPosts(page, ['url1'], engager, config);
+
+    expect(decisionPort.generateComment).toHaveBeenCalled();
+    expect(engager.comment).toHaveBeenCalledWith(page, 'url1', 'Test comment in brand voice.');
+  });
+
+  it('HB-006: executes open-thread action when LLM decides open-thread', async () => {
+    decisionPort = createMockDecisionPort({ action: 'open-thread', reason: 'active discussion', confidence: 0.7 });
+    engine = new HumanBehaviorEngine(
+      mockPrisma as never, browser, createMockSseService() as never,
+      createMockRateLimitService() as never, decisionPort,
+    );
+
+    const page = createMockPage();
+    const results = await engine.processPosts(page, ['url1'], engager, config);
+
+    expect(engager.openCommentsThread).toHaveBeenCalledWith(page, 'url1');
+    expect(results[0]!.success).toBe(true);
+  });
+
+  it('HB-007: executes visit-profile action when LLM decides visit-profile', async () => {
+    decisionPort = createMockDecisionPort({ action: 'visit-profile', reason: 'interesting author', confidence: 0.6 });
+    engine = new HumanBehaviorEngine(
+      mockPrisma as never, browser, createMockSseService() as never,
+      createMockRateLimitService() as never, decisionPort,
+    );
+
+    const page = createMockPage();
+    const results = await engine.processPosts(page, ['url1'], engager, config);
+
+    expect(engager.visitProfile).toHaveBeenCalledWith(page, 'astrologer');
+    expect(engager.navigateBack).toHaveBeenCalled();
+    expect(results[0]!.success).toBe(true);
+  });
+
+  it('HB-008: scroll action does not trigger any engager method', async () => {
+    decisionPort = createMockDecisionPort({ action: 'scroll', reason: 'browsing', confidence: 0.5 });
+    engine = new HumanBehaviorEngine(
+      mockPrisma as never, browser, createMockSseService() as never,
+      createMockRateLimitService() as never, decisionPort,
+    );
+
+    const page = createMockPage();
+    await engine.processPosts(page, ['url1'], engager, config);
+
+    expect(engager.like).not.toHaveBeenCalled();
+    expect(engager.comment).not.toHaveBeenCalled();
+    expect(engager.openCommentsThread).not.toHaveBeenCalled();
+  });
+
+  it('HB-009: read action simulates reading (dwell) without interaction', async () => {
+    decisionPort = createMockDecisionPort({ action: 'read', reason: 'interesting', confidence: 0.7 });
+    engine = new HumanBehaviorEngine(
+      mockPrisma as never, browser, createMockSseService() as never,
+      createMockRateLimitService() as never, decisionPort,
+    );
+
+    const page = createMockPage();
+    await engine.processPosts(page, ['url1'], engager, config);
+
+    // read should call randomDelay (dwell) but no engager interactions
+    expect(browser.randomDelay).toHaveBeenCalled();
+    expect(engager.like).not.toHaveBeenCalled();
+  });
+
+  it('HB-010: creates interaction record for like action', async () => {
+    decisionPort = createMockDecisionPort({ action: 'like', reason: 'good', confidence: 0.9 });
+    engine = new HumanBehaviorEngine(
+      mockPrisma as never, browser, createMockSseService() as never,
+      createMockRateLimitService() as never, decisionPort,
+    );
+
+    const page = createMockPage();
+    await engine.processPosts(page, ['url1'], engager, config);
+
+    expect(mockPrisma.interaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          accountId: 'account-1',
+          type: 'LIKE',
+          targetUrl: 'url1',
+          browsingSessionId: 'session-1',
+        }),
+      }),
+    );
+  });
+
+  it('HB-011: handles extractPostText failure gracefully', async () => {
+    engager = createMockEngager({
+      extractPostText: vi.fn().mockRejectedValue(new Error('selector not found')),
+    });
+    const page = createMockPage();
+    const results = await engine.processPosts(page, ['url1'], engager, config);
+
+    // Should not crash — just skip the post
+    expect(results.length).toBe(0);
+    expect(decisionPort.decideAction).not.toHaveBeenCalled();
+  });
+
+  it('HB-012: handles empty post list', async () => {
+    const page = createMockPage();
+    const results = await engine.processPosts(page, [], engager, config);
+    expect(results).toEqual([]);
+  });
+
+  it('HB-013: increments like counter after successful like', async () => {
+    // First post: like, second post: like — budget allows both
+    decisionPort = createMockDecisionPort({ action: 'like', reason: 'good', confidence: 0.9 });
+    engine = new HumanBehaviorEngine(
+      mockPrisma as never, browser, createMockSseService() as never,
+      createMockRateLimitService() as never, decisionPort,
+    );
+
+    const page = createMockPage();
+    await engine.processPosts(page, ['url1', 'url2'], engager, { ...config, maxPosts: 2 });
+
+    // Both likes should be executed
+    expect(engager.like).toHaveBeenCalledTimes(2);
+  });
+
+  it('HB-014: handles like failure from engager', async () => {
+    engager = createMockEngager({
+      like: vi.fn().mockResolvedValue({ success: false, error: 'Button not found' }),
+    });
+    decisionPort = createMockDecisionPort({ action: 'like', reason: 'good', confidence: 0.9 });
+    engine = new HumanBehaviorEngine(
+      mockPrisma as never, browser, createMockSseService() as never,
+      createMockRateLimitService() as never, decisionPort,
+    );
+
+    const page = createMockPage();
+    const results = await engine.processPosts(page, ['url1'], engager, config);
+
+    expect(results[0]!.success).toBe(false);
+    expect(results[0]!.error).toBe('Button not found');
+  });
+
+  it('HB-015: visit-profile fails gracefully when no author handle', async () => {
+    engager = createMockEngager({
+      extractPostText: vi.fn().mockResolvedValue({
+        text: 'test', hasMedia: false, authorHandle: undefined,
+      }),
+    });
+    decisionPort = createMockDecisionPort({ action: 'visit-profile', reason: 'interesting', confidence: 0.6 });
+    engine = new HumanBehaviorEngine(
+      mockPrisma as never, browser, createMockSseService() as never,
+      createMockRateLimitService() as never, decisionPort,
+    );
+
+    const page = createMockPage();
+    const results = await engine.processPosts(page, ['url1'], engager, config);
+
+    expect(results[0]!.success).toBe(false);
+    expect(results[0]!.error).toContain('No author handle');
+  });
+
+  // ── Batch decision mode ──
+
+  function createMockBatchDecisionPort(decisions: Partial<ActionDecision>[]): IEngagementDecisionPort {
+    return {
+      decideAction: vi.fn().mockResolvedValue({
+        action: 'scroll', reason: 'test', confidence: 0.5,
+      } as ActionDecision),
+      decideActionsBatch: vi.fn().mockResolvedValue(
+        decisions.map((d) => ({ action: 'scroll', reason: 'test', confidence: 0.5, ...d } as ActionDecision)),
+      ),
+      generateComment: vi.fn().mockResolvedValue('Test comment in brand voice.'),
+    };
+  }
+
+  it('HB-016: uses batch decision when port supports it (fewer LLM calls)', async () => {
+    const batchDecisions = [
+      { action: 'scroll' as const, reason: 'batch-1', confidence: 0.5 },
+      { action: 'scroll' as const, reason: 'batch-2', confidence: 0.5 },
+      { action: 'scroll' as const, reason: 'batch-3', confidence: 0.5 },
+      { action: 'scroll' as const, reason: 'batch-4', confidence: 0.5 },
+      { action: 'scroll' as const, reason: 'batch-5', confidence: 0.5 },
+    ];
+    decisionPort = createMockBatchDecisionPort(batchDecisions);
+    engine = new HumanBehaviorEngine(
+      mockPrisma as never, browser, createMockSseService() as never,
+      createMockRateLimitService() as never, decisionPort,
+    );
+
+    const postUrls = ['url1', 'url2', 'url3', 'url4', 'url5'];
+    const page = createMockPage();
+    await engine.processPosts(page, postUrls, engager, { ...config, maxPosts: 5 });
+
+    // Batch mode: 1 LLM call for all 5 posts (instead of 5 individual calls)
+    expect(decisionPort.decideActionsBatch).toHaveBeenCalledTimes(1);
+    expect(decisionPort.decideAction).not.toHaveBeenCalled();
+  });
+
+  it('HB-017: batch mode processes all posts and returns results', async () => {
+    const batchDecisions = [
+      { action: 'like' as const, reason: 'good', confidence: 0.9 },
+      { action: 'scroll' as const, reason: 'boring', confidence: 0.5 },
+      { action: 'read' as const, reason: 'interesting', confidence: 0.7 },
+    ];
+    decisionPort = createMockBatchDecisionPort(batchDecisions);
+    engine = new HumanBehaviorEngine(
+      mockPrisma as never, browser, createMockSseService() as never,
+      createMockRateLimitService() as never, decisionPort,
+    );
+
+    const page = createMockPage();
+    const results = await engine.processPosts(page, ['url1', 'url2', 'url3'], engager, { ...config, maxPosts: 3 });
+
+    expect(results).toHaveLength(3);
+    expect(results[0]!.decision.action).toBe('like');
+    expect(results[1]!.decision.action).toBe('scroll');
+    expect(results[2]!.decision.action).toBe('read');
+  });
+
+  it('HB-018: batch mode enforces budget mid-batch (downgrades extra likes)', async () => {
+    // LLM says "like" for all 3 posts, but budget only allows 1 like
+    const batchDecisions = [
+      { action: 'like' as const, reason: 'good', confidence: 0.9 },
+      { action: 'like' as const, reason: 'good', confidence: 0.9 },
+      { action: 'like' as const, reason: 'good', confidence: 0.9 },
+    ];
+    decisionPort = createMockBatchDecisionPort(batchDecisions);
+    engine = new HumanBehaviorEngine(
+      mockPrisma as never, browser, createMockSseService() as never,
+      createMockRateLimitService() as never, decisionPort,
+    );
+
+    const page = createMockPage();
+    const results = await engine.processPosts(page, ['url1', 'url2', 'url3'], engager, {
+      ...config, maxPosts: 3, likesMaxPerSession: 1,
+    });
+
+    // First like succeeds, subsequent ones are downgraded to 'read'
+    expect(results[0]!.decision.action).toBe('like');
+    expect(results[1]!.decision.action).toBe('read');
+    expect(results[2]!.decision.action).toBe('read');
+  });
+
+  it('HB-019: falls back to individual calls when batch throws', async () => {
+    const batchPort: IEngagementDecisionPort = {
+      decideAction: vi.fn().mockResolvedValue({ action: 'scroll', reason: 'individual', confidence: 0.5 } as ActionDecision),
+      decideActionsBatch: vi.fn().mockRejectedValue(new Error('batch API error')),
+      generateComment: vi.fn().mockResolvedValue('Test comment.'),
+    };
+    engine = new HumanBehaviorEngine(
+      mockPrisma as never, browser, createMockSseService() as never,
+      createMockRateLimitService() as never, batchPort,
+    );
+
+    const page = createMockPage();
+    await engine.processPosts(page, ['url1', 'url2'], engager, { ...config, maxPosts: 2 });
+
+    // Batch failed → fell back to individual decideAction calls
+    expect(batchPort.decideActionsBatch).toHaveBeenCalledTimes(1);
+    expect(batchPort.decideAction).toHaveBeenCalledTimes(2);
+  });
+
+  it('HB-020: batch mode generates comment text when missing', async () => {
+    // Use 2 posts so batch mode is activated (contexts.length > 1)
+    const batchDecisions = [
+      { action: 'comment' as const, reason: 'valuable', confidence: 0.8 },
+      { action: 'scroll' as const, reason: 'boring', confidence: 0.5 },
+    ];
+    decisionPort = createMockBatchDecisionPort(batchDecisions);
+    engine = new HumanBehaviorEngine(
+      mockPrisma as never, browser, createMockSseService() as never,
+      createMockRateLimitService() as never, decisionPort,
+    );
+
+    const page = createMockPage();
+    await engine.processPosts(page, ['url1', 'url2'], engager, { ...config, maxPosts: 2 });
+
+    expect(decisionPort.generateComment).toHaveBeenCalled();
+    expect(engager.comment).toHaveBeenCalledWith(page, 'url1', 'Test comment in brand voice.');
+  });
+});

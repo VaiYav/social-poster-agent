@@ -32,6 +32,9 @@ const REDACT_KEYS = [
   'apiKey',
 ];
 
+// P1-7 fix: exact key match set (lowercase) — avoids false positives like 'tokenizer' matching 'token'
+const REDACT_KEYS_SET = new Set(REDACT_KEYS.map((k) => k.toLowerCase()));
+
 const REDACT_PATTERN = new RegExp(
   `("(?:${REDACT_KEYS.join('|')})"\\s*:\\s*)"[^"]*"`,
   'gi',
@@ -50,7 +53,8 @@ function redactObject(obj: unknown): unknown {
 
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
-    if (REDACT_KEYS.some((k) => key.toLowerCase().includes(k.toLowerCase()))) {
+    // P1-7 fix: exact key match (case-insensitive) instead of includes()
+    if (REDACT_KEYS_SET.has(key.toLowerCase())) {
       result[key] = '[REDACTED]';
     } else {
       result[key] = redactObject(value);

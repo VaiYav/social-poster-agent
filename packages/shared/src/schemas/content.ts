@@ -35,6 +35,35 @@ export const TopicQueueEntrySchema = z.object({
 });
 export type TopicQueueEntry = z.infer<typeof TopicQueueEntrySchema>;
 
+// topic-queue.json — ranked topic clusters from CAP
+export const TopicQueueSchema = z.object({
+  locale: z.string().default('en'),
+  seeds: z.array(z.string()).default([]),
+  clusters: z
+    .array(
+      z.object({
+        representative: z.string(),
+        members: z.number().default(1),
+        status: z.string().default('new'),
+        score: z.number().default(0),
+      }),
+    )
+    .default([]),
+});
+export type TopicQueue = z.infer<typeof TopicQueueSchema>;
+
+// create-*/report.json — freshly created articles report from CAP
+export const CreateRunReportSchema = z.object({
+  files: z.array(z.string()).default([]),
+  skipped: z.array(z.string()).default([]),
+  tokens_in: z.number().default(0),
+  tokens_out: z.number().default(0),
+  usd: z.number().default(0),
+  steps: z.number().default(0),
+  errors: z.array(z.string()).default([]),
+});
+export type CreateRunReport = z.infer<typeof CreateRunReportSchema>;
+
 // ============================================================
 // Blog article frontmatter
 // ============================================================
@@ -56,7 +85,9 @@ export const ArticleFrontmatterSchema = z.object({
     .object({
       title: z.string().optional(),
       description: z.string().optional(),
-      keywords: z.array(z.string()).default([]),
+      keywords: z
+        .union([z.array(z.string()), z.string().transform((s) => s.split(',').map((k) => k.trim()).filter(Boolean))])
+        .default([]),
     })
     .optional(),
 });

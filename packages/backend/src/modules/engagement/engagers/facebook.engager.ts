@@ -83,8 +83,42 @@ export class FacebookEngager extends BaseEngager {
 
   async reply(page: Page, postUrl: string, text: string): Promise<EngagementResult> {
     // Facebook reply to a comment is different from a page post comment.
-    // For now, use the same comment flow.
-    return this.comment(page, postUrl, text);
+    // Uses a separate flow: find the comment, click "Reply" on it, type, submit.
+    try {
+      await this.navigate(page, postUrl);
+      const screenshotPath = await this.screenshot(page, 'before-comment');
+
+      // Facebook comment reply flow: each comment has a "Reply" button below it.
+      // We reply to the first comment on the post (most recent).
+      // This is distinct from commenting on the post itself.
+      const replyButtonSelector = {
+        role: { role: 'button', name: 'Reply' },
+        css: ['div[role="button"]:has-text("Reply")', 'button:has-text("Reply")'],
+      };
+
+      const replyInputSelector = {
+        role: { role: 'textbox' },
+        css: ['div[contenteditable="true"][aria-label*="Reply"]', 'div[contenteditable="true"]'],
+      };
+
+      const replySubmitSelector = {
+        role: { role: 'button', name: 'Comment' },
+        css: ['div[role="button"]:has-text("Comment")', 'button:has-text("Comment")'],
+      };
+
+      await this.performComment(
+        page,
+        replyButtonSelector,
+        replyInputSelector,
+        replySubmitSelector,
+        text,
+      );
+
+      await this.screenshot(page, 'after-comment');
+      return { success: true, screenshotPath };
+    } catch (err) {
+      return { success: false, error: (err as Error).message };
+    }
   }
 
   /**
@@ -96,6 +130,27 @@ export class FacebookEngager extends BaseEngager {
     }
     await this.navigate(page, FACEBOOK_SELECTORS.feed.url(this.pageSlug));
     return this.doScrollFeed(page, durationSec, FACEBOOK_SELECTORS.feed.postLink);
+  }
+
+  /**
+   * Extract the visible text content of a Facebook post.
+   */
+  async extractPostText(page: Page, postUrl: string): Promise<{ text: string; hasMedia: boolean; authorHandle?: string }> {
+    return this.doExtractPostText(page, postUrl, FACEBOOK_SELECTORS.profile.postText, {
+      css: ['div[role="article"] img', 'video', 'div[role="article"] [data-imgperflogname]'],
+    });
+  }
+
+  /**
+   * Open the comments thread of a Facebook post to read replies.
+   */
+  async openCommentsThread(page: Page, postUrl: string): Promise<number> {
+    return this.doOpenCommentsThread(
+      page,
+      postUrl,
+      FACEBOOK_SELECTORS.engagement.comment,
+      { css: ['div[role="article"]', 'li[role="comment"]', 'div[data-commentid]'] },
+    );
   }
 
   /**

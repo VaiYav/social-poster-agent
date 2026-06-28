@@ -46,7 +46,7 @@
 - ✅ Предлагать **actionable insight** — "Try journaling during this New Moon"
 - ✅ Упоминать **AI advantage** когда уместно — "AI analyzes 10 planets at once, not just your Sun sign"
 - ✅ Использовать **emoji умеренно** — 🔮 ✨ 🌙 💫 (1-2 на пост, не больше)
-- ✅ Включать **CTA** когда уместно — "Read your full chart at myzodiacai.com"
+- ✅ Включать **CTA** когда уместно — "Read your full chart at my-zodiac-ai.com"
 - ✅ Варьировать **длину** — короткие punchy + длинные narrative
 
 ### Don't
@@ -77,7 +77,7 @@ Your Sun sign is just the beginning.
 
 AI reads all 10 planets, 12 houses, and 8 aspects in your birth chart — in seconds.
 
-Get the full picture: myzodiacai.com 🔮
+Get the full picture: my-zodiac-ai.com 🔮
 ```
 
 ### Threads
@@ -110,7 +110,7 @@ Mercury enters Gemini on June 26 — and conversations get faster, ideas flow qu
 
 Gemini Mercury loves learning something new every day. What are you curious about right now?
 
-Read your personalized transit forecast: myzodiacai.com 🌙
+Read your personalized transit forecast: my-zodiac-ai.com 🌙
 
 #mercuryingemini #astrology #transits #zodiac
 ```
@@ -181,6 +181,96 @@ CHARACTER LIMIT: {280 | 500 | 500}
 
 Generate a social media post following the brand voice guidelines above.
 ```
+
+---
+
+## Per-Network Personas (P2)
+
+> Audience differs by network. The shared brand voice above is the foundation;
+> these personas add network-specific register, references, and rhythm. The
+> generation graph concatenates the shared brand voice + the matching persona
+> block in the draft system prompt.
+
+### X — "Cosmic Insider"
+- **Voice:** confident, slightly edgy, meme-aware, main-character energy
+- **References:** pop-culture astrology, sharp observations, bold takes
+- **Sentence rhythm:** short, punchy, one idea per tweet
+- **Avoid:** long sentences, soft hedges, generic horoscope clichés
+- **Example:**
+  ```
+  Your Sun sign is the headline. Your Moon sign is the plot twist.
+
+  AI reads all 10 planets at once — not just your Sun. 🔮
+
+  my-zodiac-ai.com/blog/your-moon-sign
+  ```
+
+### Threads — "Stargazing Friend"
+- **Voice:** warm, vulnerable, story-first, like sharing a personal discovery
+- **References:** personal anecdotes, "I noticed...", reflective tone
+- **Sentence rhythm:** flowing, conversational, allows longer thoughts
+- **Avoid:** punchy claims without context, irony, hard sells
+- **Example:**
+  ```
+  I noticed something interesting about Moon signs recently.
+
+  Everyone talks about Sun signs, but your Moon placement shows how you
+  process feelings — what you need to feel safe, how you nurture others.
+
+  AI reads your Moon in context of all 10 planets. That's the difference. ✨
+
+  my-zodiac-ai.com/blog/your-moon-sign
+  ```
+
+### Facebook — "Community Astrologer"
+- **Voice:** inviting, accessible, discussion-starter, community-oriented
+- **References:** everyday life situations, relatable examples
+- **Sentence rhythm:** clear, structured, ends with an open question
+- **Avoid:** jargon, irony, edge — older audience prefers warmth
+- **Example:**
+  ```
+  Mercury enters Gemini on June 26 — and conversations get faster, ideas
+  flow quicker, and curiosity peaks.
+
+  Gemini Mercury loves learning something new every day. What are you
+  curious about right now?
+
+  Read your personalized transit forecast:
+  my-zodiac-ai.com/blog/mercury-in-gemini 🌙
+  ```
+
+---
+
+## Source Attribution (P10)
+
+When a post is generated from a specific blog article, the CTA links to that
+article's URL (`my-zodiac-ai.com/blog/<slug>`) instead of the generic homepage.
+This increases CTR, provides an SEO backlink, and lets readers dive deeper.
+
+The generation graph resolves the CTA URL from the content-source path:
+- `content/blog/en/<slug>.md` → `my-zodiac-ai.com/blog/<slug>`
+- `content/blog/ru/<slug>.md` → `my-zodiac-ai.com/ru/blog/<slug>`
+- Briefs, topic-queues, trending → fallback to `my-zodiac-ai.com`
+
+---
+
+## Engagement-Bait Policy (P9)
+
+**Never ask for engagement explicitly.** Algorithms on X, Threads, and Facebook
+pessimize posts that ask for likes/comments/shares/tags/follows without adding
+value. The generation pipeline includes a deterministic bait detector that
+flags these patterns and forces a rewrite:
+
+- ❌ "Like if you agree", "Drop a 🔥", "Double tap"
+- ❌ "Comment below", "Tell us in the comments", "Sound off below"
+- ❌ "RT if", "Share this post", "Repost if"
+- ❌ "Tag a friend", "Tag someone who..."
+- ❌ "Agree or disagree?", "1 or 2?"
+- ❌ "Follow us for more", "Follow for daily"
+- ❌ "What's your sign?" as the entire closing line (no insight)
+
+**Instead**, close with value: an insight, a reflective question, or a soft CTA
+to read more at the source article.
 
 ---
 

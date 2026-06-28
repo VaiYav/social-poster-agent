@@ -24,6 +24,7 @@ interface FailedJob {
 export const useQueueStore = defineStore('queue', () => {
   const stats = ref<Record<string, QueueStats>>({});
   const failedJobs = ref<Record<string, FailedJob[]>>({});
+  const paused = ref<Record<string, boolean>>({});
   const loading = ref(false);
   const error = ref<string | null>(null);
 
@@ -31,8 +32,12 @@ export const useQueueStore = defineStore('queue', () => {
     loading.value = true;
     error.value = null;
     try {
-      const res = await api.get(`/queue/${network}/stats`);
-      stats.value[network] = res.data;
+      const [statsRes, pausedRes] = await Promise.all([
+        api.get(`/queue/${network}/stats`),
+        api.get(`/queue/${network}/paused`),
+      ]);
+      stats.value[network] = statsRes.data;
+      paused.value[network] = pausedRes.data.paused;
     } catch (e: unknown) {
       error.value = (e as Error).message;
     } finally {
@@ -49,10 +54,28 @@ export const useQueueStore = defineStore('queue', () => {
     }
   }
 
+  async function pauseQueue(network: string) {
+    try {
+      await api.post(`/queue/${network}/pause`);
+      paused.value[network] = true;
+    } catch (e: unknown) {
+      error.value = (e as Error).message;
+    }
+  }
+
+  async function resumeQueue(network: string) {
+    try {
+      await api.post(`/queue/${network}/resume`);
+      paused.value[network] = false;
+    } catch (e: unknown) {
+      error.value = (e as Error).message;
+    }
+  }
+
   async function fetchAll() {
     const networks = ['X', 'THREADS', 'FACEBOOK'];
     await Promise.all(networks.flatMap((n) => [fetchStats(n), fetchFailed(n)]));
   }
 
-  return { stats, failedJobs, loading, error, fetchStats, fetchFailed, fetchAll };
+  return { stats, failedJobs, paused, loading, error, fetchStats, fetchFailed, fetchAll, pauseQueue, resumeQueue };
 });

@@ -27,12 +27,13 @@ export class CronService implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
-    // Seed accounts from env on startup
-    try {
-      await this.accountsService.seedFromEnv();
-      this.logger.log('Accounts seeded from env');
-    } catch {
-      this.logger.warn('Failed to seed accounts — continuing');
+    // Minor-29: seedFromEnv moved to AccountsService.onModuleInit
+
+    // SPA_DRY_RUN: skip cron registration in dry-run mode
+    const isDryRun = this.configService?.get<string>('SPA_DRY_RUN', 'false') === 'true';
+    if (isDryRun) {
+      this.logger.warn('SPA_DRY_RUN=true — cron jobs NOT registered');
+      return;
     }
 
     // B4: Register dynamic cron job from env

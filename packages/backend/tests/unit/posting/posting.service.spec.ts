@@ -5,7 +5,7 @@
  * Hazards: HAZ-005, HAZ-006, HAZ-007, HAZ-008, HAZ-017
  *
  * Source: packages/backend/src/modules/posting/posting.service.ts
- * Spec:   features/spa/v-model/unit-test/unit-test-cases.md (UTC-042..059)
+ * Spec:   CONSTITUTION.md §14 (Testing) — test case IDs are inline (UTC-042..059)
  *
  * Mocked dependencies:
  *   - IBrowserPort (createContext, saveStorageState, randomDelay)
@@ -25,6 +25,7 @@ import {
   createMockBrowserPort,
   createMockRateLimitService,
   createMockSseService,
+  createMockThreadProgressService,
 } from '../../mocks/index';
 
 // ── Mock Factories ───────────────────────────────────────────────────────────
@@ -37,6 +38,7 @@ function createMockPostsService() {
     findDrafts: vi.fn().mockResolvedValue([]),
     create: vi.fn(),
     findBySourceAndNetwork: vi.fn().mockResolvedValue([]),
+    findThreadContinuations: vi.fn().mockResolvedValue([]),
   };
 }
 
@@ -44,6 +46,14 @@ function createMockSessionsService() {
   return {
     getOrCreateSession: vi.fn(),
     updateStorageState: vi.fn().mockResolvedValue(undefined),
+    markSessionExpired: vi.fn().mockResolvedValue(undefined),
+    // P0-H3: decryptStorageState — mirrors SessionsService behavior for tests.
+    // Passthrough: if raw is a string, return as-is; if object, JSON.stringify.
+    decryptStorageState: vi.fn((session: { storageState: unknown }) => {
+      const raw = session.storageState;
+      if (typeof raw === 'string') return raw;
+      return JSON.stringify(raw);
+    }),
   };
 }
 
@@ -114,6 +124,7 @@ interface TestContext {
   accountsService: ReturnType<typeof createMockAccountsService>;
   rateLimitService: ReturnType<typeof createMockRateLimitService>;
   sseService: ReturnType<typeof createMockSseService>;
+  threadProgressService: ReturnType<typeof createMockThreadProgressService>;
   xPoster: ReturnType<typeof createMockPoster>;
   threadsPoster: ReturnType<typeof createMockPoster>;
   facebookPoster: ReturnType<typeof createMockPoster>;
@@ -127,6 +138,7 @@ function buildContext(): TestContext {
   const accountsService = createMockAccountsService();
   const rateLimitService = createMockRateLimitService();
   const sseService = createMockSseService();
+  const threadProgressService = createMockThreadProgressService();
   const xPoster = createMockPoster();
   const threadsPoster = createMockPoster();
   const facebookPoster = createMockPoster();
@@ -136,16 +148,17 @@ function buildContext(): TestContext {
   rateLimitService.checkRateLimit = vi.fn().mockResolvedValue({ allowed: true });
 
   const service = new PostingService(
-    browser as any,
-    accountsService as any,
-    sessionsService as any,
-    warmupService as any,
-    postsService as any,
-    rateLimitService as any,
-    sseService as any,
-    xPoster as any,
-    threadsPoster as any,
-    facebookPoster as any,
+    browser as unknown,
+    accountsService as unknown,
+    sessionsService as unknown,
+    warmupService as unknown,
+    postsService as unknown,
+    rateLimitService as unknown,
+    sseService as unknown,
+    threadProgressService as unknown,
+    xPoster as unknown,
+    threadsPoster as unknown,
+    facebookPoster as unknown,
   );
 
   return {
@@ -157,6 +170,7 @@ function buildContext(): TestContext {
     accountsService,
     rateLimitService,
     sseService,
+    threadProgressService,
     xPoster,
     threadsPoster,
     facebookPoster,
@@ -187,7 +201,7 @@ describe('MOD-03: PostingService', () => {
     expect(result).toEqual({ success: true, url: 'https://x.com/user/status/123' });
     // No rate limit check, no browser, no SSE
     expect(ctx.rateLimitService.checkRateLimit).not.toHaveBeenCalled();
-    expect(ctx.browser.createContext).not.toHaveBeenCalled();
+    expect(ctx.browser.acquireContext).not.toHaveBeenCalled();
     expect(ctx.sseService.publish).not.toHaveBeenCalled();
   });
 
@@ -204,7 +218,7 @@ describe('MOD-03: PostingService', () => {
     expect(result.error).toContain('already being posted');
     // No further processing
     expect(ctx.rateLimitService.checkRateLimit).not.toHaveBeenCalled();
-    expect(ctx.browser.createContext).not.toHaveBeenCalled();
+    expect(ctx.browser.acquireContext).not.toHaveBeenCalled();
   });
 
   it('UTC-044: postById() throws NotFoundException when post status is not APPROVED', async () => {
@@ -242,7 +256,7 @@ describe('MOD-03: PostingService', () => {
 
   it('UTC-046: postById() marks POSTING and emits SSE POSTING event before browser automation', async () => {
     const mockContext = createMockContext();
-    ctx.browser.createContext.mockResolvedValue(mockContext);
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
     ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
     ctx.postsService.findById.mockResolvedValue({
       ...APPROVED_POST_X,
@@ -257,14 +271,14 @@ describe('MOD-03: PostingService', () => {
 
     // updateStatus called with POSTING
     const postingCall = ctx.postsService.updateStatus.mock.calls.find(
-      (c: any[]) => c[1]?.status === PostStatus.POSTING,
+      (c: unknown[]) => c[1]?.status === PostStatus.POSTING,
     );
     expect(postingCall).toBeDefined();
     expect(postingCall[0]).toBe('post-5');
 
     // SSE publish called with POSTING event
     const postingEvent = ctx.sseService.publish.mock.calls.find(
-      (c: any[]) => c[0]?.status === 'POSTING',
+      (c: unknown[]) => c[0]?.status === 'POSTING',
     );
     expect(postingEvent).toBeDefined();
     expect(postingEvent[0]).toMatchObject({
@@ -279,7 +293,7 @@ describe('MOD-03: PostingService', () => {
 
   it('UTC-047: postById() posts to X via XPoster when network is X', async () => {
     const mockContext = createMockContext();
-    ctx.browser.createContext.mockResolvedValue(mockContext);
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
     ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
     ctx.postsService.findById.mockResolvedValue({
       ...APPROVED_POST_X,
@@ -298,7 +312,7 @@ describe('MOD-03: PostingService', () => {
 
   it('UTC-048: postById() posts to Threads via ThreadsPoster when network is THREADS', async () => {
     const mockContext = createMockContext();
-    ctx.browser.createContext.mockResolvedValue(mockContext);
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
     ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
     ctx.postsService.findById.mockResolvedValue({
       ...APPROVED_POST_X,
@@ -317,7 +331,7 @@ describe('MOD-03: PostingService', () => {
 
   it('UTC-049: postById() posts to Facebook via FacebookPoster when network is FACEBOOK', async () => {
     const mockContext = createMockContext();
-    ctx.browser.createContext.mockResolvedValue(mockContext);
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
     ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
     ctx.postsService.findById.mockResolvedValue({
       ...APPROVED_POST_X,
@@ -336,7 +350,7 @@ describe('MOD-03: PostingService', () => {
 
   it('UTC-050: postById() throws Error for unknown network (caught → FAILED)', async () => {
     const mockContext = createMockContext();
-    ctx.browser.createContext.mockResolvedValue(mockContext);
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
     ctx.postsService.findById.mockResolvedValue({
       ...APPROVED_POST_X,
       id: 'post-unknown',
@@ -352,13 +366,13 @@ describe('MOD-03: PostingService', () => {
 
     // FAILED status set
     const failedCall = ctx.postsService.updateStatus.mock.calls.find(
-      (c: any[]) => c[1]?.status === PostStatus.FAILED,
+      (c: unknown[]) => c[1]?.status === PostStatus.FAILED,
     );
     expect(failedCall).toBeDefined();
 
     // SSE FAILED event emitted
     const failedEvent = ctx.sseService.publish.mock.calls.find(
-      (c: any[]) => c[0]?.status === 'FAILED',
+      (c: unknown[]) => c[0]?.status === 'FAILED',
     );
     expect(failedEvent).toBeDefined();
   });
@@ -367,7 +381,7 @@ describe('MOD-03: PostingService', () => {
 
   it('UTC-051: postById() on success updates POSTED, records rate, emits SSE POSTED with url', async () => {
     const mockContext = createMockContext();
-    ctx.browser.createContext.mockResolvedValue(mockContext);
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
     ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
     ctx.postsService.findById.mockResolvedValue({
       ...APPROVED_POST_X,
@@ -384,7 +398,7 @@ describe('MOD-03: PostingService', () => {
 
     // updateStatus called with POSTED + postUrl
     const postedCall = ctx.postsService.updateStatus.mock.calls.find(
-      (c: any[]) => c[1]?.status === PostStatus.POSTED,
+      (c: unknown[]) => c[1]?.status === PostStatus.POSTED,
     );
     expect(postedCall).toBeDefined();
     expect(postedCall[0]).toBe('post-success');
@@ -395,7 +409,7 @@ describe('MOD-03: PostingService', () => {
 
     // SSE POSTED event with url
     const postedEvent = ctx.sseService.publish.mock.calls.find(
-      (c: any[]) => c[0]?.status === 'POSTED',
+      (c: unknown[]) => c[0]?.status === 'POSTED',
     );
     expect(postedEvent).toBeDefined();
     expect(postedEvent[0]).toMatchObject({
@@ -411,7 +425,7 @@ describe('MOD-03: PostingService', () => {
 
   it('UTC-052: postById() on poster error (result.error) updates FAILED, emits SSE FAILED, no rate record', async () => {
     const mockContext = createMockContext();
-    ctx.browser.createContext.mockResolvedValue(mockContext);
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
     ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
     ctx.postsService.findById.mockResolvedValue({
       ...APPROVED_POST_X,
@@ -427,14 +441,14 @@ describe('MOD-03: PostingService', () => {
 
     // updateStatus called with FAILED + errorMessage
     const failedCall = ctx.postsService.updateStatus.mock.calls.find(
-      (c: any[]) => c[1]?.status === PostStatus.FAILED,
+      (c: unknown[]) => c[1]?.status === PostStatus.FAILED,
     );
     expect(failedCall).toBeDefined();
     expect(failedCall[1].errorMessage).toBe('navigation timeout');
 
     // SSE FAILED event
     const failedEvent = ctx.sseService.publish.mock.calls.find(
-      (c: any[]) => c[0]?.status === 'FAILED',
+      (c: unknown[]) => c[0]?.status === 'FAILED',
     );
     expect(failedEvent).toBeDefined();
     expect(failedEvent[0]).toMatchObject({
@@ -465,13 +479,13 @@ describe('MOD-03: PostingService', () => {
 
     // FAILED status set
     const failedCall = ctx.postsService.updateStatus.mock.calls.find(
-      (c: any[]) => c[1]?.status === PostStatus.FAILED,
+      (c: unknown[]) => c[1]?.status === PostStatus.FAILED,
     );
     expect(failedCall).toBeDefined();
 
     // SSE FAILED event
     const failedEvent = ctx.sseService.publish.mock.calls.find(
-      (c: any[]) => c[0]?.status === 'FAILED',
+      (c: unknown[]) => c[0]?.status === 'FAILED',
     );
     expect(failedEvent).toBeDefined();
     expect(failedEvent[0].error).toContain('No active session');
@@ -484,7 +498,7 @@ describe('MOD-03: PostingService', () => {
 
   it('UTC-054: postById() saves updated storageState and closes context after posting', async () => {
     const mockContext = createMockContext();
-    ctx.browser.createContext.mockResolvedValue(mockContext);
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
     ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
     ctx.postsService.findById.mockResolvedValue({
       ...APPROVED_POST_X,
@@ -505,8 +519,8 @@ describe('MOD-03: PostingService', () => {
       '{"cookies":[]}',
     );
 
-    // context.close called
-    expect(mockContext.close).toHaveBeenCalledTimes(1);
+    // releaseContext called (Sprint K: context pool replaces context.close)
+    expect(ctx.browser.releaseContext).toHaveBeenCalledTimes(1);
   });
 
   // ── postById() — Catch Block (browser crash) ───────────────────────────────
@@ -518,7 +532,7 @@ describe('MOD-03: PostingService', () => {
       network: SocialNetwork.X,
     });
     ctx.sessionsService.getOrCreateSession.mockResolvedValue(ACTIVE_SESSION);
-    ctx.browser.createContext.mockRejectedValue(new Error('browser crash'));
+    ctx.browser.acquireContext.mockRejectedValue(new Error('browser crash'));
 
     const result = await ctx.service.postById('post-crash');
 
@@ -526,14 +540,14 @@ describe('MOD-03: PostingService', () => {
 
     // FAILED status set
     const failedCall = ctx.postsService.updateStatus.mock.calls.find(
-      (c: any[]) => c[1]?.status === PostStatus.FAILED,
+      (c: unknown[]) => c[1]?.status === PostStatus.FAILED,
     );
     expect(failedCall).toBeDefined();
     expect(failedCall[1].errorMessage).toBe('browser crash');
 
     // SSE FAILED event
     const failedEvent = ctx.sseService.publish.mock.calls.find(
-      (c: any[]) => c[0]?.status === 'FAILED',
+      (c: unknown[]) => c[0]?.status === 'FAILED',
     );
     expect(failedEvent).toBeDefined();
     expect(failedEvent[0].error).toBe('browser crash');
@@ -634,9 +648,390 @@ describe('MOD-03: PostingService', () => {
 
     // randomDelay called with (10000, 30000)
     const delayCalls = ctx.browser.randomDelay.mock.calls.filter(
-      (c: any[]) => c[0] === 10000 && c[1] === 30000,
+      (c: unknown[]) => c[0] === 10000 && c[1] === 30000,
     );
     expect(delayCalls.length).toBeGreaterThan(0);
     expect(delayCalls[0]).toEqual([10000, 30000]);
+  });
+
+  // ── P0-H3: Encryption passthrough round-trip ──────────────────────────────
+
+  it('UTC-075: postById() correctly handles passthrough string storageState (no double-encoding)', async () => {
+    // Simulate what real Prisma returns when encrypt() stored a JSON string
+    // in a Json column: the value comes back as a JavaScript string.
+    const passthroughSession = {
+      ...ACTIVE_SESSION,
+      storageState: '{"cookies":[{"name":"auth","value":"token"}],"origins":[]}',
+    };
+    const mockContext = createMockContext();
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
+    ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
+    ctx.postsService.findById.mockResolvedValue({
+      ...APPROVED_POST_X,
+      id: 'post-enc-1',
+      status: PostStatus.APPROVED,
+      network: SocialNetwork.X,
+    });
+    ctx.sessionsService.getOrCreateSession.mockResolvedValue(passthroughSession);
+    ctx.xPoster.post.mockResolvedValue({ url: 'https://x.com/user/status/123' });
+
+    await ctx.service.postById('post-enc-1');
+
+    // acquireContext should receive the raw JSON string, NOT double-encoded
+    expect(ctx.browser.acquireContext).toHaveBeenCalledWith(
+      SocialNetwork.X,
+      '{"cookies":[{"name":"auth","value":"token"}],"origins":[]}',
+    );
+  });
+
+  // ── F2: Multi-Stage Delayed Scheduling ─────────────────────────────────────
+
+  it('F2-001: scheduleMultiStagePosting() throws if post is not a thread root', async () => {
+    ctx.postsService.findById.mockResolvedValue({
+      ...APPROVED_POST_X,
+      threadId: null,
+      threadPosition: 0,
+    });
+    await expect(ctx.service.scheduleMultiStagePosting('post-not-root')).rejects.toThrow(
+      'not a thread root',
+    );
+  });
+
+  it('F2-002: scheduleMultiStagePosting() falls back to immediate postById when no QueueFactory', async () => {
+    const mockContext = createMockContext();
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
+    ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
+    ctx.postsService.findById.mockResolvedValue({
+      ...APPROVED_POST_X,
+      id: 'post-root',
+      threadId: 'thread-1',
+      threadPosition: 0,
+    });
+    ctx.sessionsService.getOrCreateSession.mockResolvedValue(ACTIVE_SESSION);
+    ctx.xPoster.post.mockResolvedValue({ url: 'https://x.com/user/status/123' });
+    ctx.postsService.findThreadContinuations.mockResolvedValue([]);
+
+    const result = await ctx.service.scheduleMultiStagePosting('post-root');
+    expect(result.immediate).toBe(true);
+    expect(result.scheduled).toBe(0);
+  });
+
+  // ── P0-H2: Thread with continuations ───────────────────────────────────────
+
+  it('UTC-076: postById() thread root with 3 continuations — loads continuations, posts root + replies, tracks via ThreadProgressService', async () => {
+    const mockContext = createMockContext();
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
+    ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
+    ctx.postsService.findById.mockResolvedValue({
+      ...APPROVED_POST_X,
+      id: 'post-thread-root',
+      threadId: 'thread-xyz',
+      threadPosition: 0,
+      network: SocialNetwork.X,
+    });
+    ctx.sessionsService.getOrCreateSession.mockResolvedValue(ACTIVE_SESSION);
+
+    // 3 continuation posts
+    const continuations = [
+      { id: 'reply-1', content: 'Reply 1', threadPosition: 1, status: PostStatus.APPROVED },
+      { id: 'reply-2', content: 'Reply 2', threadPosition: 2, status: PostStatus.APPROVED },
+      { id: 'reply-3', content: 'Reply 3', threadPosition: 3, status: PostStatus.APPROVED },
+    ];
+    ctx.postsService.findThreadContinuations.mockResolvedValue(continuations);
+
+    // Poster returns URL + all replies succeeded
+    ctx.xPoster.post.mockResolvedValue({
+      url: 'https://x.com/user/status/123',
+      threadReplyResults: [
+        { index: 0, success: true },
+        { index: 1, success: true },
+        { index: 2, success: true },
+      ],
+    });
+
+    const result = await ctx.service.postById('post-thread-root');
+
+    // Success
+    expect(result.success).toBe(true);
+    expect(result.url).toBe('https://x.com/user/status/123');
+
+    // findThreadContinuations called for thread root
+    expect(ctx.postsService.findThreadContinuations).toHaveBeenCalledWith('thread-xyz');
+
+    // ThreadProgressService.initThread called with root post ID and all replies
+    expect(ctx.threadProgressService.initThread).toHaveBeenCalledWith(
+      'post-thread-root',
+      [
+        { id: 'reply-1', threadPosition: 1 },
+        { id: 'reply-2', threadPosition: 2 },
+        { id: 'reply-3', threadPosition: 3 },
+      ],
+    );
+
+    // Each reply marked as POSTED via ThreadProgressService
+    expect(ctx.threadProgressService.markReplyPosted).toHaveBeenCalledTimes(3);
+    expect(ctx.threadProgressService.markReplyPosted).toHaveBeenCalledWith(
+      'post-thread-root',
+      'reply-1',
+      'https://x.com/user/status/123',
+    );
+
+    // Each reply also gets updateStatus POSTED
+    const replyPostedCalls = ctx.postsService.updateStatus.mock.calls.filter(
+      (c: unknown[]) => c[1]?.status === PostStatus.POSTED && c[0] !== 'post-thread-root',
+    );
+    expect(replyPostedCalls).toHaveLength(3);
+
+    // SSE POSTED events for root + 3 replies
+    const postedEvents = ctx.sseService.publish.mock.calls.filter(
+      (c: unknown[]) => c[0]?.status === 'POSTED',
+    );
+    expect(postedEvents.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('UTC-077: postById() thread partial failure — reply 1 POSTED, reply 2 FAILED → only reply 2 retried on resume', async () => {
+    const mockContext = createMockContext();
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
+    ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
+    ctx.postsService.findById.mockResolvedValue({
+      ...APPROVED_POST_X,
+      id: 'post-thread-partial',
+      threadId: 'thread-partial',
+      threadPosition: 0,
+      network: SocialNetwork.X,
+    });
+    ctx.sessionsService.getOrCreateSession.mockResolvedValue(ACTIVE_SESSION);
+
+    const continuations = [
+      { id: 'reply-1', content: 'Reply 1', threadPosition: 1, status: PostStatus.APPROVED },
+      { id: 'reply-2', content: 'Reply 2', threadPosition: 2, status: PostStatus.APPROVED },
+    ];
+    ctx.postsService.findThreadContinuations.mockResolvedValue(continuations);
+
+    // Poster returns URL + reply 1 succeeded, reply 2 failed
+    ctx.xPoster.post.mockResolvedValue({
+      url: 'https://x.com/user/status/456',
+      threadReplyResults: [
+        { index: 0, success: true },
+        { index: 1, success: false, error: 'Reply button not found' },
+      ],
+    });
+
+    const result = await ctx.service.postById('post-thread-partial');
+
+    // Root post still succeeds
+    expect(result.success).toBe(true);
+
+    // Reply 1 marked POSTED
+    expect(ctx.threadProgressService.markReplyPosted).toHaveBeenCalledWith(
+      'post-thread-partial',
+      'reply-1',
+      'https://x.com/user/status/456',
+    );
+
+    // Reply 2 marked FAILED
+    expect(ctx.threadProgressService.markReplyFailed).toHaveBeenCalledWith(
+      'post-thread-partial',
+      'reply-2',
+      'Reply button not found',
+    );
+
+    // Reply 2 updateStatus called with FAILED
+    const replyFailedCalls = ctx.postsService.updateStatus.mock.calls.filter(
+      (c: unknown[]) => c[1]?.status === PostStatus.FAILED && c[0] === 'reply-2',
+    );
+    expect(replyFailedCalls).toHaveLength(1);
+    expect(replyFailedCalls[0][1].errorMessage).toBe('Reply button not found');
+  });
+
+  // ── Self-recovery on session expiry ────────────────────────────────────────
+
+  it('UTC-078: postById() self-recovery — poster returns session_expired → getOrCreateSession → retry post', async () => {
+    const mockContext = createMockContext();
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
+    ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
+    ctx.postsService.findById.mockResolvedValue({
+      ...APPROVED_POST_X,
+      id: 'post-recovery',
+      network: SocialNetwork.X,
+    });
+
+    // First session (expired), second session (fresh)
+    const expiredSession = { ...ACTIVE_SESSION, id: 'sess-old' };
+    const freshSession = { ...ACTIVE_SESSION, id: 'sess-new' };
+    ctx.sessionsService.getOrCreateSession
+      .mockResolvedValueOnce(expiredSession)
+      .mockResolvedValueOnce(freshSession);
+
+    // First post attempt returns session expired error
+    ctx.xPoster.post
+      .mockResolvedValueOnce({ error: 'Not logged in — session expired, relogin needed' })
+      .mockResolvedValueOnce({ url: 'https://x.com/user/status/789' });
+
+    const result = await ctx.service.postById('post-recovery');
+
+    // Recovery succeeded
+    expect(result.success).toBe(true);
+    expect(result.url).toBe('https://x.com/user/status/789');
+
+    // getOrCreateSession called twice (original + recovery)
+    expect(ctx.sessionsService.getOrCreateSession).toHaveBeenCalledTimes(2);
+
+    // markSessionExpired called for the old session
+    expect(ctx.sessionsService.markSessionExpired).toHaveBeenCalledWith(
+      SocialNetwork.X,
+      'sess-old',
+    );
+
+    // Poster called twice (original failed + retry succeeded)
+    expect(ctx.xPoster.post).toHaveBeenCalledTimes(2);
+  });
+
+  // ── Warmup check defers ────────────────────────────────────────────────────
+
+  it('UTC-079: postById() warmup check defers — canPost=false → throw Error (deferred)', async () => {
+    ctx.postsService.findById.mockResolvedValue({
+      ...APPROVED_POST_X,
+      id: 'post-warmup',
+      network: SocialNetwork.X,
+    });
+    ctx.warmupService.canPost.mockResolvedValue(false);
+
+    await expect(ctx.service.postById('post-warmup')).rejects.toThrow('warm-up');
+
+    // No posting attempted
+    expect(ctx.browser.acquireContext).not.toHaveBeenCalled();
+    expect(ctx.xPoster.post).not.toHaveBeenCalled();
+    // No SSE events
+    expect(ctx.sseService.publish).not.toHaveBeenCalled();
+  });
+
+  // ── Post not found ─────────────────────────────────────────────────────────
+
+  it('UTC-080: postById() throws NotFoundException when post not found (findById returns null)', async () => {
+    ctx.postsService.findById.mockResolvedValue(null);
+
+    await expect(ctx.service.postById('nonexistent-post')).rejects.toThrow();
+    // Should not attempt any posting
+    expect(ctx.browser.acquireContext).not.toHaveBeenCalled();
+  });
+
+  // ── SSE events at correct stages ───────────────────────────────────────────
+
+  it('UTC-081: postById() publishes SSE events POSTING_STARTED, POSTED at correct stages', async () => {
+    const mockContext = createMockContext();
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
+    ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
+    ctx.postsService.findById.mockResolvedValue({
+      ...APPROVED_POST_X,
+      id: 'post-sse',
+      network: SocialNetwork.X,
+    });
+    ctx.sessionsService.getOrCreateSession.mockResolvedValue(ACTIVE_SESSION);
+    ctx.xPoster.post.mockResolvedValue({ url: 'https://x.com/user/status/sse' });
+
+    await ctx.service.postById('post-sse');
+
+    // SSE events published in order: POSTING → POSTED
+    const events = ctx.sseService.publish.mock.calls.map((c: unknown[]) => c[0]);
+    const statuses = events.map((e: any) => e.status);
+
+    // POSTING event comes before POSTED event
+    const postingIdx = statuses.indexOf('POSTING');
+    const postedIdx = statuses.indexOf('POSTED');
+    expect(postingIdx).toBeGreaterThanOrEqual(0);
+    expect(postedIdx).toBeGreaterThan(postingIdx);
+
+    // POSTING event has correct fields
+    expect(events[postingIdx]).toMatchObject({
+      type: 'post_status',
+      postId: 'post-sse',
+      status: 'POSTING',
+      network: 'X',
+    });
+
+    // POSTED event has correct fields
+    expect(events[postedIdx]).toMatchObject({
+      type: 'post_status',
+      postId: 'post-sse',
+      status: 'POSTED',
+      network: 'X',
+      url: 'https://x.com/user/status/sse',
+    });
+  });
+
+  it('UTC-082: postById() publishes SSE FAILED event when poster returns error', async () => {
+    const mockContext = createMockContext();
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
+    ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
+    ctx.postsService.findById.mockResolvedValue({
+      ...APPROVED_POST_X,
+      id: 'post-sse-fail',
+      network: SocialNetwork.X,
+    });
+    ctx.sessionsService.getOrCreateSession.mockResolvedValue(ACTIVE_SESSION);
+    ctx.xPoster.post.mockResolvedValue({ error: 'compose dialog failed' });
+
+    await ctx.service.postById('post-sse-fail');
+
+    // SSE events: POSTING → FAILED
+    const events = ctx.sseService.publish.mock.calls.map((c: unknown[]) => c[0]);
+    const statuses = events.map((e: any) => e.status);
+
+    const postingIdx = statuses.indexOf('POSTING');
+    const failedIdx = statuses.indexOf('FAILED');
+    expect(postingIdx).toBeGreaterThanOrEqual(0);
+    expect(failedIdx).toBeGreaterThan(postingIdx);
+
+    // FAILED event has error field
+    expect(events[failedIdx]).toMatchObject({
+      type: 'post_status',
+      postId: 'post-sse-fail',
+      status: 'FAILED',
+      error: 'compose dialog failed',
+    });
+  });
+
+  // ── Thread continuation loading ────────────────────────────────────────────
+
+  it('UTC-083: postById() calls findThreadContinuations for thread root posts (threadPosition=0)', async () => {
+    const mockContext = createMockContext();
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
+    ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
+    ctx.postsService.findById.mockResolvedValue({
+      ...APPROVED_POST_X,
+      id: 'post-thread-load',
+      threadId: 'thread-load-test',
+      threadPosition: 0,
+      network: SocialNetwork.X,
+    });
+    ctx.sessionsService.getOrCreateSession.mockResolvedValue(ACTIVE_SESSION);
+    ctx.xPoster.post.mockResolvedValue({ url: 'https://x.com/user/status/load' });
+    ctx.postsService.findThreadContinuations.mockResolvedValue([]);
+
+    await ctx.service.postById('post-thread-load');
+
+    // findThreadContinuations called with the threadId
+    expect(ctx.postsService.findThreadContinuations).toHaveBeenCalledWith('thread-load-test');
+  });
+
+  it('UTC-084: postById() does NOT call findThreadContinuations for non-thread posts (threadId=null)', async () => {
+    const mockContext = createMockContext();
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
+    ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
+    ctx.postsService.findById.mockResolvedValue({
+      ...APPROVED_POST_X,
+      id: 'post-no-thread',
+      threadId: null,
+      threadPosition: null,
+      network: SocialNetwork.X,
+    });
+    ctx.sessionsService.getOrCreateSession.mockResolvedValue(ACTIVE_SESSION);
+    ctx.xPoster.post.mockResolvedValue({ url: 'https://x.com/user/status/nothread' });
+
+    await ctx.service.postById('post-no-thread');
+
+    // findThreadContinuations NOT called (no threadId)
+    expect(ctx.postsService.findThreadContinuations).not.toHaveBeenCalled();
   });
 });

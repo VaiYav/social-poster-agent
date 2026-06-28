@@ -10,7 +10,7 @@ import { test, expect, type Page, type Route } from '@playwright/test';
  * request before it reaches the proxy target.
  *
  * Traceability: STC-036..041 ↔ SYS-06 (UI) ↔ REQ-039,042,043,044,045,047
- * Spec: features/spa/v-model/system-test/system-test-cases.md §4.6
+ * Spec: CONSTITUTION.md §14 (Testing) — test case IDs are inline §4.6
  */
 
 // ---------------------------------------------------------------------------
@@ -43,6 +43,7 @@ interface MockSession {
   lastHealthCheck: string | null;
   createdAt: string;
   updatedAt: string;
+  account?: { network: string; id: string; handle: string };
 }
 
 interface MockRun {
@@ -81,12 +82,16 @@ function makePost(overrides: Partial<MockPost> & { id: string }): MockPost {
 }
 
 function makeSession(overrides: Partial<MockSession> & { id: string }): MockSession {
+  const accountId = overrides.accountId ?? 'acc-0001';
+  // Derive network from accountId when account is not explicitly provided
+  const network = overrides.account?.network ?? (['X', 'THREADS', 'FACEBOOK'].includes(accountId) ? accountId : 'X');
   return {
-    accountId: 'acc-0001',
+    accountId,
     status: 'ACTIVE',
     lastHealthCheck: '2026-06-26T09:00:00.000Z',
     createdAt: '2026-06-20T08:00:00.000Z',
     updatedAt: '2026-06-26T09:00:00.000Z',
+    account: { network, id: `acc-${network.toLowerCase()}`, handle: `handle_${network.toLowerCase()}` },
     ...overrides,
   };
 }
@@ -240,6 +245,22 @@ async function mockApiDefaults(page: Page, opts: {
     await fulfill(route, 200, sessions);
   });
 
+  // GET /rate-limit/:network/status — sessions store fetches these after sessions
+  await page.route('**/api/v1/rate-limit/*/status', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.continue();
+      return;
+    }
+    await fulfill(route, 200, {
+      dailyCount: 0,
+      dailyLimit: 1,
+      weeklyCount: 0,
+      weeklyLimit: 5,
+      lastPostAt: null,
+      minIntervalMs: 300000,
+    });
+  });
+
   // POST /sessions/health-check
   await page.route('**/api/v1/sessions/health-check**', async (route) => {
     if (route.request().method() !== 'POST') {
@@ -278,7 +299,8 @@ test.describe('STC-036: Dashboard displays 5 stat cards and recent posts', () =>
     await page.goto('/');
 
     // Verify 5 stat cards with correct labels
-    const statCards = page.locator('.grid > .rounded-lg');
+    // Use .grid.gap-4 to scope to the stat cards grid (content grid uses gap-6)
+    const statCards = page.locator('.grid.gap-4 > .rounded-lg');
     await expect(statCards).toHaveCount(5);
 
     const expectedLabels = ['Drafts', 'Approved', 'Posted', 'Failed', 'Rejected'];
@@ -287,7 +309,7 @@ test.describe('STC-036: Dashboard displays 5 stat cards and recent posts', () =>
     }
 
     // Verify stat values (4 posts per status from 20 distributed)
-    const values = statCards.locator('.text-2xl');
+    const values = statCards.locator('.text-3xl');
     await expect(values.nth(0)).toHaveText('4'); // Drafts
     await expect(values.nth(1)).toHaveText('4'); // Approved
     await expect(values.nth(2)).toHaveText('4'); // Posted
@@ -295,16 +317,15 @@ test.describe('STC-036: Dashboard displays 5 stat cards and recent posts', () =>
     await expect(values.nth(4)).toHaveText('4'); // Rejected
 
     // Verify recent posts section — ≤5 items
-    const recentPosts = page.locator('h2:has-text("Recent Posts") + div .rounded-lg, h2:has-text("Recent Posts") ~ div .rounded-lg');
-    const postCards = page.locator('.space-y-2 > .rounded-lg');
+    const postCards = page.locator('.space-y-4 > .rounded-lg');
     await expect(postCards.first()).toBeVisible();
     const postCount = await postCards.count();
     expect(postCount).toBeLessThanOrEqual(5);
 
     // Verify each post card has a StatusBadge and NetworkIcon
     const firstCard = postCards.first();
-    await expect(firstCard.locator('span.rounded').first()).toBeVisible(); // StatusBadge
-    await expect(firstCard.locator('.flex.items-center.gap-1')).toBeVisible(); // NetworkIcon
+    await expect(firstCard.locator('span.rounded-full').first()).toBeVisible(); // StatusBadge
+    await expect(firstCard.locator('[class*="gap-1.5"]').first()).toBeVisible(); // NetworkIcon
   });
 });
 
@@ -409,7 +430,8 @@ test.describe('STC-038: Generate view triggers generation and shows run history'
     expect(body.sourceType).toBe('brief');
 
     // Verify success message appears (202 handled)
-    await expect(page.getByText(/Generation started/)).toBeVisible();
+    // Use .first() — toast notification + SSE event both match "Generation started"
+    await expect(page.getByText(/Generation started/).first()).toBeVisible();
   });
 
   test('run history is displayed with status and post count', async ({ page }) => {
@@ -423,7 +445,9 @@ test.describe('STC-038: Generate view triggers generation and shows run history'
     await page.goto('/generate');
 
     // Verify run history section
-    const runCards = page.locator('h2:has-text("Generation Runs") ~ div .border');
+    // Run items have .rounded-lg.border as direct children of .space-y-3
+    // (trending items in the other .space-y-3 lack .border class)
+    const runCards = page.locator('.space-y-3 > .rounded-lg.border');
     await expect(runCards).toHaveCount(3);
 
     // Verify first run shows COMPLETED status and post count
@@ -452,16 +476,14 @@ test.describe('STC-039: Sessions view lists sessions with health check button', 
     await page.goto('/sessions');
 
     // Verify 3 sessions listed
-    const sessionCards = page.locator('.space-y-3 > .rounded-lg');
+    const sessionCards = page.locator('.grid > .rounded-lg');
     await expect(sessionCards).toHaveCount(3);
 
-    // Verify status badges with correct colors
-    // ACTIVE = green
-    await expect(sessionCards.nth(0).locator('.bg-green-100')).toHaveText('ACTIVE');
-    // EXPIRED = yellow
-    await expect(sessionCards.nth(1).locator('.bg-yellow-100')).toHaveText('EXPIRED');
-    // ERROR = red
-    await expect(sessionCards.nth(2).locator('.bg-red-100')).toHaveText('ERROR');
+    // Verify status badges with correct semantic colors
+    // Use .rounded-full to target only the Badge component (rate limit text also uses .text-success)
+    await expect(sessionCards.nth(0).locator('.text-success.rounded-full')).toHaveText('ACTIVE');
+    await expect(sessionCards.nth(1).locator('.text-warning.rounded-full')).toHaveText('EXPIRED');
+    await expect(sessionCards.nth(2).locator('.text-error.rounded-full')).toHaveText('ERROR');
 
     // Verify Health Check button on each
     for (let i = 0; i < 3; i++) {
@@ -482,6 +504,22 @@ test.describe('STC-039: Sessions view lists sessions with health check button', 
         return;
       }
       await fulfill(route, 200, sessions);
+    });
+
+    // Mock GET /rate-limit/:network/status — sessions store fetches these
+    await page.route('**/api/v1/rate-limit/*/status', async (route) => {
+      if (route.request().method() !== 'GET') {
+        await route.continue();
+        return;
+      }
+      await fulfill(route, 200, {
+        dailyCount: 0,
+        dailyLimit: 1,
+        weeklyCount: 0,
+        weeklyLimit: 5,
+        lastPostAt: null,
+        minIntervalMs: 300000,
+      });
     });
 
     // Mock POST /sessions/health-check — updates state, then GET returns ACTIVE
@@ -506,9 +544,9 @@ test.describe('STC-039: Sessions view lists sessions with health check button', 
 
     await page.goto('/sessions');
 
-    const sessionCard = page.locator('.space-y-3 > .rounded-lg').first();
-    // Verify EXPIRED badge initially
-    await expect(sessionCard.locator('.bg-yellow-100')).toHaveText('EXPIRED');
+    const sessionCard = page.locator('.grid > .rounded-lg').first();
+    // Verify EXPIRED badge initially (use .rounded-full to target Badge, not rate-limit text)
+    await expect(sessionCard.locator('.text-warning.rounded-full')).toHaveText('EXPIRED');
 
     // Click Health Check
     await sessionCard.getByRole('button', { name: 'Health Check' }).click();
@@ -518,7 +556,7 @@ test.describe('STC-039: Sessions view lists sessions with health check button', 
     expect(req.url()).toContain('network=X');
 
     // Verify status updates from EXPIRED → ACTIVE
-    await expect(sessionCard.locator('.bg-green-100')).toHaveText('ACTIVE');
+    await expect(sessionCard.locator('.text-success.rounded-full')).toHaveText('ACTIVE');
   });
 });
 
@@ -544,7 +582,7 @@ test.describe('STC-040: Loading, error, and empty states', () => {
     await page.goto('/');
 
     // Verify ErrorState component is shown (red error message)
-    const errorState = page.locator('.text-red-600').filter({ hasText: /error|Error|failed|Failed|Network/i });
+    const errorState = page.locator('.text-error').filter({ hasText: /error|Error|failed|Failed|Network/i });
     await expect(errorState.first()).toBeVisible({ timeout: 5000 });
   });
 
@@ -590,13 +628,13 @@ test.describe('STC-041: Browser compatibility across Chrome, Firefox, and Safari
   test('all 5 views render correctly across Chrome, Firefox, and Safari', async ({ page, browserName }) => {
     await mockApiDefaults(page);
 
-    // Dashboard — 5 stat cards
+    // Dashboard — 5 stat cards (use .grid.gap-4 to scope to stat cards grid)
     await page.goto('/');
-    await expect(page.locator('.grid > .rounded-lg')).toHaveCount(5);
+    await expect(page.locator('.grid.gap-4 > .rounded-lg')).toHaveCount(5);
 
     // Queue — draft list renders
     await page.goto('/queue');
-    await expect(page.getByRole('heading', { name: 'Queue — Draft Posts' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Draft Posts' })).toBeVisible();
 
     // Generate — form renders
     await page.goto('/generate');
@@ -626,11 +664,11 @@ test.describe('STC-041: Browser compatibility across Chrome, Firefox, and Safari
 
     // Dashboard
     await page.goto('/');
-    await expect(page.locator('.grid > .rounded-lg')).toHaveCount(5);
+    await expect(page.locator('.grid.gap-4 > .rounded-lg')).toHaveCount(5);
 
     // Queue
     await page.goto('/queue');
-    await expect(page.getByRole('heading', { name: 'Queue — Draft Posts' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Draft Posts' })).toBeVisible();
 
     // Generate
     await page.goto('/generate');
@@ -644,7 +682,11 @@ test.describe('STC-041: Browser compatibility across Chrome, Firefox, and Safari
     await page.goto('/history');
     await expect(page.getByRole('heading', { name: 'History' })).toBeVisible();
 
-    // No JavaScript console errors
-    expect(consoleErrors).toEqual([]);
+    // No JavaScript console errors (excluding SSE connection failures which are
+    // expected in the test environment where no real backend SSE server runs)
+    const realErrors = consoleErrors.filter(
+      (e) => !e.includes('/api/v1/events/sse') && !e.toLowerCase().includes('can\u2019t establish a connection'),
+    );
+    expect(realErrors).toEqual([]);
   });
 });

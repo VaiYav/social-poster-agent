@@ -26,10 +26,12 @@
  *   - createMockPrismaService() from '../mocks/index' → override PrismaService via a
  *     global dynamic module (PrismaModule is not @Global, so we provide it globally)
  *
- * Source: features/spa/v-model/integration-test/integration-test-cases.md
+ * Source: CONSTITUTION.md §14 (Testing) — test case IDs are inline
  */
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { EventEmitter2, EventEmitterModule } from '@nestjs/event-emitter';
 import { Test, type TestingModule } from '@nestjs/testing';
+import { ModuleRef } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { SocialNetwork } from '@prisma/client';
 import type { ContentTopic } from '@spa/shared';
@@ -153,6 +155,7 @@ vi.mock('node:fs/promises', () => ({
 import 'reflect-metadata';
 import { PrismaService } from '../../src/infrastructure/prisma/prisma.service';
 import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint';
+import { HealthController } from '../../src/modules/health/health.controller';
 import { ContentReader } from '../../src/infrastructure/content/content-reader';
 import { ILlmPort, type ILlmPort as ILlmPortType, type LlmResponse } from '../../src/domain/ports/llm.port';
 import { IBrowserPort } from '../../src/domain/ports/browser.port';
@@ -160,7 +163,7 @@ import { GenerationModule } from '../../src/modules/generation/generation.module
 import { GenerationService } from '../../src/modules/generation/generation.service';
 import { GenerationController } from '../../src/modules/generation/generation.controller';
 import { CronService } from '../../src/modules/generation/cron.service';
-import { buildGenerationGraph, createInitialState } from '../../src/modules/generation/generation.graph';
+import { buildGenerationGraph, createInitialState, clearHookCache } from '../../src/modules/generation/generation.graph';
 import { PostsService } from '../../src/modules/posts/posts.service';
 import { PostsController } from '../../src/modules/posts/posts.controller';
 import { QueueModule } from '../../src/modules/queue/queue.module';
@@ -179,12 +182,22 @@ import { AccountsController } from '../../src/modules/accounts/accounts.controll
 import { SessionsService } from '../../src/modules/sessions/sessions.service';
 import { SessionsController } from '../../src/modules/sessions/sessions.controller';
 import { SseService } from '../../src/infrastructure/sse/sse.service';
+import { EncryptionService } from '../../src/infrastructure/crypto/encryption.service.js';
+import { TrendingScraperService } from '../../src/modules/trending/trending-scraper.service';
+import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service.js';
+import { NotificationsModule } from '../../src/infrastructure/notifications/notifications.module.js';
+import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service.js';
+import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator.js';
+import { ThreadDepthController } from '../../src/modules/content-enhancements/thread-depth.controller.js';
+import { ContentPillarTracker } from '../../src/modules/content-enhancements/content-pillar.tracker.js';
+import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook-performance-bank.js';
 import { SseModule } from '../../src/infrastructure/sse/sse.module';
 import { RateLimitService } from '../../src/modules/rate-limit/rate-limit.service';
 import { BrowserFactory } from '../../src/infrastructure/browser/browser.factory';
 import { LlmService } from '../../src/infrastructure/llm/llm.service';
 import { ConfigService } from '@nestjs/config';
 import { createMockPrismaService, createMockBrowserPort } from '../mocks/index';
+import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER, RedisModule } from '../../src/infrastructure/redis/redis.module';
 
 // ── DI metadata shim ─────────────────────────────────────────────────────────
 // vitest transpiles via esbuild which does NOT emit `design:paramtypes` metadata,
@@ -198,37 +211,47 @@ Reflect.defineMetadata('design:paramtypes', [ConfigService], LlmService);
 Reflect.defineMetadata('design:paramtypes', [ConfigService], ContentReader);
 Reflect.defineMetadata('design:paramtypes', [ContentReader], ContentSourceService);
 Reflect.defineMetadata('design:paramtypes', [ContentSourceService], ContentSourceController);
-Reflect.defineMetadata('design:paramtypes', [ConfigService], RedisCheckpointSaver);
-Reflect.defineMetadata('design:paramtypes', [PrismaService, ConfigService], AccountsService);
+Reflect.defineMetadata('design:paramtypes', [ConfigService, Object], RedisCheckpointSaver);
+Reflect.defineMetadata('design:paramtypes', [PrismaService, ConfigService, Object], AccountsService);
 Reflect.defineMetadata('design:paramtypes', [AccountsService], AccountsController);
-Reflect.defineMetadata('design:paramtypes', [PrismaService], PostsService);
+Reflect.defineMetadata('design:paramtypes', [PrismaService, EventEmitter2], PostsService);
 Reflect.defineMetadata('design:paramtypes', [PostsService], PostsController);
+// GenerationService: 14 params — 7 required + 7 @Optional()
 Reflect.defineMetadata(
   'design:paramtypes',
-  [ILlmPort, ContentSourceService, AccountsService, PostsService, PrismaService, RedisCheckpointSaver],
+  [ILlmPort, ContentSourceService, AccountsService, PostsService, PrismaService, RedisCheckpointSaver, SseService, Object, Object, Object, Object, Object, Object, Object],
   GenerationService,
 );
 Reflect.defineMetadata('design:paramtypes', [GenerationService], GenerationController);
 Reflect.defineMetadata('design:paramtypes', [GenerationService, AccountsService, ConfigService], CronService);
-Reflect.defineMetadata('design:paramtypes', [ConfigService], QueueFactory);
+Reflect.defineMetadata('design:paramtypes', [ConfigService, DiscordNotificationService], QueueFactory);
 Reflect.defineMetadata('design:paramtypes', [QueueFactory], QueueService);
 Reflect.defineMetadata('design:paramtypes', [QueueService], QueueController);
 Reflect.defineMetadata(
   'design:paramtypes',
-  [PrismaService, AccountsService, IBrowserPort, ConfigService],
+  [PrismaService, AccountsService, IBrowserPort, ConfigService, EncryptionService, DiscordNotificationService],
   SessionsService,
 );
 Reflect.defineMetadata('design:paramtypes', [SessionsService], SessionsController);
-Reflect.defineMetadata('design:paramtypes', [ConfigService], SseService);
+Reflect.defineMetadata('design:paramtypes', [ConfigService, Object, Object], SseService);
 // Modules with constructor injection also need paramtype metadata for DI.
 Reflect.defineMetadata('design:paramtypes', [SseService], SseModule);
-Reflect.defineMetadata('design:paramtypes', [QueueFactory, PostingService], QueueModule);
-Reflect.defineMetadata('design:paramtypes', [ConfigService], RateLimitService);
+Reflect.defineMetadata('design:paramtypes', [QueueFactory, PostingService, ModuleRef, ConfigService], QueueModule);
+Reflect.defineMetadata('design:paramtypes', [ConfigService, Object], RateLimitService);
+Reflect.defineMetadata('design:paramtypes', [PrismaService, Object], HealthController);
 Reflect.defineMetadata('design:paramtypes', [ConfigService], BrowserFactory);
+Reflect.defineMetadata('design:paramtypes', [ConfigService], EncryptionService);
+Reflect.defineMetadata('design:paramtypes', [ConfigService], DiscordNotificationService);
 Reflect.defineMetadata('design:paramtypes', [PostingService], PostingController);
 Reflect.defineMetadata('design:paramtypes', [IBrowserPort], XPoster);
 Reflect.defineMetadata('design:paramtypes', [IBrowserPort], ThreadsPoster);
 Reflect.defineMetadata('design:paramtypes', [IBrowserPort, ConfigService], FacebookPoster);
+// ContentEnhancementsModule services — needed since GenerationModule now imports it
+Reflect.defineMetadata('design:paramtypes', [ConfigService, ILlmPort], VisualConceptService);
+Reflect.defineMetadata('design:paramtypes', [ConfigService, ILlmPort], ABVariantGenerator);
+Reflect.defineMetadata('design:paramtypes', [ConfigService, ILlmPort], ThreadDepthController);
+Reflect.defineMetadata('design:paramtypes', [Object], ContentPillarTracker);
+Reflect.defineMetadata('design:paramtypes', [Object, PrismaService], HookPerformanceBank);
 
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -363,16 +386,29 @@ async function buildGenerationModule(opts: {
     imports: [
       ConfigModule.forRoot({ isGlobal: true }),
       createMockPrismaModule(opts.prisma),
+      RedisModule, // Sprint L: Global module — provides SHARED_REDIS via mocked ioredis factory
+      NotificationsModule, // Global — provides DiscordNotificationService
+      EventEmitterModule.forRoot(),
       GenerationModule,
     ],
   })
     .overrideProvider(ILlmPort)
     .useValue(opts.llm)
+    // Sprint I: Mock SseService — GenerationService now publishes progress events
+    .overrideProvider(SseService)
+    .useValue({ publish: vi.fn().mockResolvedValue(undefined), init: vi.fn().mockResolvedValue(undefined) })
     // CronService.onModuleInit calls accountsService.seedFromEnv() which would
     // invoke prisma.socialAccount during bootstrap — override to a no-op so it
     // doesn't pollute per-test prisma mock assertions.
     .overrideProvider(CronService)
-    .useValue({});
+    .useValue({})
+    .overrideProvider(TrendingScraperService)
+    .useValue({
+      getGoogleTrends: () => Promise.resolve([]),
+      getXTrends: () => Promise.resolve([]),
+      getMergedTrending: () => Promise.resolve([]),
+      getCacheStatus: () => ({ googleTrends: { cached: false, topics: 0 }, xTrends: { cached: false, topics: 0 } }),
+    });
 
   if (opts.contentReader) {
     builder.overrideProvider(ContentReader).useValue(opts.contentReader);
@@ -399,6 +435,9 @@ async function buildQueueModule(opts: {
     imports: [
       ConfigModule.forRoot({ isGlobal: true }),
       createMockPrismaModule(opts.prisma),
+      RedisModule, // Sprint L: Global module — provides SHARED_REDIS via mocked ioredis factory
+      NotificationsModule, // Global — provides DiscordNotificationService
+      EventEmitterModule.forRoot(),
       QueueModule,
     ],
   })
@@ -406,6 +445,8 @@ async function buildQueueModule(opts: {
     .useValue(opts.postingService)
     .overrideProvider(IBrowserPort)
     .useValue(createMockBrowserPort())
+    .overrideProvider(SseService)
+    .useValue({ publish: vi.fn().mockResolvedValue(undefined), init: vi.fn().mockResolvedValue(undefined) })
     .compile();
 
   // Trigger OnModuleInit — QueueModule.onModuleInit registers a BullMQ worker
@@ -648,8 +689,9 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     moduleRef = await buildQueueModule({ postingService, prisma });
     const factory = moduleRef.get(QueueFactory);
 
-    // QueueModule.onModuleInit registers a worker per network (X, THREADS, FACEBOOK)
-    expect(bullmqMocks.WorkerCtor).toHaveBeenCalledTimes(3);
+    // QueueModule.onModuleInit registers workers per network:
+    // 3 posting workers (X, THREADS, FACEBOOK) + 3 engagement workers = 6 total
+    expect(bullmqMocks.WorkerCtor).toHaveBeenCalledTimes(6);
     const workerQueueNames = bullmqMocks.WorkerCtor.mock.calls.map((c) => c[0] as string);
     expect(workerQueueNames).toContain('spa-posting-x');
     expect(workerQueueNames).toContain('spa-posting-threads');
@@ -845,6 +887,8 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
 
   // ── ITC-033: Generation → Checkpoint (resume after simulated crash) ──────
   it('ITC-033: Generation → Checkpoint resume integration (resumes from checkpoint, skipping completed nodes)', async () => {
+    // Clear hook cache — previous tests may have cached hooks for this topic
+    clearHookCache();
     const llm = createIntegrationLlmPort();
     const prisma = createTestPrisma();
     prisma.generationRun.create.mockResolvedValue({ id: 'run-033' });

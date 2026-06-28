@@ -21,6 +21,20 @@ interface GenerationRun {
   _count: { posts: number };
 }
 
+interface LlmModel {
+  provider: string;
+  model: string;
+  free: boolean;
+}
+
+interface TrendingTopic {
+  event: string;
+  topic: string;
+  daysUntil: number;
+  trending: boolean;
+  networks: string[];
+}
+
 /**
  * Stats store — dashboard stats + generation run history.
  * Used by Dashboard and Generate views.
@@ -28,6 +42,8 @@ interface GenerationRun {
 export const useStatsStore = defineStore('stats', () => {
   const stats = ref<Stats>({ drafts: 0, posted: 0, failed: 0, approved: 0, rejected: 0 });
   const runs = ref<GenerationRun[]>([]);
+  const models = ref<LlmModel[]>([]);
+  const trending = ref<TrendingTopic[]>([]);
   const loading = ref(false);
   const error = ref<string | null>(null);
 
@@ -65,11 +81,36 @@ export const useStatsStore = defineStore('stats', () => {
     }
   }
 
-  async function triggerGeneration(count: number, networks: string[], sourceType: string) {
-    const res = await api.post('/generation/run', { count, networks, sourceType });
+  async function triggerGeneration(count: number, networks: string[], sourceType: string, multiStage = false) {
+    const res = await api.post('/generation/run', { count, networks, sourceType, multiStage });
     await fetchRuns();
     return res.data;
   }
 
-  return { stats, runs, loading, error, fetchStats, fetchRuns, triggerGeneration };
+  async function fetchModels() {
+    try {
+      const res = await api.get('/generation/models');
+      models.value = res.data;
+    } catch {
+      // Silently fail — model picker is optional, generation still works with default chain
+      models.value = [];
+    }
+  }
+
+  async function repurposeArticles(articleCount: number, networks: string[]) {
+    const res = await api.post('/generation/repurpose', { articleCount, networks });
+    await fetchRuns();
+    return res.data;
+  }
+
+  async function fetchTrending() {
+    try {
+      const res = await api.get('/trending');
+      trending.value = res.data;
+    } catch {
+      trending.value = [];
+    }
+  }
+
+  return { stats, runs, models, trending, loading, error, fetchStats, fetchRuns, triggerGeneration, fetchModels, repurposeArticles, fetchTrending };
 });

@@ -41,11 +41,13 @@ enum GenerationRunStatus {
   RUNNING
   COMPLETED
   FAILED
+  PAUSED
 }
 
 enum GenerationTrigger {
   CRON
   MANUAL
+  AUTONOMOUS
 }
 
 // ============================================================
@@ -143,6 +145,26 @@ model PostThread {
   @@index([status])
 }
 
+// ============================================================
+// Thread Progress — per-reply tracking for resumable threads (P0-H2)
+// ============================================================
+
+model ThreadProgress {
+  id           String    @id @default(uuid())
+  postId       String    // FK → Post (root post of the thread)
+  replyPostId  String    // FK → Post (individual reply)
+  position     Int       // threadPosition of the reply (1, 2, 3, ...)
+  status       String    // PENDING | POSTED | FAILED
+  postUrl      String?   // URL of the individual reply (if posted)
+  attemptedAt  DateTime  @default(now())
+  completedAt  DateTime?
+  error        String?
+
+  @@unique([postId, replyPostId])
+  @@index([postId])
+  @@index([status])
+}
+
 model Post {
   id               String           @id @default(uuid())
   generationRunId  String?
@@ -160,15 +182,38 @@ model Post {
   errorMessage     String?
   retryCount       Int              @default(0) // BullMQ retry count (0-3)
   llmMetadata      Json?            // { model, tokens, cost, promptVersion, angleType }
+  simhash          String?          // Sprint L: precomputed SimHash for fast dedup
   createdAt        DateTime         @default(now())
   approvedAt       DateTime?
   postedAt         DateTime?
+  metrics          PostMetrics[]    @relation("PostMetricsToPost")
+  incomingComments IncomingComment[] @relation("PostIncomingComments") // Sprint Q: tracked comments for reply monitoring
 
   @@index([status])
   @@index([network])
   @@index([accountId])
   @@index([generationRunId])
   @@index([threadId])
+  @@index([simhash])
+}
+
+// ============================================================
+// Post Metrics — F6: engagement metrics scraping (likes, comments, shares)
+// ============================================================
+
+model PostMetrics {
+  id          String   @id @default(uuid())
+  postId      String
+  post            Post            @relation("PostMetricsToPost", fields: [postId], references: [id], onDelete: Cascade)
+  network     SocialNetwork
+  likes       Int      @default(0)
+  comments    Int      @default(0)
+  shares      Int      @default(0)
+  impressions Int?
+  collectedAt DateTime @default(now())
+
+  @@index([postId, collectedAt])
+  @@index([network])
 }
 
 // ============================================================
@@ -196,6 +241,39 @@ model Interaction {
   @@index([status])
   @@index([browsingSessionId])
   @@index([createdAt])
+}
+
+/// Sprint Q / F4: Incoming comments on our posts, tracked for automated reply monitoring.
+model IncomingComment {
+  id               String           @id @default(uuid())
+  postId           String
+  post             Post             @relation("PostIncomingComments", fields: [postId], references: [id], onDelete: Cascade)
+  network          SocialNetwork
+  commentId        String           // platform-specific comment ID (for dedup)
+  author           String
+  text             String
+  authorProfileUrl String?
+  status           CommentStatus    @default(NEW)
+  replyText        String?          // generated reply (if any)
+  replyPostedAt    DateTime?
+  needsHumanReview Boolean          @default(false) // true for complex/sensitive comments
+  humanReviewReason String?         // why human review is needed
+  scrapedAt        DateTime         @default(now())
+  createdAt        DateTime         @default(now())
+
+  @@unique([postId, commentId]) // dedup: one record per (post, comment)
+  @@index([postId])
+  @@index([status])
+  @@index([network])
+  @@index([scrapedAt])
+}
+
+enum CommentStatus {
+  NEW            // just scraped, not yet processed
+  REPLIED        // reply posted automatically
+  SKIPPED        // decided not to reply (spam, self, etc.)
+  HUMAN_REVIEW   // needs human review (complex, sensitive)
+  REPLIED_MANUAL // human reviewed and replied manually
 }
 
 model BrowsingSession {

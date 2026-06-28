@@ -1,12 +1,16 @@
 // Browsing session service — simulates human-like browsing behavior.
-// Opens a feed, scrolls for a duration, randomly likes/comments on posts,
-// and records all interactions in the database.
+// Opens a feed, scrolls for a duration, uses LLM-driven decisions to
+// like/comment/read/scroll, and records all interactions in the database.
 //
 // Purpose: anti-detection. Pure posting without engagement looks bot-like.
 // Browsing sessions make the account look like a real user who reads and
 // interacts with content, not just broadcasts.
+//
+// The actual decision-making is delegated to HumanBehaviorEngine (LLM-driven).
+// This service handles orchestration: session creation, browser context,
+// feed scrolling, and result recording.
 
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service.js';
 import { SessionsService } from '../sessions/sessions.service.js';
@@ -24,6 +28,13 @@ import type { BaseEngager } from './engagers/base.engager.js';
 import { XEngager } from './engagers/x.engager.js';
 import { ThreadsEngager } from './engagers/threads.engager.js';
 import { FacebookEngager } from './engagers/facebook.engager.js';
+import { HumanBehaviorEngine } from './human-behavior-engine.js';
+import { TargetingService } from './targeting.service.js';
+import { WarmupService } from '../sessions/warmup.service.js';
+import {
+  buildEngagementGraph,
+  createEngagementInitialState,
+} from './engagement.graph.js';
 
 @Injectable()
 export class BrowsingSessionService {
@@ -31,8 +42,7 @@ export class BrowsingSessionService {
   private readonly defaultDurationSec: number;
   private readonly likesMaxPerSession: number;
   private readonly commentsMaxPerSession: number;
-  private readonly likeProbability: number;
-  private readonly commentProbability: number;
+  private readonly maxPostsPerSession: number;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -44,6 +54,9 @@ export class BrowsingSessionService {
     private readonly xEngager: XEngager,
     private readonly threadsEngager: ThreadsEngager,
     private readonly facebookEngager: FacebookEngager,
+    private readonly humanBehaviorEngine: HumanBehaviorEngine,
+    private readonly targetingService: TargetingService,
+    @Optional() private readonly warmupService?: WarmupService,
   ) {
     this.defaultDurationSec = Number(
       this.configService.get<string>('F1_BROWSING_SESSION_MINUTES', '10'),
@@ -54,13 +67,23 @@ export class BrowsingSessionService {
     this.commentsMaxPerSession = Number(
       this.configService.get<string>('F1_COMMENTS_MAX_PER_DAY', '4'),
     );
-    this.likeProbability = 0.3; // 30% chance to like a post seen during browsing
-    this.commentProbability = 0.05; // 5% chance to comment on a post seen during browsing
+    this.maxPostsPerSession = Number(
+      this.configService.get<string>('F1_MAX_POSTS_PER_SESSION', '30'),
+    );
   }
 
   /**
    * Run a browsing session for the given network.
-   * Scrolls the feed, randomly likes/comments on posts, records interactions.
+   *
+   * Uses EngagementGraph (LangGraph) to orchestrate the session:
+   *   1. check_warmup — determine warmup phase, adjust interaction budget
+   *   2. pick_source — choose targeting source (hashtag, competitor, feed)
+   *   3. scroll_feed — scroll the feed and collect post URLs
+   *   4. decide_per_post — LLM-driven per-post decisions (via HumanBehaviorEngine)
+   *   5. record — finalize results
+   *
+   * The graph handles warmup gating and source selection internally.
+   * This service handles browser context, DB session records, and SSE events.
    */
   async runBrowsingSession(
     network: SocialNetwork,
@@ -75,7 +98,7 @@ export class BrowsingSessionService {
       throw new Error(`No active session for ${network} — auto-login failed`);
     }
 
-    // Create browsing session record
+    // Create browsing session record (feedUrl updated after graph picks source)
     const browsingSession = await this.prisma.browsingSession.create({
       data: {
         accountId: session.accountId,
@@ -98,119 +121,55 @@ export class BrowsingSessionService {
 
     let postsViewed = 0;
     let interactionsCount = 0;
-    let likesThisSession = 0;
-    let commentsThisSession = 0;
+    let context: Awaited<ReturnType<IBrowserPort['acquireContext']>> | null = null;
 
     try {
-      // Create browser context
+      // Sprint K: Acquire browser context from pool (enables parallel sessions)
+      // P0-H3: Decrypt storageState if encrypted (v1: prefix).
       const storageState = session.storageState
-        ? JSON.stringify(session.storageState)
+        ? this.sessionsService.decryptStorageState(session)
         : undefined;
-      const context = await this.browser.createContext(network, storageState);
+      context = await this.browser.acquireContext(network, storageState);
       const page = await context.newPage();
 
-      // Scroll the feed and collect post URLs
-      const postUrls = await engager.scrollFeed(page, duration);
+      // Build and invoke the EngagementGraph (LangGraph)
+      const graph = buildEngagementGraph(engager, {
+        targetingService: this.targetingService,
+        warmupService: this.warmupService,
+        humanBehaviorEngine: this.humanBehaviorEngine,
+      });
 
-      // Process discovered posts — randomly like/comment
-      for (const postUrl of postUrls) {
-        postsViewed++;
+      const compiled = graph.compile();
+      const initialState = createEngagementInitialState({
+        network,
+        accountId: session.accountId,
+        browsingSessionId: browsingSession.id,
+        durationSec: duration,
+        maxPosts: this.maxPostsPerSession,
+        likesMaxPerSession: this.likesMaxPerSession,
+        commentsMaxPerSession: this.commentsMaxPerSession,
+        page,
+      });
 
-        // Random like
-        if (
-          likesThisSession < this.likesMaxPerSession &&
-          Math.random() < this.likeProbability
-        ) {
-          // Rate limit check
-          const rateCheck = await this.rateLimitService.checkRateLimit(
-            `${network as string}-like`,
-          );
-          if (rateCheck.allowed) {
-            const interaction = await this.prisma.interaction.create({
-              data: {
-                accountId: session.accountId,
-                type: InteractionType.LIKE,
-                status: InteractionStatus.IN_PROGRESS,
-                targetUrl: postUrl,
-                browsingSessionId: browsingSession.id,
-              },
-            });
+      const finalState = await compiled.invoke(initialState);
 
-            const result = await engager.like(page, postUrl);
-            await this.prisma.interaction.update({
-              where: { id: interaction.id },
-              data: {
-                status: result.success
-                  ? InteractionStatus.COMPLETED
-                  : InteractionStatus.FAILED,
-                errorMessage: result.error,
-                screenshotPath: result.screenshotPath,
-                completedAt: new Date(),
-              },
-            });
+      postsViewed = finalState.postsProcessed ?? 0;
+      interactionsCount = (finalState.results ?? []).filter(
+        (r) => r.success && r.interactionId,
+      ).length;
 
-            if (result.success) {
-              likesThisSession++;
-              interactionsCount++;
-              await this.rateLimitService.recordPost(`${network as string}-like`);
-            }
-          }
-        }
-
-        // Random comment (much rarer than likes)
-        if (
-          commentsThisSession < this.commentsMaxPerSession &&
-          Math.random() < this.commentProbability
-        ) {
-          // Generate a short comment via LLM (or use a placeholder for now)
-          const commentText = this.generateComment();
-          if (commentText) {
-            const rateCheck = await this.rateLimitService.checkRateLimit(
-              `${network as string}-comment`,
-            );
-            if (rateCheck.allowed) {
-              const interaction = await this.prisma.interaction.create({
-                data: {
-                  accountId: session.accountId,
-                  type: InteractionType.COMMENT,
-                  status: InteractionStatus.IN_PROGRESS,
-                  targetUrl: postUrl,
-                  content: commentText,
-                  browsingSessionId: browsingSession.id,
-                },
-              });
-
-              const result = await engager.comment(page, postUrl, commentText);
-              await this.prisma.interaction.update({
-                where: { id: interaction.id },
-                data: {
-                  status: result.success
-                    ? InteractionStatus.COMPLETED
-                    : InteractionStatus.FAILED,
-                  errorMessage: result.error,
-                  screenshotPath: result.screenshotPath,
-                  completedAt: new Date(),
-                },
-              });
-
-              if (result.success) {
-                commentsThisSession++;
-                interactionsCount++;
-                await this.rateLimitService.recordPost(`${network as string}-comment`);
-              }
-            }
-          }
-        }
-
-        // Human-like pause between interactions
-        await this.browser.randomDelay(5000, 15000);
+      // Update feedUrl from graph's source selection
+      if (finalState.sourceUrl) {
+        await this.prisma.browsingSession.update({
+          where: { id: browsingSession.id },
+          data: { feedUrl: finalState.sourceUrl },
+        });
       }
 
       // Save updated session state
       const updatedState = await this.browser.saveStorageState(context);
       await this.sessionsService.updateStorageState(session.id, updatedState);
       await page.close();
-      await context.close();
 
       // Update browsing session record
       await this.prisma.browsingSession.update({
@@ -225,7 +184,8 @@ export class BrowsingSessionService {
       });
 
       this.logger.log(
-        `Browsing session completed for ${network}: ${postsViewed} posts viewed, ${interactionsCount} interactions`,
+        `Browsing session completed for ${network}: ${postsViewed} posts, ${interactionsCount} interactions ` +
+          `(source: ${finalState.sourceLabel ?? 'unknown'}, warmup: ${finalState.warmupPhase ?? 'none'})`,
       );
 
       // SSE event
@@ -260,6 +220,11 @@ export class BrowsingSessionService {
       });
 
       throw err;
+    } finally {
+      // Sprint K: Release context back to pool for reuse
+      if (context) {
+        this.browser.releaseContext(network, context);
+      }
     }
   }
 
@@ -293,24 +258,6 @@ export class BrowsingSessionService {
       default:
         throw new Error(`Unknown network: ${network as string}`);
     }
-  }
-
-  /**
-   * Generate a short comment for engagement.
-   * TODO: integrate with LLM service for contextual comments.
-   * For now, returns a random generic positive comment.
-   */
-  private generateComment(): string {
-    const comments = [
-      'Great post! Thanks for sharing.',
-      'This is really insightful.',
-      'Love this perspective!',
-      'Thanks for sharing this.',
-      'Very interesting, bookmarked!',
-      'This resonates with me.',
-      'Spot on!',
-    ];
-    return comments[Math.floor(Math.random() * comments.length)] ?? 'Great post!';
   }
 
   /**

@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import type { Post } from '@spa/shared';
+import { Check, X, Pencil, ExternalLink } from '@lucide/vue';
+import { Card, Button } from './ui';
 import StatusBadge from './StatusBadge.vue';
 import NetworkIcon from './NetworkIcon.vue';
 
@@ -20,35 +22,55 @@ const emit = defineEmits<{
 
 const displayContent = props.truncate > 0
   ? props.post.content.length > props.truncate
-    ? props.post.content.slice(0, props.truncate) + '...'
+    ? props.post.content.slice(0, props.truncate) + '…'
     : props.post.content
   : props.post.content;
 </script>
 
 <template>
-  <div class="rounded-lg border border-gray-200 bg-white p-4">
-    <div class="flex items-center justify-between">
-      <NetworkIcon :network="post.network" />
+  <Card hoverable class="p-5">
+    <div class="flex items-start justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <NetworkIcon :network="post.network" />
+        <span class="text-xs text-text-muted">
+          {{ post.id.slice(0, 8) }}…
+        </span>
+      </div>
       <StatusBadge :status="post.status" />
     </div>
-    <p class="mt-2 text-sm text-gray-700">{{ displayContent }}</p>
-    <div v-if="post.postUrl" class="mt-2">
-      <a :href="post.postUrl" target="_blank" class="text-xs text-blue-600 hover:underline">View post →</a>
+
+    <p class="mt-4 text-sm leading-relaxed text-text-primary">
+      {{ displayContent }}
+    </p>
+
+    <div v-if="post.postUrl" class="mt-3">
+      <a
+        :href="post.postUrl"
+        target="_blank"
+        class="inline-flex items-center gap-1 text-xs text-primary hover:text-primary-hover hover:underline"
+      >
+        <ExternalLink class="h-3 w-3" />
+        View post
+      </a>
     </div>
-    <p v-if="post.errorMessage" class="mt-1 text-xs text-red-600">{{ post.errorMessage }}</p>
-    <div v-if="showActions && post.status === 'DRAFT'" class="mt-3 flex gap-2">
-      <button
-        @click="emit('approve', post.id)"
-        class="rounded bg-green-600 px-3 py-1 text-xs text-white hover:bg-green-700"
-      >Approve</button>
-      <button
-        @click="emit('edit', post)"
-        class="rounded bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700"
-      >Edit & Approve</button>
-      <button
-        @click="emit('reject', post.id)"
-        class="rounded bg-red-600 px-3 py-1 text-xs text-white hover:bg-red-700"
-      >Reject</button>
+
+    <p v-if="post.errorMessage" class="mt-3 text-xs text-error">
+      {{ post.errorMessage }}
+    </p>
+
+    <div v-if="showActions && post.status === 'DRAFT'" class="mt-4 flex flex-wrap gap-2">
+      <Button size="sm" @click="emit('approve', post.id)">
+        <Check class="h-3.5 w-3.5" />
+        Approve
+      </Button>
+      <Button variant="secondary" size="sm" @click="emit('edit', post)">
+        <Pencil class="h-3.5 w-3.5" />
+        Edit
+      </Button>
+      <Button variant="outline" size="sm" @click="emit('reject', post.id)">
+        <X class="h-3.5 w-3.5" />
+        Reject
+      </Button>
     </div>
-  </div>
+  </Card>
 </template>

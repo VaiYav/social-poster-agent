@@ -1,3 +1,193 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../../../tailwind.config.ts";
+
+@theme {
+  /* Cosmic color palette */
+  --color-background: #03030a;
+  --color-surface: #0a0a14;
+  --color-surface-elevated: #13131f;
+  --color-surface-highlight: #1a1a2e;
+
+  /* Accents */
+  --color-primary: #8b5cf6;
+  --color-primary-hover: #7c3aed;
+  --color-primary-subtle: rgba(139, 92, 246, 0.15);
+  --color-secondary: #6366f1;
+  --color-secondary-hover: #4f46e5;
+  --color-secondary-subtle: rgba(99, 102, 241, 0.15);
+
+  /* Functional */
+  --color-success: #10b981;
+  --color-success-subtle: rgba(16, 185, 129, 0.15);
+  --color-warning: #f59e0b;
+  --color-warning-subtle: rgba(245, 158, 11, 0.15);
+  --color-error: #f43f5e;
+  --color-error-subtle: rgba(244, 63, 94, 0.15);
+  --color-info: #38bdf8;
+  --color-info-subtle: rgba(56, 189, 248, 0.15);
+
+  /* Post status colors */
+  --color-status-draft: #94a3b8;
+  --color-status-approved: #38bdf8;
+  --color-status-posted: #10b981;
+  --color-status-failed: #f43f5e;
+  --color-status-rejected: #64748b;
+  --color-status-running: #f59e0b;
+
+  /* Text */
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
+  --color-text-inverse: #03030a;
+
+  /* Borders */
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-strong: rgba(255, 255, 255, 0.14);
+  --color-border-focus: rgba(139, 92, 246, 0.5);
+
+  /* Typography */
+  --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Font sizes */
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.9375rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 2rem;
+  --text-3xl: 1.875rem;
+  --text-3xl--line-height: 2.25rem;
+  --text-4xl: 2.25rem;
+  --text-4xl--line-height: 2.5rem;
+
+  /* Border radius */
+  --radius-xs: 0.375rem;
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.25rem;
+  --radius-2xl: 1.5rem;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-cosmic: 0 4px 24px -4px rgba(0, 0, 0, 0.5);
+  --shadow-elevated: 0 8px 32px -8px rgba(0, 0, 0, 0.6);
+  --shadow-glow-primary: 0 0 24px -4px rgba(139, 92, 246, 0.4);
+  --shadow-glow-secondary: 0 0 24px -4px rgba(99, 102, 241, 0.4);
+  --shadow-glow-success: 0 0 24px -4px rgba(16, 185, 129, 0.4);
+  --shadow-glow-error: 0 0 24px -4px rgba(244, 63, 94, 0.4);
+
+  /* Animations */
+  --animate-pulse-slow: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-fade-in: fade-in 0.2s ease-out;
+  --animate-slide-in-right: slide-in-right 0.3s ease-out;
+  --animate-slide-in-up: slide-in-up 0.3s ease-out;
+  --animate-glow: glow 2s ease-in-out infinite alternate;
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slide-in-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes glow {
+  from { box-shadow: 0 0 16px -4px rgba(139, 92, 246, 0.3); }
+  to { box-shadow: 0 0 24px -2px rgba(139, 92, 246, 0.5); }
+}
+
+/* Base styles */
+@layer base {
+  html {
+    @apply bg-background text-text-primary antialiased;
+  }
+
+  body {
+    @apply font-sans text-base;
+  }
+
+  ::selection {
+    @apply bg-primary/30 text-text-primary;
+  }
+
+  ::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-border;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-border-strong;
+  }
+}
+
+/* Custom utilities */
+@utility glass {
+  @apply bg-surface/80 backdrop-blur-xl border border-border;
+}
+
+@utility glass-elevated {
+  @apply bg-surface-elevated/90 backdrop-blur-xl border border-border-strong;
+}
+
+@utility gradient-text {
+  @apply bg-gradient-to-r from-primary via-secondary to-primary bg-clip-text text-transparent;
+}
+
+@utility gradient-border {
+  position: relative;
+  background: linear-gradient(var(--color-surface), var(--color-surface)) padding-box,
+              linear-gradient(135deg, var(--color-primary), var(--color-secondary)) border-box;
+  border: 1px solid transparent;
+}
+
+@utility glow-primary {
+  box-shadow: var(--shadow-glow-primary);
+}
+
+@utility glow-success {
+  box-shadow: var(--shadow-glow-success);
+}
+
+@utility glow-error {
+  box-shadow: var(--shadow-glow-error);
+}
+
+@utility card-hover {
+  @apply transition-all duration-200 hover:border-border-strong hover:bg-surface-highlight;
+}
+
+@utility btn-base {
+  @apply inline-flex items-center justify-center gap-2 rounded-md font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-offset-2 focus:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+@utility text-balance {
+  text-wrap: balance;
+}

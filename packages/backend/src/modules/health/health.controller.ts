@@ -1,17 +1,15 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Inject } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { ConfigService } from '@nestjs/config';
 import IORedis from 'ioredis';
+import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
 
 @ApiTags('health')
 @Controller('health')
 export class HealthController {
-  private redis: IORedis | null = null;
-
   constructor(
     private readonly prisma: PrismaService,
-    private readonly configService: ConfigService,
+    @Inject(SHARED_REDIS) private readonly redis: IORedis,
   ) {}
 
   @Get()
@@ -31,13 +29,9 @@ export class HealthController {
       dbStatus = 'disconnected';
     }
 
-    // Check Redis
+    // Check Redis (Sprint L: uses shared connection)
     let redisStatus = 'connected';
     try {
-      if (!this.redis) {
-        const redisUrl = this.configService.get<string>('REDIS_URL', 'redis://localhost:6381');
-        this.redis = new IORedis(redisUrl, { maxRetriesPerRequest: 1, lazyConnect: true });
-      }
       await this.redis.ping();
     } catch {
       redisStatus = 'disconnected';

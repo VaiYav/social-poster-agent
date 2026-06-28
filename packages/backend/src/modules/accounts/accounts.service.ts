@@ -1,25 +1,44 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { SocialNetwork } from '@prisma/client';
+import { WarmupService } from '../sessions/warmup.service.js';
 
 /**
  * Accounts service — manages social account records.
  * Credentials are NEVER stored in DB — only credentialsRef (env var name).
  * On startup, seeds accounts from env config if they don't exist.
+ *
+ * F20: If SOCIAL_{NETWORK}_WARMUP=true is set for a new account, warm-up
+ * mode is started on seed (browse-only → gradual ramp, reduces ban risk).
  */
 @Injectable()
-export class AccountsService {
+export class AccountsService implements OnModuleInit {
   private readonly logger = new Logger(AccountsService.name);
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    @Optional() private readonly warmupService?: WarmupService,
   ) {}
+
+  /**
+   * Minor-29: Seed accounts from env on module init (moved from CronService).
+   * This is the right place — AccountsService owns account lifecycle.
+   */
+  async onModuleInit(): Promise<void> {
+    try {
+      await this.seedFromEnv();
+      this.logger.log('Accounts seeded from env');
+    } catch {
+      this.logger.warn('Failed to seed accounts — continuing');
+    }
+  }
 
   /**
    * Seed accounts from env on application startup.
    * Creates accounts if they don't exist, does not update existing.
+   * F20: If SOCIAL_{NETWORK}_WARMUP=true, starts warm-up for the new account.
    */
   async seedFromEnv(): Promise<void> {
     const accounts = [
@@ -27,16 +46,19 @@ export class AccountsService {
         network: SocialNetwork.X,
         handle: this.configService.get<string>('SOCIAL_X_USERNAME', 'myzodiacai'),
         credentialsRef: 'SOCIAL_X_USERNAME/PASSWORD',
+        warmup: this.configService.get<string>('SOCIAL_X_WARMUP', 'false') === 'true',
       },
       {
         network: SocialNetwork.THREADS,
         handle: this.configService.get<string>('SOCIAL_THREADS_USERNAME', 'myzodiacai'),
         credentialsRef: 'SOCIAL_THREADS_USERNAME/PASSWORD',
+        warmup: this.configService.get<string>('SOCIAL_THREADS_WARMUP', 'false') === 'true',
       },
       {
         network: SocialNetwork.FACEBOOK,
         handle: this.configService.get<string>('SOCIAL_FACEBOOK_EMAIL', 'myzodiacai@facebook.com'),
         credentialsRef: 'SOCIAL_FACEBOOK_EMAIL/PASSWORD',
+        warmup: this.configService.get<string>('SOCIAL_FACEBOOK_WARMUP', 'false') === 'true',
       },
     ];
 
@@ -45,8 +67,20 @@ export class AccountsService {
         where: { network: account.network, handle: account.handle },
       });
       if (!existing) {
-        await this.prisma.socialAccount.create({ data: account });
+        const created = await this.prisma.socialAccount.create({
+          data: {
+            network: account.network,
+            handle: account.handle,
+            credentialsRef: account.credentialsRef,
+          },
+        });
         this.logger.log(`Seeded account: ${account.network} @${account.handle}`);
+
+        // F20: Start warm-up if requested for this new account
+        if (account.warmup && this.warmupService) {
+          await this.warmupService.startWarmup(created.id);
+          this.logger.log(`Warm-up started for ${account.network} @${account.handle}`);
+        }
       }
     }
   }

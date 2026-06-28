@@ -10,11 +10,6 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock IORedis — RedisCheckpointSaver creates an instance in onModuleInit()
-vi.mock('ioredis', () => ({
-  default: vi.fn(),
-}));
-
 // Mock BaseCheckpointSaver — we only test Redis-specific logic
 vi.mock('@langchain/langgraph-checkpoint', () => ({
   BaseCheckpointSaver: class MockBaseCheckpointSaver {},
@@ -38,14 +33,17 @@ function createMockConfigService(overrides: Record<string, unknown> = {}): Confi
 }
 
 /**
- * Extended mock Redis with `keys` and `rpush` methods needed by checkpoint saver.
+ * Extended mock Redis with `scan` and `rpush` methods needed by checkpoint saver.
  * The base createMockRedis() lacks these.
+ * SCAN returns [cursor, keys[]] — we simulate a single batch that returns all keys.
  */
 function createCheckpointMockRedis() {
   const redis = createMockRedis();
-  (redis as any).keys = vi.fn((_pattern: string) => Promise.resolve([]));
-  (redis as any).rpush = vi.fn().mockResolvedValue(1);
-  return redis as any;
+  (redis as unknown).scan = vi.fn((_cursor: string, _opt: string, _pattern: string) =>
+    Promise.resolve(['0', [] as string[]]),
+  );
+  (redis as unknown).rpush = vi.fn().mockResolvedValue(1);
+  return redis as unknown;
 }
 
 function createMockConfig(threadId: string, checkpointId?: string) {
@@ -54,11 +52,11 @@ function createMockConfig(threadId: string, checkpointId?: string) {
       thread_id: threadId,
       ...(checkpointId ? { checkpoint_id: checkpointId } : {}),
     },
-  } as any;
+  } as unknown;
 }
 
 function createMockCheckpoint(id: string) {
-  return { id } as any;
+  return { id } as unknown;
 }
 
 // ── Tests ──
@@ -72,9 +70,8 @@ describe('RedisCheckpointSaver (MOD-05 — Infrastructure Adapters)', () => {
     vi.clearAllMocks();
     configService = createMockConfigService();
     mockRedis = createCheckpointMockRedis();
-    saver = new RedisCheckpointSaver(configService);
-    // Inject mock Redis into the private field
-    (saver as any).redis = mockRedis;
+    // Sprint L: RedisCheckpointSaver now receives Redis via DI (SHARED_REDIS token)
+    saver = new RedisCheckpointSaver(configService, mockRedis as never);
   });
 
   // ── put ──
@@ -82,8 +79,8 @@ describe('RedisCheckpointSaver (MOD-05 — Infrastructure Adapters)', () => {
   it('put() stores checkpoint at thread:checkpoint key with TTL', async () => {
     const config = createMockConfig('thread-1');
     const checkpoint = createMockCheckpoint('ckpt-001');
-    const metadata = { source: 'input' } as any;
-    const newVersions = {} as any;
+    const metadata = { source: 'input' } as unknown;
+    const newVersions = {} as unknown;
 
     await saver.put(config, checkpoint, metadata, newVersions);
 
@@ -106,9 +103,9 @@ describe('RedisCheckpointSaver (MOD-05 — Infrastructure Adapters)', () => {
   it('put() stores tuple with correct config, checkpoint, and metadata', async () => {
     const config = createMockConfig('thread-2');
     const checkpoint = createMockCheckpoint('ckpt-002');
-    const metadata = { step: 1 } as any;
+    const metadata = { step: 1 } as unknown;
 
-    await saver.put(config, checkpoint, metadata, {} as any);
+    await saver.put(config, checkpoint, metadata, {} as unknown);
 
     // Verify the stored JSON contains the tuple
     const storedData = mockRedis.set.mock.calls[0]![1] as string;
@@ -123,18 +120,18 @@ describe('RedisCheckpointSaver (MOD-05 — Infrastructure Adapters)', () => {
     const config = createMockConfig('thread-3');
     const checkpoint = createMockCheckpoint('ckpt-003');
 
-    const result = await saver.put(config, checkpoint, {} as any, {} as any);
+    const result = await saver.put(config, checkpoint, {} as unknown, {} as unknown);
 
     expect(result.configurable.thread_id).toBe('thread-3');
     expect(result.configurable.checkpoint_id).toBe('ckpt-003');
   });
 
   it('put() does nothing when Redis not connected', async () => {
-    (saver as any).redis = null;
+    (saver as unknown).redis = null;
     const config = createMockConfig('thread-4');
     const checkpoint = createMockCheckpoint('ckpt-004');
 
-    const result = await saver.put(config, checkpoint, {} as any, {} as any);
+    const result = await saver.put(config, checkpoint, {} as unknown, {} as unknown);
 
     expect(mockRedis.set).not.toHaveBeenCalled();
     // Returns the original config
@@ -144,7 +141,7 @@ describe('RedisCheckpointSaver (MOD-05 — Infrastructure Adapters)', () => {
   // ── getTuple ──
 
   it('getTuple() returns undefined when Redis not connected', async () => {
-    (saver as any).redis = null;
+    (saver as unknown).redis = null;
     const config = createMockConfig('thread-1');
 
     const result = await saver.getTuple(config);
@@ -153,7 +150,7 @@ describe('RedisCheckpointSaver (MOD-05 — Infrastructure Adapters)', () => {
   });
 
   it('getTuple() returns undefined when thread_id is missing', async () => {
-    const config = { configurable: {} } as any;
+    const config = { configurable: {} } as unknown;
 
     const result = await saver.getTuple(config);
 
@@ -191,8 +188,8 @@ describe('RedisCheckpointSaver (MOD-05 — Infrastructure Adapters)', () => {
       metadata: {},
       config: { configurable: { thread_id: 't2', checkpoint_id: 'ckpt-latest' } },
     };
-    // keys must return non-empty so the code proceeds to check the pointer
-    mockRedis.keys.mockResolvedValue(['spa:checkpoint:t2:ckpt-latest']);
+    // scan must return non-empty so the code proceeds to check the pointer
+    mockRedis.scan.mockResolvedValue(['0', ['spa:checkpoint:t2:ckpt-latest']]);
     mockRedis.get.mockResolvedValue(JSON.stringify(tupleData));
 
     const config = createMockConfig('t2');
@@ -205,8 +202,8 @@ describe('RedisCheckpointSaver (MOD-05 — Infrastructure Adapters)', () => {
   });
 
   it('getTuple() returns undefined when no checkpoints exist for thread', async () => {
-    // keys returns empty, get returns null
-    mockRedis.keys.mockResolvedValue([]);
+    // scan returns empty, get returns null
+    mockRedis.scan.mockResolvedValue(['0', []]);
     mockRedis.get.mockResolvedValue(null);
 
     const config = createMockConfig('empty-thread');
@@ -222,19 +219,19 @@ describe('RedisCheckpointSaver (MOD-05 — Infrastructure Adapters)', () => {
     const tuple2 = { checkpoint: { id: 'c2' }, metadata: {}, config: {} };
     const tuple3 = { checkpoint: { id: 'c3' }, metadata: {}, config: {} };
 
-    // keys returns 3 checkpoint keys (not the pointer)
-    mockRedis.keys.mockResolvedValue([
+    // scan returns 3 checkpoint keys (not the pointer)
+    mockRedis.scan.mockResolvedValue(['0', [
       'spa:checkpoint:t1:c1',
       'spa:checkpoint:t1:c2',
       'spa:checkpoint:t1:c3',
-    ]);
+    ]]);
     mockRedis.get
       .mockResolvedValueOnce(JSON.stringify(tuple1))
       .mockResolvedValueOnce(JSON.stringify(tuple2))
       .mockResolvedValueOnce(JSON.stringify(tuple3));
 
     const config = createMockConfig('t1');
-    const results: any[] = [];
+    const results: unknown[] = [];
     for await (const tuple of saver.list(config, { limit: 10 })) {
       results.push(tuple);
     }
@@ -248,11 +245,11 @@ describe('RedisCheckpointSaver (MOD-05 — Infrastructure Adapters)', () => {
   it('list() respects limit option (default 10)', async () => {
     // Create 15 keys — default limit is 10
     const keys = Array.from({ length: 15 }, (_, i) => `spa:checkpoint:t1:c${i}`);
-    mockRedis.keys.mockResolvedValue(keys);
+    mockRedis.scan.mockResolvedValue(['0', keys]);
     mockRedis.get.mockResolvedValue(JSON.stringify({ checkpoint: { id: 'x' } }));
 
     const config = createMockConfig('t1');
-    const results: any[] = [];
+    const results: unknown[] = [];
     for await (const tuple of saver.list(config)) {
       results.push(tuple);
     }
@@ -263,14 +260,14 @@ describe('RedisCheckpointSaver (MOD-05 — Infrastructure Adapters)', () => {
 
   it('list() skips the pointer key (thread key without checkpoint_id)', async () => {
     const tupleData = { checkpoint: { id: 'c1' }, metadata: {}, config: {} };
-    mockRedis.keys.mockResolvedValue([
+    mockRedis.scan.mockResolvedValue(['0', [
       'spa:checkpoint:t1', // pointer key — should be skipped
       'spa:checkpoint:t1:c1',
-    ]);
+    ]]);
     mockRedis.get.mockResolvedValueOnce(JSON.stringify(tupleData));
 
     const config = createMockConfig('t1');
-    const results: any[] = [];
+    const results: unknown[] = [];
     for await (const tuple of saver.list(config, { limit: 10 })) {
       results.push(tuple);
     }
@@ -281,10 +278,10 @@ describe('RedisCheckpointSaver (MOD-05 — Infrastructure Adapters)', () => {
   });
 
   it('list() yields nothing when Redis not connected', async () => {
-    (saver as any).redis = null;
+    (saver as unknown).redis = null;
     const config = createMockConfig('t1');
 
-    const results: any[] = [];
+    const results: unknown[] = [];
     for await (const tuple of saver.list(config)) {
       results.push(tuple);
     }
@@ -293,9 +290,9 @@ describe('RedisCheckpointSaver (MOD-05 — Infrastructure Adapters)', () => {
   });
 
   it('list() yields nothing when thread_id is missing', async () => {
-    const config = { configurable: {} } as any;
+    const config = { configurable: {} } as unknown;
 
-    const results: any[] = [];
+    const results: unknown[] = [];
     for await (const tuple of saver.list(config)) {
       results.push(tuple);
     }
@@ -307,7 +304,7 @@ describe('RedisCheckpointSaver (MOD-05 — Infrastructure Adapters)', () => {
 
   it('putWrites() stores writes as JSON via rpush with TTL', async () => {
     const config = createMockConfig('t1', 'ckpt-1');
-    const writes = [{ taskId: 'task-1', data: 'write-data' }] as any;
+    const writes = [{ taskId: 'task-1', data: 'write-data' }] as unknown;
 
     await saver.putWrites(config, writes, 'task-1');
 
@@ -323,10 +320,10 @@ describe('RedisCheckpointSaver (MOD-05 — Infrastructure Adapters)', () => {
   });
 
   it('putWrites() does nothing when Redis not connected', async () => {
-    (saver as any).redis = null;
+    (saver as unknown).redis = null;
     const config = createMockConfig('t1', 'ckpt-1');
 
-    await saver.putWrites(config, [] as any, 'task-1');
+    await saver.putWrites(config, [] as unknown, 'task-1');
 
     expect(mockRedis.rpush).not.toHaveBeenCalled();
   });
@@ -335,25 +332,21 @@ describe('RedisCheckpointSaver (MOD-05 — Infrastructure Adapters)', () => {
     // Missing checkpoint_id
     const config = createMockConfig('t1');
 
-    await saver.putWrites(config, [] as any, 'task-1');
+    await saver.putWrites(config, [] as unknown, 'task-1');
 
     expect(mockRedis.rpush).not.toHaveBeenCalled();
   });
 
   // ── onModuleInit / onModuleDestroy ──
 
-  it('onModuleInit() creates Redis connection', () => {
+  it('onModuleInit() logs initialization (Sprint L: Redis managed by RedisModule)', () => {
     expect(() => saver.onModuleInit()).not.toThrow();
   });
 
-  it('onModuleDestroy() disconnects Redis when connected', () => {
-    saver.onModuleDestroy();
-    expect(mockRedis.disconnect).toHaveBeenCalledOnce();
-  });
-
-  it('onModuleDestroy() is safe when Redis is null', () => {
-    (saver as any).redis = null;
+  it('onModuleDestroy() is safe — Redis managed by RedisModule (no disconnect)', () => {
+    // Sprint L: onModuleDestroy no longer disconnects — RedisModule handles lifecycle
     expect(() => saver.onModuleDestroy()).not.toThrow();
+    expect(mockRedis.disconnect).not.toHaveBeenCalled();
   });
 
   // ── Custom config ──
@@ -363,12 +356,11 @@ describe('RedisCheckpointSaver (MOD-05 — Infrastructure Adapters)', () => {
       CHECKPOINT_TTL_SECONDS: 3600,
       CHECKPOINT_PREFIX: 'custom:ckpt',
     });
-    const customSaver = new RedisCheckpointSaver(customConfig);
     const customRedis = createCheckpointMockRedis();
-    (customSaver as any).redis = customRedis;
+    const customSaver = new RedisCheckpointSaver(customConfig, customRedis as never);
 
     const config = createMockConfig('t1');
-    await customSaver.put(config, createMockCheckpoint('c1'), {} as any, {} as any);
+    await customSaver.put(config, createMockCheckpoint('c1'), {} as unknown, {} as unknown);
 
     const firstCall = customRedis.set.mock.calls[0]!;
     expect(firstCall[0]).toBe('custom:ckpt:t1:c1');

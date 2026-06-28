@@ -5,7 +5,7 @@
  * Hazards: HAZ-003, HAZ-004
  *
  * Source: packages/backend/src/modules/posts/posts.service.ts
- * Spec:   features/spa/v-model/unit-test/unit-test-cases.md (UTC-026..041)
+ * Spec:   CONSTITUTION.md §14 (Testing) — test case IDs are inline (UTC-026..041)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
@@ -22,7 +22,8 @@ describe('MOD-02: PostsService', () => {
 
   beforeEach(() => {
     prisma = createMockPrismaService();
-    service = new PostsService(prisma as never);
+    const eventEmitter = { emit: vi.fn() };
+    service = new PostsService(prisma as never, eventEmitter as never);
   });
 
   // ── findMany() ──────────────────────────────────────────────

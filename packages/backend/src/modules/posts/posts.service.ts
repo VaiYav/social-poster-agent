@@ -1,7 +1,9 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { PostStatus, type SocialNetwork, type Prisma } from '@prisma/client';
+import { PostStatus, type SocialNetwork, type Prisma, type Post } from '@prisma/client';
 import type { PostQueryDto, UpdatePostStatusDto } from '../../domain/dtos';
+import { PostEvents } from '../../events/enums/post-events.enum';
 
 /**
  * Posts service — CRUD + status transitions for Post entities.
@@ -12,7 +14,10 @@ import type { PostQueryDto, UpdatePostStatusDto } from '../../domain/dtos';
 export class PostsService {
   private readonly logger = new Logger(PostsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   async findMany(query: PostQueryDto) {
     const where = {
@@ -74,8 +79,11 @@ export class PostsService {
     generationRunId?: string;
     sourceRef?: Prisma.InputJsonValue;
     llmMetadata?: Prisma.InputJsonValue;
+    simhash?: string; // Sprint L: precomputed SimHash for fast dedup
   }) {
-    return this.prisma.post.create({ data });
+    const post = await this.prisma.post.create({ data });
+    this.eventEmitter.emit(PostEvents.DRAFT_GENERATED, { postId: post.id, network: post.network });
+    return post;
   }
 
   async updateStatus(id: string, dto: UpdatePostStatusDto) {
@@ -91,10 +99,21 @@ export class PostsService {
 
     this.logger.log(`Post ${id}: ${post.status} → ${dto.status}`);
 
-    return this.prisma.post.update({
+    const updated = await this.prisma.post.update({
       where: { id },
       data: updateData,
     });
+
+    // Emit domain events for EDA decoupling
+    if (dto.status === PostStatus.POSTED) {
+      this.eventEmitter.emit(PostEvents.POSTED, { postId: id, network: post.network, postUrl: dto.postUrl });
+    } else if (dto.status === PostStatus.FAILED) {
+      this.eventEmitter.emit(PostEvents.FAILED, { postId: id, network: post.network, error: dto.errorMessage });
+    } else if (dto.status === PostStatus.POSTING) {
+      this.eventEmitter.emit(PostEvents.POSTING_STARTED, { postId: id, network: post.network });
+    }
+
+    return updated;
   }
 
   /**
@@ -116,10 +135,13 @@ export class PostsService {
       this.logger.log(`Post ${id}: approved (no edits) — ${post.status} → APPROVED`);
     }
 
-    return this.prisma.post.update({
+    const updated = await this.prisma.post.update({
       where: { id },
       data: updateData,
     });
+
+    this.eventEmitter.emit(PostEvents.APPROVED, { postId: id, network: post.network });
+    return updated;
   }
 
   async findBySourceAndNetwork(sourcePath: string, network: SocialNetwork, sinceDays = 14) {
@@ -138,6 +160,21 @@ export class PostsService {
       if (!p.sourceRef || typeof p.sourceRef !== 'object') return false;
       const ref = p.sourceRef as Record<string, unknown>;
       return ref['path'] === sourcePath;
+    });
+  }
+
+  /**
+   * P0-2: Find continuation posts in a thread (position > 0) for multi-stage posting.
+   * Returns posts ordered by threadPosition ascending.
+   */
+  async findThreadContinuations(threadId: string): Promise<Post[]> {
+    return this.prisma.post.findMany({
+      where: {
+        threadId,
+        threadPosition: { gt: 0 },
+        status: PostStatus.APPROVED,
+      },
+      orderBy: { threadPosition: 'asc' },
     });
   }
 }

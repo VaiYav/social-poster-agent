@@ -152,9 +152,9 @@ export class EngagementService {
     try {
       const engager = this.getEngager(network);
 
-      // Create browser context
+      // Create browser context — decrypt storage state if encrypted (v1: prefix)
       const storageState = session.storageState
-        ? JSON.stringify(session.storageState)
+        ? this.sessionsService.decryptStorageState(session)
         : undefined;
       const context = await this.browser.createContext(network, storageState);
       const page = await context.newPage();

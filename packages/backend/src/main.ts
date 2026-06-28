@@ -5,6 +5,17 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { initSentry } from './infrastructure/monitoring/sentry';
 
+// Playwright/Camoufox can throw unhandled exceptions on page errors (e.g. malformed
+// pageError.location). Catch them at process level to prevent the backend from crashing.
+process.on('uncaughtException', (err) => {
+  // Only log — don't crash. Browser automation errors are non-fatal.
+  if (err.message?.includes('pageError') || err.message?.includes('location.url')) {
+    new Logger('Process').warn(`Suppressed Playwright pageError bug: ${err.message}`);
+    return;
+  }
+  new Logger('Process').error(`Uncaught exception: ${err.message}`, err.stack);
+});
+
 async function bootstrap(): Promise<void> {
   // Initialize Sentry before app bootstrap (no-op if SENTRY_DSN not set)
   initSentry();

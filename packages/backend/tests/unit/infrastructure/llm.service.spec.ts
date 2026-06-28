@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@langchain/openai', () => ({
-  ChatOpenAI: mocks.ChatOpenAIMock.mockImplementation((opts: any) => ({
+  ChatOpenAI: mocks.ChatOpenAIMock.mockImplementation((opts: unknown) => ({
     model: opts.model,
     apiKey: opts.apiKey,
     temperature: opts.temperature,
@@ -252,5 +252,94 @@ describe('LlmService (MOD-05 — Infrastructure Adapters)', () => {
     expect(status.length).toBeGreaterThan(0);
     expect(status[0]).toHaveProperty('name');
     expect(status[0]).toHaveProperty('model');
+  });
+
+  // ── Sprint J: Token Counting ──
+
+  it('SJ-001: generate() returns response with tokens field (estimated)', async () => {
+    service.onModuleInit();
+    mocks.invoke.mockResolvedValue({ content: 'This is a test response from the LLM' });
+
+    const result = await service.generate('test prompt');
+
+    expect(result.tokens).toBeDefined();
+    expect(typeof result.tokens).toBe('number');
+    expect(result.tokens!).toBeGreaterThan(0);
+  });
+
+  // ── Sprint J: Content Caching ──
+
+  it('SJ-002: generate() returns cached response on second call with same prompt', async () => {
+    service.onModuleInit();
+    mocks.invoke.mockResolvedValue({ content: 'cached response' });
+
+    const result1 = await service.generate('identical prompt for cache test');
+    const result2 = await service.generate('identical prompt for cache test');
+
+    expect(result1.content).toBe('cached response');
+    expect(result2.content).toBe('cached response');
+    // invoke should only be called once (second call hits cache)
+    expect(mocks.invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('SJ-003: clearCache() forces next call to invoke LLM again', async () => {
+    service.onModuleInit();
+    mocks.invoke.mockResolvedValue({ content: 'response' });
+
+    await service.generate('cache clear test prompt');
+    service.clearCache();
+    await service.generate('cache clear test prompt');
+
+    // After clearCache, invoke should be called twice
+    expect(mocks.invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it('SJ-004: getCacheStats() returns cache size, max size, and TTL', async () => {
+    service.onModuleInit();
+    mocks.invoke.mockResolvedValue({ content: 'test' });
+
+    await service.generate('cache stats test');
+
+    const stats = service.getCacheStats();
+    expect(stats).toHaveProperty('size');
+    expect(stats).toHaveProperty('maxSize');
+    expect(stats).toHaveProperty('ttlMs');
+    expect(stats.size).toBeGreaterThan(0);
+  });
+
+  // ── Sprint J: Circuit Breaker ──
+
+  it('SJ-005: circuit breaker trips after threshold failures, skips provider', async () => {
+    service.onModuleInit();
+    // Make invoke fail for all calls (triggers circuit breaker)
+    mocks.invoke.mockRejectedValue(new Error('provider down'));
+
+    // First call — all providers fail
+    await expect(service.generate('cb test 1')).rejects.toThrow();
+
+    // Get provider status — should show failures
+    const status = service.getProviderStatus();
+    expect(status.length).toBeGreaterThan(0);
+    // At least one provider should have failures > 0
+    const hasFailures = status.some((s) => s.failures > 0);
+    expect(hasFailures).toBe(true);
+  });
+
+  it('SJ-006: getProviderStatus() includes circuitOpen and failures fields', () => {
+    service.onModuleInit();
+    const status = service.getProviderStatus();
+
+    expect(status[0]).toHaveProperty('circuitOpen');
+    expect(status[0]).toHaveProperty('failures');
+    expect(typeof status[0]!.circuitOpen).toBe('boolean');
+    expect(typeof status[0]!.failures).toBe('number');
+  });
+
+  // ── Sprint J: Prompt Versioning ──
+
+  it('SJ-007: getPromptVersion() returns version string', () => {
+    const version = service.getPromptVersion();
+    expect(typeof version).toBe('string');
+    expect(version.length).toBeGreaterThan(0);
   });
 });

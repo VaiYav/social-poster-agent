@@ -4,7 +4,7 @@
  * Technique: Black-box system testing via HTTP API (Vitest + supertest + @nestjs/testing).
  * Covers STC-026..035, STC-049..052 — sessions, infrastructure, cross-cutting, scenarios.
  *
- * Spec: features/spa/v-model/system-test/system-test-cases.md
+ * Spec: CONSTITUTION.md §14 (Testing) — test case IDs are inline
  * Standard: ISO/IEC/IEEE 29119:2021
  *
  * Real NestJS DI wiring with mocked infrastructure (same pattern as big-bang.integration.spec.ts):
@@ -23,9 +23,27 @@
  */
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { SseEventListener } from '../../src/events/listeners/sse-event.listener';
+import { AutoApproveListener } from '../../src/events/listeners/auto-approve.listener';
+import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service';
+import { NotificationsModule } from '../../src/infrastructure/notifications/notifications.module';
+import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service';
+import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator';
+import { ThreadDepthController } from '../../src/modules/content-enhancements/thread-depth.controller';
+import { ContentPillarTracker } from '../../src/modules/content-enhancements/content-pillar.tracker';
+import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook-performance-bank';
+import { ThreadProgressService } from '../../src/modules/posting/thread-progress.service';
+import { HumanBehaviorEngine } from '../../src/modules/engagement/human-behavior-engine';
+import { TargetingService } from '../../src/modules/engagement/targeting.service';
+import { RepliesMonitorService } from '../../src/modules/replies/replies-monitor.service';
+import { EngagementSchedulerService } from '../../src/modules/engagement/engagement-scheduler.service';
+import { SchedulerRegistry } from '@nestjs/schedule';
+import { MetricsScraperService } from '../../src/modules/analytics/metrics-scraper.service';
 import { Test } from '@nestjs/testing';
 import type { TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import request from 'supertest';
 import { PostStatus, SessionStatus, SocialNetwork } from '@prisma/client';
@@ -46,6 +64,8 @@ import { ContentReader } from '../../src/infrastructure/content/content-reader';
 import { SseService } from '../../src/infrastructure/sse/sse.service';
 import { SseModule } from '../../src/infrastructure/sse/sse.module';
 import { QueueFactory } from '../../src/infrastructure/queue/queue.factory';
+import { EncryptionService } from '../../src/infrastructure/crypto/encryption.service';
+import { TrendingScraperService } from '../../src/modules/trending/trending-scraper.service';
 import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint';
 
 // Modules
@@ -78,6 +98,7 @@ import { AccountsService } from '../../src/modules/accounts/accounts.service';
 import { AccountsController } from '../../src/modules/accounts/accounts.controller';
 import { RateLimitService } from '../../src/modules/rate-limit/rate-limit.service';
 import { GenerationService } from '../../src/modules/generation/generation.service';
+import { clearHookCache } from '../../src/modules/generation/generation.graph';
 import { GenerationController } from '../../src/modules/generation/generation.controller';
 import { CronService } from '../../src/modules/generation/cron.service';
 import { ContentSourceService } from '../../src/modules/content-source/content-source.service';
@@ -85,6 +106,16 @@ import { ContentSourceController } from '../../src/modules/content-source/conten
 import { QueueService } from '../../src/modules/queue/queue.service';
 import { QueueController } from '../../src/modules/queue/queue.controller';
 import { EventsController } from '../../src/modules/events/events.controller';
+// Sprint O: New Features
+import { CaptchaSolverService } from '../../src/infrastructure/captcha/captcha-solver.service';
+import { ProxyRotationService } from '../../src/infrastructure/proxy/proxy-rotation.service';
+import { AnalyticsService } from '../../src/modules/analytics/analytics.service';
+import { AnalyticsController } from '../../src/modules/analytics/analytics.controller';
+import { RecyclingService } from '../../src/modules/recycling/recycling.service';
+import { RecyclingController } from '../../src/modules/recycling/recycling.controller';
+import { QuoteCardService } from '../../src/modules/quote-cards/quote-card.service';
+import { QuoteCardController } from '../../src/modules/quote-cards/quote-card.controller';
+import { RepliesService } from '../../src/modules/replies/replies.service';
 import { HealthController } from '../../src/modules/health/health.controller';
 
 import { createMockLlmPort, createMockBrowserPort, createMockPrismaService } from '../mocks/index';
@@ -263,9 +294,9 @@ vi.mock('@langchain/openai', () => ({
 // ── Metadata restoration (esbuild compatibility) ────────────────────────────
 
 function defineParamtypes(target: unknown, types: unknown[]): void {
-  if (Reflect.getMetadata('design:paramtypes', target) == null) {
-    Reflect.defineMetadata('design:paramtypes', types, target);
-  }
+  // Always set — esbuild doesn't emit design:paramtypes, and we need the
+  // latest constructor signature even if a previous test file set older metadata
+  Reflect.defineMetadata('design:paramtypes', types, target);
 }
 
 function restoreAllDesignParamtypes(): void {
@@ -273,37 +304,48 @@ function restoreAllDesignParamtypes(): void {
   defineParamtypes(LlmService, [ConfigService]);
   defineParamtypes(ContentReader, [ConfigService]);
   defineParamtypes(BrowserFactory, [ConfigService]);
-  defineParamtypes(SseService, [ConfigService]);
-  defineParamtypes(RedisCheckpointSaver, [ConfigService]);
-  defineParamtypes(QueueFactory, [ConfigService]);
+  defineParamtypes(SseService, [ConfigService, Object, Object]);
+  defineParamtypes(RedisCheckpointSaver, [ConfigService, Object]);
+  defineParamtypes(QueueFactory, [ConfigService, DiscordNotificationService]);
+  defineParamtypes(EncryptionService, [ConfigService]);
+  defineParamtypes(DiscordNotificationService, [ConfigService]);
 
   // Module classes with constructor DI
   defineParamtypes(SseModule, [SseService]);
-  defineParamtypes(QueueModule, [QueueFactory, PostingService]);
+  defineParamtypes(QueueModule, [QueueFactory, PostingService, ModuleRef, ConfigService]);
 
   // Accounts
-  defineParamtypes(AccountsService, [PrismaService, ConfigService]);
+  defineParamtypes(AccountsService, [PrismaService, ConfigService, WarmupService]);
   defineParamtypes(AccountsController, [AccountsService]);
 
   // Content source
   defineParamtypes(ContentSourceService, [ContentReader]);
   defineParamtypes(ContentSourceController, [ContentSourceService]);
 
-  // Generation — @Inject(ILlmPort) param is Object (token-based, separate metadata)
+  // Generation — 14 params: 7 required + 7 @Optional()
   defineParamtypes(GenerationService, [
-    Object,
+    Object, // @Inject(ILlmPort)
     ContentSourceService,
     AccountsService,
     PostsService,
     PrismaService,
     RedisCheckpointSaver,
+    SseService,
+    Object, // @Optional() TrendingService
+    Object, // @Optional() TrendingScraperService
+    Object, // @Optional() ContentPillarTracker
+    Object, // @Optional() HookPerformanceBank
+    Object, // @Optional() VisualConceptService
+    Object, // @Optional() ThreadDepthController
+    Object, // @Optional() ABVariantGenerator
   ]);
   defineParamtypes(GenerationController, [GenerationService]);
   defineParamtypes(CronService, [GenerationService, AccountsService, ConfigService]);
 
   // Posts
-  defineParamtypes(PostsService, [PrismaService]);
-  defineParamtypes(PostsController, [PostsService]);
+  defineParamtypes(PostsService, [PrismaService, EventEmitter2]);
+  defineParamtypes(MetricsScraperService, [PrismaService, SseService, Object]);
+  defineParamtypes(PostsController, [PostsService, ModuleRef]);
 
   // Posting — @Inject(IBrowserPort) param is Object
   defineParamtypes(PostingService, [
@@ -314,9 +356,11 @@ function restoreAllDesignParamtypes(): void {
     PostsService,
     RateLimitService,
     SseService,
+    ThreadProgressService,
     XPoster,
     ThreadsPoster,
     FacebookPoster,
+    Object, // @Optional() QueueFactory
   ]);
   defineParamtypes(PostingController, [PostingService]);
   defineParamtypes(FacebookPoster, [Object, ConfigService]); // [IBrowserPort, ConfigService]
@@ -325,27 +369,53 @@ function restoreAllDesignParamtypes(): void {
   defineParamtypes(XEngager, [Object]); // [IBrowserPort]
   defineParamtypes(ThreadsEngager, [Object]); // [IBrowserPort]
   defineParamtypes(FacebookEngager, [Object, ConfigService]); // [IBrowserPort, ConfigService]
-  defineParamtypes(BrowsingSessionService, [PrismaService, SessionsService, Object, ConfigService, SseService, RateLimitService, XEngager, ThreadsEngager, FacebookEngager]);
+  defineParamtypes(BrowsingSessionService, [PrismaService, SessionsService, Object, ConfigService, SseService, RateLimitService, XEngager, ThreadsEngager, FacebookEngager, HumanBehaviorEngine, TargetingService, Object]);
   defineParamtypes(EngagementService, [PrismaService, SessionsService, Object, SseService, RateLimitService, XEngager, ThreadsEngager, FacebookEngager]);
   defineParamtypes(EngagementController, [EngagementService]);
+  defineParamtypes(HumanBehaviorEngine, [PrismaService, Object, SseService, RateLimitService, Object]);
+  defineParamtypes(TargetingService, [ConfigService]);
+  defineParamtypes(EngagementSchedulerService, [ConfigService, QueueFactory]);
 
   // Sessions — @Inject(IBrowserPort) param is Object
-  defineParamtypes(SessionsService, [PrismaService, AccountsService, Object, ConfigService]);
+  defineParamtypes(SessionsService, [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService]);
   defineParamtypes(WarmupService, [PrismaService, ConfigService]);
   defineParamtypes(SessionsController, [SessionsService]);
 
   // Rate limit
-  defineParamtypes(RateLimitService, [ConfigService]);
+  defineParamtypes(RateLimitService, [ConfigService, Object]);
 
   // Events
   defineParamtypes(EventsController, [SseService]);
+  defineParamtypes(AutoApproveListener, [PostsService, PrismaService, ModuleRef, ConfigService]);
+  defineParamtypes(SseEventListener, [SseService]);
 
   // Queue
   defineParamtypes(QueueService, [QueueFactory]);
   defineParamtypes(QueueController, [QueueService]);
 
   // Health
-  defineParamtypes(HealthController, [PrismaService, ConfigService]);
+  defineParamtypes(HealthController, [PrismaService, Object]);
+
+  // Content Enhancements
+  defineParamtypes(VisualConceptService, [ConfigService, Object]);
+  defineParamtypes(ABVariantGenerator, [ConfigService, Object]);
+  defineParamtypes(ThreadDepthController, [ConfigService, Object]);
+  defineParamtypes(ContentPillarTracker, [Object]);
+  defineParamtypes(HookPerformanceBank, [Object, PrismaService]);
+
+  // Replies
+  defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object]);
+  defineParamtypes(RepliesService, [PrismaService, ConfigService, AccountsService]);
+
+  // Sprint O: New Features
+  defineParamtypes(CaptchaSolverService, [ConfigService]);
+  defineParamtypes(ProxyRotationService, [ConfigService]);
+  defineParamtypes(AnalyticsService, [PrismaService]);
+  defineParamtypes(AnalyticsController, [AnalyticsService]);
+  defineParamtypes(RecyclingService, [PrismaService]);
+  defineParamtypes(RecyclingController, [RecyclingService]);
+  defineParamtypes(QuoteCardService, [ConfigService]);
+  defineParamtypes(QuoteCardController, [QuoteCardService]);
 }
 
 // ── Mock helpers ─────────────────────────────────────────────────────────────
@@ -356,7 +426,7 @@ function restoreAllDesignParamtypes(): void {
  */
 function createIntegrationPrismaService() {
   const prisma = createMockPrismaService();
-  (prisma as any).socialAccount = {
+  (prisma as unknown).socialAccount = {
     create: vi.fn(),
     createMany: vi.fn(),
     findUnique: vi.fn(),
@@ -431,16 +501,36 @@ function createMockPage(opts: {
     focus: vi.fn().mockResolvedValue(undefined),
     isVisible: vi.fn().mockResolvedValue(isLoggedIn),
     isEnabled: vi.fn().mockResolvedValue(true),
+    isDisabled: vi.fn().mockResolvedValue(false),
     isHidden: vi.fn().mockResolvedValue(false),
     type: vi.fn().mockResolvedValue(undefined),
     press: vi.fn().mockResolvedValue(undefined),
     pressSequentially: vi.fn().mockResolvedValue(undefined),
+    inputValue: vi.fn().mockResolvedValue('test_x_user'),
+    allTextContents: vi.fn().mockResolvedValue([]),
+    innerText: vi.fn().mockResolvedValue(''),
+    textContent: vi.fn().mockResolvedValue(''),
+    getAttribute: vi.fn().mockResolvedValue(null),
+    count: vi.fn().mockResolvedValue(0),
+    all: vi.fn().mockResolvedValue([]),
+    evaluateAll: vi.fn().mockResolvedValue([]),
+    or: vi.fn().mockReturnThis(),
   };
+  // Separate locator for 2FA/verification selectors — isVisible returns false
+  // so autoLogin doesn't enter the 2FA/verification challenge branch.
+  const hiddenLocator = {
+    ...mockLocator,
+    isVisible: vi.fn().mockResolvedValue(false),
+  };
+  // Selectors that should appear hidden (2FA input, identity verification)
+  const HIDDEN_SELECTOR_PATTERN = /ocfEnterTextTextInput|name="text"/;
 
   return {
     goto: vi.fn().mockResolvedValue(undefined),
     url: vi.fn().mockReturnValue(url),
-    locator: vi.fn().mockReturnValue(mockLocator),
+    locator: vi.fn().mockImplementation((selector: string) =>
+      HIDDEN_SELECTOR_PATTERN.test(selector) ? hiddenLocator : mockLocator,
+    ),
     getByLabel: vi.fn().mockReturnValue(mockLocator),
     getByRole: vi.fn().mockReturnValue(mockLocator),
     getByText: vi.fn().mockReturnValue(mockLocator),
@@ -448,7 +538,17 @@ function createMockPage(opts: {
     click: vi.fn().mockResolvedValue(undefined),
     fill: vi.fn().mockResolvedValue(undefined),
     waitForSelector: vi.fn().mockResolvedValue(undefined),
+    waitForURL: vi.fn().mockResolvedValue(undefined),
+    waitForTimeout: vi.fn().mockResolvedValue(undefined),
+    waitForFunction: vi.fn().mockResolvedValue(undefined),
     screenshot: vi.fn().mockResolvedValue(undefined),
+    content: vi.fn().mockResolvedValue('<html></html>'),
+    textContent: vi.fn().mockResolvedValue(''),
+    innerText: vi.fn().mockResolvedValue(''),
+    evaluate: vi.fn().mockResolvedValue(undefined),
+    evaluateAll: vi.fn().mockResolvedValue([]),
+    addInitScript: vi.fn().mockResolvedValue(undefined),
+    on: vi.fn().mockReturnValue(undefined),
     keyboard: {
       type: vi.fn().mockResolvedValue(undefined),
       press: vi.fn().mockResolvedValue(undefined),
@@ -460,13 +560,18 @@ function createMockPage(opts: {
 /**
  * Create a mock browser context with a mock page.
  */
-function createMockContext(page?: ReturnType<typeof createMockPage>) {
+function createMockContext(
+  page?: ReturnType<typeof createMockPage>,
+  opts: { cookies?: Array<{ name: string; value: string; domain: string; expires?: number }> } = {},
+) {
   const p = page ?? createMockPage();
   return {
     newPage: vi.fn().mockResolvedValue(p),
     close: vi.fn().mockResolvedValue(undefined),
     storageState: vi.fn().mockResolvedValue({ cookies: [], origins: [] }),
     pages: vi.fn().mockReturnValue([p]),
+    cookies: vi.fn().mockResolvedValue(opts.cookies ?? []),
+    addCookies: vi.fn().mockResolvedValue(undefined),
     _mockPage: p,
   };
 }
@@ -661,7 +766,16 @@ async function buildFullAppModule(): Promise<FullAppResult> {
     .useValue(mockThreadsPoster)
     .overrideProvider(FacebookPoster)
     .useValue(mockFacebookPoster)
-    .compile();
+    .overrideProvider(EncryptionService)
+    .useValue({ encrypt: (data: unknown) => data, decrypt: (data: string) => data, isEnabled: () => false })
+    .overrideProvider(TrendingScraperService)
+    .useValue({
+      getGoogleTrends: () => Promise.resolve([]),
+      getXTrends: () => Promise.resolve([]),
+      getMergedTrends: () => Promise.resolve([]),
+      getCacheStatus: () => Promise.resolve({ googleTrends: null, xTrends: null }),
+    })
+    .overrideProvider(SseEventListener).useValue({ handleDraftGenerated: () => {}, handleApproved: () => {}, handlePostingStarted: () => {}, handlePosted: () => {}, handleFailed: () => {} }).compile();
 
   return { moduleRef, prisma, browserPort, contentReader, queueFactory, mockXPoster, mockThreadsPoster, mockFacebookPoster };
 }
@@ -722,6 +836,8 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
     vi.clearAllMocks();
     // Clear shared Redis store.
     sharedRedisStore.clear();
+    // Clear hook cache — previous tests may have cached hooks
+    clearHookCache();
   });
 
   // ── STC-026: GET /sessions returns all sessions with status and lastHealthCheck ──
@@ -743,7 +859,7 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
     expect(res.body).toHaveLength(3);
 
     // Assert: each session has id, status, lastHealthCheck, accountId.
-    const statuses = res.body.map((s: any) => s.status);
+    const statuses = res.body.map((s: unknown) => s.status);
     expect(statuses).toContain('ACTIVE');
     expect(statuses).toContain('EXPIRED');
     expect(statuses).toContain('ERROR');
@@ -769,9 +885,15 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
     prisma.session.update.mockResolvedValue({});
 
     // Arrange: mock browser returns a page where URL is NOT a login page (session valid).
+    // Provide auth cookies for deep health check (auth_token + ct0 for X).
     const validPage = createMockPage({ url: 'https://x.com/home', isLoggedIn: true });
-    const validContext = createMockContext(validPage);
-    browserPort.createContext.mockResolvedValue(validContext);
+    const validContext = createMockContext(validPage, {
+      cookies: [
+        { name: 'auth_token', value: 'test-auth-token', domain: '.x.com' },
+        { name: 'ct0', value: 'test-ct0', domain: '.x.com' },
+      ],
+    });
+    browserPort.acquireContext.mockResolvedValue(validContext);
     browserPort.randomDelay.mockResolvedValue(undefined);
 
     // Act: POST /api/v1/sessions/health-check?network=X
@@ -784,9 +906,9 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
     expect(res.body.healthy).toBe(true);
     expect(res.body.message).toContain('active');
 
-    // Assert: browser.createContext called with network + storageState.
-    expect(browserPort.createContext).toHaveBeenCalledTimes(1);
-    const [networkArg] = browserPort.createContext.mock.calls[0];
+    // Assert: browser.acquireContext called with network + storageState.
+    expect(browserPort.acquireContext).toHaveBeenCalledTimes(1);
+    const [networkArg] = browserPort.acquireContext.mock.calls[0];
     expect(networkArg).toBe(SocialNetwork.X);
 
     // Assert: page.goto called with X.com home URL.
@@ -796,7 +918,7 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
     // Assert: prisma.session.update called to update lastHealthCheck.
     const updateCalls = prisma.session.update.mock.calls;
     const lastHealthCheckUpdate = updateCalls.find(
-      (c: any[]) => c[0]?.data?.lastHealthCheck,
+      (c: unknown[]) => c[0]?.data?.lastHealthCheck,
     );
     expect(lastHealthCheckUpdate).toBeDefined();
     expect(lastHealthCheckUpdate[0].where.id).toBe(ACTIVE_SESSION_X.id);
@@ -822,6 +944,7 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
     const loginPage = createMockPage({ url: 'https://x.com/home', isLoggedIn: true });
     const loginContext = createMockContext(loginPage);
     browserPort.createContext.mockResolvedValue(loginContext);
+    browserPort.acquireContext.mockResolvedValue(loginContext);
     browserPort.saveStorageState.mockResolvedValue(
       JSON.stringify({ cookies: [{ name: 'auth', value: 'new-token', domain: '.x.com', path: '/' }], origins: [] }),
     );
@@ -847,14 +970,15 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
 
     // Assert: page.goto was called with the X.com login URL.
     const gotoCalls = loginPage.goto.mock.calls;
-    const loginGoto = gotoCalls.find((c: any[]) => c[0]?.includes('login'));
+    const loginGoto = gotoCalls.find((c: unknown[]) => c[0]?.includes('login'));
     expect(loginGoto).toBeDefined();
 
-    // Assert: locator.pressSequentially was called with username and password from env.
-    const typeCalls = loginPage._mockLocator.pressSequentially.mock.calls;
-    expect(typeCalls.length).toBeGreaterThanOrEqual(2);
-    // The pressSequentially calls should include the env credential values.
-    const typedValues = typeCalls.map((c: any[]) => c[0]);
+    // Assert: browserPort.typeHuman was called with username and password from env.
+    // (X uses typeHuman → pressSequentially per-char for React-controlled inputs, not fill())
+    const typeHumanCalls = browserPort.typeHuman.mock.calls;
+    expect(typeHumanCalls.length).toBeGreaterThanOrEqual(2);
+    // typeHuman(page, text, locator) — second arg is the text typed
+    const typedValues = typeHumanCalls.map((c: unknown[]) => c[1]);
     expect(typedValues).toContain('test_x_user');
     expect(typedValues).toContain('test_x_pass');
 
@@ -880,7 +1004,7 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
     // Arrange: mock browser + poster for successful posting.
     const postPage = createMockPage({ url: 'https://x.com/myzodiacai/status/999' });
     const postContext = createMockContext(postPage);
-    browserPort.createContext.mockResolvedValue(postContext);
+    browserPort.acquireContext.mockResolvedValue(postContext);
     const savedState = JSON.stringify({
       cookies: [{ name: 'auth', value: 'fresh-token', domain: '.x.com', path: '/', expires: 1234567890 }],
       origins: [{ origin: 'https://x.com', localStorage: [{ name: 'token', value: 'abc' }] }],
@@ -903,7 +1027,7 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
     // Assert: prisma.session.update called with storageState data.
     const sessionUpdateCalls = prisma.session.update.mock.calls;
     const storageStateUpdate = sessionUpdateCalls.find(
-      (c: any[]) => c[0]?.data?.storageState,
+      (c: unknown[]) => c[0]?.data?.storageState,
     );
     expect(storageStateUpdate).toBeDefined();
     expect(storageStateUpdate[0].data.status).toBe(SessionStatus.ACTIVE);
@@ -974,12 +1098,12 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
     // Assert: request fails (rate limit error → 500 from unhandled throw).
     expect(res.status).toBe(500);
 
-    // Assert: browser.createContext NOT called (rate limit blocked before posting).
-    expect(browserPort.createContext).not.toHaveBeenCalled();
+    // Assert: browser.acquireContext NOT called (rate limit blocked before posting).
+    expect(browserPort.acquireContext).not.toHaveBeenCalled();
 
     // Assert: post status NOT updated to POSTING (rate limit check is before status update).
     const postingUpdate = prisma.post.update.mock.calls.find(
-      (c: any[]) => c[0]?.data?.status === PostStatus.POSTING,
+      (c: unknown[]) => c[0]?.data?.status === PostStatus.POSTING,
     );
     expect(postingUpdate).toBeUndefined();
 
@@ -1221,7 +1345,7 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
 
     const validPage = createMockPage({ url: 'https://x.com/home', isLoggedIn: true });
     const validContext = createMockContext(validPage);
-    browserPort.createContext.mockResolvedValue(validContext);
+    browserPort.acquireContext.mockResolvedValue(validContext);
     browserPort.randomDelay.mockResolvedValue(undefined);
 
     // Act: trigger health check (accesses session data with storageState).
@@ -1305,7 +1429,7 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
     expect(allDbText).not.toMatch(/sk-[a-zA-Z0-9]{20,}/);
 
     // Assert: storageState contains browser cookies only, not passwords.
-    const storageState = ACTIVE_SESSION_X.storageState as any;
+    const storageState = ACTIVE_SESSION_X.storageState as unknown;
     expect(storageState).toHaveProperty('cookies');
     expect(Array.isArray(storageState.cookies)).toBe(true);
     const storageJson = JSON.stringify(storageState);
@@ -1487,7 +1611,7 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
 
     // Assert: prisma.post.update called with APPROVED status + approvedAt.
     const approveUpdate = prisma.post.update.mock.calls.find(
-      (c: any[]) => c[0]?.data?.status === PostStatus.APPROVED,
+      (c: unknown[]) => c[0]?.data?.status === PostStatus.APPROVED,
     );
     expect(approveUpdate).toBeDefined();
     expect(approveUpdate[0].data.approvedAt).toBeDefined();
@@ -1505,7 +1629,7 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
     // Mock browser + poster for successful posting.
     const postPage = createMockPage({ url: 'https://x.com/myzodiacai/status/051' });
     const postContext = createMockContext(postPage);
-    browserPort.createContext.mockResolvedValue(postContext);
+    browserPort.acquireContext.mockResolvedValue(postContext);
     browserPort.saveStorageState.mockResolvedValue(
       JSON.stringify({ cookies: [], origins: [] }),
     );
@@ -1527,20 +1651,20 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
 
     // Assert: SSE POSTING event published.
     const postingEvent = publishSpy.mock.calls.find(
-      (c: any[]) => c[0]?.status === 'POSTING',
+      (c: unknown[]) => c[0]?.status === 'POSTING',
     );
     expect(postingEvent).toBeDefined();
 
     // Assert: SSE POSTED event published with URL.
     const postedEvent = publishSpy.mock.calls.find(
-      (c: any[]) => c[0]?.status === 'POSTED',
+      (c: unknown[]) => c[0]?.status === 'POSTED',
     );
     expect(postedEvent).toBeDefined();
     expect(postedEvent[0].url).toBeDefined();
 
     // Assert: post status updated to POSTED in DB.
     const postedUpdate = prisma.post.update.mock.calls.find(
-      (c: any[]) => c[0]?.data?.status === PostStatus.POSTED,
+      (c: unknown[]) => c[0]?.data?.status === PostStatus.POSTED,
     );
     expect(postedUpdate).toBeDefined();
     expect(postedUpdate[0].data.postUrl).toBeDefined();
@@ -1590,6 +1714,7 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
     const loginPage = createMockPage({ url: 'https://x.com/home', isLoggedIn: true });
     const loginContext = createMockContext(loginPage);
     browserPort.createContext.mockResolvedValue(loginContext);
+    browserPort.acquireContext.mockResolvedValue(loginContext);
     browserPort.saveStorageState.mockResolvedValue(
       JSON.stringify({
         cookies: [{ name: 'auth', value: 'fresh-052', domain: '.x.com', path: '/' }],
@@ -1608,19 +1733,20 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
 
     // Assert: autoLogin navigated to login page.
     const loginGoto = loginPage.goto.mock.calls.find(
-      (c: any[]) => typeof c[0] === 'string' && c[0].includes('login'),
+      (c: unknown[]) => typeof c[0] === 'string' && c[0].includes('login'),
     );
     expect(loginGoto).toBeDefined();
 
-    // Assert: credentials typed from env (username + password) via pressSequentially.
-    const typeCalls = loginPage._mockLocator.pressSequentially.mock.calls;
-    const typedValues = typeCalls.map((c: any[]) => c[0]);
+    // Assert: credentials typed from env (username + password) via typeHuman.
+    // (X uses typeHuman → pressSequentially per-char for React-controlled inputs, not fill())
+    const typeHumanCalls = browserPort.typeHuman.mock.calls;
+    const typedValues = typeHumanCalls.map((c: unknown[]) => c[1]);
     expect(typedValues).toContain('test_x_user');
     expect(typedValues).toContain('test_x_pass');
 
     // Assert: session created with ACTIVE status + storageState.
     const sessionCreate = prisma.session.create.mock.calls.find(
-      (c: any[]) => c[0]?.data?.status === SessionStatus.ACTIVE,
+      (c: unknown[]) => c[0]?.data?.status === SessionStatus.ACTIVE,
     );
     expect(sessionCreate).toBeDefined();
     expect(sessionCreate[0].data.storageState).toBeDefined();

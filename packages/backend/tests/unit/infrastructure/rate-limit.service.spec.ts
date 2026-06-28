@@ -12,11 +12,6 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock IORedis — RateLimitService creates an instance in onModuleInit()
-vi.mock('ioredis', () => ({
-  default: vi.fn(),
-}));
-
 import { ConfigService } from '@nestjs/config';
 import { RateLimitService } from '../../../src/modules/rate-limit/rate-limit.service';
 import { createMockRedis } from '../../mocks/index';
@@ -51,14 +46,13 @@ describe('RateLimitService (MOD-05 — Infrastructure Adapters)', () => {
     vi.clearAllMocks();
     mockRedis = createMockRedis();
     configService = createMockConfigService();
-    service = new RateLimitService(configService);
-    // Bypass onModuleInit — inject mock redis directly
-    (service as any).redis = mockRedis;
+    // Sprint L: RateLimitService now receives Redis via DI (SHARED_REDIS token)
+    service = new RateLimitService(configService, mockRedis as never);
   });
 
   // ── UTC-075 ──
   it('UTC-075: checkRateLimit() fails open (allowed:true) when Redis not connected', async () => {
-    (service as any).redis = null;
+    (service as unknown).redis = null;
 
     const result = await service.checkRateLimit('X');
 
@@ -141,7 +135,7 @@ describe('RateLimitService (MOD-05 — Infrastructure Adapters)', () => {
     // expire called for daily key with TTL 86400 + 3600 = 90000 (25h)
     expect(mockRedis.expire).toHaveBeenCalled();
     const dailyExpire = mockRedis.expire.mock.calls.find(
-      (c: any[]) => typeof c[0] === 'string' && c[0].includes(':daily:'),
+      (c: unknown[]) => typeof c[0] === 'string' && c[0].includes(':daily:'),
     );
     expect(dailyExpire).toBeDefined();
     expect(dailyExpire![1]).toBe(86400 + 3600);
@@ -155,7 +149,7 @@ describe('RateLimitService (MOD-05 — Infrastructure Adapters)', () => {
 
     // expire should NOT be called for daily key (count > 1)
     const dailyExpire = mockRedis.expire.mock.calls.find(
-      (c: any[]) => typeof c[0] === 'string' && c[0].includes(':daily:'),
+      (c: unknown[]) => typeof c[0] === 'string' && c[0].includes(':daily:'),
     );
     expect(dailyExpire).toBeUndefined();
   });
@@ -181,7 +175,7 @@ describe('RateLimitService (MOD-05 — Infrastructure Adapters)', () => {
 
     expect(mockRedis.set).toHaveBeenCalled();
     const setCall = mockRedis.set.mock.calls.find(
-      (c: any[]) => typeof c[0] === 'string' && c[0].includes(':interval'),
+      (c: unknown[]) => typeof c[0] === 'string' && c[0].includes(':interval'),
     );
     expect(setCall).toBeDefined();
     expect(setCall![0]).toContain('spa:ratelimit:X:interval');
@@ -192,7 +186,7 @@ describe('RateLimitService (MOD-05 — Infrastructure Adapters)', () => {
 
   // ── UTC-085 ──
   it('UTC-085: recordPost() does nothing when Redis not connected', async () => {
-    (service as any).redis = null;
+    (service as unknown).redis = null;
 
     await service.recordPost('X');
 
@@ -201,7 +195,7 @@ describe('RateLimitService (MOD-05 — Infrastructure Adapters)', () => {
 
   // ── UTC-086 ──
   it('UTC-086: getStatus() returns zeroed values when Redis not connected', async () => {
-    (service as any).redis = null;
+    (service as unknown).redis = null;
 
     const status = await service.getStatus('X');
 

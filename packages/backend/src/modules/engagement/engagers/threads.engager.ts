@@ -86,4 +86,25 @@ export class ThreadsEngager extends BaseEngager {
     await this.navigate(page, THREADS_SELECTORS.feed.url);
     return this.doScrollFeed(page, durationSec, THREADS_SELECTORS.feed.postLink);
   }
+
+  /**
+   * Extract the visible text content of a Threads post.
+   */
+  async extractPostText(page: Page, postUrl: string): Promise<{ text: string; hasMedia: boolean; authorHandle?: string }> {
+    return this.doExtractPostText(page, postUrl, THREADS_SELECTORS.profile.postText, {
+      css: ['div[role="article"] img', 'video'],
+    });
+  }
+
+  /**
+   * Open the comments thread of a Threads post to read replies.
+   */
+  async openCommentsThread(page: Page, postUrl: string): Promise<number> {
+    return this.doOpenCommentsThread(
+      page,
+      postUrl,
+      THREADS_SELECTORS.engagement.reply,
+      { css: ['div[role="article"]', 'article'] },
+    );
+  }
 }

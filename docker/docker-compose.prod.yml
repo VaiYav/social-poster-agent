@@ -1,5 +1,8 @@
 # SPA Production Docker Compose
 # Usage: docker compose -f docker/docker-compose.prod.yml up -d
+#
+# Env vars: copy .env.example to .env and fill in real credentials.
+# All ${VAR:-default} references resolve from .env or shell environment.
 
 services:
   postgres:
@@ -11,13 +14,19 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-spa_dev}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    # No ports exposed — internal-only (backend connects via docker network)
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U spa"]
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 256M
 
   redis:
     image: redis:7-alpine
@@ -25,13 +34,19 @@ services:
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
-    ports:
-      - "6381:6379"
+    # No ports exposed — internal-only (backend connects via docker network)
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
 
   backend:
     build:
@@ -43,25 +58,27 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    env_file:
+      - ../.env
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://spa:${POSTGRES_PASSWORD:-spa_dev}@postgres:5432/spa
       REDIS_URL: redis://redis:6379
+      # Ports (override from .env if needed)
+      PORT: "3100"
       SPA_API_PORT: "3100"
       SPA_UI_PORT: "3101"
-      # LLM
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
-      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
-      # Social accounts
-      X_USERNAME: ${X_USERNAME:-}
-      X_PASSWORD: ${X_PASSWORD:-}
-      THREADS_USERNAME: ${THREADS_USERNAME:-}
-      THREADS_PASSWORD: ${THREADS_PASSWORD:-}
-      FACEBOOK_USERNAME: ${FACEBOOK_USERNAME:-}
-      FACEBOOK_PASSWORD: ${FACEBOOK_PASSWORD:-}
-      # Cron
+      # Content paths (mounted volume for blog/brief/topics)
+      BLOG_DIR: ${BLOG_DIR:-/data/blog}
+      BRIEF_DIR: ${BRIEF_DIR:-/data/briefs}
+      TOPICS_DIR: ${TOPICS_DIR:-/data/topics}
+      CREATE_RUNS_DIR: ${CREATE_RUNS_DIR:-/data/runs}
+      # Quote cards output — writable volume (content mount is read-only)
+      QUOTE_CARDS_DIR: ${QUOTE_CARDS_DIR:-/app/quote-cards}
+      # Session encryption (P0-H3) — REQUIRED in production! Generate with: openssl rand -hex 32
+      # If empty, storageState is stored in plaintext (NOT recommended for production)
+      SESSION_ENCRYPTION_KEY: ${SESSION_ENCRYPTION_KEY:-}
+      # Cron schedules
       CRON_GENERATION_SCHEDULE: ${CRON_GENERATION_SCHEDULE:-0 9,21 * * *}
       HEALTH_MONITOR_SCHEDULE: ${HEALTH_MONITOR_SCHEDULE:-0 * * * *}
       RECONCILIATION_SCHEDULE: ${RECONCILIATION_SCHEDULE:-30 * * * *}
@@ -70,12 +87,29 @@ services:
       RATE_LIMIT_THREADS_MAX_PER_DAY: ${RATE_LIMIT_THREADS_MAX_PER_DAY:-1}
       RATE_LIMIT_FACEBOOK_MAX_PER_DAY: ${RATE_LIMIT_FACEBOOK_MAX_PER_DAY:-1}
       RATE_LIMIT_MIN_DELAY_MS: ${RATE_LIMIT_MIN_DELAY_MS:-3600000}
+      # BullMQ
+      BULLMQ_CONCURRENCY_PER_QUEUE: ${BULLMQ_CONCURRENCY_PER_QUEUE:-1}
+      BULLMQ_MAX_RETRIES: ${BULLMQ_MAX_RETRIES:-3}
+      BULLMQ_RETRY_DELAY_MS: ${BULLMQ_RETRY_DELAY_MS:-60000}
       # Sentry
       SENTRY_DSN: ${SENTRY_DSN:-}
+      # Feature flags
+      ENGAGEMENT_ENABLED: ${ENGAGEMENT_ENABLED:-false}
     ports:
       - "3100:3100"
     volumes:
       - browser_data:/app/.cache/ms-playwright
+      - ${CONTENT_DIR:-../content}:/data:ro
+      # Quote cards output — writable (content mount is read-only)
+      - quote_cards:/app/quote-cards
+    # Sprint N: Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
+          memory: 512M
 
   ui:
     build:
@@ -86,8 +120,15 @@ services:
       - backend
     ports:
       - "3101:3101"
+    # Sprint N: Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
 
 volumes:
   postgres_data:
   redis_data:
   browser_data:
+  quote_cards:

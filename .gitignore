@@ -9,6 +9,11 @@ dist/
 .env
 .env.local
 .env.*.local
+.env.bak
+.env.before*
+.env.*.bak
+packages/backend/.env
+packages/backend/.env.*
 
 # Browser sessions (cookies, storage state)
 .sessions/
@@ -48,3 +53,7 @@ packages/backend/node_modules/
 # Shared
 packages/shared/dist/
 packages/shared/node_modules/
+
+# AI/agent tool artifacts
+.serena/
+graphify-out/

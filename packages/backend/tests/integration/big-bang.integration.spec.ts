@@ -13,7 +13,7 @@
  *   ITC-020 — Posting → Browser + SSE (full posting flow: browser context → post → SSE events)
  *   ITC-035 — CLS + RedactInterceptor together (correlationId in logs + redacted data)
  *
- * Spec: features/spa/v-model/integration-test/integration-test-cases.md
+ * Spec: CONSTITUTION.md §14 (Testing) — test case IDs are inline
  * Standard: ISO/IEC/IEEE 29119:2021
  *
  * Real NestJS DI wiring with mocked infrastructure:
@@ -36,8 +36,10 @@ import 'reflect-metadata';
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { TestingModule } from '@nestjs/testing';
-import { INestApplication, Controller, Get, Logger } from '@nestjs/common';
+import { INestApplication, Controller, Get, Logger } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { SchedulerRegistry } from '@nestjs/schedule';
 import request from 'supertest';
 import { ClsService } from 'nestjs-cls';
 import { PostStatus, SessionStatus, SocialNetwork } from '@prisma/client';
@@ -52,6 +54,7 @@ import { BrowserFactory } from '../../src/infrastructure/browser/browser.factory
 import { LlmService } from '../../src/infrastructure/llm/llm.service';
 import { ContentReader } from '../../src/infrastructure/content/content-reader';
 import { SseService } from '../../src/infrastructure/sse/sse.service';
+import { EncryptionService } from '../../src/infrastructure/crypto/encryption.service.js';
 import { SseModule } from '../../src/infrastructure/sse/sse.module';
 import { QueueFactory } from '../../src/infrastructure/queue/queue.factory';
 import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint';
@@ -66,6 +69,8 @@ import { PrismaModule } from '../../src/infrastructure/prisma/prisma.module';
 
 // Services
 import { PostingService } from '../../src/modules/posting/posting.service';
+import { ThreadProgressService } from '../../src/modules/posting/thread-progress.service';
+import { EventEmitter2, EventEmitterModule } from '@nestjs/event-emitter';
 import { PostingController } from '../../src/modules/posting/posting.controller';
 import { XPoster } from '../../src/modules/posting/posters/x.poster';
 import { ThreadsPoster } from '../../src/modules/posting/posters/threads.poster';
@@ -87,6 +92,8 @@ import { QueueService } from '../../src/modules/queue/queue.service';
 import { QueueController } from '../../src/modules/queue/queue.controller';
 import { QueueModule } from '../../src/modules/queue/queue.module';
 import { EventsController } from '../../src/modules/events/events.controller';
+import { AutoApproveListener } from '../../src/events/listeners/auto-approve.listener';
+import { SseEventListener } from '../../src/events/listeners/sse-event.listener';
 import { HealthController } from '../../src/modules/health/health.controller';
 import { EngagementService } from '../../src/modules/engagement/engagement.service';
 import { EngagementController } from '../../src/modules/engagement/engagement.controller';
@@ -95,7 +102,37 @@ import { XEngager } from '../../src/modules/engagement/engagers/x.engager';
 import { ThreadsEngager } from '../../src/modules/engagement/engagers/threads.engager';
 import { FacebookEngager } from '../../src/modules/engagement/engagers/facebook.engager';
 
+// Sprint O: New Features
+import { CaptchaSolverService } from '../../src/infrastructure/captcha/captcha-solver.service';
+import { ProxyRotationService } from '../../src/infrastructure/proxy/proxy-rotation.service';
+import { AnalyticsService } from '../../src/modules/analytics/analytics.service';
+import { AnalyticsController } from '../../src/modules/analytics/analytics.controller';
+import { MetricsScraperService } from '../../src/modules/analytics/metrics-scraper.service';
+import { RecyclingService } from '../../src/modules/recycling/recycling.service';
+import { RecyclingController } from '../../src/modules/recycling/recycling.controller';
+import { QuoteCardService } from '../../src/modules/quote-cards/quote-card.service';
+import { QuoteCardController } from '../../src/modules/quote-cards/quote-card.controller';
+import { RepliesService } from '../../src/modules/replies/replies.service';
+import { RepliesMonitorService } from '../../src/modules/replies/replies-monitor.service';
+import { HumanBehaviorEngine } from '../../src/modules/engagement/human-behavior-engine';
+import { TargetingService } from '../../src/modules/engagement/targeting.service';
+import { EngagementSchedulerService } from '../../src/modules/engagement/engagement-scheduler.service';
+import { FlowControlService } from '../../src/modules/flow-control/flow-control.service';
+import { FlowControlController } from '../../src/modules/flow-control/flow-control.controller';
+import { AutoCheckService } from '../../src/modules/autonomy/auto-check.service';
+import { AutoApproveService } from '../../src/modules/autonomy/auto-approve.service';
+import { AutonomousRunnerService } from '../../src/modules/autonomy/autonomous-runner.service';
+import { TrendingScraperService } from '../../src/modules/trending/trending-scraper.service';
+import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service';
+import { NotificationsModule } from '../../src/infrastructure/notifications/notifications.module';
+import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service';
+import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator';
+import { ThreadDepthController } from '../../src/modules/content-enhancements/thread-depth.controller';
+import { ContentPillarTracker } from '../../src/modules/content-enhancements/content-pillar.tracker';
+import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook-performance-bank';
+
 import { createMockLlmPort, createMockBrowserPort, createMockPrismaService } from '../mocks/index';
+import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER, RedisModule } from '../../src/infrastructure/redis/redis.module';
 
 // ── ioredis mock (hoisted) ───────────────────────────────────────────────────
 // A shared Map-backed store so RateLimitService.checkRateLimit / recordPost
@@ -254,9 +291,9 @@ vi.mock('@langchain/openai', () => ({
 // class that has constructor DI so @nestjs/testing can wire the FULL AppModule.
 
 function defineParamtypes(target: unknown, types: unknown[]): void {
-  if (Reflect.getMetadata('design:paramtypes', target) == null) {
-    Reflect.defineMetadata('design:paramtypes', types, target);
-  }
+  // Always set — esbuild doesn't emit design:paramtypes, and we need the
+  // latest constructor signature even if a previous test file set older metadata
+  Reflect.defineMetadata('design:paramtypes', types, target);
 }
 
 function restoreAllDesignParamtypes(): void {
@@ -264,37 +301,47 @@ function restoreAllDesignParamtypes(): void {
   defineParamtypes(LlmService, [ConfigService]);
   defineParamtypes(ContentReader, [ConfigService]);
   defineParamtypes(BrowserFactory, [ConfigService]);
-  defineParamtypes(SseService, [ConfigService]);
-  defineParamtypes(RedisCheckpointSaver, [ConfigService]);
-  defineParamtypes(QueueFactory, [ConfigService]);
+  defineParamtypes(SseService, [ConfigService, Object, Object]);
+  defineParamtypes(RedisCheckpointSaver, [ConfigService, Object]);
+  defineParamtypes(QueueFactory, [ConfigService, DiscordNotificationService]);
+  defineParamtypes(EncryptionService, [ConfigService]);
+  defineParamtypes(DiscordNotificationService, [ConfigService]);
 
   // Module classes with constructor DI
   defineParamtypes(SseModule, [SseService]);
-  defineParamtypes(QueueModule, [QueueFactory, PostingService]);
+  defineParamtypes(QueueModule, [QueueFactory, PostingService, ModuleRef, ConfigService]);
 
   // Accounts
-  defineParamtypes(AccountsService, [PrismaService, ConfigService]);
+  defineParamtypes(AccountsService, [PrismaService, ConfigService, WarmupService]);
   defineParamtypes(AccountsController, [AccountsService]);
 
   // Content source
   defineParamtypes(ContentSourceService, [ContentReader]);
   defineParamtypes(ContentSourceController, [ContentSourceService]);
 
-  // Generation — @Inject(ILlmPort) param is Object (token-based, separate metadata)
+  // Generation — 14 params: 7 required + 7 @Optional()
   defineParamtypes(GenerationService, [
-    Object,
+    Object, // @Inject(ILlmPort)
     ContentSourceService,
     AccountsService,
     PostsService,
     PrismaService,
     RedisCheckpointSaver,
+    SseService,
+    Object, // @Optional() TrendingService
+    Object, // @Optional() TrendingScraperService
+    Object, // @Optional() ContentPillarTracker
+    Object, // @Optional() HookPerformanceBank
+    Object, // @Optional() VisualConceptService
+    Object, // @Optional() ThreadDepthController
+    Object, // @Optional() ABVariantGenerator
   ]);
   defineParamtypes(GenerationController, [GenerationService]);
   defineParamtypes(CronService, [GenerationService, AccountsService, ConfigService]);
 
   // Posts
-  defineParamtypes(PostsService, [PrismaService]);
-  defineParamtypes(PostsController, [PostsService]);
+  defineParamtypes(PostsService, [PrismaService, EventEmitter2]);
+  defineParamtypes(PostsController, [PostsService, ModuleRef]);
 
   // Posting — @Inject(IBrowserPort) param is Object
   defineParamtypes(PostingService, [
@@ -305,9 +352,11 @@ function restoreAllDesignParamtypes(): void {
     PostsService,
     RateLimitService,
     SseService,
+    ThreadProgressService,
     XPoster,
     ThreadsPoster,
     FacebookPoster,
+    Object, // @Optional() QueueFactory
   ]);
   defineParamtypes(PostingController, [PostingService]);
   defineParamtypes(XPoster, [Object]); // [IBrowserPort]
@@ -328,6 +377,9 @@ function restoreAllDesignParamtypes(): void {
     XEngager,
     ThreadsEngager,
     FacebookEngager,
+    HumanBehaviorEngine, // HumanBehaviorEngine
+    TargetingService, // TargetingService
+    Object, // @Optional() WarmupService
   ]);
   defineParamtypes(EngagementService, [
     PrismaService,
@@ -342,22 +394,54 @@ function restoreAllDesignParamtypes(): void {
   defineParamtypes(EngagementController, [EngagementService]);
 
   // Sessions — @Inject(IBrowserPort) param is Object
-  defineParamtypes(SessionsService, [PrismaService, AccountsService, Object, ConfigService]);
+  defineParamtypes(SessionsService, [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService]);
   defineParamtypes(WarmupService, [PrismaService, ConfigService]);
   defineParamtypes(SessionsController, [SessionsService]);
 
   // Rate limit
-  defineParamtypes(RateLimitService, [ConfigService]);
+  defineParamtypes(RateLimitService, [ConfigService, Object]);
 
   // Events
   defineParamtypes(EventsController, [SseService]);
+  defineParamtypes(AutoApproveListener, [PostsService, PrismaService, ModuleRef, ConfigService]);
+  defineParamtypes(SseEventListener, [SseService]);
 
   // Queue
   defineParamtypes(QueueService, [QueueFactory]);
   defineParamtypes(QueueController, [QueueService]);
 
   // Health
-  defineParamtypes(HealthController, [PrismaService, ConfigService]);
+  defineParamtypes(HealthController, [PrismaService, Object]);
+
+  // Content Enhancements
+  defineParamtypes(VisualConceptService, [ConfigService, Object]); // @Optional() ILlmPort
+  defineParamtypes(ABVariantGenerator, [ConfigService, Object]); // @Optional() ILlmPort
+  defineParamtypes(ThreadDepthController, [ConfigService, Object]); // @Optional() ILlmPort
+  defineParamtypes(ContentPillarTracker, [Object]); // @Inject(SHARED_REDIS)
+  defineParamtypes(HookPerformanceBank, [Object, PrismaService]); // @Inject(SHARED_REDIS), @Optional() Prisma
+
+  // Sprint O: New Features
+  defineParamtypes(CaptchaSolverService, [ConfigService]);
+  defineParamtypes(ProxyRotationService, [ConfigService]);
+  defineParamtypes(AnalyticsService, [PrismaService]);
+  defineParamtypes(AnalyticsController, [AnalyticsService]);
+  defineParamtypes(MetricsScraperService, [PrismaService, SseService, Object]);
+  defineParamtypes(RecyclingService, [PrismaService]);
+  defineParamtypes(RecyclingController, [RecyclingService]);
+  defineParamtypes(QuoteCardService, [ConfigService]);
+  defineParamtypes(QuoteCardController, [QuoteCardService]);
+  defineParamtypes(RepliesService, [PrismaService, ConfigService]);
+  defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, LlmService, Object, EngagementService]);
+  defineParamtypes(HumanBehaviorEngine, [PrismaService, Object, SseService, RateLimitService, Object]);
+  defineParamtypes(TargetingService, [ConfigService]);
+  defineParamtypes(EngagementSchedulerService, [ConfigService, QueueFactory]);
+
+  // ADR-006: Flow Control & Autonomy
+  defineParamtypes(FlowControlService, [Object, SseService]); // @Inject(SHARED_REDIS), SseService
+  defineParamtypes(FlowControlController, [FlowControlService]);
+  defineParamtypes(AutoCheckService, [ConfigService, PrismaService]);
+  defineParamtypes(AutoApproveService, [ConfigService, PrismaService, SseService, AutoCheckService]);
+  defineParamtypes(AutonomousRunnerService, [ConfigService, PrismaService, SseService, FlowControlService, AutoApproveService, ModuleRef]);
 }
 
 // ── Mock helpers ─────────────────────────────────────────────────────────────
@@ -368,7 +452,7 @@ function restoreAllDesignParamtypes(): void {
  */
 function createIntegrationPrismaService() {
   const prisma = createMockPrismaService();
-  (prisma as any).socialAccount = {
+  (prisma as unknown).socialAccount = {
     create: vi.fn(),
     createMany: vi.fn(),
     findUnique: vi.fn(),
@@ -498,7 +582,7 @@ interface FullAppResult {
  * controllers registered (e.g. TestController for CLS/Redact verification).
  */
 async function buildFullAppModule(
-  extraControllers: Array<new (...args: any[]) => any> = [],
+  extraControllers: Array<new (...args: unknown[]) => unknown> = [],
 ): Promise<FullAppResult> {
   restoreAllDesignParamtypes();
 
@@ -506,6 +590,24 @@ async function buildFullAppModule(
   const llmPort = createMockLlmPort();
   const browserPort = createMockBrowserPort();
   const queueFactory = createMockQueueFactory();
+
+  const mockSharedRedis = {
+    get: vi.fn().mockResolvedValue(null),
+    set: vi.fn().mockResolvedValue('OK'),
+    del: vi.fn().mockResolvedValue(1),
+    ping: vi.fn().mockResolvedValue('PONG'),
+    subscribe: vi.fn().mockResolvedValue(1),
+    unsubscribe: vi.fn().mockResolvedValue(1),
+    on: vi.fn(),
+    publish: vi.fn().mockResolvedValue(1),
+    keys: vi.fn().mockResolvedValue([]),
+    rpush: vi.fn().mockResolvedValue(1),
+    expire: vi.fn().mockResolvedValue(1),
+    incr: vi.fn().mockResolvedValue(1),
+    quit: vi.fn().mockResolvedValue('OK'),
+    disconnect: vi.fn(),
+    connect: vi.fn().mockResolvedValue(undefined),
+  } as unknown;
 
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule],
@@ -519,6 +621,15 @@ async function buildFullAppModule(
     .useValue(browserPort)
     .overrideProvider(QueueFactory)
     .useValue(queueFactory)
+    .overrideProvider(EncryptionService)
+    .useValue({ encrypt: (data: unknown) => JSON.stringify(data), decrypt: (data: string) => JSON.parse(data), isEnabled: () => false, isEncrypted: (s: string) => s.startsWith('v1:') })
+    .overrideProvider(TrendingScraperService)
+    .useValue({
+      getGoogleTrends: vi.fn().mockResolvedValue([]),
+      getXTrends: vi.fn().mockResolvedValue([]),
+      getMergedTrends: vi.fn().mockResolvedValue([]),
+      getCacheStatus: vi.fn().mockResolvedValue({ googleTrends: null, xTrends: null }),
+    })
     .compile();
 
   return { moduleRef, prisma };
@@ -574,9 +685,9 @@ describe('Big-Bang Integration: Full AppModule (ITC-017..020, ITC-035)', () => {
         expect(typeof browser.createContext).toBe('function');
         expect(prisma).toBeDefined();
         expect(prisma.post).toBeDefined();
-        expect((prisma as any).socialAccount).toBeDefined();
+        expect((prisma as unknown).socialAccount).toBeDefined();
         expect(queueFactory).toBeDefined();
-        expect(typeof (queueFactory as any).registerWorker).toBe('function');
+        expect(typeof (queueFactory as unknown).registerWorker).toBe('function');
 
         // Assert: global ClsService is provided by AppClsModule (INT-17).
         const cls = moduleRef.get(ClsService);
@@ -709,12 +820,33 @@ describe('Big-Bang Integration: Full AppModule (ITC-017..020, ITC-035)', () => {
       const mockThreadsPoster = { post: vi.fn().mockResolvedValue({ url: 'https://www.threads.com/@user/post/abc123' }) };
       const mockFacebookPoster = { post: vi.fn().mockResolvedValue({ url: 'https://www.facebook.com/myzodiacai/posts/789' }) };
 
+      const mockSharedRedis = {
+        get: vi.fn().mockResolvedValue(null),
+        set: vi.fn().mockResolvedValue('OK'),
+        del: vi.fn().mockResolvedValue(1),
+        ping: vi.fn().mockResolvedValue('PONG'),
+        subscribe: vi.fn().mockResolvedValue(1),
+        unsubscribe: vi.fn().mockResolvedValue(1),
+        on: vi.fn(),
+        publish: vi.fn().mockResolvedValue(1),
+        keys: vi.fn().mockResolvedValue([]),
+        rpush: vi.fn().mockResolvedValue(1),
+        expire: vi.fn().mockResolvedValue(1),
+        incr: vi.fn().mockResolvedValue(1),
+        quit: vi.fn().mockResolvedValue('OK'),
+        disconnect: vi.fn(),
+        connect: vi.fn().mockResolvedValue(undefined),
+      } as unknown;
+
       const moduleRef = await Test.createTestingModule({
         imports: [
           ConfigModule.forRoot({ isGlobal: true }),
           // PrismaModule is @Global — importing it makes the overridden
           // PrismaService (mock) available to every module in this subset.
           PrismaModule,
+          RedisModule, // Sprint L: Global module — provides SHARED_REDIS tokens via mocked ioredis
+          NotificationsModule, // Global — provides DiscordNotificationService for QueueFactory
+          EventEmitterModule.forRoot(), // EDA: PostsService emits domain events
           PostingModule,
           BrowserModule,
           SseModule,
@@ -760,9 +892,9 @@ describe('Big-Bang Integration: Full AppModule (ITC-017..020, ITC-035)', () => {
         expect(result.success).toBe(true);
         expect(result.url).toBe('https://x.com/user/status/123');
 
-        // Assert: IBrowserPort.createContext called with network + storageState.
-        expect(browserPort.createContext).toHaveBeenCalledTimes(1);
-        const [networkArg, storageStateArg] = browserPort.createContext.mock.calls[0];
+        // Assert: IBrowserPort.acquireContext called with network + storageState.
+        expect(browserPort.acquireContext).toHaveBeenCalledTimes(1);
+        const [networkArg, storageStateArg] = browserPort.acquireContext.mock.calls[0];
         expect(networkArg).toBe(SocialNetwork.X);
         expect(storageStateArg).toBe(JSON.stringify(ACTIVE_SESSION.storageState));
 
@@ -771,7 +903,7 @@ describe('Big-Bang Integration: Full AppModule (ITC-017..020, ITC-035)', () => {
 
         // Assert: SSE POSTING event published before the post.
         const postingEvent = publishSpy.mock.calls.find(
-          (c: any[]) => c[0]?.status === 'POSTING',
+          (c: unknown[]) => c[0]?.status === 'POSTING',
         );
         expect(postingEvent).toBeDefined();
         expect(postingEvent[0]).toMatchObject({
@@ -783,7 +915,7 @@ describe('Big-Bang Integration: Full AppModule (ITC-017..020, ITC-035)', () => {
 
         // Assert: SSE POSTED event published after success, with the URL.
         const postedEvent = publishSpy.mock.calls.find(
-          (c: any[]) => c[0]?.status === 'POSTED',
+          (c: unknown[]) => c[0]?.status === 'POSTED',
         );
         expect(postedEvent).toBeDefined();
         expect(postedEvent[0]).toMatchObject({
@@ -796,23 +928,23 @@ describe('Big-Bang Integration: Full AppModule (ITC-017..020, ITC-035)', () => {
 
         // Assert: correct sequence — POSTING event before POSTED event.
         const postingOrder = publishSpy.mock.invocationCallOrder[
-          publishSpy.mock.calls.findIndex((c: any[]) => c[0]?.status === 'POSTING')
+          publishSpy.mock.calls.findIndex((c: unknown[]) => c[0]?.status === 'POSTING')
         ];
         const postedOrder = publishSpy.mock.invocationCallOrder[
-          publishSpy.mock.calls.findIndex((c: any[]) => c[0]?.status === 'POSTED')
+          publishSpy.mock.calls.findIndex((c: unknown[]) => c[0]?.status === 'POSTED')
         ];
         expect(postingOrder).toBeLessThan(postedOrder);
 
         // Assert: post status updated to POSTED in DB with postUrl.
         const postedUpdate = prisma.post.update.mock.calls.find(
-          (c: any[]) => c[0]?.data?.status === PostStatus.POSTED,
+          (c: unknown[]) => c[0]?.data?.status === PostStatus.POSTED,
         );
         expect(postedUpdate).toBeDefined();
         expect(postedUpdate[0].where.id).toBe('post-020');
         expect(postedUpdate[0].data.postUrl).toBe('https://x.com/user/status/123');
 
-        // Assert: context.close() called (browser context cleaned up).
-        expect(mockContext.close).toHaveBeenCalledTimes(1);
+        // Assert: releaseContext called (context returned to pool, not closed).
+        expect(browserPort.releaseContext).toHaveBeenCalledTimes(1);
       } finally {
         await moduleRef.close();
       }

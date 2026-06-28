@@ -24,4 +24,14 @@ export class PostingController {
   async postAllApproved() {
     return this.postingService.postAllApproved();
   }
+
+  @Post('multi-stage/:rootPostId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'F2: Schedule multi-stage thread posting with delayed continuations (30min apart)' })
+  @ApiParam({ name: 'rootPostId', type: String, description: 'Root post ID (threadPosition=0)' })
+  @ApiResponse({ status: 200, description: 'Scheduling result with scheduled count' })
+  @ApiResponse({ status: 400, description: 'Post is not a thread root' })
+  async scheduleMultiStage(@Param('rootPostId') rootPostId: string) {
+    return this.postingService.scheduleMultiStagePosting(rootPostId);
+  }
 }

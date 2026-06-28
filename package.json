@@ -1,6 +1,6 @@
 {
   "name": "social-poster-agent",
-  "version": "0.4.2",
+  "version": "0.5.2",
   "private": true,
   "description": "Internal social media posting agent for My Zodiac AI — generates and posts content to X.com, Threads, Facebook via browser automation",
   "type": "module",
@@ -29,7 +29,8 @@
     "prisma:generate": "pnpm --filter @spa/backend prisma:generate",
     "prisma:studio": "pnpm --filter @spa/backend prisma:studio",
     "infra:up": "docker compose -f infra/docker-compose.yml up -d",
-    "infra:down": "docker compose -f infra/docker-compose.yml down"
+    "infra:down": "docker compose -f infra/docker-compose.yml down",
+    "dry-run": "pnpm --filter @spa/backend dry-run"
   },
   "devDependencies": {
     "concurrently": "^9.0.0",
