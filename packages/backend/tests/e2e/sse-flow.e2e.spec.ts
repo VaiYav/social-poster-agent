@@ -385,7 +385,7 @@ describe('E2E Sprint D: SSE Real-Time Updates — generate → approve → post'
     // Posts
     defineParamtypes(PostsService, [PrismaService, EventEmitter2]);
     defineParamtypes(MetricsScraperService, [PrismaService, SseService, Object]);
-    defineParamtypes(PostsController, [PostsService, ModuleRef]);
+    defineParamtypes(PostsController, [PostsService, Object]);
 
     // Posting — @Inject(IBrowserPort) param is Object
     defineParamtypes(PostingService, [

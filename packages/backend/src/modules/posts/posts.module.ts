@@ -1,10 +1,13 @@
 import { Module } from '@nestjs/common';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { QueueModule as QueueInfraModule } from '../../infrastructure/queue/queue.module';
 import { PostsService } from './posts.service';
 import { PostsController } from './posts.controller';
 
 @Module({
-  imports: [EventEmitterModule],
+  // A5: QueueInfraModule provides IPostingQueuePort so PostsController can enqueue without the
+  // PostsModule → QueueModule → PostingModule → PostsModule cycle (no ModuleRef hack).
+  imports: [EventEmitterModule, QueueInfraModule],
   providers: [PostsService],
   controllers: [PostsController],
   exports: [PostsService],

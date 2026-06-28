@@ -12,8 +12,10 @@ import {
   BadRequestException,
   ConflictException,
   Logger,
+  Inject,
 } from '@nestjs/common';
-import { ModuleRef } from '@nestjs/core';
+import type { SocialNetwork } from '@prisma/client';
+import { IPostingQueuePort } from '../../domain/ports/posting-queue.port.js';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiParam } from '@nestjs/swagger';
 import { PostsService } from './posts.service';
 import {
@@ -34,24 +36,17 @@ export class PostsController {
 
   constructor(
     private readonly postsService: PostsService,
-    private readonly moduleRef: ModuleRef,
+    @Inject(IPostingQueuePort) private readonly postingQueue: IPostingQueuePort,
   ) {}
 
   /**
-   * P0 fix: Lazily resolve QueueService via ModuleRef to avoid circular dependency.
-   * PostsModule → QueueModule → PostingModule → PostsModule would be circular,
-   * so we don't import QueueModule in PostsModule. Instead, we resolve it at
-   * runtime — it's always available in the AppModule context.
+   * A5: enqueue via IPostingQueuePort (bound in QueueInfraModule). The port breaks the
+   * PostsModule → QueueModule → PostingModule → PostsModule cycle without a ModuleRef hack.
+   * Failures are swallowed — the reconciliation cron re-enqueues APPROVED posts that weren't queued.
    */
   private async enqueueForPosting(postId: string, network: string): Promise<void> {
     try {
-      const { QueueService } = await import('../queue/queue.service.js');
-      const queueService = this.moduleRef.get(QueueService, { strict: false });
-      if (queueService) {
-        await queueService.enqueuePosting(postId, network as 'X' | 'THREADS' | 'FACEBOOK');
-      } else {
-        this.logger.warn(`QueueService not available — post ${postId} approved but not enqueued (will be picked up by reconciliation cron)`);
-      }
+      await this.postingQueue.enqueuePosting(postId, network as SocialNetwork);
     } catch (err) {
       this.logger.error(`Failed to enqueue post ${postId}: ${(err as Error).message}`);
     }

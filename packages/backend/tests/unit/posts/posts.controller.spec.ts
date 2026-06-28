@@ -46,7 +46,8 @@ describe('MOD-02: PostsController', () => {
     };
     controller = new PostsController(
       postsService as unknown as PostsService,
-      moduleRef as unknown as ModuleRef,
+      // A5: PostsController now injects IPostingQueuePort directly (no ModuleRef).
+      queueService as never,
     );
   });
 
@@ -225,14 +226,15 @@ describe('MOD-02: PostsController', () => {
     expect(queueService.enqueuePosting).not.toHaveBeenCalled();
   });
 
-  it('P0-fix: approve() gracefully handles QueueService not available', async () => {
+  it('P0-fix/A5: approve() swallows enqueue failures and still approves', async () => {
     const approvedPost = { ...fixturePost, id: 'post-1', status: 'APPROVED', network: 'X' };
     postsService.approve.mockResolvedValue(approvedPost);
-    moduleRef.get.mockReturnValue(null); // QueueService not registered
+    queueService.enqueuePosting.mockRejectedValue(new Error('queue down')); // port throws
 
-    await controller.approve('post-1', {}); // should not throw
+    const result = await controller.approve('post-1', {}); // should not throw
 
-    expect(queueService.enqueuePosting).not.toHaveBeenCalled();
+    expect(result).toBe(approvedPost);
+    expect(queueService.enqueuePosting).toHaveBeenCalledWith('post-1', 'X');
   });
 
   it('UTC-C-035c: approve() throws NotFoundException when service throws', async () => {

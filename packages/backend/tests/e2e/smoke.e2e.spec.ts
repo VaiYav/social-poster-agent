@@ -377,7 +377,7 @@ describe('E2E Smoke: generate → approve → post', () => {
     // Posts
     defineParamtypes(PostsService, [PrismaService, EventEmitter2]);
     defineParamtypes(MetricsScraperService, [PrismaService, SseService, Object]);
-    defineParamtypes(PostsController, [PostsService, ModuleRef]);
+    defineParamtypes(PostsController, [PostsService, Object]);
 
     // Posting — @Inject(IBrowserPort) param is Object
     defineParamtypes(PostingService, [
