@@ -1,0 +1,59 @@
+name: CI
+
+# Audit D1: a green CI must actually run the FULL backend suite. Before this
+# workflow the repo had no CI at all, which is how 11 broken full-AppModule spec
+# files (esbuild paramtypes drift) shipped undetected. This job runs the whole
+# layered backend suite (unit + integration + system + acceptance + e2e) on
+# every push to a main branch and every PR.
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+
+# A newer push to the same ref cancels the in-flight run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Lint + backend test suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        # Backend `postinstall` runs `prisma generate` (schema-only, no DB
+        # connection needed). The Camoufox browser is NOT downloaded on install:
+        # camoufox-js is absent from pnpm-workspace `allowBuilds`, so pnpm blocks
+        # its postinstall — tests mock the browser anyway.
+        run: pnpm install --frozen-lockfile
+
+      - name: Build @spa/shared
+        # The backend imports the `@spa/shared` package, which resolves through
+        # the workspace symlink to its built `dist/` (there is deliberately no
+        # vitest source alias for `@spa/shared`). The dist must exist before any
+        # test or lint runs.
+        run: pnpm --filter @spa/shared build
+
+      - name: Lint (oxlint)
+        run: pnpm lint
+
+      - name: Backend test suite
+        # `pnpm test` -> `vitest run` in @spa/backend = the full layered suite.
+        # External I/O (Prisma, Redis, browser) is mocked, so no Postgres/Redis
+        # services and no secrets are required.
+        run: pnpm test
