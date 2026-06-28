@@ -3,6 +3,7 @@ import type { BrowserContext, Page } from '../../../domain/ports/browser-primiti
 import { IBrowserPort } from '../../../domain/ports/browser.port.js';
 import { BasePoster, type PostResult } from './base.poster.js';
 import { X_SELECTORS } from './selectors/x.selectors.js';
+import { normalizePermalink } from './permalink.js';
 import { ValidationError } from '../../../domain/errors.js';
 import { parseBool } from '../../../infrastructure/config/parse-bool';
 
@@ -407,9 +408,17 @@ export class XPoster extends BasePoster {
         return { url: postUrl };
       }
 
-      // Can't validate but the post may have succeeded
-      this.logger.warn(`X fallback: posted but could not validate URL`);
-      return { url: currentUrl };
+      // P1: only record a genuine permalink. If we couldn't capture one, do NOT
+      // return the compose/home URL as if it were the post — that's a false POSTED
+      // (pollutes analytics, breaks thread-reply targeting). Mark it failed so
+      // posting self-recovery (verifyPosted against the profile) reconciles it
+      // without creating a duplicate or a bogus "POSTED" row.
+      const fallbackPermalink = normalizePermalink(currentUrl, 'X');
+      if (fallbackPermalink) {
+        return { url: fallbackPermalink };
+      }
+      this.logger.warn(`X fallback: submitted but no permalink captured (${currentUrl}) — leaving for self-recovery`);
+      return { error: 'submitted but permalink not captured — pending self-recovery verification' };
     } catch (err) {
       this.logger.error(`X fallback posting failed: ${(err as Error).message}`);
       return { error: `X fallback failed: ${(err as Error).message}` };
