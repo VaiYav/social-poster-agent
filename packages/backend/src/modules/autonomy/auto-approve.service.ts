@@ -88,8 +88,9 @@ export class AutoApproveService {
       };
     }
 
-    // Run AutoCheck first
-    const checkResult = await this.autoCheck.check(content, network, qualityScore);
+    // Run AutoCheck first (pure content-safety gate — no score floor; the score
+    // decision is owned solely by the band matrix below — A1/BUG-12).
+    const checkResult = await this.autoCheck.check(content, network);
 
     // If AutoCheck fails → always reject regardless of score
     if (!checkResult.passed) {

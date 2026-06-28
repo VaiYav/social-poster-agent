@@ -4,18 +4,22 @@
  * Runs after generation, before auto-approve. A series of synchronous checks
  * that can reject content before it reaches the auto-approve gate.
  *
- * Checks (all must pass for content to proceed):
+ * Content-safety checks (all must pass for content to proceed):
  *   1. Engagement-bait detector (algorithm penalty risk)
  *   2. Character limit per network
  *   3. Forbidden phrases (brand-voice violations)
  *   4. SimHash dedup (near-duplicate of existing content)
- *   5. Quality score threshold (LLM critique score)
  *
  * Each check returns a CheckResult with pass/fail + reason.
  * The overall result is passed if ALL checks pass.
+ *
+ * A1/BUG-12: the LLM quality-score decision is intentionally NOT here — it lives
+ * solely in AutoApproveService.evaluate() (the single decision-gate). A score
+ * floor here previously pre-rejected scores 4-5, making evaluate()'s HUMAN_REVIEW
+ * band [reviewThreshold, approveThreshold) unreachable. AutoCheck is now a pure
+ * binary content-safety gate; score grading is the gate's job, not AutoCheck's.
  */
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { SocialNetwork } from '@prisma/client';
 import { detectEngagementBait } from '../content-enhancements/engagement-bait.detector.js';
 import { simhash, hammingDistance } from '../generation/simhash.js';
@@ -52,28 +56,17 @@ const SIMHASH_THRESHOLD = 3; // Hamming distance ≤ 3 = near-duplicate
 @Injectable()
 export class AutoCheckService {
   private readonly logger = new Logger(AutoCheckService.name);
-  private readonly minQualityScore: number;
 
-  constructor(
-    private readonly configService: ConfigService,
-    private readonly prisma: PrismaService,
-  ) {
-    this.minQualityScore = this.configService.get<number>('AUTO_CHECK_MIN_QUALITY_SCORE', 6);
-  }
+  constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Run all checks on a generated post.
+   * Run all content-safety checks on a generated post.
    *
    * @param content Post text
    * @param network Target network
-   * @param qualityScore LLM quality score (1-10) from critique node
    * @returns AutoCheckResult with per-check details
    */
-  async check(
-    content: string,
-    network: SocialNetwork,
-    qualityScore?: number,
-  ): Promise<AutoCheckResult> {
+  async check(content: string, network: SocialNetwork): Promise<AutoCheckResult> {
     const checks: CheckResult[] = [];
 
     // 1. Engagement-bait check
@@ -115,17 +108,6 @@ export class AutoCheckService {
       passed: !isDup,
       reason: isDup ? 'Near-duplicate of existing content (SimHash distance ≤ 3)' : undefined,
     });
-
-    // 5. Quality score threshold
-    if (qualityScore !== undefined) {
-      checks.push({
-        name: 'quality_score',
-        passed: qualityScore >= this.minQualityScore,
-        reason: qualityScore < this.minQualityScore
-          ? `Quality score ${qualityScore} < minimum ${this.minQualityScore}`
-          : undefined,
-      });
-    }
 
     const passed = checks.every((c) => c.passed);
     const failedChecks = checks.filter((c) => !c.passed);

@@ -54,7 +54,7 @@ export async function restoreSprintOParamtypes(
   // ADR-006 autonomy services (added to the AppModule graph; their paramtypes were missing
   // here, so esbuild-stripped metadata left `configService` undefined → full-app boot failure
   // in system/integration/acceptance/e2e specs — audit D3).
-  defineFn(AutoCheckService, [ConfigService, PrismaService]);
+  defineFn(AutoCheckService, [PrismaService]);
   defineFn(AutoApproveService, [ConfigService, PrismaService, SseService, AutoCheckService]);
   defineFn(AutonomousRunnerService, [ConfigService, PrismaService, SseService, FlowControlService, AutoApproveService, ModuleRef, Object]);
   defineFn(AutoApproveListener, [PostsService, PrismaService, ModuleRef, ConfigService, Object]);

@@ -80,7 +80,9 @@ const envSchema = Joi.object({
   AUTO_APPROVE_MIN_SCORE: Joi.number().integer().min(1).max(10).default(7),
   AUTO_APPROVE_REVIEW_SCORE: Joi.number().integer().min(1).max(10).default(4),
   AUTO_APPROVE_REJECT_STREAK_ALERT: Joi.number().integer().min(1).default(3),
-  AUTO_CHECK_MIN_QUALITY_SCORE: Joi.number().integer().min(1).max(10).default(6),
+  // A1/BUG-12: AUTO_CHECK_MIN_QUALITY_SCORE retired — the score decision lives
+  // solely in AutoApproveService (AUTO_APPROVE_MIN_SCORE / AUTO_APPROVE_REVIEW_SCORE).
+  // A leftover value in the env is harmless (schema allows unknown keys).
 
   // ── Monitoring ──
   SENTRY_DSN: Joi.string().allow('').default(''),
