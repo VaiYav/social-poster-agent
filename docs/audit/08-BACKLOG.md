@@ -27,10 +27,10 @@
 
 ---
 
-## ✅ Статус выполнения (обновлено 2026-06-28)
+## ✅ Статус выполнения (обновлено 2026-06-29)
 
 Отметки ниже = **реально закоммичено** в ветке `fix/a3-remaining-tests`, зелено под `tsc` (`nest build`)
-+ полный backend-сьют (**75 файлов / 1196 тестов**, lint **0 errors**). Источник истины по отдельным
++ полный backend-сьют (**84 файла / 1256 тестов**, lint **0 errors**). Источник истины по отдельным
 фиксам — `git log` + список задач; таблицы ниже размечены по нему, но не претендуют на исчерпывающий
 аудит. Dry-run по отрефакторенным путям подтверждён вручную.
 
@@ -86,6 +86,20 @@ self-recovery через `verifyPosted` по профилю (подтвержд�
 X-fallback (`6645e1e`, step 1a). **Не сделано (осознанно):** сетевой перехват ответа CreateTweet для
 захвата нативного permalink с первой попытки — это оптимизация capture-rate, самый хрупкий (живая форма
 ответа) путь, ROI убывающий.
+
+**SEC3 (prompt-injection):** недоверенный текст коммента (автор+тело) интерполировался прямо в
+LLM-промпт генерации ответа → «ignore your instructions…» мог увести модель и запостить ответ атакующего
+под нашим аккаунтом. Добавлен `sanitizeUntrustedInput` (best-effort defense-in-depth: control-chars,
+quote-breakout, override/role/reprogram-фразы, cap длины; кириллица сохраняется) на границе промпта в
+`replies-monitor` (`f0744ff`, +7 тестов). Best-effort — в паре с delimiting и safety-прелфильтром.
+
+**RP1 (replies блокировал крон):** авто-reply делал inline `await setTimeout(5–30мин)` в цикле крона →
+один цикл с N ответами блокировал мониторинг до N×30мин, а таймеры жили только в процессе (терялись на
+рестарте, не идемпотентны). Переведено на **BullMQ delayed job** (`jobId=commentId` → идемпотентность,
+без дублей даже после рестарта) `f85217b`: `getEngagementJob` как re-entrancy-guard (NEW-коммент с
+джобой в полёте не передопрашивает LLM), ветка `'reply'` в engagement-воркере → `postScheduledReply`
+(re-check cap на исполнении, throw→retry/DLQ). **Без миграции** (guard = сама джоба, не новый статус).
++7 тестов. Inline-постинг остался только как fallback без очереди (юнит-тесты), больше не блокирует.
 
 **Доп. находка вне списка:** `tsc`-сборка была **сломана** (`localhost.guard`, от SEC1; не ловилась —
 vitest транслирует через esbuild без типов, а в CI не было build-шага → `pnpm build`/`pnpm dry-run` не
@@ -184,7 +198,7 @@ HEAD`, независимая верификация на каждую нахо�
 | ✅ AU1 | активный авто-аппрув обходит `AutoCheck` | M | M0 | единый gate (= `A1`) |
 | ✅ SEC1 | XFF обходит LocalhostGuard | S | M0 | доверять XFF только от known-proxy |
 | SEC2 | FB-cookie в плейнтексте `/tmp/spa-profiles` | M | M0/M1 | шифр-том или вынести профиль |
-| RP1 | авто-reply блокирует крон `setTimeout` 5–30мин | M | M1 | в BullMQ delayed (`jobId=commentId`) + re-entrancy guard |
+| ✅ RP1 | авто-reply блокирует крон `setTimeout` 5–30мин | M | M1 | BullMQ delayed (`jobId=commentId`) + re-entrancy guard через `getEngagementJob`, без миграции (`f85217b`) |
 | ✅ P1 | детекция успеха постинга даёт ложные POSTED/FAILED | L | M1 | нормализация есть: сервис `isValidPostUrl`→FAILED (не bogus POSTED) + M1 self-recovery `verifyPosted` по профилю + `permalink.ts` guard (1a, `6645e1e`). Сетевой перехват CreateTweet — опц. оптимизация capture-rate, отложена |
 
 ### High — M1/M2
@@ -205,7 +219,7 @@ HEAD`, независимая верификация на каждую нахо�
 | PO1 | `approve/reject` без валидации перехода | S | M0 |
 | ✅ QC1 | quote-cards: Satori `fonts:[]` | M | M3 |
 | B5/SEC4 | uncaughtException глушится | S | M0 |
-| SEC3 | prompt-injection из трендов/комментов/CAP | M | M2 |
+| ✅ SEC3 | prompt-injection из трендов/комментов/CAP | M | M2 (`f0744ff`) |
 
 ### Medium — M2/M3
 `R2` (TOCTOU rate-limit), `P6` (пул не инвалидируется при пересоздании браузера), `SE2` (race логина),
