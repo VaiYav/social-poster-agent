@@ -26,6 +26,7 @@ export async function restoreSprintOParamtypes(
   const AnalyticsService = (await import('../../src/modules/analytics/analytics.service.js')).AnalyticsService;
   const AnalyticsController = (await import('../../src/modules/analytics/analytics.controller.js')).AnalyticsController;
   const RecyclingService = (await import('../../src/modules/recycling/recycling.service.js')).RecyclingService;
+  const GenerationService = (await import('../../src/modules/generation/generation.service.js')).GenerationService;
   const RecyclingController = (await import('../../src/modules/recycling/recycling.controller.js')).RecyclingController;
   const QuoteCardService = (await import('../../src/modules/quote-cards/quote-card.service.js')).QuoteCardService;
   const QuoteCardController = (await import('../../src/modules/quote-cards/quote-card.controller.js')).QuoteCardController;
@@ -45,7 +46,7 @@ export async function restoreSprintOParamtypes(
   defineFn(AnalyticsService, [PrismaService]);
   defineFn(AnalyticsController, [AnalyticsService]);
   defineFn(MetricsScraperService, [PrismaService, SseService, Object]);
-  defineFn(RecyclingService, [PrismaService]);
+  defineFn(RecyclingService, [PrismaService, GenerationService]);
   defineFn(RecyclingController, [RecyclingService]);
   defineFn(QuoteCardService, [ConfigService]);
   defineFn(QuoteCardController, [QuoteCardService]);

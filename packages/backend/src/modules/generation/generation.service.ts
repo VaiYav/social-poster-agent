@@ -470,6 +470,77 @@ export class GenerationService {
   }
 
   /**
+   * RC3: recycle ONE specific posted post by id — re-writes its content through the
+   * generation graph (NOT a verbatim copy). Marks the original as recycled and returns the
+   * first new draft, or null if the post isn't eligible. Used by RecyclingService so the
+   * manual recycle endpoints can never emit a verbatim 30-day-old duplicate that bypasses
+   * SimHash (the old RecyclingService.recyclePost copied content verbatim and nothing
+   * rewrote it).
+   */
+  async recycleById(postId: string, networks?: SocialNetwork[]): Promise<{ id: string; status: string } | null> {
+    const original = await this.prisma.post.findUnique({
+      where: { id: postId },
+      select: { id: true, content: true, network: true, sourceRef: true, status: true, llmMetadata: true },
+    });
+    if (!original || original.status !== PostStatus.POSTED) {
+      return null;
+    }
+
+    // Mark the original as recycled (idempotent).
+    const metadata = (original.llmMetadata as Record<string, unknown> | null) ?? {};
+    await this.prisma.post.update({
+      where: { id: postId },
+      data: { llmMetadata: { ...metadata, recycled: true, recycledAt: new Date().toISOString() } },
+    });
+
+    const topicStr =
+      original.sourceRef && typeof original.sourceRef === 'object' && 'topic' in original.sourceRef
+        ? String((original.sourceRef as Record<string, unknown>).topic)
+        : original.content.slice(0, 80);
+
+    const targetNetworks = networks ?? [original.network];
+    const brandVoice = await this.loadBrandVoice();
+    const run = await this.prisma.generationRun.create({
+      data: { triggeredBy: GenerationTrigger.MANUAL, sourceTopics: [topicStr] },
+    });
+
+    try {
+      const recycledTopic: ContentTopic = {
+        sourceType: 'topic',
+        path: `recycle://${original.id}`,
+        topic: `${topicStr} (evergreen revival)`,
+        keywords: [],
+        facts: [],
+        category: 'evergreen',
+        publishedAt: new Date(),
+      };
+      const posts = await this.generatePostsForTopic(recycledTopic, targetNetworks, brandVoice, run.id, false);
+      for (const post of posts) {
+        await this.prisma.post.update({
+          where: { id: post.id },
+          data: {
+            sourceRef: {
+              type: 'recycle',
+              originalPostId: original.id,
+              originalTopic: topicStr,
+              recycledAt: new Date().toISOString(),
+            },
+          },
+        });
+      }
+      await this.markRunCompleted(run.id, [topicStr]);
+      this.logger.log(`RC3: recycled post ${postId} → ${posts.length} re-written draft(s) via graph`);
+      return posts[0] ? { id: posts[0].id, status: PostStatus.DRAFT } : null;
+    } catch (err) {
+      await this.prisma.generationRun.update({
+        where: { id: run.id },
+        data: { status: GenerationRunStatus.FAILED, completedAt: new Date(), errorMessage: (err as Error).message },
+      });
+      throw err;
+    }
+  }
+
+  /**
    * Generate posts for a single topic across all target networks.
    * Uses the §10.3 parallel LangGraph workflow — one invocation, 3 posts.
    */
