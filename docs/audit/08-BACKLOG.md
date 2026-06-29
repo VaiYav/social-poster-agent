@@ -164,7 +164,7 @@ HEAD`, независимая верификация на каждую нахо�
 | BUG-6 | тред через home-page fallback теряет ответы (потеря контента) | High | M | M1 | **NEW** |
 | BUG-7 | `makeDecision` затирает весь `llmMetadata` (hook/score/visual) | High | S | M0 | ✅ verified — мёрджит `prevMeta` |
 | BUG-8 | `/health` зависает при Redis down → рестарт пода | High | S | M0 | ✅ done `cdd229f` — `withTimeout` |
-| BUG-9 | resume не восстанавливает `pendingWrites` → повтор/дубли нод | Medium | M | M1 | **NEW** (часть exactly-once) |
+| BUG-9 | resume не восстанавливает `pendingWrites` → повтор/дубли нод | Medium | M | M1 | ✅ done `789fae2` — getTuple грузит writes |
 | BUG-10 | невалидное окно (`NaN`) рушит весь тик планирования | Medium | S | M3 | **NEW** (engagement hardening) |
 | BUG-11 | `BULLMQ_MAX_RETRIES=0` молча → 3 (дубли постов) | Medium | S | M0 | ✅ verified — `parseIntEnv` сохраняет 0 |
 | BUG-12 | полоса HUMAN_REVIEW недостижима (autoCheckMin 6 > review 4) | Medium | S | M1 | ✅ done (= часть `A1`) |
