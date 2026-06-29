@@ -8,7 +8,7 @@ import type {
   ScrollDirection,
   ScreenshotPhase,
 } from '../../domain/ports/browser.port.js';
-import { mkdirSync, existsSync } from 'node:fs';
+import { mkdirSync, existsSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseBool } from '../config/parse-bool.js';
 
@@ -80,6 +80,14 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
     // Persistent browser profiles directory — stores fingerprint + cookies per network
     // Facebook requires this to avoid "suspicious login" challenges on every run
     this.profileDir = this.configService.get<string>('CAMOUFOX_PROFILE_DIR', '/tmp/spa-profiles');
+    // SEC2: the persistent profile stores plaintext auth cookies outside the DB encryption.
+    // /tmp is broadly accessible; in production it must live on a restricted/encrypted volume.
+    if (this.configService.get<string>('NODE_ENV') === 'production' && this.profileDir.startsWith('/tmp/')) {
+      this.logger.warn(
+        `SEC2: CAMOUFOX_PROFILE_DIR is under /tmp (${this.profileDir}) — FB/Threads cookies are stored there in plaintext. ` +
+          'Point it at a restricted, encrypted volume in production.',
+      );
+    }
   }
 
   /**
@@ -155,7 +163,19 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
     // Create profile directory if it doesn't exist
     const profilePath = join(this.profileDir, network.toLowerCase());
     try {
-      mkdirSync(profilePath, { recursive: true });
+      // SEC2: the persistent profile holds plaintext auth cookies (esp. Facebook c_user+xs,
+      // which bypass the DB storageState encryption entirely). Restrict the profile tree to
+      // owner-only (0700) so it isn't exposed via a world-readable /tmp. Real at-rest
+      // encryption still requires an encrypted volume in prod (see CAMOUFOX_PROFILE_DIR doc).
+      mkdirSync(this.profileDir, { recursive: true, mode: 0o700 });
+      mkdirSync(profilePath, { recursive: true, mode: 0o700 });
+      // mkdir mode is masked by umask, so set the perms explicitly (best-effort).
+      try {
+        chmodSync(this.profileDir, 0o700);
+        chmodSync(profilePath, 0o700);
+      } catch {
+        // chmod may fail on some filesystems — non-fatal
+      }
     } catch {
       // directory may already exist
     }

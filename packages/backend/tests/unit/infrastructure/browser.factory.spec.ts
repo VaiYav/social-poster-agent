@@ -158,6 +158,14 @@ describe('BrowserFactory', () => {
     expect(a).toBe(b); // both share the one launched persistent context
   });
 
+  it('SEC2: persistent profile directory is created owner-only (0700) — plaintext cookies not world-readable', async () => {
+    const { statSync } = await import('node:fs');
+    await factory.createContext('FACEBOOK');
+    // CAMOUFOX_PROFILE_DIR is /tmp/spa-profiles-test in the mock config.
+    const mode = statSync('/tmp/spa-profiles-test/facebook').mode & 0o777;
+    expect(mode).toBe(0o700);
+  });
+
   it('UTC-402: createContext(THREADS, storageState) → standard context (not persistent)', async () => {
     // Act
     const ctx = await factory.createContext('THREADS', JSON.stringify({ cookies: [], origins: [] }));
