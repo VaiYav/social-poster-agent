@@ -40,8 +40,28 @@ const REDACT_PATTERN = new RegExp(
   'gi',
 );
 
+// SEC9: value-based redaction — catch secrets that appear in VALUES regardless
+// of the key (key-based redaction above misses e.g. a connection string in an
+// error message, or a token embedded in free text). High-precision patterns
+// ONLY, so legitimate content (post text, UUIDs, SimHash hex) is never mangled.
+const URL_CREDENTIALS = /([a-z][a-z0-9+.-]*:\/\/)[^/@\s]*:[^/@\s]+@/gi;
+const SECRET_VALUE_PATTERNS: RegExp[] = [
+  /\b(?:sk|pk|rk)-[A-Za-z0-9_-]{16,}/g, // OpenAI / Stripe-style keys (incl. sk-proj-)
+  /\bAKIA[0-9A-Z]{16}\b/g, // AWS access key id
+  /\bghp_[A-Za-z0-9]{20,}\b/g, // GitHub personal access token
+  /\bxox[baprs]-[A-Za-z0-9-]{10,}/g, // Slack tokens
+  /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}/g, // JWT header.payload.sig
+  /\bBearer\s+[A-Za-z0-9._-]{12,}/gi, // Authorization: Bearer <token>
+];
+
+function redactSecretValues(str: string): string {
+  let out = str.replace(URL_CREDENTIALS, '$1[REDACTED]@'); // keep scheme+host, mask user:pass
+  for (const re of SECRET_VALUE_PATTERNS) out = out.replace(re, '[REDACTED]');
+  return out;
+}
+
 function redactString(str: string): string {
-  return str.replace(REDACT_PATTERN, '$1"[REDACTED]"');
+  return redactSecretValues(str.replace(REDACT_PATTERN, '$1"[REDACTED]"'));
 }
 
 function redactObject(obj: unknown): unknown {

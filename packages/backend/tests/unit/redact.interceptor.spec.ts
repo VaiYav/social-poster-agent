@@ -129,4 +129,45 @@ describe('RedactInterceptor (MOD-07 — UTC-120..125)', () => {
 
     expect(result).toBeNull();
   });
+
+  // ── SEC9: value-based redaction (secrets under non-secret keys) ──
+
+  it('SEC9 — masks credentials embedded in a connection-string value', async () => {
+    const input = { note: 'connect via redis://:hunter2@cache:6379/0' };
+    const { context, next } = buildMockContextAndHandler(input);
+
+    const result = (await lastValueFrom(interceptor.intercept(context, next))) as { note: string };
+
+    expect(result.note).toContain('redis://[REDACTED]@cache:6379');
+    expect(result.note).not.toContain('hunter2');
+  });
+
+  it('SEC9 — masks API keys / JWT / Bearer tokens in free-text values', async () => {
+    const input = {
+      a: 'my key is sk-proj-ABCDEFGHIJKLMNOPQRSTUV',
+      b: 'jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcDEF123',
+      c: 'Authorization: Bearer abcdef1234567890XYZ',
+    };
+    const { context, next } = buildMockContextAndHandler(input);
+
+    const result = (await lastValueFrom(interceptor.intercept(context, next))) as Record<string, string>;
+
+    expect(result.a).not.toContain('sk-proj-ABCDEFGHIJKLMNOPQRSTUV');
+    expect(result.a).toContain('[REDACTED]');
+    expect(result.b).not.toMatch(/eyJ[A-Za-z0-9_-]+\./);
+    expect(result.c).not.toContain('abcdef1234567890XYZ');
+  });
+
+  it('SEC9 — leaves legitimate content untouched (no false positives)', async () => {
+    const input = {
+      content: 'Mercury retrograde brings reflection — revisit what stalled.',
+      id: '7b1f9c2a-3d4e-4f5a-8b6c-1a2b3c4d5e6f',
+      simhash: 'a1b2c3d4e5f60718',
+    };
+    const { context, next } = buildMockContextAndHandler(input);
+
+    const result = await lastValueFrom(interceptor.intercept(context, next));
+
+    expect(result).toEqual(input);
+  });
 });
