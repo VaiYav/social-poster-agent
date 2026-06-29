@@ -6,6 +6,11 @@ FROM node:22-slim AS builder
 
 WORKDIR /app
 
+# Install build tools for native addons (better-sqlite3 needs node-gyp → python3 + g++)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
