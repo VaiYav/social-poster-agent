@@ -2,7 +2,8 @@
 // See CONSTITUTION.md §7 for domain model
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
@@ -293,4 +294,18 @@ model BrowsingSession {
   @@index([accountId])
   @@index([status])
   @@index([startedAt])
+}
+
+// ============================================================
+// Admin — UI authentication (JWT in httpOnly cookie)
+// Single admin account, bootstrapped from ADMIN_USERNAME/ADMIN_PASSWORD env vars.
+// Password hashed with Node.js crypto.scrypt (no external deps).
+// ============================================================
+
+model Admin {
+  id           String   @id @default(uuid())
+  username     String   @unique
+  passwordHash String   // scrypt hash: "saltHex:hashHex"
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
