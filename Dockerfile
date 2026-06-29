@@ -81,8 +81,9 @@ RUN CLIENT_NM_DIR=$(find /app/node_modules/.pnpm -maxdepth 4 -path '*/@prisma+cl
 
 # Copy better-sqlite3 native binding from builder (--ignore-scripts skips it in prod)
 COPY --from=builder /tmp/better-sqlite3-build /tmp/better-sqlite3-build
-RUN SQLITE3_DIR=$(find /app/node_modules/.pnpm -maxdepth 4 -path '*/better-sqlite3/build' -type d | head -1) && \
-    cp -r /tmp/better-sqlite3-build/* "$SQLITE3_DIR/" && \
+RUN SQLITE3_PKG=$(find /app/node_modules/.pnpm -maxdepth 2 -name 'better-sqlite3@*' -type d | head -1) && \
+    mkdir -p "$SQLITE3_PKG/node_modules/better-sqlite3/build" && \
+    cp -r /tmp/better-sqlite3-build/* "$SQLITE3_PKG/node_modules/better-sqlite3/build/" && \
     rm -rf /tmp/better-sqlite3-build
 
 # Copy brand voice (needed by generation prompts)
