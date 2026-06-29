@@ -30,7 +30,7 @@
 ## ✅ Статус выполнения (обновлено 2026-06-29)
 
 Отметки ниже = **реально закоммичено** в ветке `fix/a3-remaining-tests`, зелено под `tsc` (`nest build`)
-+ полный backend-сьют (**85 файлов / 1269 тестов**, lint **0 errors**). Источник истины по отдельным
++ полный backend-сьют (**85 файлов / 1271 тест**, lint **0 errors**). Источник истины по отдельным
 фиксам — `git log` + список задач; таблицы ниже размечены по нему, но не претендуют на исчерпывающий
 аудит. Dry-run по отрефакторенным путям подтверждён вручную.
 
@@ -187,7 +187,7 @@ HEAD`, независимая верификация на каждую нахо�
 | ✅ BUG-10 | невалидное окно (`NaN`) рушит весь тик планирования | Medium | S | M3 | `parseWindows` валидирует HH:MM + `Number.isFinite`-гарды (`7da57d2`) |
 | BUG-11 | `BULLMQ_MAX_RETRIES=0` молча → 3 (дубли постов) | Medium | S | M0 | ✅ verified — `parseIntEnv` сохраняет 0 |
 | BUG-12 | полоса HUMAN_REVIEW недостижима (autoCheckMin 6 > review 4) | Medium | S | M1 | ✅ done (= часть `A1`) |
-| BUG-13 | `GenerateOptions.maxTokens` игнорируется адаптером | Medium | S | M3 | ≈ `EN5` |
+| ✅ BUG-13 | `GenerateOptions.maxTokens` игнорируется адаптером | Medium | S | M3 | ≈ `EN5`; `model.maxTokens = options.maxTokens ?? -1` (`77cfda8`) |
 
 > **Новое в M0 (Спринт 1):** BUG-1, SEC-2, BUG-5, BUG-7, BUG-8, BUG-11 — мелкие по усилию, но три из
 > них тихо ломают целые фичи (автономия / Threads-постинг / health-probe).
@@ -221,7 +221,7 @@ HEAD`, независимая верификация на каждую нахо�
 | ✅ RC2/RC3 | recycling не запускается / дословный дубль | M | M3 | `recyclePost`→`GenerationService.recycleById` (граф-перепись, не verbatim) + flag-gated крон `RECYCLING_CRON_ENABLED` (`ac06a29`) |
 | ✅ AU3 | двойной enqueue/расхождение решений | S | M0 (часть A1) |
 | ✅ AU5 | trend-guardrail fail-open + injection | M | M3 |
-| PO1 | `approve/reject` без валидации перехода | S | M0 |
+| ✅ PO1 | `approve/reject` без валидации перехода | S | M0 | уже закрыто: `approve()`/`reject()` бросают `ConflictException` при не-DRAFT (verified) |
 | ✅ QC1 | quote-cards: Satori `fonts:[]` | M | M3 |
 | B5/SEC4 | uncaughtException глушится | S | M0 |
 | ✅ SEC3 | prompt-injection из трендов/комментов/CAP | M | M2 (`f0744ff`) |
