@@ -59,13 +59,14 @@ COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/packages/backend/dist ./packages/backend/dist
 COPY --from=builder /app/packages/backend/prisma ./packages/backend/prisma
 
-# Copy generated Prisma client from builder.
-# Prisma 6 generates code to @prisma/client/node_modules/.prisma/client/
-# We copy the entire @prisma/client dir (including its node_modules/.prisma)
-# and also the @prisma+engines and prisma packages needed at runtime.
-COPY --from=builder /app/node_modules/.pnpm/@prisma+client* /app/node_modules/.pnpm/@prisma+client
-COPY --from=builder /app/node_modules/.pnpm/@prisma+engines* /app/node_modules/.pnpm/@prisma+engines
-COPY --from=builder /app/node_modules/.pnpm/prisma* /app/node_modules/.pnpm/prisma
+# Copy generated Prisma client code from builder.
+# Prisma 6 generates to @prisma/client/node_modules/.prisma/client/
+# which is not included in --prod install. We copy just the .prisma dir.
+COPY --from=builder /app/node_modules/.pnpm/@prisma+client*/node_modules/@prisma/client/node_modules/.prisma /tmp/.prisma
+RUN CLIENT_NM_DIR=$(find /app/node_modules/.pnpm -path '*/@prisma/client/node_modules' -type d | head -1) && \
+    mkdir -p "$CLIENT_NM_DIR" && \
+    cp -r /tmp/.prisma "$CLIENT_NM_DIR/" && \
+    rm -rf /tmp/.prisma
 
 # Copy brand voice (needed by generation prompts)
 COPY brand-voice.md ./
