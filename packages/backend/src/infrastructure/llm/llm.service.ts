@@ -408,6 +408,12 @@ export class LlmService implements ILlmPort, OnModuleInit {
           model.temperature = options.temperature;
         }
 
+        // BUG-13: forward the per-call output cap. Previously GenerateOptions.maxTokens was
+        // accepted but silently ignored (only temperature was applied), so a caller capping a
+        // JSON decision at e.g. 100 tokens actually spent far more. Always assign (no-limit is
+        // -1 in ChatOpenAI) so a prior call's cap can't leak through the cached model instance.
+        model.maxTokens = options?.maxTokens ?? -1;
+
         const messages = systemPrompt
           ? [
               { role: 'system' as const, content: systemPrompt },

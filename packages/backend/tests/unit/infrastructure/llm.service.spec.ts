@@ -138,6 +138,29 @@ describe('LlmService (MOD-05 — Infrastructure Adapters)', () => {
     expect(ctorArgs.temperature).toBe(0.7);
   });
 
+  it('BUG-13: generateChat() forwards maxTokens to the model before invoke', async () => {
+    service.onModuleInit();
+    mocks.invoke.mockResolvedValue({ content: 'short' });
+
+    await service.generateChat('system', 'user', { maxTokens: 100 });
+
+    // The cached model the service used is the ctor mock's first return value.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const modelInstance = mocks.ChatOpenAIMock.mock.results[0]!.value as any;
+    expect(modelInstance.maxTokens).toBe(100);
+  });
+
+  it('BUG-13: generateChat() resets maxTokens to no-limit (-1) when not provided (no leak)', async () => {
+    service.onModuleInit();
+    mocks.invoke.mockResolvedValue({ content: 'x' });
+
+    await service.generateChat('system', 'user');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const modelInstance = mocks.ChatOpenAIMock.mock.results[0]!.value as any;
+    expect(modelInstance.maxTokens).toBe(-1);
+  });
+
   it('generateChat() handles string response content', async () => {
     service.onModuleInit();
     mocks.invoke.mockResolvedValue({ content: 'plain string content' });
