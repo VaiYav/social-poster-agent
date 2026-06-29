@@ -23,10 +23,24 @@ import { JwtAuthGuard } from './jwt-auth.guard';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET', 'dev-insecure-secret'),
-        signOptions: { expiresIn: '24h' },
-      }),
+      useFactory: (config: ConfigService) => {
+        const secret = config.get<string>('JWT_SECRET', '') ?? '';
+        // No weak fallback. If AUTH_ENABLED=false the guard is pass-through and
+        // login is effectively unused; if a caller hits /auth/login without a
+        // configured secret, AuthService.login throws (misconfigured) rather
+        // than minting tokens signed with a guessable default.
+        if (!secret) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            '[AuthModule] JWT_SECRET not set — /auth/login will reject credentials. ' +
+              'Set JWT_SECRET (≥32 chars) to enable UI login.',
+          );
+        }
+        return {
+          secret: secret || undefined, // undefined → JwtService throws on sign (fail-safe)
+          signOptions: { expiresIn: '24h' },
+        };
+      },
     }),
   ],
   providers: [AuthService, JwtAuthGuard],

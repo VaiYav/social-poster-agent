@@ -97,7 +97,8 @@ async function bootstrap(): Promise<void> {
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup(swaggerPath, app, document);
 
-  // VPN-only — no auth. UI not exposed publicly.
+  // Auth: AUTH_ENABLED=true gates all routes behind a JWT cookie (see JwtAuthGuard).
+  // When false (default) the API is pass-through (VPN-only / dev / tests).
   Logger.log(`Swagger docs: http://localhost:${port}/${swaggerPath}`, 'Bootstrap');
   Logger.log(`SPA API running on :${port}/${apiPrefix}`, 'Bootstrap');
 

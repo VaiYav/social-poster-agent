@@ -144,6 +144,9 @@ const envSchema = Joi.object({
   REPLIES_DELAY_MIN_MS: Joi.number().integer().min(0).default(300000),
   REPLIES_AUTO_DELAY_MIN_MS: Joi.number().integer().min(0).default(300000),  // 5 min
   REPLIES_AUTO_DELAY_MAX_MS: Joi.number().integer().min(1000).default(1800000), // 30 min
+  REPLIES_CRON_SCHEDULE: Joi.string().default('0 */4 * * *'),
+  REPLIES_LLM_ENABLED: Joi.string().valid('true', 'false').default('true'),
+  REPLIES_AUTO_REPLY_COMPLEXITY: Joi.string().valid('low', 'medium', 'high').default('medium'),
 }).unknown(true); // allow extra env vars (PATH, HOME, etc.)
 
 /**

@@ -92,7 +92,17 @@ export class AuthService implements OnModuleInit {
     }
 
     const payload: JwtPayload = { sub: admin.id, username: admin.username };
-    const token = await this.jwtService.signAsync(payload);
+    let token: string;
+    try {
+      token = await this.jwtService.signAsync(payload);
+    } catch (err) {
+      // signAsync throws when JWT_SECRET is unset/misconfigured (no weak fallback).
+      // Surface a clear 500 instead of crashing the request.
+      this.logger.error(
+        `Failed to sign JWT: ${(err as Error).message}. Set JWT_SECRET (≥32 chars) to enable login.`,
+      );
+      throw new UnauthorizedException('Authentication is misconfigured');
+    }
 
     return {
       token,
