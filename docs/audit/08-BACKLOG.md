@@ -30,7 +30,7 @@
 ## ✅ Статус выполнения (обновлено 2026-06-29)
 
 Отметки ниже = **реально закоммичено** в ветке `fix/a3-remaining-tests`, зелено под `tsc` (`nest build`)
-+ полный backend-сьют (**85 файлов / 1271 тест**, lint **0 errors**). Источник истины по отдельным
++ полный backend-сьют (**85 файлов / 1275 тестов**, lint **0 errors**). Источник истины по отдельным
 фиксам — `git log` + список задач; таблицы ниже размечены по нему, но не претендуют на исчерпывающий
 аудит. Dry-run по отрефакторенным путям подтверждён вручную.
 
@@ -202,7 +202,7 @@ HEAD`, независимая верификация на каждую нахо�
 | ✅ AU2 | авто-аппрув fail-open при отсутствии score | S | M0 | сделано fail-closed (DRAFT) |
 | ✅ AU1 | активный авто-аппрув обходит `AutoCheck` | M | M0 | единый gate (= `A1`) |
 | ✅ SEC1 | XFF обходит LocalhostGuard | S | M0 | доверять XFF только от known-proxy |
-| SEC2 | FB-cookie в плейнтексте `/tmp/spa-profiles` | M | M0/M1 | шифр-том или вынести профиль |
+| 🟡 SEC2 | FB-cookie в плейнтексте `/tmp/spa-profiles` | M | M0/M1 | профиль-дир `chmod 0700` + prod-warning + док `CAMOUFOX_PROFILE_DIR` (`96bbfe6`). **Настоящее at-rest шифрование = шифр-том на уровне ОС** (ops, не код) |
 | ✅ RP1 | авто-reply блокирует крон `setTimeout` 5–30мин | M | M1 | BullMQ delayed (`jobId=commentId`) + re-entrancy guard через `getEngagementJob`, без миграции (`f85217b`) |
 | ✅ P1 | детекция успеха постинга даёт ложные POSTED/FAILED | L | M1 | нормализация есть: сервис `isValidPostUrl`→FAILED (не bogus POSTED) + M1 self-recovery `verifyPosted` по профилю + `permalink.ts` guard (1a, `6645e1e`). Сетевой перехват CreateTweet — опц. оптимизация capture-rate, отложена |
 
@@ -214,7 +214,7 @@ HEAD`, независимая верификация на каждую нахо�
 | ✅ (03) | reaper stuck-POSTING | M | M1 |
 | ✅ P5 | FB один persistent-context — гонки страниц | M | M1 |
 | ✅ P7 | `fullPage`-скриншоты без очистки (disk-leak) | S | M0 |
-| SE1 | auto-login формой синхронно в постинге | M | M2 |
+| ✅ SE1/SE2 | auto-login формой синхронно в постинге | M | M2 | мьютекс логина (SE2) + cookie-first + breaker уже были; добавлен deferral (flag `SESSION_DEFERRED_LOGIN`: постинг не логинится инлайн → out-of-band крон), cooldown формы + Discord-алерт (`5e2c9ef`) |
 | ✅ EN6 | engagement не планируется после дня 1 | S | M3 | = `BUG-2` (ежедневный крон) |
 | ✅ RP2 | `commentId` из обрезанного текста → кириллица коллапсирует | M | M3 |
 | ✅ RP3 | LLM-reply обходит фильтр чувствительных тем | M | M3 |
