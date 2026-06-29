@@ -55,7 +55,13 @@ export interface MergedTrendingTopic {
 // ── Constants ──
 
 const GOOGLE_TRENDS_RSS_URL = 'https://trends.google.com/trending/rss?geo=US';
-const X_TRENDS_URL = 'https://x.com/explore/tabs/trending';
+// X has changed the explore URL multiple times. Try the canonical explore page first,
+// then fall back to the home page sidebar ("What's happening" section).
+const X_TRENDS_URLS = [
+  'https://x.com/explore/tabs/trending',
+  'https://x.com/explore',
+  'https://x.com/home',
+];
 const DEFAULT_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 const X_SCRAPE_TIMEOUT_MS = 30_000; // 30s timeout for X scraping
 const X_TREND_SELECTOR = '[data-testid="trend"]';
@@ -286,12 +292,20 @@ export class TrendingScraperService implements OnModuleInit {
       context = await this.browser.acquireContext('X' as SocialNetwork);
       const page = await context.newPage();
 
-      // Navigate to trending tab
-      await page.goto(X_TRENDS_URL, { waitUntil: 'domcontentloaded', timeout: X_SCRAPE_TIMEOUT_MS });
-      await page.waitForTimeout(2000); // let trends load
+      // Try multiple URLs — X has changed the explore page structure multiple times.
+      // The trends may be on /explore/tabs/trending, /explore, or the home page sidebar.
+      let topics: ScrapedTrendingTopic[] = [];
+      for (const url of X_TRENDS_URLS) {
+        this.logger.debug(`X trends: trying ${url}`);
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: X_SCRAPE_TIMEOUT_MS });
+        await page.waitForTimeout(5000); // let trends load (X React app is slow to hydrate)
 
-      // Extract trending topics
-      const topics = await this.extractXTrends(page, limit);
+        topics = await this.extractXTrends(page, limit);
+        if (topics.length > 0) {
+          this.logger.debug(`X trends: found ${topics.length} topics at ${url}`);
+          break;
+        }
+      }
 
       this.xTrendsCache = { topics, expiresAt: Date.now() + this.cacheTtlMs };
       this.logger.log(`Scraped ${topics.length} X trending topics`);

@@ -96,9 +96,12 @@ export class XPoster extends BasePoster {
 
       // Strategy 1: typeHuman (stealth-x approach — human-like per-char typing)
       // More human-like than fill() — X's anti-bot detects instant fill() as automated.
-      // Uses locator.pressSequentially per char with randomized 40-120ms delay.
+      // NOTE: Do NOT pass the locator — DraftJS contenteditable divs don't accept
+      // locator.pressSequentially(). Instead, use page.keyboard.type() per char
+      // (the no-locator branch of typeHuman), which sends real keyboard events that
+      // DraftJS processes correctly. The textbox is already focused from the click above.
       this.logger.log(`X typing tweet via typeHuman (stealth-x approach)...`);
-      await this.browser.typeHuman(page, content, textbox).catch(() => {});
+      await this.browser.typeHuman(page, content).catch(() => {});
       await this.browser.randomDelay(500, 1000);
 
       // Verify content was entered
