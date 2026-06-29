@@ -1,9 +1,12 @@
+// IMPORTANT: import instrument.ts before everything else so Sentry hooks are
+// installed before any other module loads. CJS syntax per @sentry/nestjs docs.
+import './instrument';
+
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger, type INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
-import { initSentry } from './infrastructure/monitoring/sentry';
 
 // Held so the process-level handlers can shut the app down gracefully.
 let app: INestApplication | undefined;
@@ -46,8 +49,7 @@ process.on('unhandledRejection', (reason) => {
 });
 
 async function bootstrap(): Promise<void> {
-  // Initialize Sentry before app bootstrap (no-op if SENTRY_DSN not set)
-  initSentry();
+  // Sentry is initialized via instrument.ts (imported at the top of this file).
 
   app = await NestFactory.create(AppModule, {
     rawBody: true,
@@ -90,7 +92,7 @@ async function bootstrap(): Promise<void> {
   Logger.log(`Swagger docs: http://localhost:${port}/${swaggerPath}`, 'Bootstrap');
   Logger.log(`SPA API running on :${port}/${apiPrefix}`, 'Bootstrap');
 
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
 }
 
 void bootstrap();
