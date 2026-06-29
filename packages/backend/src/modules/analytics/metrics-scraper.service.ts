@@ -30,6 +30,7 @@ import { Inject } from '@nestjs/common';
 import { SocialNetwork, PostStatus } from '@prisma/client';
 import type { IMetricsSource, PostMetricsData } from './metrics-sources/metrics-source.port.js';
 import { ThreadsInsightsSource } from './metrics-sources/threads-insights.source.js';
+import { FacebookInsightsSource } from './metrics-sources/facebook-insights.source.js';
 
 export interface ScrapedMetrics {
   likes: number;
@@ -59,7 +60,9 @@ export class MetricsScraperService {
     const sources: Partial<Record<SocialNetwork, IMetricsSource>> = {};
     const threadsToken = process.env.THREADS_ACCESS_TOKEN;
     if (threadsToken) sources[SocialNetwork.THREADS] = new ThreadsInsightsSource(threadsToken);
-    // FACEBOOK source: next increment. X (Twitter): deferred per AN1 research §3.
+    const facebookToken = process.env.FACEBOOK_PAGE_TOKEN;
+    if (facebookToken) sources[SocialNetwork.FACEBOOK] = new FacebookInsightsSource(facebookToken);
+    // X (Twitter): deferred per AN1 research §3 (no free read since Feb 2026).
     this.sourcesCache = sources;
     return sources;
   }
