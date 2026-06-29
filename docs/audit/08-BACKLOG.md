@@ -50,7 +50,16 @@
   методов, дорогой `paramtypes`-ripple ради ~55 строк) — оставлен осознанно; `sessions.service` не тронут.
 
 **Баги (разделы 2) — закрыто:** RC1, R1, AU1/AU2/AU3 (в составе A1), SEC1, B5/SEC4, P2, P3/P4,
-reaper stuck-POSTING, P5, PO2, RP2, RP3, AU4/AU7/AU8, AU5 (trend-guardrail), TR1, BUG-12, P1, QC1.
+reaper stuck-POSTING, P5, PO2, RP2, RP3, AU4/AU7/AU8, AU5 (trend-guardrail), TR1, BUG-12, P1, QC1,
+**BUG-1, BUG-8, SEC9**.
+
+**Сверка `07`-багов (этот раунд):** **BUG-1** (Critical — auto-check самоматчил оцениваемый пост →
+авто-аппрув реджектил 100%, блокер автономии) **исправлен** `47a03ce` (excludePostId в дедуп-корпус).
+**BUG-8** (`/health` без таймаута зависает при Redis/DB down → рестарт пода) **исправлен** `cdd229f`
+(`withTimeout` на обе проверки). **SEC9** (redact только по ключам) **исправлен** `202b23f` (value-based
+scrub секрет-паттернов). Проверено и **уже было закрыто**: SEC-2 (regex 172.16–31, не `startsWith`),
+BUG-11 (`parseIntEnv` сохраняет 0), BUG-5 (в коде только `threads.com`), BUG-7 (`makeDecision` мёрджит
+`llmMetadata`).
 
 **QC1:** Satori вызывался с `fonts:[]` → рендер всегда падал (фича мертва при QUOTE_CARDS_ENABLED=true).
 Бандл `@fontsource/inter` (latin, require.resolve, кэш) + тест на реальный Satori+resvg рендер (`5e20f7c`).
@@ -138,19 +147,19 @@ HEAD`, независимая верификация на каждую нахо�
 
 | `07` ID | Что | Sev | Усилие | M | Статус |
 |---------|-----|-----|--------|---|--------|
-| BUG-1 | simhash само-матч → авто-аппрув реджектит **100%** постов | Critical | S | M0 | **NEW** — блокер включения автономии |
+| BUG-1 | simhash само-матч → авто-аппрув реджектит **100%** постов | Critical | S | M0 | ✅ done `47a03ce` — был блокер автономии |
 | SEC-1 | XFF обходит LocalhostGuard | Critical | S | M0 | ✅ = `SEC1` |
-| SEC-2 | `startsWith('172.2')` пускает публичные IP как внутренние | High | S | M0 | **NEW** (≠ backlog `SEC2`=FB-cookie) |
+| SEC-2 | `startsWith('172.2')` пускает публичные IP как внутренние | High | S | M0 | ✅ verified — regex 172.16–31 |
 | BUG-2 | engagement не планируется после дня 1 | High | S | M3 | = `EN6` |
 | BUG-3 | engagement rate-limit режет лайки до 1/день | High | M | M0 | ✅ = `R1` |
 | BUG-4 | детекция постинга → ложные POSTED/FAILED | High | L | M1 | = `P1` |
-| BUG-5 | Threads-куки `.threads.net` ≠ `threads.com` → cookie-auth мёртв | High | S | M0 | **NEW** |
+| BUG-5 | Threads-куки `.threads.net` ≠ `threads.com` → cookie-auth мёртв | High | S | M0 | ✅ verified — в коде только `threads.com` |
 | BUG-6 | тред через home-page fallback теряет ответы (потеря контента) | High | M | M1 | **NEW** |
-| BUG-7 | `makeDecision` затирает весь `llmMetadata` (hook/score/visual) | High | S | M0 | **NEW** |
-| BUG-8 | `/health` зависает при Redis down → рестарт пода | High | S | M0 | **NEW** |
+| BUG-7 | `makeDecision` затирает весь `llmMetadata` (hook/score/visual) | High | S | M0 | ✅ verified — мёрджит `prevMeta` |
+| BUG-8 | `/health` зависает при Redis down → рестарт пода | High | S | M0 | ✅ done `cdd229f` — `withTimeout` |
 | BUG-9 | resume не восстанавливает `pendingWrites` → повтор/дубли нод | Medium | M | M1 | **NEW** (часть exactly-once) |
 | BUG-10 | невалидное окно (`NaN`) рушит весь тик планирования | Medium | S | M3 | **NEW** (engagement hardening) |
-| BUG-11 | `BULLMQ_MAX_RETRIES=0` молча → 3 (дубли постов) | Medium | S | M0 | **NEW** |
+| BUG-11 | `BULLMQ_MAX_RETRIES=0` молча → 3 (дубли постов) | Medium | S | M0 | ✅ verified — `parseIntEnv` сохраняет 0 |
 | BUG-12 | полоса HUMAN_REVIEW недостижима (autoCheckMin 6 > review 4) | Medium | S | M1 | ✅ done (= часть `A1`) |
 | BUG-13 | `GenerateOptions.maxTokens` игнорируется адаптером | Medium | S | M3 | ≈ `EN5` |
 
