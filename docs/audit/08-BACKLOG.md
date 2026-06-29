@@ -30,7 +30,7 @@
 ## ✅ Статус выполнения (обновлено 2026-06-29)
 
 Отметки ниже = **реально закоммичено** в ветке `fix/a3-remaining-tests`, зелено под `tsc` (`nest build`)
-+ полный backend-сьют (**85 файлов / 1266 тестов**, lint **0 errors**). Источник истины по отдельным
++ полный backend-сьют (**85 файлов / 1269 тестов**, lint **0 errors**). Источник истины по отдельным
 фиксам — `git log` + список задач; таблицы ниже размечены по нему, но не претендуют на исчерпывающий
 аудит. Dry-run по отрефакторенным путям подтверждён вручную.
 
@@ -176,7 +176,7 @@ HEAD`, независимая верификация на каждую нахо�
 | BUG-1 | simhash само-матч → авто-аппрув реджектит **100%** постов | Critical | S | M0 | ✅ done `47a03ce` — был блокер автономии |
 | SEC-1 | XFF обходит LocalhostGuard | Critical | S | M0 | ✅ = `SEC1` |
 | SEC-2 | `startsWith('172.2')` пускает публичные IP как внутренние | High | S | M0 | ✅ verified — regex 172.16–31 |
-| BUG-2 | engagement не планируется после дня 1 | High | S | M3 | = `EN6` |
+| ✅ BUG-2 | engagement не планируется после дня 1 | High | S | M3 | = `EN6`; добавлен `@Cron` ежедневного ре-планирования (`7da57d2`) |
 | BUG-3 | engagement rate-limit режет лайки до 1/день | High | M | M0 | ✅ = `R1` |
 | BUG-4 | детекция постинга → ложные POSTED/FAILED | High | L | M1 | = `P1` |
 | BUG-5 | Threads-куки `.threads.net` ≠ `threads.com` → cookie-auth мёртв | High | S | M0 | ✅ verified — в коде только `threads.com` |
@@ -184,7 +184,7 @@ HEAD`, независимая верификация на каждую нахо�
 | BUG-7 | `makeDecision` затирает весь `llmMetadata` (hook/score/visual) | High | S | M0 | ✅ verified — мёрджит `prevMeta` |
 | BUG-8 | `/health` зависает при Redis down → рестарт пода | High | S | M0 | ✅ done `cdd229f` — `withTimeout` |
 | BUG-9 | resume не восстанавливает `pendingWrites` → повтор/дубли нод | Medium | M | M1 | ✅ done `789fae2` — getTuple грузит writes |
-| BUG-10 | невалидное окно (`NaN`) рушит весь тик планирования | Medium | S | M3 | **NEW** (engagement hardening) |
+| ✅ BUG-10 | невалидное окно (`NaN`) рушит весь тик планирования | Medium | S | M3 | `parseWindows` валидирует HH:MM + `Number.isFinite`-гарды (`7da57d2`) |
 | BUG-11 | `BULLMQ_MAX_RETRIES=0` молча → 3 (дубли постов) | Medium | S | M0 | ✅ verified — `parseIntEnv` сохраняет 0 |
 | BUG-12 | полоса HUMAN_REVIEW недостижима (autoCheckMin 6 > review 4) | Medium | S | M1 | ✅ done (= часть `A1`) |
 | BUG-13 | `GenerateOptions.maxTokens` игнорируется адаптером | Medium | S | M3 | ≈ `EN5` |
@@ -215,7 +215,7 @@ HEAD`, независимая верификация на каждую нахо�
 | ✅ P5 | FB один persistent-context — гонки страниц | M | M1 |
 | ✅ P7 | `fullPage`-скриншоты без очистки (disk-leak) | S | M0 |
 | SE1 | auto-login формой синхронно в постинге | M | M2 |
-| EN6 | engagement не планируется после дня 1 | S | M3 |
+| ✅ EN6 | engagement не планируется после дня 1 | S | M3 | = `BUG-2` (ежедневный крон) |
 | ✅ RP2 | `commentId` из обрезанного текста → кириллица коллапсирует | M | M3 |
 | ✅ RP3 | LLM-reply обходит фильтр чувствительных тем | M | M3 |
 | ✅ RC2/RC3 | recycling не запускается / дословный дубль | M | M3 | `recyclePost`→`GenerationService.recycleById` (граф-перепись, не verbatim) + flag-gated крон `RECYCLING_CRON_ENABLED` (`ac06a29`) |
