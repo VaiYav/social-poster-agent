@@ -36,6 +36,10 @@ RUN cd packages/backend && npx prisma generate
 RUN PRISMA_DIR=$(find /app/node_modules/.pnpm -maxdepth 4 -name '.prisma' -type d | head -1) && \
     cp -r "$PRISMA_DIR" /tmp/.prisma
 
+# Copy better-sqlite3 native build to a known location for the production stage
+RUN SQLITE3_BUILD=$(find /app/node_modules/.pnpm -maxdepth 4 -path '*/better-sqlite3/build' -type d | head -1) && \
+    cp -r "$SQLITE3_BUILD" /tmp/better-sqlite3-build
+
 # ── Production stage ──
 FROM node:22-slim AS production
 
@@ -71,8 +75,8 @@ RUN CLIENT_NM_DIR=$(find /app/node_modules/.pnpm -maxdepth 4 -path '*/@prisma+cl
     rm -rf /tmp/.prisma
 
 # Copy better-sqlite3 native binding from builder (--ignore-scripts skips it in prod)
-COPY --from=builder /app/node_modules/.pnpm/better-sqlite3*/node_modules/better-sqlite3/build /tmp/better-sqlite3-build
-RUN SQLITE3_DIR=$(find /app/node_modules/.pnpm -maxdepth 3 -path '*/better-sqlite3/build' -type d | head -1) && \
+COPY --from=builder /tmp/better-sqlite3-build /tmp/better-sqlite3-build
+RUN SQLITE3_DIR=$(find /app/node_modules/.pnpm -maxdepth 4 -path '*/better-sqlite3/build' -type d | head -1) && \
     cp -r /tmp/better-sqlite3-build/* "$SQLITE3_DIR/" && \
     rm -rf /tmp/better-sqlite3-build
 
