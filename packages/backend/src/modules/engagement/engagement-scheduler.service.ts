@@ -15,6 +15,7 @@
 //   ENGAGEMENT_SESSION_WINDOWS=09:00,13:00,18:00  (base times, jitter applied)
 
 import { Injectable, Logger, type OnModuleInit, type OnModuleDestroy } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { SocialNetwork } from '@prisma/client';
 import { QueueFactory } from '../../infrastructure/queue/queue.factory.js';
@@ -63,6 +64,21 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
     );
   }
 
+  /**
+   * BUG-2: re-schedule browsing sessions every day at midnight. Without this, sessions were
+   * scheduled exactly once (onModuleInit, today only) and engagement stopped forever after the
+   * start day — the browsing-session worker doesn't enqueue the next one. Guards are re-applied
+   * here (they lived only in onModuleInit); BullMQ dedups by jobId so a re-run is safe.
+   */
+  @Cron(process.env.ENGAGEMENT_SCHEDULE_CRON ?? '0 0 * * *')
+  scheduleDailySessionsCron(): void {
+    if (!this.enabled || this.networks.length === 0) {
+      return;
+    }
+    this.logger.log('Engagement daily cron: re-scheduling browsing sessions for today');
+    this.scheduleDailySessions();
+  }
+
   onModuleDestroy(): void {
     for (const timeout of this.scheduledTimeouts) {
       clearTimeout(timeout);
@@ -85,9 +101,11 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
         const scheduledTime = this.applyJitter(windowTime, today);
         const delayMs = scheduledTime.getTime() - Date.now();
 
-        // Only schedule if the time hasn't passed yet
-        if (delayMs <= 0) {
-          this.logger.debug(`Skipping past session for ${network} at ${scheduledTime.toISOString()}`);
+        // BUG-10 defense-in-depth: a malformed window yields an Invalid Date → NaN delay.
+        // `NaN <= 0` is false, so the past-time guard alone would let it through and the later
+        // `.toISOString()` would throw and kill the whole tick. Reject non-finite delays.
+        if (!Number.isFinite(delayMs) || delayMs <= 0) {
+          this.logger.debug(`Skipping past/invalid session window for ${network} (${windowTime})`);
           continue;
         }
 
@@ -139,7 +157,9 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
   private applyJitter(baseTime: string, date: Date): Date {
     const [hours, minutes] = baseTime.split(':').map(Number);
     const base = new Date(date);
-    base.setHours(hours ?? 9, minutes ?? 0, 0, 0);
+    // BUG-10: `?? default` does NOT catch NaN (a non-numeric window segment), so guard with
+    // Number.isFinite — otherwise setHours(NaN, …) yields an Invalid Date.
+    base.setHours(Number.isFinite(hours) ? hours! : 9, Number.isFinite(minutes) ? minutes! : 0, 0, 0);
 
     // Apply jitter: -jitterMinutes to +jitterMinutes
     const jitterMs = (Math.random() * 2 - 1) * this.jitterMinutes * 60 * 1000;
@@ -147,7 +167,24 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
   }
 
   private parseWindows(value: string): string[] {
-    return value.split(',').map((s) => s.trim()).filter(Boolean);
+    // BUG-10: validate HH:MM at the source and drop malformed windows (e.g. 'foo' or '25:99'),
+    // so a bad env value can't reach applyJitter and produce an Invalid Date.
+    return value
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((w) => {
+        const m = /^(\d{1,2}):(\d{2})$/.exec(w);
+        if (!m) {
+          this.logger.warn(`Ignoring invalid ENGAGEMENT_SESSION_WINDOWS entry "${w}" (expected HH:MM)`);
+          return false;
+        }
+        const h = Number(m[1]);
+        const min = Number(m[2]);
+        const ok = h >= 0 && h <= 23 && min >= 0 && min <= 59;
+        if (!ok) this.logger.warn(`Ignoring out-of-range ENGAGEMENT_SESSION_WINDOWS entry "${w}"`);
+        return ok;
+      });
   }
 
   private parseNetworks(value: string): SocialNetwork[] {

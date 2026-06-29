@@ -157,4 +157,46 @@ describe('EngagementSchedulerService', () => {
     const status = service.getStatus();
     expect(status.networks).toEqual(['X', 'THREADS']);
   });
+
+  it('BUG-2: the daily cron re-schedules sessions (engagement does not die after day 1)', () => {
+    vi.setSystemTime(new Date('2026-06-27T00:00:00Z'));
+    service = new EngagementSchedulerService(
+      createMockConfigService({
+        ENGAGEMENT_SCHEDULER_ENABLED: 'true',
+        ENGAGEMENT_NETWORKS: 'X',
+        ENGAGEMENT_SESSION_WINDOWS: '23:59',
+        ENGAGEMENT_SESSIONS_PER_DAY: '1',
+      }),
+      mockQueueFactory,
+    );
+    service.onModuleInit();
+    expect(mockQueueFactory.enqueueEngagement).toHaveBeenCalledTimes(1); // start day
+    // Simulate the next midnight cron firing — must re-populate the queue.
+    service.scheduleDailySessionsCron();
+    expect(mockQueueFactory.enqueueEngagement).toHaveBeenCalledTimes(2);
+  });
+
+  it('BUG-2: the daily cron is a no-op when disabled', () => {
+    service = new EngagementSchedulerService(createMockConfigService(), mockQueueFactory);
+    service.scheduleDailySessionsCron();
+    expect(mockQueueFactory.enqueueEngagement).not.toHaveBeenCalled();
+  });
+
+  it('BUG-10: a malformed session window is dropped at parse time and never crashes the tick', () => {
+    vi.setSystemTime(new Date('2026-06-27T00:00:00Z'));
+    service = new EngagementSchedulerService(
+      createMockConfigService({
+        ENGAGEMENT_SCHEDULER_ENABLED: 'true',
+        ENGAGEMENT_NETWORKS: 'X',
+        ENGAGEMENT_SESSION_WINDOWS: '09:00,foo,25:99,23:59', // 'foo' + out-of-range dropped
+        ENGAGEMENT_SESSIONS_PER_DAY: '4',
+        ENGAGEMENT_JITTER_MINUTES: '0',
+      }),
+      mockQueueFactory,
+    );
+    expect(service.getStatus().windows).toEqual(['09:00', '23:59']);
+    // The old NaN path threw on .toISOString() and killed the whole tick.
+    expect(() => service.onModuleInit()).not.toThrow();
+    expect(mockQueueFactory.enqueueEngagement).toHaveBeenCalled();
+  });
 });
