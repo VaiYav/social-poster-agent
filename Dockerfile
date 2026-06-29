@@ -33,7 +33,8 @@ RUN pnpm --filter @spa/backend build
 RUN cd packages/backend && npx prisma generate
 
 # Copy generated .prisma to a known location for the production stage
-RUN cp -r /app/node_modules/.pnpm/@prisma+client*/node_modules/@prisma/client/node_modules/.prisma /tmp/.prisma
+RUN PRISMA_DIR=$(find /app/node_modules/.pnpm -path '*/@prisma/client/node_modules/.prisma' -type d | head -1) && \
+    cp -r "$PRISMA_DIR" /tmp/.prisma
 
 # ── Production stage ──
 FROM node:22-slim AS production
