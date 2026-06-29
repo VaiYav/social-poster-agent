@@ -209,6 +209,36 @@ describe('MOD-03: ThreadsPoster (BasePoster architecture)', () => {
     expect(page.close).toHaveBeenCalledTimes(1);
   });
 
+  it('BUG-6 (Threads): postThreadReplies posts every reply and returns a per-reply result', async () => {
+    const page = createMockPage();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const postReplySpy = vi.spyOn(poster as any, 'postReply').mockResolvedValue(undefined);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const results = await (poster as any).postThreadReplies(page, 'https://www.threads.com/@u/post/1', ['r1', 'r2']);
+
+    expect(postReplySpy).toHaveBeenCalledTimes(2);
+    expect(results).toEqual([
+      { index: 0, success: true },
+      { index: 1, success: true },
+    ]);
+  });
+
+  it('BUG-6 (Threads): degraded "cannot validate" path still posts thread replies (no silent loss)', async () => {
+    // URL doesn't match the post pattern and isn't the home URL → unknown-state branch.
+    const page = createMockPage({ url: 'https://www.threads.com/t/degraded' });
+    const context = createMockContext(page as unknown);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.spyOn(poster as any, 'extractProfileUrl').mockResolvedValue(null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const replyStub = vi.spyOn(poster as any, 'postThreadReplies').mockResolvedValue([{ index: 0, success: true }]);
+
+    const result = await poster.post(context as unknown, browserPort as unknown, 'root', ['reply A']);
+
+    expect(replyStub).toHaveBeenCalledWith(page, 'https://www.threads.com/t/degraded', ['reply A']);
+    expect(result.threadReplyResults).toHaveLength(1);
+  });
+
   it('UTC-058: ThreadsPoster.post() returns error when redirected to login', async () => {
     const page = createMockPage({
       url: 'https://www.threads.com/auth',

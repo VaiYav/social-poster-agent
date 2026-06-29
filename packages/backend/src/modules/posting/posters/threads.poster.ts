@@ -120,31 +120,11 @@ export class ThreadsPoster extends BasePoster {
       if (THREADS_SELECTORS.compose.postUrlPattern.test(currentUrl)) {
         this.logger.log(`Threads post URL: ${currentUrl}`);
 
-        // P0-H2: Handle thread replies with per-reply error tracking and retry
-        // Human-like delay between replies (30-90s) — posting all replies instantly
-        // is not human-like and may trigger Threads rate limiting.
-        const replyResults: Array<{ index: number; success: boolean; error?: string }> = [];
-        if (threadItems && threadItems.length > 0) {
-          for (let i = 0; i < threadItems.length; i++) {
-            if (i > 0) {
-              this.logger.debug(`Threads: waiting before reply ${i + 1}/${threadItems.length}`);
-              await this.browser.randomDelay(30000, 90000);
-            }
-            try {
-              // Retry each reply with exponential backoff (2 attempts)
-              await this.retryWithBackoff(
-                () => this.postReply(page, currentUrl, threadItems[i]!),
-                2,
-                5000,
-              );
-              replyResults.push({ index: i, success: true });
-            } catch (replyErr) {
-              const errMsg = (replyErr as Error).message;
-              this.logger.error(`Threads reply ${i + 1}/${threadItems.length} failed after retries: ${errMsg}`);
-              replyResults.push({ index: i, success: false, error: errMsg });
-            }
-          }
-        }
+        // P0-H2 / BUG-6: thread replies via the shared helper.
+        const replyResults =
+          threadItems && threadItems.length > 0
+            ? await this.postThreadReplies(page, currentUrl, threadItems)
+            : [];
         return { url: currentUrl, threadReplyResults: replyResults };
       }
 
@@ -163,9 +143,15 @@ export class ThreadsPoster extends BasePoster {
             { actualUrl: currentUrl },
           );
         }
-        // Unknown state — return current URL with warning
+        // Unknown state — return current URL with warning.
+        // BUG-6: even here, don't silently drop a thread's replies — post them best-effort
+        // so any failures surface in threadReplyResults instead of looking like full success.
         this.logger.warn(`Cannot extract profile URL for validation, returning current URL: ${currentUrl}`);
-        return { url: currentUrl };
+        const degradedReplyResults =
+          threadItems && threadItems.length > 0
+            ? await this.postThreadReplies(page, currentUrl, threadItems)
+            : [];
+        return { url: currentUrl, threadReplyResults: degradedReplyResults };
       }
 
       // Validate on profile
@@ -176,30 +162,11 @@ export class ThreadsPoster extends BasePoster {
         THREADS_SELECTORS.compose.postUrlPattern,
       );
 
-      // P0-H2: Handle thread replies with per-reply error tracking and retry
-      // Human-like delay between replies (30-90s)
-      const replyResults: Array<{ index: number; success: boolean; error?: string }> = [];
-      if (threadItems && threadItems.length > 0) {
-        for (let i = 0; i < threadItems.length; i++) {
-          if (i > 0) {
-            this.logger.debug(`Threads: waiting before reply ${i + 1}/${threadItems.length}`);
-            await this.browser.randomDelay(30000, 90000);
-          }
-          try {
-            // Retry each reply with exponential backoff (2 attempts)
-            await this.retryWithBackoff(
-              () => this.postReply(page, postUrl, threadItems[i]!),
-              2,
-              5000,
-            );
-            replyResults.push({ index: i, success: true });
-          } catch (replyErr) {
-            const errMsg = (replyErr as Error).message;
-            this.logger.error(`Threads reply ${i + 1}/${threadItems.length} failed after retries: ${errMsg}`);
-            replyResults.push({ index: i, success: false, error: errMsg });
-          }
-        }
-      }
+      // P0-H2 / BUG-6: thread replies via the shared helper.
+      const replyResults =
+        threadItems && threadItems.length > 0
+          ? await this.postThreadReplies(page, postUrl, threadItems)
+          : [];
 
       return { url: postUrl, threadReplyResults: replyResults };
     } catch (err) {
@@ -210,6 +177,35 @@ export class ThreadsPoster extends BasePoster {
     } finally {
       await page.close().catch(() => {});
     }
+  }
+
+  /**
+   * BUG-6 (Threads): post each thread reply with per-reply retry + a human-like delay.
+   * Shared across every post() exit path so a thread's replies are never silently dropped
+   * (the "can't validate" branch used to return the root URL only). Failures are recorded,
+   * not thrown, so a partial thread is reported accurately.
+   */
+  private async postThreadReplies(
+    page: Page,
+    postUrl: string,
+    threadItems: string[],
+  ): Promise<Array<{ index: number; success: boolean; error?: string }>> {
+    const replyResults: Array<{ index: number; success: boolean; error?: string }> = [];
+    for (let i = 0; i < threadItems.length; i++) {
+      if (i > 0) {
+        this.logger.debug(`Threads: waiting before reply ${i + 1}/${threadItems.length}`);
+        await this.browser.randomDelay(30000, 90000);
+      }
+      try {
+        await this.retryWithBackoff(() => this.postReply(page, postUrl, threadItems[i]!), 2, 5000);
+        replyResults.push({ index: i, success: true });
+      } catch (replyErr) {
+        const errMsg = (replyErr as Error).message;
+        this.logger.error(`Threads reply ${i + 1}/${threadItems.length} failed after retries: ${errMsg}`);
+        replyResults.push({ index: i, success: false, error: errMsg });
+      }
+    }
+    return replyResults;
   }
 
   /**
