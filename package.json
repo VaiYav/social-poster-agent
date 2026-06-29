@@ -8,7 +8,7 @@
     "dev": "pnpm --filter @spa/backend dev",
     "dev:ui": "pnpm --filter @spa/ui dev",
     "dev:all": "concurrently -n backend,ui -c blue,green \"pnpm dev\" \"pnpm dev:ui\"",
-    "build": "pnpm --filter @spa/shared build && pnpm --filter @spa/backend build && pnpm --filter @spa/ui build",
+    "build": "pnpm --filter @spa/shared build && pnpm --filter @spa/backend build && pnpm --filter @spa/ui build && pnpm sentry:sourcemaps",
     "build:backend": "pnpm --filter @spa/shared build && pnpm --filter @spa/backend build",
     "build:ui": "pnpm --filter @spa/shared build && pnpm --filter @spa/ui build",
     "lint": "oxlint .",
@@ -30,16 +30,28 @@
     "prisma:studio": "pnpm --filter @spa/backend prisma:studio",
     "infra:up": "docker compose -f infra/docker-compose.yml up -d",
     "infra:down": "docker compose -f infra/docker-compose.yml down",
-    "dry-run": "pnpm --filter @spa/backend dry-run"
+    "dry-run": "pnpm --filter @spa/backend dry-run",
+    "sentry:sourcemaps": "sentry-cli sourcemaps inject --org my-zodiac-ai --project social-posting-agent ./packages/backend/dist/ && sentry-cli sourcemaps upload --org my-zodiac-ai --project social-posting-agent ./packages/backend/dist/"
   },
   "devDependencies": {
     "concurrently": "^9.0.0",
-    "oxlint": "^1.0.0",
     "oxfmt": "^0.10.0",
+    "oxlint": "^1.0.0",
     "typescript": "^5.7.0"
   },
   "engines": {
     "node": ">=22.0.0",
     "pnpm": ">=10.0.0"
+  },
+  "dependencies": {
+    "@sentry/cli": "^2.58.6"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "prisma",
+      "@sentry/cli"
+    ]
   }
 }
