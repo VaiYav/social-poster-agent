@@ -13,8 +13,10 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/backend/package.json ./packages/backend/
+# Copy prisma schema before install — prisma generate runs as postinstall hook
+COPY packages/backend/prisma ./packages/backend/prisma
 
-# Install dependencies
+# Install dependencies (prisma generate runs as postinstall)
 RUN pnpm install --frozen-lockfile
 
 # Copy source
@@ -43,6 +45,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxcomposite1 libxdamage1 libxrandr2 libxss1 \
     libxtst6 libpango-1.0-0 libcairo2 libatk1.0-0 \
     libatk-bridge2.0-0 libnss3 libnspr4 \
+    openssl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
