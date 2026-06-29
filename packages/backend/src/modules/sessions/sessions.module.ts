@@ -7,6 +7,9 @@ import { SessionsService } from './sessions.service';
 import { SessionsController } from './sessions.controller';
 import { WarmupModule } from './warmup.module';
 
+// Note: the SE1 refreshSessionsCron @Cron is discovered by the global
+// ScheduleModule.forRoot() registered in AppModule — feature modules must NOT import
+// a bare ScheduleModule (it breaks SchedulerOrchestrator resolution in partial graphs).
 @Module({
   imports: [BrowserModule, AccountsModule, PrismaModule, CryptoModule, WarmupModule],
   providers: [SessionsService],

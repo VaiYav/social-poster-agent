@@ -573,7 +573,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
 
     // Assert: getOrCreateSession called with the post's network
     expect(getOrCreateSpy).toHaveBeenCalledTimes(1);
-    expect(getOrCreateSpy).toHaveBeenCalledWith(SocialNetwork.X);
+    expect(getOrCreateSpy).toHaveBeenCalledWith(SocialNetwork.X, { deferFormLogin: true });
 
     // Assert: session.storageState was passed to browser.acquireContext
     expect(ctx.browserPort.acquireContext).toHaveBeenCalledTimes(1);
@@ -896,7 +896,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
     const result = await ctx.postingService.postById('post-034');
 
     // Assert: getOrCreateSession called with X
-    expect(getOrCreateSpy).toHaveBeenCalledWith(SocialNetwork.X);
+    expect(getOrCreateSpy).toHaveBeenCalledWith(SocialNetwork.X, { deferFormLogin: true });
 
     // Assert: autoLogin triggered — browser.createContext called for login (no storageState)
     // autoLogin uses createContext (SessionsService), posting uses acquireContext (PostingService)

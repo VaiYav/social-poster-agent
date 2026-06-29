@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AccountsService } from '../accounts/accounts.service';
@@ -85,6 +86,13 @@ export class SessionsService {
 
   private readonly circuitBreakers: CircuitBreakerRegistry = new CircuitBreakerRegistry();
 
+  // SE1: throttle username/password form logins (the top "suspicious login" trigger).
+  private readonly lastFormLoginAt = new Map<string, number>();
+  private readonly formLoginCooldownMs: number;
+  // SE1: when true, latency/ban-sensitive callers (posting) never form-login inline —
+  // they defer (return null → retry) and an out-of-band cron performs the controlled re-login.
+  private readonly deferredLogin: boolean;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly accountsService: AccountsService,
@@ -92,9 +100,16 @@ export class SessionsService {
     private readonly configService: ConfigService,
     private readonly encryptionService: EncryptionService,
     private readonly discord: DiscordNotificationService,
-  ) {}
+  ) {
+    // Default 0 = cooldown disabled (opt-in). Operators set FORM_LOGIN_COOLDOWN_MS in prod
+    // (e.g. 1800000 = 30 min) to throttle the riskiest action; keeping it off by default
+    // avoids surprising the inline-login path and keeps tests deterministic.
+    const rawCooldown = Number(this.configService.get<string>('FORM_LOGIN_COOLDOWN_MS', '0'));
+    this.formLoginCooldownMs = Number.isFinite(rawCooldown) && rawCooldown >= 0 ? rawCooldown : 0;
+    this.deferredLogin = parseBool(this.configService.get<string>('SESSION_DEFERRED_LOGIN', 'false'));
+  }
 
-  async getOrCreateSession(network: SocialNetwork) {
+  async getOrCreateSession(network: SocialNetwork, opts: { deferFormLogin?: boolean } = {}) {
     const account = await this.accountsService.findByNetwork(network);
     if (!account) return null;
 
@@ -170,7 +185,37 @@ export class SessionsService {
           return cookieSession;
         }
 
-        // No cookies or cookie auth failed — fall back to username/password login
+        // SE1: username/password form login is the highest "suspicious login" risk.
+        // (a) Deferral: a ban-sensitive caller (posting) must not form-login inline when
+        //     SESSION_DEFERRED_LOGIN is on — return null so it retries while the out-of-band
+        //     refreshSessionsCron performs the controlled re-login.
+        if (opts.deferFormLogin && this.deferredLogin) {
+          this.logger.warn(
+            `No cookie session for ${network} and inline form-login is deferred (SESSION_DEFERRED_LOGIN) — caller should retry`,
+          );
+          return null;
+        }
+        // (b) Cooldown: never form-login again within the cooldown window (throttle frequency,
+        //     even across failed attempts — set the marker before attempting).
+        const lastLogin = this.lastFormLoginAt.get(network) ?? 0;
+        const sinceMs = Date.now() - lastLogin;
+        if (sinceMs < this.formLoginCooldownMs) {
+          this.logger.warn(
+            `Form-login cooldown active for ${network} (${Math.ceil((this.formLoginCooldownMs - sinceMs) / 1000)}s left) — skipping form login`,
+          );
+          return null;
+        }
+        // (c) Alert on the risky action, then attempt the form login. Alerting is best-effort
+        // and must never block login (and discord.warning may be a no-op in some setups/tests).
+        try {
+          await this.discord.warning(
+            'Form Login Performed',
+            `Falling back to username/password form login for **${network}** — the highest "suspicious login" risk. Cookie auth is preferred; check the session/cookie config.`,
+          );
+        } catch {
+          // non-blocking
+        }
+        this.lastFormLoginAt.set(network, Date.now());
         return await breaker.execute(() => this.autoLogin(network));
       } catch (err) {
         if (err instanceof CircuitOpenError) {
@@ -182,6 +227,24 @@ export class SessionsService {
     } finally {
       resolveLock();
       this.sessionLocks.delete(lockKey);
+    }
+  }
+
+  /**
+   * SE1: out-of-band controlled re-login. When SESSION_DEFERRED_LOGIN is on, posting no longer
+   * form-logs-in inline — it defers. This cron proactively (re)establishes a session per network
+   * off the posting path, subject to the same cookie-first + cooldown + circuit-breaker + alert
+   * guards in getOrCreateSession. No-op when deferral is off (current inline behavior).
+   */
+  @Cron(process.env.SESSION_RELOGIN_CRON ?? '*/15 * * * *')
+  async refreshSessionsCron(): Promise<void> {
+    if (!this.deferredLogin) return;
+    for (const network of Object.values(SocialNetwork)) {
+      try {
+        await this.getOrCreateSession(network); // no deferFormLogin → controlled form login allowed here
+      } catch (err) {
+        this.logger.warn(`Out-of-band session refresh failed for ${network}: ${(err as Error).message}`);
+      }
     }
   }
 

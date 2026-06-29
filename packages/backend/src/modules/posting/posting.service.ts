@@ -109,10 +109,13 @@ export class PostingService {
     let context: Awaited<ReturnType<IBrowserPort['acquireContext']>> | null = null;
 
     try {
-      // Get or create session (auto-login if needed — OQ-8)
-      const session = await this.sessionsService.getOrCreateSession(post.network);
+      // Get or create session (auto-login if needed — OQ-8).
+      // SE1: defer inline username/password form login off the posting path when
+      // SESSION_DEFERRED_LOGIN is on — return null → retry while the out-of-band
+      // refreshSessionsCron performs the controlled re-login.
+      const session = await this.sessionsService.getOrCreateSession(post.network, { deferFormLogin: true });
       if (!session) {
-        throw new Error(`No active session for ${post.network} — auto-login failed`);
+        throw new Error(`No active session for ${post.network} — auto-login deferred or failed (will retry)`);
       }
 
       // Acquire browser context from pool (reuses idle contexts, waits if at capacity)

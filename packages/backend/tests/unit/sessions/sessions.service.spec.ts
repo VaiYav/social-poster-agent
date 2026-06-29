@@ -172,7 +172,7 @@ async function buildModule(opts: {
   const accounts = opts.accounts ?? createMockAccountsService();
   const config = opts.config ?? createMockConfigService();
   const encryption = createMockEncryptionService();
-  const discord = { sendAlert: vi.fn(), critical: vi.fn(), warning: vi.fn(), info: vi.fn() } as unknown as DiscordNotificationService;
+  const discord = { sendAlert: vi.fn().mockResolvedValue(undefined), critical: vi.fn().mockResolvedValue(undefined), warning: vi.fn().mockResolvedValue(undefined), info: vi.fn().mockResolvedValue(undefined) } as unknown as DiscordNotificationService;
 
   // Restore design:paramtypes — always set (esbuild doesn't emit them)
   Reflect.defineMetadata(
@@ -238,7 +238,7 @@ describe('MOD-04: SessionsService', () => {
     );
 
     const encryption = createMockEncryptionService();
-    const discord = { sendAlert: vi.fn(), critical: vi.fn(), warning: vi.fn(), info: vi.fn() } as unknown as DiscordNotificationService;
+    const discord = { sendAlert: vi.fn().mockResolvedValue(undefined), critical: vi.fn().mockResolvedValue(undefined), warning: vi.fn().mockResolvedValue(undefined), info: vi.fn().mockResolvedValue(undefined) } as unknown as DiscordNotificationService;
     const compiled = await Test.createTestingModule({
       providers: [
         SessionsService,
@@ -257,6 +257,7 @@ describe('MOD-04: SessionsService', () => {
       browser: brw,
       accounts: acc,
       config: cfg,
+      discord,
     };
   }
 
@@ -314,6 +315,68 @@ describe('MOD-04: SessionsService', () => {
     expect(result).toBeNull();
     expect(t.prisma.session.findFirst).not.toHaveBeenCalled();
     expect(t.prisma.session.create).not.toHaveBeenCalled();
+  });
+
+  // ── SE1: deferred form login + cooldown + alert + out-of-band cron ─────────
+
+  it('SE1: posting defers (returns null, no form login) when SESSION_DEFERRED_LOGIN=true and only cookies are missing', async () => {
+    prisma.session.findFirst.mockResolvedValue(null); // no active session
+    const t = await setup({
+      accounts: createMockAccountsService({ THREADS: ACCOUNT_THREADS }),
+      config: createMockConfigService({
+        SESSION_DEFERRED_LOGIN: 'true',
+        SOCIAL_THREADS_USERNAME: 'myzodiacai',
+        SOCIAL_THREADS_PASSWORD: 'secret-pass',
+        // no SOCIAL_THREADS_COOKIES → cookie auth yields null
+      }),
+    });
+
+    const result = await t.service.getOrCreateSession(SocialNetwork.THREADS, { deferFormLogin: true });
+
+    expect(result).toBeNull();
+    // Inline form login must NOT run on the posting path.
+    expect(t.browser.createContext).not.toHaveBeenCalled();
+    expect(t.prisma.session.create).not.toHaveBeenCalled();
+    expect((t.discord as unknown as { warning: ReturnType<typeof vi.fn> }).warning).not.toHaveBeenCalled();
+  });
+
+  it('SE1: form login fires a Discord alert and is throttled by the cooldown on a second attempt', async () => {
+    prisma.session.findFirst.mockResolvedValue(null); // stays "no session" across calls
+    prisma.session.create.mockResolvedValue({ id: 'sess-new-1', accountId: ACCOUNT_THREADS.id, status: SessionStatus.ACTIVE });
+    const page = createMockPage({ url: 'https://www.threads.net/home', successVisible: true });
+    browser.createContext.mockResolvedValue(createMockContext(page));
+    browser.saveStorageState.mockResolvedValue(JSON.stringify({ cookies: [], origins: [] }));
+
+    const t = await setup({
+      accounts: createMockAccountsService({ THREADS: ACCOUNT_THREADS }),
+      config: createMockConfigService({
+        SOCIAL_THREADS_USERNAME: 'myzodiacai',
+        SOCIAL_THREADS_PASSWORD: 'secret-pass',
+        FORM_LOGIN_COOLDOWN_MS: '1800000', // enable the cooldown for this assertion (default is 0/off)
+        // deferral off (default) → form login allowed, but cooled down after the first.
+      }),
+    });
+
+    await t.service.getOrCreateSession(SocialNetwork.THREADS); // 1st: form login
+    const warn = (t.discord as unknown as { warning: ReturnType<typeof vi.fn> }).warning;
+    expect(warn).toHaveBeenCalledWith('Form Login Performed', expect.stringContaining('THREADS'));
+    expect(t.prisma.session.create).toHaveBeenCalledTimes(1);
+
+    await t.service.getOrCreateSession(SocialNetwork.THREADS); // 2nd: within cooldown → skipped
+    expect(t.prisma.session.create).toHaveBeenCalledTimes(1); // no second login
+  });
+
+  it('SE1: refreshSessionsCron is a no-op when deferral is off, and drives logins when on', async () => {
+    const off = await setup({ config: createMockConfigService({ SESSION_DEFERRED_LOGIN: 'false' }) });
+    const offSpy = vi.spyOn(off.service, 'getOrCreateSession').mockResolvedValue(null as never);
+    await off.service.refreshSessionsCron();
+    expect(offSpy).not.toHaveBeenCalled();
+
+    const on = await setup({ config: createMockConfigService({ SESSION_DEFERRED_LOGIN: 'true' }) });
+    const onSpy = vi.spyOn(on.service, 'getOrCreateSession').mockResolvedValue(null as never);
+    await on.service.refreshSessionsCron();
+    // One controlled re-login attempt per network (X, THREADS, FACEBOOK).
+    expect(onSpy).toHaveBeenCalledTimes(3);
   });
 
   // ── autoLogin (via getOrCreateSession) ────────────────────────────────────
@@ -1074,6 +1137,7 @@ describe('MOD-04: SessionsService', () => {
       config: createMockConfigService({
         SOCIAL_X_USERNAME: 'myzodiacai',
         SOCIAL_X_PASSWORD: 'secret-pass',
+        FORM_LOGIN_COOLDOWN_MS: '1800000', // SE1 cooldown on for the concurrent-login assertions
       }),
     });
 
@@ -1562,7 +1626,7 @@ describe('MOD-04: SessionsService', () => {
 
   // ── getOrCreateSession: concurrent lock wait then no session → creates new ─
 
-  it('UTC-112: concurrent getOrCreateSession — second call waits for lock, re-check finds no session → creates its own', async () => {
+  it('UTC-112: concurrent getOrCreateSession — second call waits for lock; SE1 cooldown throttles its back-to-back form login (returns null)', async () => {
     const SESSION_A = { id: 'sess-a', accountId: ACCOUNT_X.id, status: SessionStatus.ACTIVE };
     const SESSION_B = { id: 'sess-b', accountId: ACCOUNT_X.id, status: SessionStatus.ACTIVE };
 
@@ -1595,6 +1659,7 @@ describe('MOD-04: SessionsService', () => {
       config: createMockConfigService({
         SOCIAL_X_USERNAME: 'myzodiacai',
         SOCIAL_X_PASSWORD: 'secret-pass',
+        FORM_LOGIN_COOLDOWN_MS: '1800000', // SE1 cooldown on for the concurrent-login assertions
       }),
     });
 
@@ -1611,9 +1676,10 @@ describe('MOD-04: SessionsService', () => {
     const [resultA, resultB] = await Promise.all([callA, callB]);
 
     expect(resultA).toEqual(SESSION_A);
-    expect(resultB).toEqual(SESSION_B);
-    // Both calls create their own browser context
-    expect(t.browser.createContext).toHaveBeenCalledTimes(2);
+    // SE1: the form-login cooldown now throttles a second back-to-back login for the same
+    // network — Call B returns null instead of performing a duplicate form login.
+    expect(resultB).toBeNull();
+    expect(t.browser.createContext).toHaveBeenCalledTimes(1);
   });
 
   // ── SPA_DRY_RUN debug dump ─────────────────────────────────────────────────
