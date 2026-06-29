@@ -155,6 +155,17 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * RP1: look up an engagement job by its interactionId (re-entrancy guard).
+   * Returns the job if one already exists in the engagement queue in any state, so
+   * the replies cron can avoid re-deciding / re-enqueuing a reply that is already in
+   * flight for a comment that is still NEW. Redis-backed, so it survives restarts.
+   */
+  async getEngagementJob(interactionId: string, network: string): Promise<Job | undefined> {
+    const queue = this.getQueue(network, 'engagement');
+    return queue.getJob(interactionId);
+  }
+
+  /**
    * Retry a failed job by moving it back to the waiting state.
    */
   async retryFailedJob(network: string, jobId: string): Promise<void> {

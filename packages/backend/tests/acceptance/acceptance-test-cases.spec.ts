@@ -398,7 +398,7 @@ function restoreAllDesignParamtypes(): void {
   defineParamtypes(HookPerformanceBank, [Object, PrismaService]);
 
   // Replies
-  defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object]);
+  defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object, Object]);
   defineParamtypes(RepliesService, [PrismaService, ConfigService, AccountsService]);
 
   // Sprint O: New Features

@@ -444,7 +444,7 @@ describe('E2E Sprint D: SSE Real-Time Updates — generate → approve → post'
     defineParamtypes(HookPerformanceBank, [Object, PrismaService]);
 
     // Replies
-    defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object]);
+    defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object, Object]);
     defineParamtypes(RepliesService, [PrismaService, ConfigService, AccountsService]);
 
     // Sprint O: Restore paramtypes for new feature modules

@@ -37,6 +37,7 @@ import { sanitizeUntrustedInput } from '../../infrastructure/llm/sanitize-untrus
 import { DiscordNotificationService } from '../../infrastructure/notifications/discord-notification.service.js';
 import { SseService } from '../../infrastructure/sse/sse.service.js';
 import { EngagementService } from '../engagement/engagement.service.js';
+import { QueueFactory } from '../../infrastructure/queue/queue.factory.js';
 import { PostStatus, SocialNetwork, CommentStatus } from '@prisma/client';
 import type { Page } from '../../domain/ports/browser-primitives';
 import { parseBool } from '../../infrastructure/config/parse-bool';
@@ -75,6 +76,9 @@ export class RepliesMonitorService implements OnModuleInit {
     @Optional() private readonly llmService?: LlmService,
     @Optional() @Inject(IBrowserPort) private readonly browser?: IBrowserPort,
     @Optional() private readonly engagementService?: EngagementService,
+    // RP1: when present, auto-replies are scheduled as delayed BullMQ jobs instead of
+    // blocking the cron with an inline setTimeout. Absent in unit tests (inline fallback).
+    @Optional() private readonly queueFactory?: QueueFactory,
   ) {
     this.enabled = parseBool(this.configService.get<string>('REPLIES_ENABLED', 'false'));
     this.cronSchedule = this.configService.get<string>('REPLIES_CRON_SCHEDULE', '0 */4 * * *');
@@ -129,6 +133,14 @@ export class RepliesMonitorService implements OnModuleInit {
 
           // Process each new comment
           for (const comment of newComments) {
+            // RP1 re-entrancy guard: a reply may already be scheduled (a delayed BullMQ
+            // job) from an earlier cycle. The comment stays NEW until the job posts it,
+            // so without this guard we would re-run the (costly) LLM decision every cycle.
+            // jobId=commentId; the lookup is Redis-backed, so it survives restarts.
+            if (this.queueFactory && (await this.queueFactory.getEngagementJob(comment.commentId, post.network))) {
+              this.logger.debug(`Reply already scheduled for comment ${comment.commentId} — skipping re-decision`);
+              continue;
+            }
             const decision = await this.decideReply(post, comment);
             await this.executeDecision(post, comment, decision, stats);
           }
@@ -670,56 +682,142 @@ IMPORTANT: Reply in the SAME LANGUAGE as the comment above. Detect the language 
           this.logger.warn(`Auto-reply decision has no replyText — skipping`);
           return;
         }
+        if (!post.postUrl) {
+          this.logger.warn(`Auto-reply for comment ${comment.commentId} has no postUrl — cannot reply`);
+          return;
+        }
 
-        // Post the reply via engagement service
-        if (this.engagementService && post.postUrl) {
+        // Human-like delay before posting (5-30 min random). Instant replies look
+        // bot-like and can trigger platform detection.
+        const delay = this.computeReplyDelayMs();
+
+        // RP1: schedule the reply as a BullMQ *delayed* job instead of blocking the cron
+        // with an inline `await setTimeout(5-30min)`. jobId=commentId makes it idempotent
+        // (no duplicate replies even across restarts) and the cron stays responsive.
+        if (this.queueFactory) {
+          await this.queueFactory.enqueueEngagement(
+            comment.commentId,
+            post.network,
+            'reply',
+            {
+              commentDbId: comment.id,
+              commentId: comment.commentId,
+              postId: post.id,
+              postUrl: post.postUrl,
+              replyText: decision.replyText,
+            },
+            { delay },
+          );
+          // Persist the decided reply text so the UI can show it while the job waits.
+          // Status stays NEW until the worker posts it; the re-entrancy guard (an
+          // existing engagement job for this commentId) prevents re-deciding it.
+          await this.prisma.incomingComment.update({
+            where: { id: comment.id },
+            data: { replyText: decision.replyText },
+          });
+          this.logger.log(
+            `Auto-reply scheduled for comment ${comment.commentId} on post ${post.id} (~${Math.round(delay / 60000)}min)`,
+          );
+          break;
+        }
+
+        // Fallback when no queue is wired (e.g. unit tests): post immediately. This path
+        // no longer blocks on a 5-30 min timer — production always has the queue.
+        if (this.engagementService) {
           try {
-            // Human-like delay before posting reply (5-30 min random).
-            // Instant replies look bot-like and can trigger platform detection.
-            const delayMinMs = this.configService.get<number>('REPLIES_AUTO_DELAY_MIN_MS', 300000); // 5 min
-            const delayMaxMs = this.configService.get<number>('REPLIES_AUTO_DELAY_MAX_MS', 1800000); // 30 min
-            const delay = delayMinMs + Math.floor(Math.random() * (delayMaxMs - delayMinMs));
-            this.logger.debug(`Auto-reply: waiting ${Math.round(delay / 60000)}min before posting (human-like delay)`);
-            await new Promise((resolve) => setTimeout(resolve, delay));
-
-            const result = await this.engagementService.reply(
-              post.network as SocialNetwork,
-              post.postUrl,
-              decision.replyText,
-            );
-
-            if (result.success) {
-              await this.prisma.incomingComment.update({
-                where: { id: comment.id },
-                data: {
-                  status: CommentStatus.REPLIED,
-                  replyText: decision.replyText,
-                  replyPostedAt: new Date(),
-                },
-              });
-              stats.repliesPosted++;
-              this.logger.log(`Auto-replied to comment ${comment.commentId} on post ${post.id}`);
-
-              // SSE event for UI
-              await this.sseService.publish({
-                type: 'reply_posted',
-                postId: post.id,
-                commentId: comment.commentId,
-                network: post.network,
-              });
-            } else {
-              this.logger.warn(`Reply posting failed for comment ${comment.commentId}: ${result.error}`);
-              // Keep as NEW for next cycle retry
-            }
+            await this.postScheduledReply({
+              commentDbId: comment.id,
+              commentId: comment.commentId,
+              postId: post.id,
+              network: post.network,
+              postUrl: post.postUrl,
+              replyText: decision.replyText,
+            });
+            stats.repliesPosted++;
           } catch (err) {
             this.logger.warn(`Reply posting error for comment ${comment.commentId}: ${(err as Error).message}`);
+            // Comment stays NEW for a future cycle to retry.
           }
         } else {
-          this.logger.warn(`EngagementService not available or no postUrl — cannot post reply`);
+          this.logger.warn(`EngagementService not available — cannot post reply`);
         }
         break;
       }
     }
+  }
+
+  /**
+   * Random human-like delay (ms) before an auto-reply is posted.
+   * Defaults: 5 min … 30 min. Robust against malformed env values.
+   */
+  private computeReplyDelayMs(): number {
+    const rawMin = Number(this.configService.get<string>('REPLIES_AUTO_DELAY_MIN_MS', '300000'));
+    const rawMax = Number(this.configService.get<string>('REPLIES_AUTO_DELAY_MAX_MS', '1800000'));
+    const min = Number.isFinite(rawMin) && rawMin >= 0 ? rawMin : 300000;
+    const max = Number.isFinite(rawMax) && rawMax > min ? rawMax : min + 1;
+    return min + Math.floor(Math.random() * (max - min));
+  }
+
+  /**
+   * RP1: post a scheduled auto-reply. Invoked by the engagement BullMQ worker after the
+   * delay elapses (or inline as a fallback when no queue is wired). Throws on failure so
+   * BullMQ retries and ultimately DLQ-alerts; the comment then stays NEW for a retry.
+   */
+  async postScheduledReply(data: {
+    commentDbId: string;
+    commentId: string;
+    postId: string;
+    network: string;
+    postUrl: string;
+    replyText: string;
+  }): Promise<void> {
+    if (!this.engagementService) {
+      throw new Error('EngagementService not available — cannot post reply');
+    }
+
+    // Re-check the per-post cap at execution time: multiple replies can be scheduled in
+    // one cycle before any is posted, so the live count may now exceed the limit.
+    const alreadyReplied = await this.prisma.incomingComment.count({
+      where: { postId: data.postId, status: { in: [CommentStatus.REPLIED, CommentStatus.REPLIED_MANUAL] } },
+    });
+    if (alreadyReplied >= this.maxRepliesPerPost) {
+      this.logger.warn(
+        `Max replies per post reached (${this.maxRepliesPerPost}) — dropping scheduled reply for ${data.commentId}`,
+      );
+      await this.prisma.incomingComment.update({
+        where: { id: data.commentDbId },
+        data: { status: CommentStatus.SKIPPED },
+      });
+      return;
+    }
+
+    const result = await this.engagementService.reply(
+      data.network as SocialNetwork,
+      data.postUrl,
+      data.replyText,
+    );
+
+    if (!result.success) {
+      // Throw → BullMQ retries (and DLQ-alerts on exhaustion). Comment stays NEW.
+      throw new Error(result.error ?? 'Reply posting failed');
+    }
+
+    await this.prisma.incomingComment.update({
+      where: { id: data.commentDbId },
+      data: {
+        status: CommentStatus.REPLIED,
+        replyText: data.replyText,
+        replyPostedAt: new Date(),
+      },
+    });
+    this.logger.log(`Auto-replied to comment ${data.commentId} on post ${data.postId}`);
+
+    await this.sseService.publish({
+      type: 'reply_posted',
+      postId: data.postId,
+      commentId: data.commentId,
+      network: data.network,
+    });
   }
 
   /**

@@ -68,6 +68,11 @@ export class QueueModule implements OnModuleInit {
             action: string;
             network: string;
             durationSec?: number;
+            commentDbId?: string;
+            commentId?: string;
+            postId?: string;
+            postUrl?: string;
+            replyText?: string;
           };
           if (action === 'browsing-session') {
             // Lazily import to avoid circular dependency at module load time
@@ -83,6 +88,28 @@ export class QueueModule implements OnModuleInit {
             } else {
               this.logger.warn(
                 `BrowsingSessionService not available — engagement job ${job.id} skipped`,
+              );
+            }
+          } else if (action === 'reply') {
+            // RP1: delayed auto-reply job. Lazily resolve RepliesMonitorService (absent
+            // unless REPLIES_ENABLED) to avoid a static import cycle. Throwing on failure
+            // lets BullMQ retry + DLQ-alert via the shared worker 'failed' handler.
+            const { RepliesMonitorService } = await import(
+              '../replies/replies-monitor.service.js'
+            );
+            const repliesMonitor = this.moduleRef.get(RepliesMonitorService, { strict: false });
+            if (repliesMonitor && job.data?.commentDbId && job.data?.postUrl && job.data?.replyText) {
+              await repliesMonitor.postScheduledReply({
+                commentDbId: job.data.commentDbId,
+                commentId: job.data.commentId ?? String(job.id),
+                postId: job.data.postId ?? '',
+                network: jobNetwork,
+                postUrl: job.data.postUrl,
+                replyText: job.data.replyText,
+              });
+            } else {
+              this.logger.warn(
+                `RepliesMonitorService unavailable or reply job ${job.id} malformed — skipped`,
               );
             }
           }
