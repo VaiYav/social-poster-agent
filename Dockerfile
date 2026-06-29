@@ -85,10 +85,11 @@ RUN groupadd -r spa && useradd -r -g spa -m -d /home/spa spa && \
     mkdir -p /home/spa/.cache/camoufox && \
     chown -R spa:spa /home/spa
 
-# Pre-download Camoufox browser during build (662MB) to avoid runtime GitHub API rate limits
-# camoufox-js fetches to ~/.cache/camoufox — run as spa user so paths match
+# Pre-download Camoufox browser during build (662MB) to avoid runtime GitHub API rate limits.
+# Non-fatal: if GitHub API is rate-limited during build, app will retry at runtime.
 RUN CMX=$(find /app/node_modules/.pnpm -maxdepth 3 -path '*/camoufox-js/dist/pkgman.js' | head -1) && \
-    su spa -c "node -e 'const{CamoufoxFetcher}=require(\"$CMX\");new CamoufoxFetcher().install().then(()=>console.log(\"Camoufox installed\")).catch(e=>{console.error(\"Camoufox install failed:\",e.message);process.exit(1)})'"
+    echo "Camoufox pkgman: $CMX" && \
+    su spa -s /bin/sh -c "node -e 'const{CamoufoxFetcher}=require(process.env.CMX);new CamoufoxFetcher().install().then(()=>console.log(\"Camoufox pre-installed OK\")).catch(e=>{console.error(\"Camoufox pre-install failed (will retry at runtime):\",e.message)})" CMX="$CMX" || true
 
 USER spa
 
