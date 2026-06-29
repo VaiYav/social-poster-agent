@@ -32,6 +32,9 @@ RUN pnpm --filter @spa/backend build
 # Generate Prisma client
 RUN cd packages/backend && npx prisma generate
 
+# Copy generated .prisma to a known location for the production stage
+RUN cp -r /app/node_modules/.pnpm/@prisma+client*/node_modules/@prisma/client/node_modules/.prisma /tmp/.prisma
+
 # ── Production stage ──
 FROM node:22-slim AS production
 
@@ -61,8 +64,7 @@ COPY --from=builder /app/packages/backend/prisma ./packages/backend/prisma
 
 # Copy generated Prisma client code from builder.
 # Prisma 6 generates to @prisma/client/node_modules/.prisma/client/
-# which is not included in --prod install. We copy just the .prisma dir.
-COPY --from=builder /app/node_modules/.pnpm/@prisma+client*/node_modules/@prisma/client/node_modules/.prisma /tmp/.prisma
+COPY --from=builder /tmp/.prisma /tmp/.prisma
 RUN CLIENT_NM_DIR=$(find /app/node_modules/.pnpm -path '*/@prisma/client/node_modules' -type d | head -1) && \
     mkdir -p "$CLIENT_NM_DIR" && \
     cp -r /tmp/.prisma "$CLIENT_NM_DIR/" && \
