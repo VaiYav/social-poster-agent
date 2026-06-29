@@ -105,9 +105,9 @@ USER spa
 
 EXPOSE 3100
 
-# Healthcheck — verify the API is responding
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD node -e "fetch('http://localhost:3100/api/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))" || exit 1
+# Healthcheck — verify the API is responding (uses PORT env var, defaults to 3100)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+  CMD node -e "fetch('http://localhost:'+(process.env.PORT||3100)+'/api/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))" || exit 1
 
 ENV NODE_ENV=production
 ENV SPA_API_PORT=3100
