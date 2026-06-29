@@ -121,11 +121,11 @@
        живыми постами X и Threads. Draфты авто-аппрувятся и постятся через BullMQ.
 2. [x] **Autonomous runner** (`AUTONOMOUS_RUNNER_ENABLED=true`) — генерация→аппрув→постинг по крону.
        В БД 19 постов, сгенерированных автономно (X/Threads/Facebook).
-3. [ ] **Recycling cron** (`RECYCLING_CRON_ENABLED=true`) — не задан в `.env` (default false).
+3. [x] **Recycling cron** (`RECYCLING_CRON_ENABLED=true`) — включён 2026-06-29.
        Ресайклы переписываются графом (RC3), не дословные дубли; черновики требуют аппрува.
-4. [ ] **Deferred login** (`SESSION_DEFERRED_LOGIN=true`) — не задан в `.env` (default false).
-       ⚠️ Требует работающего `refreshSessionsCron` (он сам активируется этим флагом, расписание
-       `SESSION_RELOGIN_CRON`). Без него постинг будет вечно откладываться. Опц. `FORM_LOGIN_COOLDOWN_MS=1800000`.
+4. [x] **Deferred login** (`SESSION_DEFERRED_LOGIN=true`) — включён 2026-06-29.
+       `SESSION_RELOGIN_CRON=*/15 * * * *` (каждые 15 мин), `FORM_LOGIN_COOLDOWN_MS=1800000` (30 мин).
+       `refreshSessionsCron` активируется этим флагом — постинг не логинится инлайн, ждёт cron.
 5. [x] **Engagement** (`ENGAGEMENT_ENABLED=true` + `ENGAGEMENT_SCHEDULER_ENABLED=true`) — включён.
        Очередь `spa-engagement-facebook` активна в Redis. **Максимальный риск бана** — наблюдать.
        BUG-2/BUG-10 закрыты (крон ре-планирует ежедневно; кривое окно не рушит тик).
