@@ -74,7 +74,10 @@ RUN CLIENT_NM_DIR=$(find /app/node_modules/.pnpm -maxdepth 4 -path '*/@prisma+cl
 COPY brand-voice.md ./
 
 # Non-root user for security
-RUN groupadd -r spa && useradd -r -g spa spa && chown -R spa:spa /app
+RUN groupadd -r spa && useradd -r -g spa -m -d /home/spa spa && \
+    chown -R spa:spa /app && \
+    mkdir -p /home/spa/.cache/camoufox && \
+    chown -R spa:spa /home/spa
 USER spa
 
 EXPOSE 3100
