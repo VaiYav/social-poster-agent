@@ -71,6 +71,47 @@ describe('MOD-03: XPoster (BasePoster architecture)', () => {
     expect(page.close).toHaveBeenCalledTimes(1);
   });
 
+  it('BUG-6: postThreadReplies posts every reply and returns a per-reply result', async () => {
+    const page = createMockPage();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const postReplySpy = vi.spyOn(poster as any, 'postReply').mockResolvedValue(undefined);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const results = await (poster as any).postThreadReplies(page, 'https://x.com/u/status/1', ['r1', 'r2', 'r3']);
+
+    expect(postReplySpy).toHaveBeenCalledTimes(3);
+    expect(postReplySpy).toHaveBeenNthCalledWith(1, page, 'https://x.com/u/status/1', 'r1');
+    expect(postReplySpy).toHaveBeenNthCalledWith(3, page, 'https://x.com/u/status/1', 'r3');
+    expect(results).toEqual([
+      { index: 0, success: true },
+      { index: 1, success: true },
+      { index: 2, success: true },
+    ]);
+  });
+
+  it('BUG-6: home-page fallback posts the thread replies too (no silent content loss)', async () => {
+    // Primary Post button never visible → post() takes the home-page fallback path.
+    const page = createMockPage({ url: 'https://x.com/u/status/root' });
+    page._locator.isVisible.mockResolvedValue(false);
+    const context = createMockContext(page as unknown);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fbStub = vi.spyOn(poster as any, 'postViaHomePageCompose').mockResolvedValue({ url: 'https://x.com/u/status/root' });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const replyStub = vi.spyOn(poster as any, 'postThreadReplies').mockResolvedValue([
+      { index: 0, success: true },
+      { index: 1, success: true },
+    ]);
+
+    const result = await poster.post(context as unknown, browserPort as unknown, 'root tweet', ['reply A', 'reply B']);
+
+    expect(fbStub).toHaveBeenCalledTimes(1);
+    // The regression: the fallback used to return after the root only, dropping every reply.
+    expect(replyStub).toHaveBeenCalledWith(page, 'https://x.com/u/status/root', ['reply A', 'reply B']);
+    expect(result.url).toBe('https://x.com/u/status/root');
+    expect(result.threadReplyResults).toHaveLength(2);
+  });
+
   it('UTC-057: XPoster.post() returns error when redirected to login (session expired)', async () => {
     const page = createMockPage({
       url: 'https://x.com/i/flow/login',

@@ -166,6 +166,13 @@ export class XPoster extends BasePoster {
         this.logger.warn(`X post button still not visible — falling back to home page compose dialog...`);
         const fallbackResult = await this.postViaHomePageCompose(page, content);
         if (fallbackResult) {
+          // BUG-6: the fallback posts only the root tweet. For a multi-tweet thread we must
+          // post the replies here too — otherwise every threadItem is silently dropped while
+          // the envelope ({ url }, no error) reports full success.
+          if (!fallbackResult.error && fallbackResult.url && threadItems && threadItems.length > 0) {
+            const fbReplyResults = await this.postThreadReplies(page, fallbackResult.url, threadItems);
+            return { ...fallbackResult, threadReplyResults: fbReplyResults };
+          }
           return fallbackResult;
         }
       }
@@ -256,35 +263,12 @@ export class XPoster extends BasePoster {
 
       this.logger.log(`Posted to X: ${postUrl}`);
 
-      // P0-H2: Handle thread replies with per-reply error tracking and retry.
-      // Human-like delay between replies (30-90s) — posting all replies instantly
-      // is not human-like and may trigger X rate limiting / anti-bot detection.
-      const replyResults: Array<{ index: number; success: boolean; error?: string }> = [];
-      if (threadItems && threadItems.length > 0 && postUrl) {
-        for (let i = 0; i < threadItems.length; i++) {
-          // Human-like delay between replies (skip before first reply)
-          if (i > 0) {
-            this.logger.debug(`X thread: waiting before reply ${i + 1}/${threadItems.length}`);
-            await this.browser.randomDelay(30000, 90000);
-          }
-          try {
-            // Retry each reply with exponential backoff (2 attempts)
-            await this.retryWithBackoff(
-              () => this.postReply(page, postUrl, threadItems[i]!),
-              2,
-              5000,
-            );
-            replyResults.push({ index: i, success: true });
-          } catch (replyErr) {
-            const errMsg = (replyErr as Error).message;
-            this.logger.error(`Thread reply ${i + 1}/${threadItems.length} failed after retries: ${errMsg}`);
-            replyResults.push({ index: i, success: false, error: errMsg });
-          }
-        }
-        const succeeded = replyResults.filter((r) => r.success).length;
-        const failed = replyResults.filter((r) => !r.success).length;
-        this.logger.log(`Thread replies: ${succeeded} succeeded, ${failed} failed out of ${threadItems.length}`);
-      }
+      // P0-H2 / BUG-6: post thread replies via the shared helper (also used by the
+      // home-page fallback, so the fallback no longer drops replies).
+      const replyResults =
+        threadItems && threadItems.length > 0 && postUrl
+          ? await this.postThreadReplies(page, postUrl, threadItems)
+          : [];
 
       return { url: postUrl, threadReplyResults: replyResults };
     } catch (err) {
@@ -295,6 +279,41 @@ export class XPoster extends BasePoster {
     } finally {
       await page.close().catch(() => {});
     }
+  }
+
+  /**
+   * BUG-6: post each thread reply with per-reply retry + a human-like delay. Extracted so
+   * BOTH the primary compose path AND the home-page fallback post the full thread — the
+   * fallback previously returned after the root tweet only, silently dropping every reply.
+   * Per-reply failures are recorded (not thrown) so a partial thread is reported accurately.
+   */
+  private async postThreadReplies(
+    page: Page,
+    postUrl: string,
+    threadItems: string[],
+  ): Promise<Array<{ index: number; success: boolean; error?: string }>> {
+    const replyResults: Array<{ index: number; success: boolean; error?: string }> = [];
+    for (let i = 0; i < threadItems.length; i++) {
+      // Human-like delay between replies (skip before the first reply). Posting all
+      // replies instantly is not human-like and may trigger X anti-bot / rate limiting.
+      if (i > 0) {
+        this.logger.debug(`X thread: waiting before reply ${i + 1}/${threadItems.length}`);
+        await this.browser.randomDelay(30000, 90000);
+      }
+      try {
+        // Retry each reply with exponential backoff (2 attempts)
+        await this.retryWithBackoff(() => this.postReply(page, postUrl, threadItems[i]!), 2, 5000);
+        replyResults.push({ index: i, success: true });
+      } catch (replyErr) {
+        const errMsg = (replyErr as Error).message;
+        this.logger.error(`Thread reply ${i + 1}/${threadItems.length} failed after retries: ${errMsg}`);
+        replyResults.push({ index: i, success: false, error: errMsg });
+      }
+    }
+    const succeeded = replyResults.filter((r) => r.success).length;
+    const failed = replyResults.filter((r) => !r.success).length;
+    this.logger.log(`Thread replies: ${succeeded} succeeded, ${failed} failed out of ${threadItems.length}`);
+    return replyResults;
   }
 
   /**
