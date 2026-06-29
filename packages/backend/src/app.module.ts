@@ -1,13 +1,15 @@
 import { Module, type OnModuleInit, type DynamicModule, Logger } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ApiAuthGuard } from './infrastructure/guards/api-auth.guard';
+import { SentryModule } from '@sentry/nestjs/setup';
 import { validateEnv } from './infrastructure/config/env.validation';
 import { PrismaModule } from './infrastructure/prisma/prisma.module';
 import { NotificationsModule } from './infrastructure/notifications/notifications.module';
 import { AppClsModule } from './infrastructure/cls/cls.module';
 import { LoggingModule } from './infrastructure/logging/logging.module';
 import { FiltersModule } from './infrastructure/filters/filters.module';
-import { MonitoringModule } from './infrastructure/monitoring/monitoring.module';
 import { CryptoModule } from './infrastructure/crypto/crypto.module';
 import { HealthModule } from './modules/health/health.module';
 import { PostsModule } from './modules/posts/posts.module';
@@ -69,8 +71,8 @@ const repliesImports =
     RedisModule, // Sprint L: Shared Redis connection pooling
     AppClsModule, // G-6: correlationId via CLS
     LoggingModule, // G-7: RedactInterceptor (global)
-    FiltersModule, // GAP-001: ZodValidationFilter → 400 instead of 500
-    MonitoringModule, // Sentry error tracking (env-gated)
+    FiltersModule, // GAP-001: ZodValidationFilter → 400 instead of 500 + SentryGlobalFilter
+    SentryModule.forRoot(), // Sentry NestJS integration (initialized via instrument.ts)
     CryptoModule, // P0-H3: AES-256-GCM encryption for storageState
     PrismaModule,
     NotificationsModule, // Discord webhook alerts (DLQ, health, captcha)
@@ -101,6 +103,10 @@ const repliesImports =
     ...repliesImports, // Sprint O / F4: Adaptive replies — gated by REPLIES_ENABLED
     FlowControlModule, // ADR-006: Flow control (pause/resume, crisis mode)
     AutonomyModule, // ADR-006: Auto-check, auto-approve, autonomous runner
+  ],
+  providers: [
+    // Global deny-by-default API auth (gated by API_AUTH_ENABLED; /health stays public).
+    { provide: APP_GUARD, useClass: ApiAuthGuard },
   ],
 })
 export class AppModule implements OnModuleInit {
