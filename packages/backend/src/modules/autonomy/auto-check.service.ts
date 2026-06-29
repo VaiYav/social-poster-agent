@@ -62,9 +62,13 @@ export class AutoCheckService {
    *
    * @param content Post text
    * @param network Target network
+   * @param excludePostId BUG-1: the post being evaluated is already persisted
+   *   (auto-check runs from the DRAFT_GENERATED listener), so it MUST be excluded
+   *   from the dedup corpus — otherwise its own SimHash self-matches at distance 0
+   *   and every post is rejected, blocking autonomy entirely.
    * @returns AutoCheckResult with per-check details
    */
-  async check(content: string, network: SocialNetwork): Promise<AutoCheckResult> {
+  async check(content: string, network: SocialNetwork, excludePostId?: string): Promise<AutoCheckResult> {
     const checks: CheckResult[] = [];
 
     // 1. Engagement-bait check
@@ -97,9 +101,9 @@ export class AutoCheckService {
         : undefined,
     });
 
-    // 4. SimHash dedup
+    // 4. SimHash dedup (BUG-1: exclude the post being evaluated — it is already saved)
     const candidateHash = simhash(content);
-    const recentHashes = await this.loadRecentHashes(network);
+    const recentHashes = await this.loadRecentHashes(network, excludePostId);
     const isDup = isDuplicateHash(candidateHash, recentHashes);
     checks.push({
       name: 'simhash_dedup',
@@ -122,8 +126,10 @@ export class AutoCheckService {
 
   /**
    * Load SimHash values from recent posts (last 30 days) for dedup checking.
+   * BUG-1: `excludePostId` removes the post under evaluation from the corpus so
+   * it cannot self-match.
    */
-  private async loadRecentHashes(network: SocialNetwork): Promise<string[]> {
+  private async loadRecentHashes(network: SocialNetwork, excludePostId?: string): Promise<string[]> {
     const since = new Date();
     since.setDate(since.getDate() - 30);
 
@@ -131,6 +137,7 @@ export class AutoCheckService {
       where: {
         network,
         createdAt: { gte: since },
+        ...(excludePostId ? { id: { not: excludePostId } } : {}),
         OR: [
           { simhash: { not: null } },
           { status: 'POSTED' },

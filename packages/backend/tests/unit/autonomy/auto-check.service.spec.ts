@@ -41,8 +41,6 @@ describe('AutoCheckService (A1/BUG-12 — pure content-safety gate)', () => {
     const res = await service.check(CLEAN, SocialNetwork.X);
 
     expect(res.checks.find((c) => c.name === 'quality_score')).toBeUndefined();
-    // check() no longer accepts a score argument at all.
-    expect(service.check.length).toBe(2);
   });
 
   it('fails char_limit when content exceeds the network maximum', async () => {
@@ -69,5 +67,19 @@ describe('AutoCheckService (A1/BUG-12 — pure content-safety gate)', () => {
 
     expect(res.passed).toBe(false);
     expect(res.rejectionReason).toMatch(/simhash_dedup/);
+  });
+
+  it('BUG-1: excludes the evaluated post from the dedup corpus (prevents self-match)', async () => {
+    const { service, prisma } = build();
+    await service.check('any content', SocialNetwork.X, 'post-123');
+    const where = (prisma.post.findMany.mock.calls[0]![0] as { where: { id?: unknown } }).where;
+    expect(where.id).toEqual({ not: 'post-123' });
+  });
+
+  it('BUG-1: applies no id filter when no postId is supplied', async () => {
+    const { service, prisma } = build();
+    await service.check('any content', SocialNetwork.X);
+    const where = (prisma.post.findMany.mock.calls[0]![0] as { where: { id?: unknown } }).where;
+    expect(where.id).toBeUndefined();
   });
 });
