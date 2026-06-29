@@ -50,7 +50,19 @@
   методов, дорогой `paramtypes`-ripple ради ~55 строк) — оставлен осознанно; `sessions.service` не тронут.
 
 **Баги (разделы 2) — закрыто:** RC1, R1, AU1/AU2/AU3 (в составе A1), SEC1, B5/SEC4, P2, P3/P4,
-reaper stuck-POSTING, P5, PO2, RP2, RP3, AU4/AU7/AU8, AU5 (trend-guardrail), TR1, BUG-12, P1.
+reaper stuck-POSTING, P5, PO2, RP2, RP3, AU4/AU7/AU8, AU5 (trend-guardrail), TR1, BUG-12, P1, QC1.
+
+**QC1:** Satori вызывался с `fonts:[]` → рендер всегда падал (фича мертва при QUOTE_CARDS_ENABLED=true).
+Бандл `@fontsource/inter` (latin, require.resolve, кэш) + тест на реальный Satori+resvg рендер (`5e20f7c`).
+**Live-verified** (dry-run): 67KB валидный PNG.
+
+**Независимый code-review (best practice) + live-верификация:** прогон сабагент-ревью по 17 коммитам
+сессии подтвердил корректность A1/P5/A5/A2/A6/QC1 и нашёл 2 реальных High в моих изменениях — оба
+исправлены (`e220348`): **H1** — A4 эмитил `DRAFT_GENERATED` внутри незакоммиченной транзакции (async
+auto-approve/SSE листенеры читали строку до коммита); фикс — эмит после `$transaction` через
+`emitDraftGenerated()`. **H2** — поправлен вводящий в заблуждение комментарий в x.poster + заведён
+follow-up на универсальный `verifyPosted` перед ре-постингом (gap pre-existing). H1 **live-verified**
+(dry-run): 8 continuation-драфтов, tx чистый, race не воспроизвёлся.
 
 **P1 — нюанс:** корректность («не врать POSTED») уже обеспечена: `posting.service.isValidPostUrl`
 ставит **FAILED** на не-permalink (не bogus POSTED), а published-but-no-permalink реконсилит M1
@@ -175,7 +187,7 @@ HEAD`, независимая верификация на каждую нахо�
 | ✅ AU3 | двойной enqueue/расхождение решений | S | M0 (часть A1) |
 | ✅ AU5 | trend-guardrail fail-open + injection | M | M3 |
 | PO1 | `approve/reject` без валидации перехода | S | M0 |
-| QC1 | quote-cards: Satori `fonts:[]` | M | M3 |
+| ✅ QC1 | quote-cards: Satori `fonts:[]` | M | M3 |
 | B5/SEC4 | uncaughtException глушится | S | M0 |
 | SEC3 | prompt-injection из трендов/комментов/CAP | M | M2 |
 
