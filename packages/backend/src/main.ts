@@ -60,7 +60,8 @@ async function bootstrap(): Promise<void> {
   app.enableShutdownHooks();
 
   const configService = app.get(ConfigService);
-  const port = configService.get<number>('SPA_API_PORT', 3100);
+  // Railway sets PORT automatically; fall back to SPA_API_PORT for local dev
+  const port = configService.get<number>('PORT') ?? configService.get<number>('SPA_API_PORT', 3100);
   const apiPrefix = configService.get<string>('SPA_API_PREFIX', 'api/v1');
   const swaggerPath = configService.get<string>('SPA_SWAGGER_PATH', 'docs');
 
@@ -73,9 +74,17 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
-  // CORS for the Vue UI (port 3101)
+  // CORS — allow the Vue UI (dev: localhost:3101, prod: Vercel domain via CORS_ORIGIN env var)
+  const corsOrigins = [
+    `http://localhost:${configService.get<number>('SPA_UI_PORT', 3101)}`,
+  ];
+  const extraOrigin = configService.get<string>('CORS_ORIGIN', '');
+  if (extraOrigin) {
+    // Comma-separated list of additional allowed origins (e.g. Vercel deployment URL)
+    corsOrigins.push(...extraOrigin.split(',').map((o) => o.trim()).filter(Boolean));
+  }
   app.enableCors({
-    origin: [`http://localhost:${configService.get<number>('SPA_UI_PORT', 3101)}`],
+    origin: corsOrigins,
     credentials: true,
   });
 
