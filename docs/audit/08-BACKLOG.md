@@ -61,6 +61,13 @@ scrub секрет-паттернов). Проверено и **уже было 
 BUG-11 (`parseIntEnv` сохраняет 0), BUG-5 (в коде только `threads.com`), BUG-7 (`makeDecision` мёрджит
 `llmMetadata`).
 
+**AN1 (metrics-scraper) — через product-forge:** research-фаза `19b405f` (ландшафт API 2026, источники,
+док `docs/audit/research/AN1-metrics-scraper.md`). 🟡 **Каркас оживлён:** порт `IMetricsSource` + чистый
+парсер + **Threads** `8cfdb0c` и **Facebook** `c5bb23b` коллекторы (бесплатные офиц. API, env-gated,
+мок-тесты). **Осталось (нужны твои данные):** живая верификация токенами (Threads media-id, FB
+`{pageId}_{postId}` + форма ответа, FB impressions-поля после деприкейтов июнь-2026), X (отложен — нет
+бесплатного чтения с фев-2026). После наполнения `PostMetrics` разблокирует recycling + hook-bank.
+
 **QC1:** Satori вызывался с `fonts:[]` → рендер всегда падал (фича мертва при QUOTE_CARDS_ENABLED=true).
 Бандл `@fontsource/inter` (latin, require.resolve, кэш) + тест на реальный Satori+resvg рендер (`5e20f7c`).
 **Live-verified** (dry-run): 67KB валидный PNG.
@@ -222,7 +229,7 @@ surface), `SEC9` (redact по ключам, не по значениям), `UI1`
 
 | Фича | Текущее состояние | Цель (полная фича) | Усилие |
 |------|-------------------|--------------------|--------|
-| **Metrics / analytics** | `scrapePostMetrics` → `null` (`02 AN1`) | бесплатный read-API там, где есть (Threads/FB insights) + аккуратный скрейп для X; наполняет `PostMetrics` → оживляет hook-bank «обучение» и best-time-to-post | L |
+| 🟡 **Metrics / analytics** | Threads+FB коллекторы готовы (мок-тесты, `8cfdb0c`/`c5bb23b`); каркас оживлён. Осталось: живая верификация токенами + X | бесплатный read-API (Threads/FB insights) + X отложен; наполняет `PostMetrics` → оживляет hook-bank + best-time | L |
 | **Engagement (анти-бан активность)** | лимит 1/день (`R1`), навигация на каждый пост (`EN1`), стоп после дня 1 (`EN6`), течёт контекст (`EN2`) | человекоподобный inline-скролл, рабочие бюджеты лайков/комментов, полуночный ре-скейл, верификация действий | L |
 | **Recycling** | endpoint сломан (`RC1`), без крона (`RC2`), дословный дубль (`RC3`) | авто-крон, перепись оригинала через генератор-граф, выбор по реальной производительности (нужен metrics) | M–L (после metrics) |
 | **Replies (адаптивные ответы)** | блокирует крон (`RP1`), коллапс кириллицы (`RP2`), обход safety на LLM (`RP3`) | delayed-jobs, нативные comment-id, жёсткий safety-прелфильтр, идемпотентность | L |
