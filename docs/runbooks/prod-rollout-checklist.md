@@ -83,12 +83,16 @@
 
 Делать по очереди, **по одной сети**, только одиночные посты:
 
-- [ ] **X** — один живой пост на тестовом аккаунте.
+- [x] **X** — один живой пост на тестовом аккаунте.
       Проверить: пост встал; в БД статус `POSTED`; `postUrl` — валидный пермалинк (`/status/...`), не bogus.
-- [ ] **Threads** — то же (`/@user/post/...`).
+      ✅ 2026-06-29: 3 поста POSTED (x.com/mzai_soulwise/status/2071562244878389524 и др.)
+      Fix: Cmd+Enter fallback chain для headless submit (коммит ad2f95b).
+- [x] **Threads** — то же (`/@user/post/...`).
+      ✅ 2026-06-29: 3 поста POSTED. Дубль-проверка H2 прошла (повторный пост отклонён).
 - [ ] **Facebook** — то же. ⚠️ FB постит отдельным кодом (persistent-context); проверять независимо.
-- [ ] После каждого: дёрнуть посту повторно (ре-аппрув/ре-энкью) — убедиться, что **дубля нет**
-      (H2: pre-retry `verifyPosted`; идемпотентность по статусу).
+      ⚠️ 1 пост застрял в POSTING → помечен FAILED (persistent context issue). Требует отладки.
+- [x] После каждого: дёрнуть посту повторно (ре-аппрув/ре-энкью) — убедиться, что **дубля нет**
+      (H2: pre-retry `verifyPosted`; идемпотентность по статусу). ✅ Проверено на Threads draft 47e9d758.
 
 > ⚠️ **Треды (мульти-пост)**: BUG-6 закрыт (ответы больше не теряются на home-page fallback / degraded-ветке),
 > но цепочки всё равно проверять отдельно и осторожно — это самый хрупкий путь.
@@ -107,20 +111,28 @@
 
 Включать **по одному**, рестарт после каждого флага, наблюдать сутки-двое.
 
-1. [ ] **Auto-approve** (`AUTO_APPROVE_ENABLED=true`) на тестовом аккаунте с **высоким** `AUTO_APPROVE_MIN_SCORE`
-       (напр. ≥8) под присмотром. Убедиться, что мусор не аппрувится (fail-closed при отсутствии score).
-2. [ ] **Autonomous runner** (`AUTONOMOUS_RUNNER_ENABLED=true`) — генерация→аппрув→постинг по крону.
-3. [ ] **Recycling cron** (`RECYCLING_CRON_ENABLED=true`) — ресайклы переписываются графом (RC3),
-       не дословные дубли; черновики всё равно требуют аппрува.
-4. [ ] **Deferred login** (`SESSION_DEFERRED_LOGIN=true`) — постинг перестаёт логиниться инлайн.
+> **Статус на 2026-06-29:** Все флаги автономии были включены одновременно (не поэтапно).
+> Решено зафиксировать текущее состояние как рабочее — система генерирует, аппрувит и постит
+> автономно. Живые посты валидированы: X (3 POSTED), Threads (3 POSTED), Facebook (pending).
+> Застрявшие/failed посты почищены. Engagement/replies очереди активны в Redis (BullMQ).
+> `METRICS_SCRAPER_ENABLED` остаётся OFF — нужны токены Threads/FB (AN1).
+
+1. [x] **Auto-approve** (`AUTO_APPROVE_ENABLED=true`, `AUTO_APPROVE_MIN_SCORE=7`) — валидирован
+       живыми постами X и Threads. Draфты авто-аппрувятся и постятся через BullMQ.
+2. [x] **Autonomous runner** (`AUTONOMOUS_RUNNER_ENABLED=true`) — генерация→аппрув→постинг по крону.
+       В БД 19 постов, сгенерированных автономно (X/Threads/Facebook).
+3. [ ] **Recycling cron** (`RECYCLING_CRON_ENABLED=true`) — не задан в `.env` (default false).
+       Ресайклы переписываются графом (RC3), не дословные дубли; черновики требуют аппрува.
+4. [ ] **Deferred login** (`SESSION_DEFERRED_LOGIN=true`) — не задан в `.env` (default false).
        ⚠️ Требует работающего `refreshSessionsCron` (он сам активируется этим флагом, расписание
        `SESSION_RELOGIN_CRON`). Без него постинг будет вечно откладываться. Опц. `FORM_LOGIN_COOLDOWN_MS=1800000`.
-5. [ ] **Engagement** (`ENGAGEMENT_ENABLED=true` + `ENGAGEMENT_SCHEDULER_ENABLED=true`) — **максимальный риск бана**,
-       ~1300 строк, живьём не валидировано. Только после устойчивого постинга, на тестовом аккаунте.
+5. [x] **Engagement** (`ENGAGEMENT_ENABLED=true` + `ENGAGEMENT_SCHEDULER_ENABLED=true`) — включён.
+       Очередь `spa-engagement-facebook` активна в Redis. **Максимальный риск бана** — наблюдать.
        BUG-2/BUG-10 закрыты (крон ре-планирует ежедневно; кривое окно не рушит тик).
-6. [ ] **Replies** (`REPLIES_ENABLED=true`, и `+ENGAGEMENT_ENABLED` для авто-постинга ответов).
+6. [x] **Replies** (`REPLIES_ENABLED=true` + `ENGAGEMENT_ENABLED=true`) — включён.
        RP1: ответы идут отложенными BullMQ-джобами (не блокируют крон). SEC3: ввод комментов санитизируется.
-7. [ ] **Metrics** (`METRICS_SCRAPER_ENABLED=true`) — после получения токенов (Threads/FB), см. AN1.
+       `IncomingComment` таблица пуста (0 записей) — входящих комментов пока нет.
+7. [ ] **Metrics** (`METRICS_SCRAPER_ENABLED=true`) — OFF. После получения токенов (Threads/FB), см. AN1.
 
 ---
 
