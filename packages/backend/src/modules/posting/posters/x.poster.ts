@@ -80,26 +80,29 @@ export class XPoster extends BasePoster {
       }
 
       // ── Type the tweet ──
-      // X uses a contenteditable div with DraftJS. Three strategies:
-      // 1. fill() — fast, but DraftJS may not update React state
-      // 2. keyboard.type() — real key events, DraftJS processes correctly, but slow
-      // 3. pressSequentially() — similar to keyboard.type but per-locator
-      // Strategy: try fill() first, then verify content, fallback to keyboard.type()
+      // X uses a contenteditable div with DraftJS. The challenge:
+      // - fill() sets DOM text but DraftJS doesn't update React state → button stays disabled
+      // - keyboard.type() sends real key events that DraftJS processes, but requires focus
+      // - click({ force: true }) may not properly focus the contenteditable div
+      //
+      // Strategy: click normally (no force) → keyboard.type via typeHuman → if that fails,
+      // fill() + DraftJS nudge (type a char, delete it) → if button still disabled,
+      // Control+A → Backspace → keyboard.type (full re-type via keyboard events)
       let textbox = page
         .locator('[data-testid="tweetTextarea_0"]')
         .first()
         .or(page.locator('[role="textbox"]').first());
 
-      // Click to focus the textbox
-      await textbox.click({ force: true, timeout: 10000 }).catch(() => {});
-      await this.browser.randomDelay(300, 800);
+      // Click to focus the textbox — try normal click first (better for focus),
+      // fall back to force: true if humanize blocks it
+      try {
+        await textbox.click({ timeout: 10000 });
+      } catch {
+        await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+      }
+      await this.browser.randomDelay(500, 1000);
 
-      // Strategy 1: typeHuman (stealth-x approach — human-like per-char typing)
-      // More human-like than fill() — X's anti-bot detects instant fill() as automated.
-      // NOTE: Do NOT pass the locator — DraftJS contenteditable divs don't accept
-      // locator.pressSequentially(). Instead, use page.keyboard.type() per char
-      // (the no-locator branch of typeHuman), which sends real keyboard events that
-      // DraftJS processes correctly. The textbox is already focused from the click above.
+      // Strategy 1: typeHuman (keyboard.type per char — real key events for DraftJS)
       this.logger.log(`X typing tweet via typeHuman (stealth-x approach)...`);
       await this.browser.typeHuman(page, content).catch(() => {});
       await this.browser.randomDelay(500, 1000);
@@ -108,13 +111,19 @@ export class XPoster extends BasePoster {
       let enteredText = await textbox.innerText().catch(() => '');
       this.logger.debug(`X after typeHuman — textbox content: "${enteredText.slice(0, 50)}..."`);
 
-      // Strategy 2: if typeHuman didn't work, use fill() (fast fallback)
+      // Strategy 2: if typeHuman didn't work, use fill() + DraftJS nudge
+      // fill() sets the DOM content, then we type+delete a char to trigger DraftJS state update
       if (!enteredText || enteredText.trim().length < 10) {
-        this.logger.warn(`X typeHuman didn't enter text — trying fill()...`);
+        this.logger.warn(`X typeHuman didn't enter text — trying fill() + DraftJS nudge...`);
         await textbox.fill(content, { timeout: 10000 }).catch(() => {});
         await this.browser.randomDelay(300, 600);
+        // DraftJS nudge: type a space and backspace to trigger React state update
+        await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+        await page.keyboard.type(' ', { delay: 50 }).catch(() => {});
+        await page.keyboard.press('Backspace').catch(() => {});
+        await this.browser.randomDelay(500, 1000);
         enteredText = await textbox.innerText().catch(() => '');
-        this.logger.debug(`X after fill() — textbox content: "${enteredText.slice(0, 50)}..."`);
+        this.logger.debug(`X after fill() + nudge — textbox content: "${enteredText.slice(0, 50)}..."`);
       }
 
       // Strategy 3: if fill() didn't work either, use keyboard.type() (last resort)
@@ -188,38 +197,56 @@ export class XPoster extends BasePoster {
       if (isDisabled) {
         this.logger.warn(`X post button is disabled — retrying text entry...`);
         await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+        // Clear existing content (fill() may have set DOM text without DraftJS state)
         await page.keyboard.press('Control+A').catch(() => {});
+        await page.keyboard.press('Backspace').catch(() => {});
+        await this.browser.randomDelay(200, 400);
+        // Re-type via keyboard events — DraftJS processes these correctly
         await page.keyboard.type(content, { delay: 30 });
         await page.waitForTimeout(1000);
       }
 
-      // Use humanClick for dry-run compatibility (DryRunBrowserPort intercepts humanClick)
-      // and human-like behavior. Falls back to force: true if humanize blocks the click.
-      // Human-like: scroll into view, hover, then click
+      // Submit the tweet — try multiple strategies in order:
+      // 1. humanClick (for dry-run compatibility — DryRunBrowserPort intercepts this)
+      // 2. Cmd+Enter keyboard shortcut (X native shortcut, bypasses mouse/humanize issues)
+      // 3. JavaScript click (dispatches real DOM event that React processes)
       await this.humanPreAction(page, postButton);
       let clickSuccess = false;
+      let humanClickFailed = false;
       try {
-        await this.browser.humanClick(postButton, { timeoutMs: 10000 });
+        await this.browser.humanClick(postButton, { timeoutMs: 15000 });
         clickSuccess = true;
       } catch (clickErr) {
         this.logger.warn(`X humanClick on Post button failed: ${(clickErr as Error).message}`);
+        humanClickFailed = true;
       }
       await this.browser.randomDelay(2000, 4000);
 
-      // Fallback: if button click failed, try Cmd+Enter (X keyboard shortcut for submit).
-      // This is the native X shortcut — works even when the button is not clickable
-      // due to DraftJS state issues, overlay blocking, or UI changes.
-      if (!clickSuccess) {
+      // Check if the click actually submitted (URL should change away from /compose/post)
+      const urlAfterClick = page.url();
+      const stillOnCompose = urlAfterClick.includes('/compose/post');
+
+      // Fallback 1: if humanClick failed OR URL didn't change, try Cmd+Enter
+      if (humanClickFailed || stillOnCompose) {
         this.logger.log(`X trying Cmd+Enter keyboard shortcut to submit...`);
-        // Re-focus the textbox first (Cmd+Enter works from the focused textarea)
         await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
         await this.browser.randomDelay(300, 600);
-        // Cmd+Enter on Mac, Ctrl+Enter on Windows/Linux — send both to cover all platforms
         await page.keyboard.press('Meta+Enter').catch(() => {});
         await this.browser.randomDelay(200, 400);
         await page.keyboard.press('Control+Enter').catch(() => {});
         await this.browser.randomDelay(2000, 4000);
-        this.logger.log(`X Cmd+Enter sent — checking if post was submitted...`);
+        clickSuccess = !page.url().includes('/compose/post');
+      }
+
+      // Fallback 2: if still on compose page, try JavaScript click (last resort)
+      if (page.url().includes('/compose/post')) {
+        this.logger.warn(`X trying JavaScript click on Post button...`);
+        await page.evaluate(() => {
+          const btn = document.querySelector('[data-testid="tweetButton"]') as HTMLButtonElement;
+          if (btn) btn.click();
+        }).catch(() => {});
+        await this.browser.randomDelay(2000, 4000);
+        clickSuccess = !page.url().includes('/compose/post');
       }
 
       // Screenshot after submit
