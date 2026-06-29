@@ -17,6 +17,12 @@ const envSchema = Joi.object({
   SOCIAL_FACEBOOK_PASSWORD: Joi.string().allow('').default(''),
   SOCIAL_FACEBOOK_PAGE_SLUG: Joi.string().allow('').default(''),
 
+  // ── AN1: metrics-scraper (free official read APIs — own account) ──
+  METRICS_SCRAPER_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  METRICS_SCRAPER_SCHEDULE: Joi.string().default('0 6 * * *'),
+  THREADS_ACCESS_TOKEN: Joi.string().allow('').default(''), // Threads Insights API (own account)
+  FACEBOOK_PAGE_TOKEN: Joi.string().allow('').default(''), // Graph API Page insights (next increment)
+
   // ── Social cookies (optional — used for cookie-based auth, more stable than login) ──
   // Format: "name1=value1; name2=value2" (same as browser cookie header)
   // X: requires auth_token + ct0

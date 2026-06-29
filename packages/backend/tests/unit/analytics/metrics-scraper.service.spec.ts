@@ -53,6 +53,10 @@ describe('F6: MetricsScraperService', () => {
   let browser: ReturnType<typeof createMockBrowser>;
 
   beforeEach(() => {
+    // AN1: keep the metrics-source registry empty so the "no source → skip" path
+    // under test is preserved regardless of the ambient env.
+    delete process.env.THREADS_ACCESS_TOKEN;
+    delete process.env.FACEBOOK_PAGE_TOKEN;
     prisma = createMockPrisma();
     sse = createMockSse();
     browser = createMockBrowser();

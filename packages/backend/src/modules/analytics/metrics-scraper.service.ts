@@ -28,6 +28,8 @@ import { SseService } from '../../infrastructure/sse/sse.service.js';
 import { IBrowserPort } from '../../domain/ports/browser.port.js';
 import { Inject } from '@nestjs/common';
 import { SocialNetwork, PostStatus } from '@prisma/client';
+import type { IMetricsSource, PostMetricsData } from './metrics-sources/metrics-source.port.js';
+import { ThreadsInsightsSource } from './metrics-sources/threads-insights.source.js';
 
 export interface ScrapedMetrics {
   likes: number;
@@ -47,6 +49,21 @@ export class MetricsScraperService {
     @Inject(IBrowserPort) @Optional() private readonly browser?: IBrowserPort,
   ) {}
 
+  // AN1: per-network metrics sources, built lazily from env tokens. A network with
+  // no source (no token) is skipped — never written as zero-rows. HTTP sources
+  // (Threads/FB) need no browser; X (deferred, research §3) would use the browser.
+  private sourcesCache?: Partial<Record<SocialNetwork, IMetricsSource>>;
+
+  private getSources(): Partial<Record<SocialNetwork, IMetricsSource>> {
+    if (this.sourcesCache) return this.sourcesCache;
+    const sources: Partial<Record<SocialNetwork, IMetricsSource>> = {};
+    const threadsToken = process.env.THREADS_ACCESS_TOKEN;
+    if (threadsToken) sources[SocialNetwork.THREADS] = new ThreadsInsightsSource(threadsToken);
+    // FACEBOOK source: next increment. X (Twitter): deferred per AN1 research §3.
+    this.sourcesCache = sources;
+    return sources;
+  }
+
   /**
    * Daily cron — collect metrics from posted content.
    * Default: 6:00 AM daily. Configurable via METRICS_SCRAPER_SCHEDULE.
@@ -65,8 +82,10 @@ export class MetricsScraperService {
    * Returns summary of collected metrics.
    */
   async collectMetrics(): Promise<{ collected: number; failed: number; skipped: number }> {
-    if (!this.browser) {
-      this.logger.warn('F6: Browser port not available — metrics scraping skipped');
+    // HTTP API sources (Threads/FB) need no browser; only skip everything when
+    // there is neither a browser nor any configured API source.
+    if (!this.browser && Object.keys(this.getSources()).length === 0) {
+      this.logger.warn('F6: no browser and no metrics API sources configured — skipped');
       return { collected: 0, failed: 0, skipped: 0 };
     }
 
@@ -97,9 +116,10 @@ export class MetricsScraperService {
 
     for (const post of posts) {
       try {
-        const metrics = await this.scrapePostMetrics(post.postUrl!, post.network);
+        const metrics = await this.scrapePostMetrics({ ...post, postUrl: post.postUrl! });
         if (metrics === null) {
-          // Stub mode — scraping not implemented yet, skip without writing zeros
+          // No source configured for this network (or unavailable) — skip without
+          // writing zero-rows that would pollute analytics.
           skipped++;
           continue;
         }
@@ -110,6 +130,7 @@ export class MetricsScraperService {
             likes: metrics.likes,
             comments: metrics.comments,
             shares: metrics.shares,
+            ...(metrics.impressions != null ? { impressions: metrics.impressions } : {}),
           },
         });
         collected++;
@@ -137,37 +158,23 @@ export class MetricsScraperService {
   }
 
   /**
-   * Scrape metrics from a single post URL.
-   * Uses network-specific selectors to extract likes/comments/shares.
-   *
-   * STUB: Returns null until real selector implementation is added.
-   * When null is returned, collectMetrics() skips the post instead of
-   * writing zero-rows to the DB (prevents data pollution).
+   * AN1: fetch metrics for a single post via the source registered for its network
+   * (Threads/FB → free official insights API). Returns null when no source is
+   * configured for the network — the post is then skipped, not zeroed. Per-post
+   * errors propagate to the caller's try/catch.
    */
-  private async scrapePostMetrics(postUrl: string, network: SocialNetwork): Promise<ScrapedMetrics | null> {
-    if (!this.browser) throw new Error('Browser not available');
-
-    // STUB: Real scraping not yet implemented.
-    // The selector scaffolding below documents the intended approach.
-    // Until implemented, return null → collectMetrics() skips the post
-    // instead of writing zero-rows that pollute analytics.
-    //
-    // TODO(F6): Implement real scraping:
-    //   const context = await this.browser.createContext(network);
-    //   try {
-    //     const page = await context.newPage();
-    //     await page.goto(postUrl);
-    //     await page.waitForLoadState('networkidle');
-    //     const metrics = await this.extractMetricsByNetwork(page, network);
-    //     await page.close();
-    //     return metrics;
-    //   } finally {
-    //     if (context && typeof (context as any).close === 'function') {
-    //       await (context as any).close().catch(() => {});
-    //     }
-    //   }
-    this.logger.debug(`F6: scrapePostMetrics stub — skipping ${network} post at ${postUrl}`);
-    return null;
+  private async scrapePostMetrics(post: {
+    id: string;
+    postUrl: string;
+    network: SocialNetwork;
+    accountId: string;
+  }): Promise<PostMetricsData | null> {
+    const source = this.getSources()[post.network];
+    if (!source) {
+      this.logger.debug(`F6: no metrics source for ${post.network} — skipping ${post.id}`);
+      return null;
+    }
+    return source.fetchMetrics(post);
   }
 
   /**
