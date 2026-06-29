@@ -31,10 +31,24 @@ function fatalShutdown(label: string, err: unknown): void {
 }
 
 // Playwright/Camoufox throws benign uncaught errors on page errors (e.g. malformed
-// pageError.location) — those are non-fatal and suppressed. Everything else triggers
-// a graceful shutdown rather than silently continuing in an undefined state.
+// pageError.location, or `Cannot read properties of undefined (reading 'url')` from
+// _Page.addPageError when a Firefox page-error event arrives without a location object).
+// These are non-fatal upstream bugs — suppress them. Everything else triggers a graceful
+// shutdown rather than silently continuing in an undefined state.
+function isBenignPlaywrightError(err: Error): boolean {
+  const msg = err.message ?? '';
+  const stack = err.stack ?? '';
+  // Match by message (older form) or by the addPageError/FFPage stack frame (newer form
+  // where the message is just "Cannot read properties of undefined (reading 'url')").
+  return (
+    msg.includes('pageError') ||
+    msg.includes('location.url') ||
+    (msg.includes("reading 'url'") && /addPageError|FFPage\._onUncaughtError/.test(stack))
+  );
+}
+
 process.on('uncaughtException', (err) => {
-  if (err.message?.includes('pageError') || err.message?.includes('location.url')) {
+  if (isBenignPlaywrightError(err)) {
     new Logger('Process').warn(`Suppressed Playwright pageError bug: ${err.message}`);
     return;
   }
@@ -43,8 +57,14 @@ process.on('uncaughtException', (err) => {
 
 // Surface unhandled promise rejections (logged + captured by Sentry). Not force-exiting
 // to avoid destabilizing on benign fire-and-forget rejections — but these are bugs.
+// The same Playwright pageError bug can surface here as an unhandled rejection from
+// the FFBrowserContext event emitter — suppress it at warn level instead of error.
 process.on('unhandledRejection', (reason) => {
   const e = reason as Error;
+  if (e && isBenignPlaywrightError(e)) {
+    new Logger('Process').warn(`Suppressed Playwright pageError rejection: ${e.message}`);
+    return;
+  }
   new Logger('Process').error(`Unhandled promise rejection: ${e?.message ?? String(reason)}`, e?.stack);
 });
 
