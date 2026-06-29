@@ -30,7 +30,7 @@
 ## ✅ Статус выполнения (обновлено 2026-06-29)
 
 Отметки ниже = **реально закоммичено** в ветке `fix/a3-remaining-tests`, зелено под `tsc` (`nest build`)
-+ полный backend-сьют (**84 файла / 1258 тестов**, lint **0 errors**). Источник истины по отдельным
++ полный backend-сьют (**84 файла / 1262 теста**, lint **0 errors**). Источник истины по отдельным
 фиксам — `git log` + список задач; таблицы ниже размечены по нему, но не претендуют на исчерпывающий
 аудит. Dry-run по отрефакторенным путям подтверждён вручную.
 
@@ -180,7 +180,7 @@ HEAD`, независимая верификация на каждую нахо�
 | BUG-3 | engagement rate-limit режет лайки до 1/день | High | M | M0 | ✅ = `R1` |
 | BUG-4 | детекция постинга → ложные POSTED/FAILED | High | L | M1 | = `P1` |
 | BUG-5 | Threads-куки `.threads.net` ≠ `threads.com` → cookie-auth мёртв | High | S | M0 | ✅ verified — в коде только `threads.com` |
-| BUG-6 | тред через home-page fallback теряет ответы (потеря контента) | High | M | M1 | **NEW** |
+| ✅ BUG-6 | тред через home-page fallback теряет ответы (потеря контента) | High | M | M1 | вынесен `postThreadReplies()`, вызывается из всех путей; X (`d72e245`) + тот же класс в Threads degraded-ветке (`ab43df8`) |
 | BUG-7 | `makeDecision` затирает весь `llmMetadata` (hook/score/visual) | High | S | M0 | ✅ verified — мёрджит `prevMeta` |
 | BUG-8 | `/health` зависает при Redis down → рестарт пода | High | S | M0 | ✅ done `cdd229f` — `withTimeout` |
 | BUG-9 | resume не восстанавливает `pendingWrites` → повтор/дубли нод | Medium | M | M1 | ✅ done `789fae2` — getTuple грузит writes |
