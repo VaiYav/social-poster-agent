@@ -33,6 +33,7 @@ import { IBrowserPort } from '../../domain/ports/browser.port.js';
 import { buildCommentId } from './comment-id.js';
 import { detectSensitive, isLikelyTroll } from './sensitive-filter.js';
 import { LlmService } from '../../infrastructure/llm/llm.service.js';
+import { sanitizeUntrustedInput } from '../../infrastructure/llm/sanitize-untrusted-input.js';
 import { DiscordNotificationService } from '../../infrastructure/notifications/discord-notification.service.js';
 import { SseService } from '../../infrastructure/sse/sse.service.js';
 import { EngagementService } from '../engagement/engagement.service.js';
@@ -446,9 +447,12 @@ Reply guidelines:
 Return your response in this exact JSON format:
 {"action": "auto_reply" | "human_review", "reason": "brief explanation", "replyText": "the reply text (if auto_reply, IN THE SAME LANGUAGE as the comment)", "reviewReason": "why human review is needed (if human_review)"}`;
 
+    // SEC3: the comment author + text are untrusted external input — sanitize
+    // before interpolating so a comment can't inject instructions the model then
+    // follows and posts under our account.
     const userPrompt = `Post content: "${post.content.slice(0, 300)}"
 
-Comment from @${comment.author}: "${comment.text}"
+Comment from @${sanitizeUntrustedInput(comment.author, 60)}: "${sanitizeUntrustedInput(comment.text)}"
 
 Network: ${post.network}
 
