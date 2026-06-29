@@ -42,6 +42,11 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
   private readonly screenshotsEnabled: boolean;
   private readonly screenshotFullPage: boolean;
   private browser: Browser | null = null;
+  // P5: in-flight browser launch promise — concurrent callers share a single
+  // Camoufox launch (which downloads the binary + UBO addon on first run).
+  // Without this, multiple concurrent getBrowser() calls race to download/extract
+  // the addon to the same path → "manifest.json is missing" from confirmPaths().
+  private browserLaunchPromise: Promise<Browser> | null = null;
   // Persistent context for Facebook — stores fingerprint + cookies on disk
   // to avoid "suspicious login" challenges on every run.
   // Key: network → persistent BrowserContext
@@ -93,12 +98,34 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
   /**
    * Get or create the shared Camoufox browser instance.
    * One browser, multi-context per network (CONSTITUTION §9).
+   *
+   * P5: uses an in-flight launch promise so concurrent callers share a single
+   * Camoufox launch. Without this, multiple browsing jobs that start before the
+   * binary/addon is fully downloaded race to extract the UBO addon to the same
+   * path → "manifest.json is missing" from confirmPaths().
    */
   private async getBrowser(): Promise<Browser> {
     if (this.browser && this.browser.isConnected()) {
       return this.browser;
     }
 
+    // Share an in-flight launch so concurrent callers don't race.
+    if (this.browserLaunchPromise) {
+      return this.browserLaunchPromise;
+    }
+
+    this.browserLaunchPromise = this.launchBrowser();
+    try {
+      this.browser = await this.browserLaunchPromise;
+      return this.browser;
+    } finally {
+      // Clear the promise so a failed launch can be retried on the next call.
+      // If successful, the fast-path `this.browser` check at the top handles reuse.
+      this.browserLaunchPromise = null;
+    }
+  }
+
+  private async launchBrowser(): Promise<Browser> {
     const launchOpts: LaunchOptions = {
       headless: this.headless,
       humanize: this.humanize,
@@ -115,12 +142,12 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
 
     // Camoufox() returns a Playwright-compatible Browser instance.
     // The Camoufox binary is downloaded via `npx camoufox-js fetch` (postinstall).
-    this.browser = (await Camoufox(launchOpts)) as unknown as Browser;
+    const browser = (await Camoufox(launchOpts)) as unknown as Browser;
 
     this.logger.log(
       `Camoufox launched (headless=${this.headless}, os=${this.targetOs}, humanize=${this.humanize}, geoip=${this.geoip}, proxy=${!!this.proxyUrl})`,
     );
-    return this.browser;
+    return browser;
   }
 
   /**
@@ -663,5 +690,6 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
       await this.browser.close().catch(() => {});
       this.logger.log('Camoufox browser closed');
     }
+    this.browserLaunchPromise = null;
   }
 }

@@ -101,6 +101,7 @@ RUN groupadd -r spa && useradd -r -g spa -m -d /home/spa spa && \
 # NOTE: pnpm stores packages at .pnpm/<pkg>@<ver>/node_modules/<pkg>/dist/... — maxdepth 5
 # from .pnpm is required to reach the actual file (maxdepth 3 was too shallow and always
 # returned an empty path, causing require(undefined) to fail silently).
+# TIP: set GITHUB_TOKEN in Railway build vars to raise the API rate limit from 60 to 5000/hr.
 RUN CMX=$(find /app/node_modules/.pnpm -maxdepth 5 -path '*/camoufox-js/dist/pkgman.js' | head -1) && \
     if [ -z "$CMX" ]; then \
         echo "[Camoufox pre-install] WARNING: pkgman.js not found — camoufox-js not installed in prod stage? Will retry at runtime."; \
@@ -112,7 +113,7 @@ RUN CMX=$(find /app/node_modules/.pnpm -maxdepth 5 -path '*/camoufox-js/dist/pkg
         su spa -s /bin/sh -c '\
             for attempt in 1 2 3; do \
                 echo "[Camoufox pre-install] attempt $attempt/3..."; \
-                node -e "const{CamoufoxFetcher}=require(process.env.CMX);new CamoufoxFetcher().install().then(()=>{console.log(\"Camoufox pre-installed OK\");process.exit(0)}).catch(e=>{console.error(\"attempt $attempt failed:\",e.message);process.exit(1)})" CMX="'"$CMX"'" && break; \
+                node -e "const{CamoufoxFetcher}=require(process.env.CMX);new CamoufoxFetcher().install().then(()=>{console.log(\"Camoufox pre-installed OK\");process.exit(0)}).catch(e=>{console.log(\"attempt $attempt failed: \"+e.message);process.exit(1)})" CMX="'"$CMX"'" 2>&1 && break; \
                 echo "[Camoufox pre-install] attempt $attempt failed, sleeping before retry..."; \
                 sleep $((attempt * 10)); \
             done; \
