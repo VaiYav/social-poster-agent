@@ -59,12 +59,13 @@ COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/packages/backend/dist ./packages/backend/dist
 COPY --from=builder /app/packages/backend/prisma ./packages/backend/prisma
 
-# Copy generated Prisma client from builder to the correct pnpm store path.
+# Copy generated Prisma client from builder.
 # Prisma 6 generates code to @prisma/client/node_modules/.prisma/client/
-COPY --from=builder /app/node_modules/.pnpm/@prisma+client*/node_modules/@prisma/client /tmp/prisma-generated
-RUN CLIENT_DIR=$(find /app/node_modules/.pnpm -path '*/@prisma/client' -type d | head -1) && \
-    cp -r /tmp/prisma-generated/* "$CLIENT_DIR/" && \
-    rm -rf /tmp/prisma-generated
+# We copy the entire @prisma/client dir (including its node_modules/.prisma)
+# and also the @prisma+engines and prisma packages needed at runtime.
+COPY --from=builder /app/node_modules/.pnpm/@prisma+client* /app/node_modules/.pnpm/@prisma+client
+COPY --from=builder /app/node_modules/.pnpm/@prisma+engines* /app/node_modules/.pnpm/@prisma+engines
+COPY --from=builder /app/node_modules/.pnpm/prisma* /app/node_modules/.pnpm/prisma
 
 # Copy brand voice (needed by generation prompts)
 COPY brand-voice.md ./
