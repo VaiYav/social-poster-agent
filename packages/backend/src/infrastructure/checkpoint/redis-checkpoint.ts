@@ -9,6 +9,7 @@ import {
   type CheckpointMetadata,
   type ChannelVersions,
   type PendingWrite,
+  type CheckpointPendingWrite,
 } from '@langchain/langgraph-checkpoint';
 import type { RunnableConfig } from '@langchain/core/runnables';
 import { SHARED_REDIS } from '../redis/redis.module.js';
@@ -93,16 +94,53 @@ export class RedisCheckpointSaver
       // Get specific checkpoint
       const data = await this.redis.get(this.getThreadKey(threadId, checkpointId));
       if (!data) return undefined;
-      return JSON.parse(data) as CheckpointTuple;
+      const tuple = JSON.parse(data) as CheckpointTuple;
+      // BUG-9: attach persisted pending writes so a resume does NOT re-execute a
+      // task whose writes were already recorded (which would duplicate its side
+      // effects, e.g. a node that persisted a post).
+      tuple.pendingWrites = await this.loadPendingWrites(threadId, checkpointId);
+      return tuple;
     }
 
     // Get latest checkpoint for this thread — use the pointer key (no SCAN needed)
     const latestData = await this.redis.get(this.getThreadKey(threadId));
     if (latestData) {
-      return JSON.parse(latestData) as CheckpointTuple;
+      const tuple = JSON.parse(latestData) as CheckpointTuple;
+      // BUG-9: same — the latest pointer must also carry its pending writes.
+      const latestId =
+        (tuple.config?.configurable?.checkpoint_id as string | undefined) ?? tuple.checkpoint?.id;
+      if (latestId) {
+        tuple.pendingWrites = await this.loadPendingWrites(threadId, latestId);
+      }
+      return tuple;
     }
 
     return undefined;
+  }
+
+  /**
+   * BUG-9: load the pending writes recorded by putWrites() for a checkpoint and
+   * flatten them to LangGraph's `[taskId, channel, value]` shape so `getTuple`
+   * can return them. Malformed entries are skipped, never thrown.
+   */
+  private async loadPendingWrites(
+    threadId: string,
+    checkpointId: string,
+  ): Promise<CheckpointPendingWrite[]> {
+    if (!this.redis) return [];
+    const entries = await this.redis.lrange(this.getWritesKey(threadId, checkpointId), 0, -1);
+    const pending: CheckpointPendingWrite[] = [];
+    for (const entry of entries) {
+      try {
+        const parsed = JSON.parse(entry) as { taskId: string; writes: PendingWrite[] };
+        for (const [channel, value] of parsed.writes) {
+          pending.push([parsed.taskId, channel, value]);
+        }
+      } catch {
+        // skip a malformed write entry rather than failing the whole resume
+      }
+    }
+    return pending;
   }
 
   async *list(

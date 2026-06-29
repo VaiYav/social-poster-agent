@@ -259,7 +259,16 @@ export function createMockPrismaService() {
 
 export function createMockRedis() {
   const store = new Map<string, string>();
+  const lists = new Map<string, string[]>();
   return {
+    // List ops (BUG-9: checkpoint pending writes use rpush/lrange).
+    rpush: vi.fn((key: string, ...vals: string[]) => {
+      const l = lists.get(key) ?? [];
+      l.push(...vals);
+      lists.set(key, l);
+      return Promise.resolve(l.length);
+    }),
+    lrange: vi.fn((key: string) => Promise.resolve(lists.get(key) ?? [])),
     get: vi.fn((key: string) => Promise.resolve(store.get(key) ?? null)),
     set: vi.fn((key: string, val: string) => {
       store.set(key, val);

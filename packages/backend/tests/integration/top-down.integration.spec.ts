@@ -70,6 +70,7 @@ vi.mock('ioredis', () => ({
         store.set(k, arr);
         return Promise.resolve(arr.length);
       }),
+      lrange: vi.fn((k: string) => Promise.resolve((store.get(k) as string[] | undefined) ?? [])),
       incr: vi.fn((k: string) => {
         const v = parseInt((store.get(k) as string) ?? '0', 10) + 1;
         store.set(k, String(v));
