@@ -149,7 +149,14 @@ poll to pause without a restart. Note there is also an internal EventEmitter2 do
   with a stale "cookies, localStorage" comment but actually holds ciphertext.
 - **Two unrelated health modules:** `modules/health` (liveness controller) vs `modules/health-monitor` (F21
   hourly ban-detection + DLQ + reconciliation cron). Don't confuse them.
-- **No auth, by design** (VPN-only). The DB stores only `credentials_ref` (the env-var *name*), never passwords;
+- **UI auth (JWT cookie).** `AUTH_ENABLED` (default `false`) gates all backend routes behind a JWT
+  in an httpOnly cookie (`spa_token`), issued by `POST /auth/login`. When off → pass-through (VPN-only /
+  tests). The admin account is bootstrapped from `ADMIN_USERNAME`/`ADMIN_PASSWORD` env vars on startup
+  (`AuthService.onModuleInit` — created if missing, password updated if env changes; scrypt hash, no
+  external deps). `JwtAuthGuard` is the global `APP_GUARD` (replaced the old shared-API-key `ApiAuthGuard`).
+  Public routes: `/auth/login`, `/health`. The UI (`@spa/ui`) has a `/login` page, Pinia `auth` store,
+  router guard, and `axios` with `withCredentials: true`; SSE uses `EventSource(url, { withCredentials: true })`.
+  The DB stores only `credentials_ref` (the env-var *name*), never social passwords;
   `RedactInterceptor` strips passwords/tokens/storageState/credentialsRef from logs by exact key match.
 - **Green CI ≠ working posting.** Browser automation is mocked in tests; no test drives real X/Threads/Facebook
   selectors end-to-end. Use `pnpm dry-run` to validate against live pages.

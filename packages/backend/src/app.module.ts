@@ -2,7 +2,8 @@ import { Module, type OnModuleInit, type DynamicModule, Logger } from '@nestjs/c
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ApiAuthGuard } from './infrastructure/guards/api-auth.guard';
+import { AuthModule } from './modules/auth/auth.module';
+import { JwtAuthGuard } from './modules/auth/jwt-auth.guard';
 import { SentryModule } from '@sentry/nestjs/setup';
 import { validateEnv } from './infrastructure/config/env.validation';
 import { PrismaModule } from './infrastructure/prisma/prisma.module';
@@ -76,6 +77,7 @@ const repliesImports =
     CryptoModule, // P0-H3: AES-256-GCM encryption for storageState
     PrismaModule,
     NotificationsModule, // Discord webhook alerts (DLQ, health, captcha)
+    AuthModule, // JWT cookie auth for UI (admin login, JwtAuthGuard)
     BrowserModule,
     LlmModule,
     PromptRegistryModule, // Sprint P: Versioned prompt templates (audit finding)
@@ -105,8 +107,8 @@ const repliesImports =
     AutonomyModule, // ADR-006: Auto-check, auto-approve, autonomous runner
   ],
   providers: [
-    // Global deny-by-default API auth (gated by API_AUTH_ENABLED; /health stays public).
-    { provide: APP_GUARD, useClass: ApiAuthGuard },
+    // Global JWT auth guard (gated by AUTH_ENABLED; /auth/login and /health stay public).
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],
 })
 export class AppModule implements OnModuleInit {

@@ -103,6 +103,27 @@ export const ApiErrorSchema = z.object({
 export type ApiError = z.infer<typeof ApiErrorSchema>;
 
 // ============================================================
+// Auth schemas — JWT cookie auth for UI (single admin account)
+// ============================================================
+
+export const LoginDtoSchema = z.object({
+  username: z.string().min(1).max(100),
+  password: z.string().min(1).max(1000),
+});
+export type LoginDto = z.infer<typeof LoginDtoSchema>;
+
+export const AuthUserSchema = z.object({
+  id: z.string().uuid(),
+  username: z.string(),
+});
+export type AuthUser = z.infer<typeof AuthUserSchema>;
+
+export const LoginResponseSchema = z.object({
+  user: AuthUserSchema,
+});
+export type LoginResponse = z.infer<typeof LoginResponseSchema>;
+
+// ============================================================
 // Sprint N: SSE Event schemas — typed SSE events for UI safety
 // ============================================================
 

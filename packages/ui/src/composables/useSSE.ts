@@ -48,7 +48,10 @@ export function useSSE(url: string, options: SSEOptions = {}) {
       reconnectTimeout = null;
     }
 
-    eventSource = new EventSource(url);
+    // Auth: withCredentials=true sends the httpOnly JWT cookie with the SSE
+    // request (same-origin via Vite proxy / nginx). Without this, the auth
+    // guard would reject the EventSource connection with 401.
+    eventSource = new EventSource(url, { withCredentials: true });
 
     eventSource.onopen = () => {
       isConnected.value = true;

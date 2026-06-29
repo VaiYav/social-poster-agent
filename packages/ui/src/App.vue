@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
-import { RouterView } from 'vue-router';
-import { Menu } from '@lucide/vue';
+import { ref, watch, computed } from 'vue';
+import { RouterView, useRoute, useRouter } from 'vue-router';
+import { Menu, LogOut } from '@lucide/vue';
 import { usePostsStore } from './stores/posts';
 import { useMonitoringStore } from './stores/monitoring';
+import { useAuthStore } from './stores/auth';
 import { useToast } from './composables/useToast';
 import { useSSE } from './composables/useSSE';
 import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts';
@@ -19,8 +20,14 @@ import ToastContainer from './components/ToastContainer.vue';
  */
 const postsStore = usePostsStore();
 const monitoringStore = useMonitoringStore();
+const authStore = useAuthStore();
 const toast = useToast();
+const route = useRoute();
+const router = useRouter();
 const mobileMenuOpen = ref(false);
+
+// Auth: hide sidebar + header on login page (standalone layout)
+const isLoginPage = computed(() => route.name === 'login');
 
 // Global keyboard shortcuts (Ctrl+K=queue, Ctrl+G=generate, etc.)
 useKeyboardShortcuts();
@@ -64,17 +71,52 @@ watch(sseData, (data) => {
     toast.info(`Replies cycle: ${evt.repliesPosted ?? 0} posted, ${evt.humanReview ?? 0} need review`);
   }
 });
+
+// Auth: logout handler
+async function handleLogout() {
+  await authStore.logout();
+  router.push({ name: 'login' });
+}
 </script>
 
 <template>
-  <div class="flex min-h-screen bg-background">
+  <!-- Login page: standalone, no sidebar/header -->
+  <div v-if="isLoginPage">
+    <RouterView />
+    <ToastContainer />
+  </div>
+
+  <!-- Authenticated layout: sidebar + header + main -->
+  <div v-else class="flex min-h-screen bg-background">
     <Sidebar v-model:mobile-open="mobileMenuOpen">
       <template #footer>
-        <div class="flex items-center justify-between rounded-lg border border-border bg-surface-elevated px-3 py-2">
-          <StatusDot
-            :state="sseConnected ? 'connected' : 'disconnected'"
-            :pulse="sseConnected"
-          />
+        <div class="space-y-3">
+          <!-- SSE connection status -->
+          <div class="flex items-center justify-between rounded-lg border border-border bg-surface-elevated px-3 py-2">
+            <span class="text-xs text-text-muted">SSE</span>
+            <StatusDot
+              :state="sseConnected ? 'connected' : 'disconnected'"
+              :pulse="sseConnected"
+            />
+          </div>
+          <!-- Admin user + logout -->
+          <div class="flex items-center justify-between rounded-lg border border-border bg-surface-elevated px-3 py-2">
+            <div class="flex items-center gap-2 min-w-0">
+              <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/20 text-xs font-bold text-primary">
+                {{ authStore.user?.username?.charAt(0).toUpperCase() ?? '?' }}
+              </div>
+              <span class="truncate text-xs font-medium text-text-secondary">
+                {{ authStore.user?.username ?? 'unknown' }}
+              </span>
+            </div>
+            <button
+              class="shrink-0 rounded-md p-1.5 text-text-muted hover:bg-surface-highlight hover:text-error"
+              title="Sign out"
+              @click="handleLogout"
+            >
+              <LogOut class="h-4 w-4" />
+            </button>
+          </div>
         </div>
       </template>
     </Sidebar>

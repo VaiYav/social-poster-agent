@@ -121,6 +121,10 @@ import { QuoteCardService } from '../../src/modules/quote-cards/quote-card.servi
 import { QuoteCardController } from '../../src/modules/quote-cards/quote-card.controller';
 import { RepliesService } from '../../src/modules/replies/replies.service';
 import { HealthController } from '../../src/modules/health/health.controller';
+import { AuthService } from '../../src/modules/auth/auth.service';
+import { AuthController } from '../../src/modules/auth/auth.controller';
+import { JwtAuthGuard } from '../../src/modules/auth/jwt-auth.guard';
+import { JwtService } from '@nestjs/jwt';
 
 import { createMockLlmPort, createMockBrowserPort, createMockPrismaService } from '../mocks/index';
 
@@ -311,6 +315,10 @@ function restoreAllDesignParamtypes(): void {
   defineParamtypes(AutoCheckService, [ConfigService, PrismaService]);
   defineParamtypes(AutoApproveService, [ConfigService, PrismaService, SseService, AutoCheckService]);
   defineParamtypes(AutonomousRunnerService, [ConfigService, PrismaService, SseService, FlowControlService, AutoApproveService, ModuleRef, Object]);
+  // Auth (JWT cookie auth)
+  defineParamtypes(AuthService, [PrismaService, JwtService, ConfigService]);
+  defineParamtypes(AuthController, [AuthService, ConfigService]);
+  defineParamtypes(JwtAuthGuard, [JwtService, ConfigService]);
   defineParamtypes(AutoApproveListener, [PostsService, PrismaService, ModuleRef, ConfigService, Object]);
   defineParamtypes(SseService, [ConfigService, Object, Object]);
   defineParamtypes(RedisCheckpointSaver, [ConfigService, Object]);

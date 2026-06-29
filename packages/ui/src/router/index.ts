@@ -1,8 +1,15 @@
 import { createRouter, createWebHistory } from 'vue-router';
+import { useAuthStore } from '../stores/auth';
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
+    {
+      path: '/login',
+      name: 'login',
+      component: () => import('../views/Login.vue'),
+      meta: { public: true },
+    },
     {
       path: '/',
       name: 'dashboard',
@@ -65,6 +72,41 @@ const router = createRouter({
       component: () => import('../views/NotFound.vue'),
     },
   ],
+});
+
+/**
+ * Auth navigation guard — protects all routes except those with meta.public.
+ * Checks the Pinia auth store's `isAuthenticated` flag. If not authenticated,
+ * redirects to /login with a redirect query param.
+ *
+ * The auth store is initialized in App.vue (fetchMe on mount), so by the time
+ * the first navigation runs, the store may still be loading. We handle this by
+ * awaiting fetchMe if the auth state hasn't been determined yet.
+ */
+let authInitialized = false;
+
+router.beforeEach(async (to) => {
+  const authStore = useAuthStore();
+
+  // On first navigation, try to restore the session from the httpOnly cookie.
+  if (!authInitialized) {
+    authInitialized = true;
+    await authStore.fetchMe();
+  }
+
+  const isPublic = to.meta.public === true;
+
+  // If route is public (e.g. /login) and user is authenticated → redirect to /
+  if (isPublic && authStore.isAuthenticated) {
+    return { name: 'dashboard' };
+  }
+
+  // If route is not public and user is not authenticated → redirect to /login
+  if (!isPublic && !authStore.isAuthenticated) {
+    return { name: 'login', query: { redirect: to.fullPath } };
+  }
+
+  return true;
 });
 
 export default router;

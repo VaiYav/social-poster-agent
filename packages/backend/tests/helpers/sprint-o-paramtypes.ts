@@ -40,6 +40,12 @@ export async function restoreSprintOParamtypes(
   const AutoApproveService = (await import('../../src/modules/autonomy/auto-approve.service.js')).AutoApproveService;
   const AutonomousRunnerService = (await import('../../src/modules/autonomy/autonomous-runner.service.js')).AutonomousRunnerService;
   const AutoApproveListener = (await import('../../src/events/listeners/auto-approve.listener.js')).AutoApproveListener;
+  // Auth module (JWT cookie auth) — added to AppModule; esbuild strips paramtypes
+  // so JwtService/ConfigService would be undefined without restoration.
+  const AuthService = (await import('../../src/modules/auth/auth.service.js')).AuthService;
+  const AuthController = (await import('../../src/modules/auth/auth.controller.js')).AuthController;
+  const JwtAuthGuard = (await import('../../src/modules/auth/jwt-auth.guard.js')).JwtAuthGuard;
+  const JwtService = (await import('@nestjs/jwt')).JwtService;
 
   defineFn(CaptchaSolverService, [ConfigService]);
   defineFn(ProxyRotationService, [ConfigService]);
@@ -59,4 +65,9 @@ export async function restoreSprintOParamtypes(
   defineFn(AutoApproveService, [ConfigService, PrismaService, SseService, AutoCheckService]);
   defineFn(AutonomousRunnerService, [ConfigService, PrismaService, SseService, FlowControlService, AutoApproveService, ModuleRef, Object]);
   defineFn(AutoApproveListener, [PostsService, PrismaService, ModuleRef, ConfigService, Object]);
+
+  // Auth module — AuthService(Prisma, Jwt, Config), AuthController(Auth, Config), JwtAuthGuard(Jwt, Config)
+  defineFn(AuthService, [PrismaService, JwtService, ConfigService]);
+  defineFn(AuthController, [AuthService, ConfigService]);
+  defineFn(JwtAuthGuard, [JwtService, ConfigService]);
 }

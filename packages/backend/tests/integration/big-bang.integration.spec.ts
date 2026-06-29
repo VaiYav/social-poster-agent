@@ -130,6 +130,10 @@ import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-va
 import { ThreadDepthController } from '../../src/modules/content-enhancements/thread-depth.controller';
 import { ContentPillarTracker } from '../../src/modules/content-enhancements/content-pillar.tracker';
 import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook-performance-bank';
+import { AuthService } from '../../src/modules/auth/auth.service';
+import { AuthController } from '../../src/modules/auth/auth.controller';
+import { JwtAuthGuard } from '../../src/modules/auth/jwt-auth.guard';
+import { JwtService } from '@nestjs/jwt';
 
 import { createMockLlmPort, createMockBrowserPort, createMockPrismaService } from '../mocks/index';
 import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER, RedisModule } from '../../src/infrastructure/redis/redis.module';
@@ -442,6 +446,11 @@ function restoreAllDesignParamtypes(): void {
   defineParamtypes(AutoCheckService, [ConfigService, PrismaService]);
   defineParamtypes(AutoApproveService, [ConfigService, PrismaService, SseService, AutoCheckService]);
   defineParamtypes(AutonomousRunnerService, [ConfigService, PrismaService, SseService, FlowControlService, AutoApproveService, ModuleRef, Object]);
+
+  // Auth (JWT cookie auth) — AuthService(Prisma, Jwt, Config), AuthController(Auth, Config), JwtAuthGuard(Jwt, Config)
+  defineParamtypes(AuthService, [PrismaService, JwtService, ConfigService]);
+  defineParamtypes(AuthController, [AuthService, ConfigService]);
+  defineParamtypes(JwtAuthGuard, [JwtService, ConfigService]);
 }
 
 // ── Mock helpers ─────────────────────────────────────────────────────────────

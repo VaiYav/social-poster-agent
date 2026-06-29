@@ -57,3 +57,7 @@ packages/shared/node_modules/
 # AI/agent tool artifacts
 .serena/
 graphify-out/
+
+# Sentry Config File
+.sentryclirc
+.vercel

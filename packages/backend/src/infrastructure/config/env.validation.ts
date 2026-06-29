@@ -98,6 +98,20 @@ const envSchema = Joi.object({
   // Generate with: openssl rand -hex 32
   SESSION_ENCRYPTION_KEY: Joi.string().allow('').default(''),
 
+  // ── UI Auth (JWT cookie) ──
+  // AUTH_ENABLED=false (default) → pass-through (dev / VPN-only / tests).
+  // AUTH_ENABLED=true → all routes require a valid JWT except /auth/login and /health.
+  AUTH_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  // JWT secret for signing/verifying tokens — required when AUTH_ENABLED=true.
+  // Generate with: openssl rand -hex 32
+  JWT_SECRET: Joi.string().allow('').default(''),
+  // Admin account bootstrapped from env on startup (created if missing, password
+  // updated if env password changes). If ADMIN_PASSWORD is empty, bootstrap is skipped.
+  ADMIN_USERNAME: Joi.string().allow('').default('admin'),
+  ADMIN_PASSWORD: Joi.string().allow('').default(''),
+  // Comma-separated list of additional CORS origins (e.g. Vercel UI deployment URL)
+  CORS_ORIGIN: Joi.string().allow('').default(''),
+
   // ── Content paths ──
   BLOG_DIR: Joi.string().allow('').default(''),
   BRIEF_DIR: Joi.string().allow('').default(''),
@@ -156,6 +170,17 @@ export function validateEnv(): void {
     if (!key || !/^[a-f0-9]{64}$/i.test(key)) {
       throw new Error(
         'SESSION_ENCRYPTION_KEY must be a 64-character hex string in production. ' +
+          'Generate with: openssl rand -hex 32',
+      );
+    }
+  }
+
+  // UI Auth: in production with AUTH_ENABLED=true, JWT_SECRET must be set (min 32 chars).
+  if (process.env.NODE_ENV === 'production' && process.env.AUTH_ENABLED === 'true') {
+    const jwtSecret = process.env.JWT_SECRET ?? '';
+    if (!jwtSecret || jwtSecret.length < 32) {
+      throw new Error(
+        'JWT_SECRET must be at least 32 characters in production when AUTH_ENABLED=true. ' +
           'Generate with: openssl rand -hex 32',
       );
     }

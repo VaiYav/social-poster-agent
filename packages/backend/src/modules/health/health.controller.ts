@@ -1,5 +1,6 @@
 import { Controller, Get, Inject } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import * as Sentry from '@sentry/nestjs';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import IORedis from 'ioredis';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
@@ -50,5 +51,15 @@ export class HealthController {
       redis: redisStatus,
       timestamp: new Date().toISOString(),
     };
+  }
+
+  @Get('debug-sentry')
+  @ApiOperation({ summary: 'Sentry test — throws an intentional error' })
+  @ApiResponse({ status: 500, description: 'Intentional error for Sentry verification' })
+  getError(): never {
+    Sentry.logger.info('User triggered test error', {
+      action: 'test_error_endpoint',
+    });
+    throw new Error('My first Sentry error!');
   }
 }
