@@ -45,13 +45,5 @@
   },
   "dependencies": {
     "@sentry/cli": "^2.58.6"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@prisma/client",
-      "@prisma/engines",
-      "prisma",
-      "@sentry/cli"
-    ]
   }
 }
