@@ -321,6 +321,63 @@ describe('MOD-03: PostingService', () => {
     expect((postedCall![1] as { postUrl?: string }).postUrl).toBe('https://x.com/user/status/999');
   });
 
+  it('H2: pre-retry verify skips a duplicate re-submit when a network error strikes after the post went live', async () => {
+    vi.useFakeTimers();
+    try {
+      const mockContext = createMockContext();
+      ctx.browser.acquireContext.mockResolvedValue(mockContext);
+      ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
+      ctx.postsService.findById.mockResolvedValue({ ...APPROVED_POST_X, id: 'post-h2', network: SocialNetwork.X });
+      ctx.sessionsService.getOrCreateSession.mockResolvedValue(ACTIVE_SESSION);
+
+      // 1st attempt: post is submitted, then a retryable network error strikes during
+      // permalink capture (after submit) → withRetry will retry.
+      ctx.xPoster.post.mockRejectedValueOnce(new Error('Navigation Timeout 30000ms exceeded'));
+      // On the retry, the profile check finds the post is already live → must NOT re-submit.
+      ctx.xPoster.verifyPosted = vi.fn().mockResolvedValue('https://x.com/user/status/777');
+
+      const promise = ctx.service.postById('post-h2');
+      await vi.advanceTimersByTimeAsync(60000); // drive the retry backoff
+      const result = await promise;
+
+      expect(ctx.xPoster.post).toHaveBeenCalledTimes(1); // only the first (thrown) attempt — no duplicate
+      expect(ctx.xPoster.verifyPosted).toHaveBeenCalledTimes(1); // pre-retry verify ran
+      expect(result).toEqual({ success: true, url: 'https://x.com/user/status/777' });
+      const postedCall = ctx.postsService.updateStatus.mock.calls.find(
+        (c: unknown[]) => (c[1] as { status?: PostStatus })?.status === PostStatus.POSTED,
+      );
+      expect((postedCall?.[1] as { postUrl?: string })?.postUrl).toBe('https://x.com/user/status/777');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('H2: when the post is NOT already live, the retry proceeds and re-posts (guard does not block legitimate retries)', async () => {
+    vi.useFakeTimers();
+    try {
+      const mockContext = createMockContext();
+      ctx.browser.acquireContext.mockResolvedValue(mockContext);
+      ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
+      ctx.postsService.findById.mockResolvedValue({ ...APPROVED_POST_X, id: 'post-h2b', network: SocialNetwork.X });
+      ctx.sessionsService.getOrCreateSession.mockResolvedValue(ACTIVE_SESSION);
+
+      ctx.xPoster.post
+        .mockRejectedValueOnce(new Error('net::ERR_CONNECTION_RESET'))
+        .mockResolvedValueOnce({ url: 'https://x.com/user/status/888' });
+      ctx.xPoster.verifyPosted = vi.fn().mockResolvedValue(null); // nothing live → retry must re-post
+
+      const promise = ctx.service.postById('post-h2b');
+      await vi.advanceTimersByTimeAsync(60000);
+      const result = await promise;
+
+      expect(ctx.xPoster.verifyPosted).toHaveBeenCalledTimes(1); // verify attempted before retry
+      expect(ctx.xPoster.post).toHaveBeenCalledTimes(2); // re-posted — guard did not block
+      expect(result).toEqual({ success: true, url: 'https://x.com/user/status/888' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('UTC-047: postById() posts to X via XPoster when network is X', async () => {
     const mockContext = createMockContext();
     ctx.browser.acquireContext.mockResolvedValue(mockContext);

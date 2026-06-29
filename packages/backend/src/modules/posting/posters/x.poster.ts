@@ -416,10 +416,11 @@ export class XPoster extends BasePoster {
       // state as before (posting.service.isValidPostUrl already rejected the
       // bogus URL → FAILED), but without storing a junk postUrl.
       //
-      // CAVEAT: this is NOT auto-reconciled — posting self-recovery only fires on
-      // session-expiry errors, so a tweet that DID publish but whose permalink we
-      // couldn't capture is left FAILED, and a manual re-approve could duplicate.
-      // A universal "verifyPosted before (re)posting" guard is tracked separately.
+      // NOTE: a tweet that DID publish but whose permalink we couldn't capture is left
+      // FAILED here. H2: PostingService now guards re-posts — the pre-retry verify (before
+      // any withRetry re-submit) and the session-expiry self-recovery both call
+      // findLivePostUrl() to skip re-posting when the content is already live, so a transient
+      // error after submit no longer risks a duplicate.
       const fallbackPermalink = normalizePermalink(currentUrl, 'X');
       if (fallbackPermalink) {
         return { url: fallbackPermalink };

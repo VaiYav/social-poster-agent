@@ -147,7 +147,24 @@ export class PostingService {
       // Only retry for NetworkError (transient). SelectorNotFoundError, ValidationError,
       // AccountRestrictedError, etc. are NOT retried (need code fix or manual intervention).
       // Reference: twscrape retries network errors infinitely, locks on unknown errors.
+      let postAttempt = 0;
       const postFn = async (): Promise<PostResult> => {
+        postAttempt++;
+        // H2: a network error (Timeout / net::ERR) can strike AFTER the post was already
+        // submitted — e.g. while navigating to the profile to capture the permalink. Without
+        // this guard, withRetry would re-run postFn and submit a DUPLICATE. On any retry,
+        // first verify the previous attempt didn't already publish; if it did, return that
+        // URL instead of re-posting. Single posts only — threads have their own per-reply
+        // ThreadProgress idempotency, and a partial-thread re-post must not be short-circuited.
+        if (postAttempt > 1 && context && threadItems.length === 0) {
+          const live = await this.findLivePostUrl(post.network, context, post.content);
+          if (live) {
+            this.logger.warn(
+              `Pre-retry verify: post ${postId} already live (${live}) — skipping duplicate re-submit`,
+            );
+            return { url: live };
+          }
+        }
         switch (post.network) {
           case SocialNetwork.X:
             return this.xPoster.post(context!, this.browser, post.content, threadItems.length > 0 ? threadItems : undefined);
@@ -243,15 +260,11 @@ export class PostingService {
               : undefined;
             context = await this.browser.acquireContext(post.network, freshStorage);
 
-            // M1/P3: before re-posting, verify the original attempt didn't already publish.
-            // If a real post with this content is already live, skip the re-post to avoid a
-            // duplicate (success-detection can misfire into a "session expired"-looking error).
-            const recoveryPoster = this.getPoster(post.network);
-            const existingUrl =
-              typeof recoveryPoster.verifyPosted === 'function'
-                ? await recoveryPoster.verifyPosted(context, post.content).catch(() => null)
-                : null;
-            if (existingUrl && this.isValidPostUrl(existingUrl, post.network)) {
+            // M1/P3 + H2: before re-posting, verify the original attempt didn't already
+            // publish — skip the re-post to avoid a duplicate (success-detection can misfire
+            // into a "session expired"-looking error). Shared guard with the pre-retry path.
+            const existingUrl = await this.findLivePostUrl(post.network, context, post.content);
+            if (existingUrl) {
               this.logger.warn(
                 `Self-recovery: post ${postId} is already live (${existingUrl}) — skipping re-post to avoid a duplicate`,
               );
@@ -498,6 +511,24 @@ export class PostingService {
       default:
         throw new Error(`Unknown network: ${network as string}`);
     }
+  }
+
+  /**
+   * H2: universal "is this content already published?" check, used before any (re)post.
+   * Scrapes our own public profile (via the per-network poster's verifyPosted) and returns
+   * a *valid* post URL if a post with this content is already live, else null. Shared by the
+   * pre-retry guard (avoid a duplicate when a network error strikes after submit) and the
+   * session-expiry self-recovery loop. Best-effort + fail-safe: any error → null (caller posts).
+   */
+  private async findLivePostUrl(
+    network: SocialNetwork,
+    context: Awaited<ReturnType<IBrowserPort['acquireContext']>>,
+    content: string,
+  ): Promise<string | null> {
+    const poster = this.getPoster(network);
+    if (typeof poster.verifyPosted !== 'function') return null;
+    const url = await poster.verifyPosted(context, content).catch(() => null);
+    return url && this.isValidPostUrl(url, network) ? url : null;
   }
 
   /**
