@@ -11,6 +11,7 @@ import { RedisCheckpointSaver } from '../../infrastructure/checkpoint/redis-chec
 import { SseService } from '../../infrastructure/sse/sse.service.js';
 import { TrendingService } from '../trending/trending.service.js';
 import { TrendingScraperService } from '../trending/trending-scraper.service.js';
+import { getEnabledNetworks } from '../../domain/enabled-networks.js';
 import {
   SocialNetwork,
   GenerationRunStatus,
@@ -206,7 +207,7 @@ export class GenerationService {
       // 2. Rotate categories — no two consecutive topics from same category
       const prioritizedTopics = this.prioritizeTopics(topics, count);
 
-      const targetNetworks = networks ?? [SocialNetwork.X, SocialNetwork.THREADS, SocialNetwork.FACEBOOK];
+      const targetNetworks = networks ?? getEnabledNetworks();
       const brandVoice = await this.loadBrandVoice();
 
       // Sprint L: Parallel topic generation — up to 3 topics in parallel
@@ -286,7 +287,7 @@ export class GenerationService {
         return run.id;
       }
 
-      const targetNetworks = networks ?? [SocialNetwork.X, SocialNetwork.THREADS, SocialNetwork.FACEBOOK];
+      const targetNetworks = networks ?? getEnabledNetworks();
       const brandVoice = await this.loadBrandVoice();
       const postIds: string[] = [];
       const sourceTopics: string[] = [];
@@ -405,7 +406,7 @@ export class GenerationService {
         return run.id;
       }
 
-      const targetNetworks = networks ?? [SocialNetwork.X, SocialNetwork.THREADS, SocialNetwork.FACEBOOK];
+      const targetNetworks = networks ?? getEnabledNetworks();
       const brandVoice = await this.loadBrandVoice();
       const postIds: string[] = [];
       const sourceTopics: string[] = [];

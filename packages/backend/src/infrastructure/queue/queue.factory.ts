@@ -24,6 +24,8 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
   private readonly redisUrl: string;
   private readonly maxRetries: number;
   private readonly retryDelayMs: number;
+  private readonly postingMaxRetries: number;
+  private readonly postingRetryDelayMs: number;
   private readonly queuePrefix: string;
   private readonly concurrency: number;
 
@@ -43,6 +45,9 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
     // (operator disabling retries to avoid duplicate posts) was silently replaced by 3.
     this.maxRetries = this.parseIntEnv('BULLMQ_MAX_RETRIES', 3);
     this.retryDelayMs = this.parseIntEnv('BULLMQ_RETRY_DELAY_MS', 60000);
+    // Posting jobs get more retries + longer backoff for session-recovery scenarios
+    this.postingMaxRetries = this.parseIntEnv('BULLMQ_POSTING_MAX_RETRIES', 8);
+    this.postingRetryDelayMs = this.parseIntEnv('BULLMQ_POSTING_RETRY_DELAY_MS', 120000); // 2min base
     this.queuePrefix = this.configService.get<string>('BULLMQ_QUEUE_PREFIX', 'spa');
     // Concurrency must be >= 1 (0 would stall the queue), so clamp the parsed value.
     this.concurrency = Math.max(1, this.parseIntEnv('BULLMQ_CONCURRENCY_PER_QUEUE', 1));
@@ -63,7 +68,7 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit(): void {
     this.logger.log(
-      `BullMQ configured for Redis (${this.redisUrl}, prefix=${this.queuePrefix}, retries=${this.maxRetries})`,
+      `BullMQ configured for Redis (${this.redisUrl}, prefix=${this.queuePrefix}, retries=${this.maxRetries}, postingRetries=${this.postingMaxRetries})`,
     );
   }
 
@@ -111,10 +116,10 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
         jobId: postId, // idempotent — won't create duplicate jobs
         priority: opts?.priority ?? 10, // Sprint K: default priority 10, trending = 1
         delay: opts?.delay, // Sprint K: delayed jobs for multi-stage threads
-        attempts: this.maxRetries,
+        attempts: this.postingMaxRetries, // more retries for session-recovery scenarios
         backoff: {
           type: 'exponential',
-          delay: this.retryDelayMs,
+          delay: this.postingRetryDelayMs, // 2min → 4min → 8min → 16min...
         },
         removeOnComplete: { count: 100 },
         removeOnFail: { count: 500 },

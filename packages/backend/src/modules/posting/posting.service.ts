@@ -17,6 +17,7 @@ import { PostStatus, SocialNetwork } from '@prisma/client';
 import { withRetry } from '../../domain/retry.js';
 import { CircuitBreakerRegistry, CircuitOpenError } from '../../domain/circuit-breaker.js';
 import { SpaError, NetworkError } from '../../domain/errors.js';
+import { isNetworkEnabled } from '../../domain/enabled-networks.js';
 
 /**
  * Posting service — orchestrates browser-based posting.
@@ -57,6 +58,16 @@ export class PostingService {
 
   async postById(postId: string): Promise<{ success: boolean; url?: string; error?: string }> {
     const post = await this.postsService.findById(postId);
+
+    // Network gating — skip posts for disabled networks (e.g. Facebook)
+    if (!isNetworkEnabled(post.network)) {
+      this.logger.warn(`Post ${postId} is for ${post.network as string} — network disabled, marking as SKIPPED`);
+      await this.postsService.updateStatus(postId, {
+        status: PostStatus.FAILED,
+        errorMessage: `Network ${post.network as string} is disabled (ENABLED_NETWORKS)`,
+      }).catch(() => {});
+      return { success: false, error: `Network ${post.network as string} is disabled` };
+    }
 
     // ADR-006: Flow control — skip if posting is paused (crisis mode)
     if (this.flowControl && await this.flowControl.isPaused('posting')) {
@@ -220,7 +231,15 @@ export class PostingService {
       // ── Self-recovery on session expiry ──
       // If the poster returned a "Not logged in" error (session expired mid-post),
       // attempt re-login and retry the posting operation with exponential backoff.
-      // Up to 3 recovery attempts with increasing delays (5s, 10s, 20s).
+      //
+      // Two-phase recovery:
+      //   Phase 1: 3 immediate attempts with 5s/10s/20s delays (fast retry)
+      //   Phase 2: If all 3 fail, throw a retryable error so BullMQ re-queues the job
+      //            with exponential backoff (default 60s → 120s → 240s...).
+      //            The post stays in POSTING status (not FAILED) so it gets retried
+      //            instead of being abandoned. After BullMQ exhausts its retries
+      //            (default 8), the job goes to DLQ and the post is marked FAILED
+      //            by the queue error handler.
       if (result.error && /not logged in|session expired|relogin/i.test(result.error)) {
         const maxRecoveryAttempts = 3;
         let recoverySucceeded = false;
@@ -302,10 +321,21 @@ export class PostingService {
         }
 
         if (!recoverySucceeded) {
-          this.logger.error(
-            `All ${maxRecoveryAttempts} self-recovery attempts exhausted for ${postId}`,
+          // Phase 2: throw a retryable error so BullMQ re-queues with backoff.
+          // The post stays in POSTING status — BullMQ will retry the job later.
+          // This gives the session time to recover (cookies refresh, rate limits clear, etc.)
+          this.logger.warn(
+            `All ${maxRecoveryAttempts} immediate self-recovery attempts exhausted for ${postId} — ` +
+            `throwing for BullMQ deferred retry (will retry with exponential backoff)`,
           );
-          result = { error: lastRecoveryError };
+          // Release context before throwing (finally block will also try, but context may be null here)
+          if (context) {
+            try { this.browser.releaseContext(post.network, context); } catch { /* non-blocking */ }
+            context = null;
+          }
+          // Reset status to APPROVED so the retry can pick it up cleanly
+          await this.postsService.updateStatus(postId, { status: PostStatus.APPROVED }).catch(() => {});
+          throw new Error(`Session expired — deferred retry pending: ${lastRecoveryError}`);
         }
       }
 
@@ -550,6 +580,12 @@ export class PostingService {
     let skipped = 0;
 
     for (const post of posts) {
+      // Skip disabled networks
+      if (!isNetworkEnabled(post.network)) {
+        this.logger.debug(`Skipping post ${post.id} — ${post.network as string} is disabled`);
+        skipped++;
+        continue;
+      }
       try {
         const result = await this.postById(post.id);
         if (result.success) {

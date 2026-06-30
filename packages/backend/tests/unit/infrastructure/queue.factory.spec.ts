@@ -66,6 +66,8 @@ function createMockConfigService(overrides: Record<string, unknown> = {}): Confi
     REDIS_URL: 'redis://localhost:6381',
     BULLMQ_MAX_RETRIES: 3,
     BULLMQ_RETRY_DELAY_MS: 60000,
+    BULLMQ_POSTING_MAX_RETRIES: 8,
+    BULLMQ_POSTING_RETRY_DELAY_MS: 120000,
     BULLMQ_QUEUE_PREFIX: 'spa',
     BULLMQ_CONCURRENCY_PER_QUEUE: 1,
   };
@@ -158,8 +160,8 @@ describe('QueueFactory (MOD-05 — Infrastructure Adapters)', () => {
 
     const addArgs = mocks.queueAdd.mock.calls[0]!;
     const opts = addArgs[2];
-    expect(opts.attempts).toBe(3); // BULLMQ_MAX_RETRIES
-    expect(opts.backoff).toEqual({ type: 'exponential', delay: 60000 });
+    expect(opts.attempts).toBe(8); // BULLMQ_POSTING_MAX_RETRIES (default)
+    expect(opts.backoff).toEqual({ type: 'exponential', delay: 120000 }); // BULLMQ_POSTING_RETRY_DELAY_MS
   });
 
   it('enqueuePosting() sets removeOnComplete and removeOnFail counts', async () => {
@@ -275,6 +277,8 @@ describe('QueueFactory (MOD-05 — Infrastructure Adapters)', () => {
     const customConfig = createMockConfigService({
       BULLMQ_MAX_RETRIES: 5,
       BULLMQ_RETRY_DELAY_MS: 120000,
+      BULLMQ_POSTING_MAX_RETRIES: 10,
+      BULLMQ_POSTING_RETRY_DELAY_MS: 180000,
     });
     const customFactory = new QueueFactory(customConfig, discord as never);
 
@@ -282,8 +286,8 @@ describe('QueueFactory (MOD-05 — Infrastructure Adapters)', () => {
 
     const addArgs = mocks.queueAdd.mock.calls[0]!;
     const opts = addArgs[2];
-    expect(opts.attempts).toBe(5);
-    expect(opts.backoff.delay).toBe(120000);
+    expect(opts.attempts).toBe(10); // BULLMQ_POSTING_MAX_RETRIES
+    expect(opts.backoff.delay).toBe(180000); // BULLMQ_POSTING_RETRY_DELAY_MS
   });
 
   // ── Sprint K: Priority & Delayed Jobs (UTC-460+) ──

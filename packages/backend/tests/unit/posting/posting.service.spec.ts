@@ -183,6 +183,8 @@ describe('MOD-03: PostingService', () => {
   let ctx: TestContext;
 
   beforeEach(() => {
+    // Enable all networks for tests (production default is X,THREADS only)
+    process.env.ENABLED_NETWORKS = 'X,THREADS,FACEBOOK';
     ctx = buildContext();
   });
 
