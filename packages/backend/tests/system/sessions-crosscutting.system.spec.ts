@@ -119,7 +119,6 @@ import { RecyclingService } from '../../src/modules/recycling/recycling.service'
 import { RecyclingController } from '../../src/modules/recycling/recycling.controller';
 import { QuoteCardService } from '../../src/modules/quote-cards/quote-card.service';
 import { QuoteCardController } from '../../src/modules/quote-cards/quote-card.controller';
-import { RepliesService } from '../../src/modules/replies/replies.service';
 import { HealthController } from '../../src/modules/health/health.controller';
 import { AuthService } from '../../src/modules/auth/auth.service';
 import { AuthController } from '../../src/modules/auth/auth.controller';
@@ -421,7 +420,6 @@ function restoreAllDesignParamtypes(): void {
 
   // Replies
   defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object, Object]);
-  defineParamtypes(RepliesService, [PrismaService, ConfigService, AccountsService]);
 
   // Sprint O: New Features
   defineParamtypes(CaptchaSolverService, [ConfigService]);

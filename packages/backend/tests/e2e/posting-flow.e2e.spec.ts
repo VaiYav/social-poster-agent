@@ -93,7 +93,6 @@ import { QueueController } from '../../src/modules/queue/queue.controller';
 import { AccountsController } from '../../src/modules/accounts/accounts.controller';
 import { SessionsController } from '../../src/modules/sessions/sessions.controller';
 import { EventsController } from '../../src/modules/events/events.controller';
-import { RepliesService } from '../../src/modules/replies/replies.service';
 import { restoreSprintOParamtypes } from '../helpers/sprint-o-paramtypes';
 import { clearHookCache } from '../../src/modules/generation/generation.graph';
 
@@ -242,7 +241,6 @@ function restoreAllParamtypes(): void {
 
   // Replies
   defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object, Object]);
-  defineParamtypes(RepliesService, [PrismaService, ConfigService, AccountsService]);
 }
 
 describe('E2E: Posting flow with mocked browser', () => {

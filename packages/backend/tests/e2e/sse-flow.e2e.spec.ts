@@ -85,7 +85,6 @@ import { SessionsService } from '../../src/modules/sessions/sessions.service';
 import { PostingService } from '../../src/modules/posting/posting.service';
 import { AccountsService } from '../../src/modules/accounts/accounts.service';
 import { MetricsScraperService } from '../../src/modules/analytics/metrics-scraper.service';
-import { RepliesService } from '../../src/modules/replies/replies.service';
 import { clearHookCache } from '../../src/modules/generation/generation.graph';
 
 // ── ioredis mock (Map-backed shared store) ──────────────────────────────────
@@ -445,7 +444,6 @@ describe('E2E Sprint D: SSE Real-Time Updates — generate → approve → post'
 
     // Replies
     defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object, Object]);
-    defineParamtypes(RepliesService, [PrismaService, ConfigService, AccountsService]);
 
     // Sprint O: Restore paramtypes for new feature modules
     await restoreSprintOParamtypes(defineParamtypes, PrismaService);

@@ -2,14 +2,15 @@
  * Sprint O / F4 / Sprint Q: Replies Module — monitor and respond to comments.
  *
  * Provides:
- * - RepliesService: decision logic and reply tracking (original)
  * - RepliesMonitorService: cron-based comment scraping + LLM reply generation + auto-posting
  * - RepliesController: REST API for viewing pending human-review comments and manual reply
+ *
+ * ALL reply content is LLM-generated — no template fallback. When all LLM providers
+ * fail, comments are skipped (stay NEW) and retried in the next monitoring cycle.
  */
 import { Module, type DynamicModule, type Type } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
-import { RepliesService } from './replies.service';
 import { RepliesMonitorService } from './replies-monitor.service';
 import { RepliesController } from './replies.controller';
 import { AccountsModule } from '../accounts/accounts.module';
@@ -32,9 +33,9 @@ import { QueueModule as QueueInfraModule } from '../../infrastructure/queue/queu
     SseModule,
     QueueInfraModule, // RP1: QueueFactory for scheduling delayed auto-reply jobs
   ],
-  providers: [RepliesService, RepliesMonitorService],
+  providers: [RepliesMonitorService],
   controllers: [RepliesController],
-  exports: [RepliesService, RepliesMonitorService],
+  exports: [RepliesMonitorService],
 })
 export class RepliesModule {
   // Allow conditional registration with engagement module
@@ -53,9 +54,9 @@ export class RepliesModule {
         QueueInfraModule, // RP1: QueueFactory for scheduling delayed auto-reply jobs
         engagementModule,
       ],
-      providers: [RepliesService, RepliesMonitorService],
+      providers: [RepliesMonitorService],
       controllers: [RepliesController],
-      exports: [RepliesService, RepliesMonitorService],
+      exports: [RepliesMonitorService],
     };
   }
 }

@@ -30,7 +30,6 @@ export async function restoreSprintOParamtypes(
   const RecyclingController = (await import('../../src/modules/recycling/recycling.controller.js')).RecyclingController;
   const QuoteCardService = (await import('../../src/modules/quote-cards/quote-card.service.js')).QuoteCardService;
   const QuoteCardController = (await import('../../src/modules/quote-cards/quote-card.controller.js')).QuoteCardController;
-  const RepliesService = (await import('../../src/modules/replies/replies.service.js')).RepliesService;
   const AccountsService = (await import('../../src/modules/accounts/accounts.service.js')).AccountsService;
   const MetricsScraperService = (await import('../../src/modules/analytics/metrics-scraper.service.js')).MetricsScraperService;
   const SseService = (await import('../../src/infrastructure/sse/sse.service.js')).SseService;
@@ -56,7 +55,6 @@ export async function restoreSprintOParamtypes(
   defineFn(RecyclingController, [RecyclingService]);
   defineFn(QuoteCardService, [ConfigService]);
   defineFn(QuoteCardController, [QuoteCardService]);
-  defineFn(RepliesService, [PrismaService, ConfigService, AccountsService]);
 
   // ADR-006 autonomy services (added to the AppModule graph; their paramtypes were missing
   // here, so esbuild-stripped metadata left `configService` undefined → full-app boot failure

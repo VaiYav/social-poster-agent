@@ -1,24 +1,15 @@
 /**
- * Language detection heuristic unit tests.
+ * Replies monitor service unit tests.
  *
- * Tests the script-based language detection used by:
- *   - RepliesMonitorService.detectLanguageHeuristic() (heuristic fallback for replies)
- *   - RepliesService.detectLanguage() (simple template fallback)
+ * After RP5: ALL reply content is LLM-generated — no template fallback.
+ * These tests cover the deterministic pre-LLM checks (troll, self-reply,
+ * sensitive topic, max replies) that run before the LLM is called.
  *
- * The detection uses Cyrillic script analysis:
- *   - Ukrainian-specific chars: і, ї, є, ґ
- *   - Russian-specific chars: ы, э, ъ, ё
- *   - Word-level markers for ambiguous cases
- *   - Falls back to Ukrainian for ambiguous Cyrillic (brand is Ukraine-based)
- *
- * Source files:
- *   - packages/backend/src/modules/replies/replies-monitor.service.ts
- *   - packages/backend/src/modules/replies/replies.service.ts
+ * Source: packages/backend/src/modules/replies/replies-monitor.service.ts
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ConfigService } from '@nestjs/config';
 import { RepliesMonitorService } from '../../../src/modules/replies/replies-monitor.service';
-import { RepliesService } from '../../../src/modules/replies/replies.service';
 import { createMockPrismaService } from '../../mocks/index';
 
 // ── Mock dependencies ──
@@ -54,8 +45,9 @@ function createMockSseService() {
   };
 }
 
-function createMockAccountsService() {
+function createMockAccountsService(handle?: string) {
   return {
+    findByNetwork: vi.fn().mockResolvedValue(handle ? { handle } : null),
     getAccount: vi.fn().mockResolvedValue(null),
   };
 }
@@ -66,430 +58,303 @@ function createMockSessionsService() {
   };
 }
 
-// ── RepliesMonitorService language detection ──
+// ── RepliesMonitorService — deterministic pre-LLM checks ──
 
-describe('RepliesMonitorService — Language Detection', () => {
+describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
   let service: RepliesMonitorService;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let svc: any;
+  let prisma: any;
 
   beforeEach(() => {
+    prisma = createMockPrismaService();
+    // Add incomingComment model mock (not in the default mock factory)
+    prisma.incomingComment = {
+      count: vi.fn().mockResolvedValue(0),
+      upsert: vi.fn(),
+      update: vi.fn(),
+      findMany: vi.fn().mockResolvedValue([]),
+    };
+
     service = new RepliesMonitorService(
-      createMockPrismaService() as any,
+      prisma as any,
       createMockConfigService({ REPLIES_ENABLED: 'true' }),
       createMockAccountsService() as any,
       createMockSessionsService() as any,
       createMockSchedulerRegistry() as any,
       createMockDiscord() as any,
       createMockSseService() as any,
-      undefined, // llmService
+      undefined, // llmService — not wired, tests pre-LLM logic
       undefined, // browser
       undefined, // engagementService
     );
     svc = service;
   });
 
-  // ── detectLanguageHeuristic ──
+  // ── Troll/spam detection ──
 
-  it('LD-001: detects English for Latin-script text', () => {
-    expect(svc.detectLanguageHeuristic('This is a great post about astrology')).toBe('en');
+  it('PRE-001: skips troll/spam comments', async () => {
+    const result = await svc.decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'This is spam, buy my product' },
+    );
+    expect(result.action).toBe('skip');
+    expect(result.reason).toContain('troll');
   });
 
-  it('LD-002: detects English for short Latin text', () => {
-    expect(svc.detectLanguageHeuristic('Love this!')).toBe('en');
+  it('PRE-002: does NOT flag innocent words containing "bot" (about)', async () => {
+    const result = await svc.decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Tell me about this post' },
+    );
+    // "about" contains "bot" but should not be flagged as troll.
+    // Without LLM wired, action will be 'skip' (LLM not available) — but the
+    // reason should NOT mention troll/spam.
+    expect(result.reason).not.toContain('troll');
+    expect(result.reason).not.toContain('spam');
   });
 
-  it('LD-003: detects Ukrainian when і/ї/є chars present', () => {
-    expect(svc.detectLanguageHeuristic('Це дуже цікавий пост про астрологію')).toBe('uk');
+  // ── Self-reply detection ──
+
+  it('PRE-003: skips self-reply when comment author matches account handle', async () => {
+    const svcWithHandle = new RepliesMonitorService(
+      prisma as any,
+      createMockConfigService({ REPLIES_ENABLED: 'true' }),
+      createMockAccountsService('myzodiacai') as any,
+      createMockSessionsService() as any,
+      createMockSchedulerRegistry() as any,
+      createMockDiscord() as any,
+      createMockSseService() as any,
+      undefined, undefined, undefined,
+    );
+    const result = await (svcWithHandle as any).decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: '@myzodiacai', text: 'Great post' },
+    );
+    expect(result.action).toBe('skip');
+    expect(result.reason).toContain('Self-reply');
   });
 
-  it('LD-004: detects Ukrainian with ї character', () => {
-    expect(svc.detectLanguageHeuristic('Дякую за цей пост, дуже цікаві думки')).toBe('uk');
+  // ── Max replies per post ──
+
+  it('PRE-004: skips when max replies per post is reached', async () => {
+    prisma.incomingComment.count = vi.fn().mockResolvedValue(3); // maxRepliesPerPost=3
+    const result = await svc.decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Great post about astrology' },
+    );
+    expect(result.action).toBe('skip');
+    expect(result.reason).toContain('Max replies');
   });
 
-  it('LD-005: detects Ukrainian with є character', () => {
-    expect(svc.detectLanguageHeuristic('Це правда, зірки завжди знають краще')).toBe('uk');
-  });
+  // ── Sensitive topic detection (runs BEFORE LLM) ──
 
-  it('LD-006: detects Russian when ы/э/ъ chars present', () => {
-    expect(svc.detectLanguageHeuristic('Это очень интересный пост про астрологию, спасибо')).toBe('ru');
-  });
-
-  it('LD-007: detects Russian with ё character', () => {
-    expect(svc.detectLanguageHeuristic('Спасибо за пост, очень интересно')).toBe('ru');
-  });
-
-  it('LD-008: detects Russian with ъ character', () => {
-    expect(svc.detectLanguageHeuristic('Это объёмный вопрос, спасибо за объяснение')).toBe('ru');
-  });
-
-  it('LD-009: returns en for text with fewer than 3 Cyrillic chars', () => {
-    // Mostly Latin with a stray Cyrillic char
-    expect(svc.detectLanguageHeuristic('OK post a b')).toBe('en');
-  });
-
-  it('LD-010: defaults to Ukrainian for ambiguous Cyrillic (no specific chars)', () => {
-    // Cyrillic text without і/ї/є/ґ or ы/э/ъ/ё — ambiguous
-    // Uses common Cyrillic letters that could be either Ukrainian or Russian
-    expect(svc.detectLanguageHeuristic('Це дуже гарний пост про зорі')).toBe('uk');
-  });
-
-  it('LD-011: uses word-level markers for ambiguous Cyrillic — Ukrainian words', () => {
-    // Text with Ukrainian word markers but no specific chars
-    expect(svc.detectLanguageHeuristic('Це правда, дуже цікаво, дякую')).toBe('uk');
-  });
-
-  it('LD-012: uses word-level markers for ambiguous Cyrillic — Russian words', () => {
-    // Text with Russian word markers but no specific chars
-    expect(svc.detectLanguageHeuristic('Это правда, очень интересно, спасибо')).toBe('ru');
-  });
-
-  it('LD-013: handles empty string', () => {
-    expect(svc.detectLanguageHeuristic('')).toBe('en');
-  });
-
-  it('LD-014: handles text with only numbers and symbols', () => {
-    expect(svc.detectLanguageHeuristic('12345 !!! ???')).toBe('en');
-  });
-
-  it('LD-015: handles mixed Latin+Cyrillic text (Cyrillic dominant)', () => {
-    // Enough Cyrillic to trigger detection
-    expect(svc.detectLanguageHeuristic('Дякую за пост! Very interesting take on Mars.')).toBe('uk');
-  });
-
-  it('LD-016: handles text with emoji', () => {
-    expect(svc.detectLanguageHeuristic('Це дуже цікаво ✨🔮')).toBe('uk');
-  });
-
-  it('LD-017: detects Ukrainian for a typical Ukrainian comment', () => {
-    const comment = 'Сатурн повернувся в 28 — повністю змінив моє бачення затримок';
-    expect(svc.detectLanguageHeuristic(comment)).toBe('uk');
-  });
-
-  it('LD-018: detects Russian for a typical Russian comment', () => {
-    const comment = 'Сатурн вернулся в 28 — полностью изменил моё видение задержек';
-    expect(svc.detectLanguageHeuristic(comment)).toBe('ru');
-  });
-
-  it('LD-019: detects English for a typical English comment', () => {
-    const comment = 'Saturn return hit me at 28 too — completely reframed how I see delays';
-    expect(svc.detectLanguageHeuristic(comment)).toBe('en');
-  });
-
-  // ── getReplyTemplates ──
-  // RP4: getReplyTemplates now takes (lang, keyword, variantIdx) — tests pass variantIdx=0
-  // to get the first variant deterministically.
-
-  it('LD-020: returns Ukrainian templates for uk', () => {
-    const templates = svc.getReplyTemplates('uk', '', 0);
-    expect(templates.question).toContain('запитання');
-    expect(templates.positive).toContain('Дякуємо');
-    expect(templates.default).toContain('знак');
-  });
-
-  it('LD-021: returns Russian templates for ru', () => {
-    const templates = svc.getReplyTemplates('ru', '', 0);
-    expect(templates.question).toContain('вопрос');
-    expect(templates.positive).toContain('Спасибо');
-    expect(templates.default).toContain('знак');
-  });
-
-  it('LD-022: returns English templates for en', () => {
-    const templates = svc.getReplyTemplates('en', '', 0);
-    expect(templates.question).toContain('question');
-    expect(templates.positive).toContain('Thank you');
-    expect(templates.default).toContain("sign");
-  });
-
-  it('LD-023: templates are non-empty strings for all languages', () => {
-    for (const lang of ['uk', 'ru', 'es', 'en']) {
-      const templates = svc.getReplyTemplates(lang, '', 0);
-      expect(templates.question.length).toBeGreaterThan(10);
-      expect(templates.positive.length).toBeGreaterThan(10);
-      expect(templates.default.length).toBeGreaterThan(10);
-    }
-  });
-
-  it('LD-024: Ukrainian templates contain ✨ emoji (brand voice)', () => {
-    const templates = svc.getReplyTemplates('uk', '', 0);
-    expect(templates.question).toContain('✨');
-    expect(templates.positive).toContain('✨');
-    expect(templates.default).toContain('✨');
-  });
-
-  it('LD-025: Russian templates contain ✨ emoji (brand voice)', () => {
-    const templates = svc.getReplyTemplates('ru', '', 0);
-    expect(templates.question).toContain('✨');
-    expect(templates.positive).toContain('✨');
-    expect(templates.default).toContain('✨');
-  });
-
-  it('LD-025a: Spanish templates contain ✨ emoji (brand voice)', () => {
-    const templates = svc.getReplyTemplates('es', '', 0);
-    expect(templates.question).toContain('✨');
-    expect(templates.positive).toContain('✨');
-    expect(templates.default).toContain('✨');
-  });
-
-  it('LD-025b: all template variants contain ✨ emoji', () => {
-    for (const lang of ['uk', 'ru', 'es', 'en']) {
-      for (let i = 0; i < 3; i++) {
-        const templates = svc.getReplyTemplates(lang, '', i);
-        expect(templates.question).toContain('✨');
-        expect(templates.positive).toContain('✨');
-        expect(templates.default).toContain('✨');
-      }
-    }
-  });
-
-  it('LD-025c: different variantIdx values produce different question templates', () => {
-    const en0 = svc.getReplyTemplates('en', '', 0).question;
-    const en1 = svc.getReplyTemplates('en', '', 1).question;
-    const en2 = svc.getReplyTemplates('en', '', 2).question;
-    expect(en0).not.toBe(en1);
-    expect(en1).not.toBe(en2);
-    expect(en0).not.toBe(en2);
-  });
-
-  it('LD-025d: keyword is woven into reply when provided', () => {
-    const templates = svc.getReplyTemplates('en', 'scorpio', 0);
-    expect(templates.question).toContain('scorpio');
-    expect(templates.positive).toContain('scorpio');
-    expect(templates.default).toContain('scorpio');
-  });
-
-  // ── heuristicDecideReply — language-aware patterns ──
-
-  it('LD-026: detects sensitive topics in Ukrainian (депресія)', () => {
-    const result = svc.heuristicDecideReply(
+  it('PRE-005: flags depression mentions for human review (Ukrainian)', async () => {
+    const result = await svc.decideReply(
       { id: '1', network: 'X', content: 'Post about Mars' },
       { id: '2', commentId: 'c1', author: 'user', text: 'У мене депресія через це' },
     );
     expect(result.action).toBe('human_review');
   });
 
-  it('LD-026a: does NOT flag innocent words containing "гор" (город, гора)', () => {
-    // "гор" was previously matched as grief, but it matches innocent words too
-    const result1 = svc.heuristicDecideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Я живу в красивому місті' },
-    );
-    expect(result1.action).not.toBe('human_review');
-
-    const result2 = svc.heuristicDecideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Це як гора — важко піднятися' },
-    );
-    expect(result2.action).not.toBe('human_review');
-  });
-
-  it('LD-026b: detects grief in Ukrainian (горе, горю)', () => {
-    const result = svc.heuristicDecideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Яке горе, втратила близьку людину' },
-    );
-    expect(result.action).toBe('human_review');
-  });
-
-  it('LD-027: detects sensitive topics in Russian (кризис)', () => {
-    const result = svc.heuristicDecideReply(
+  it('PRE-006: flags crisis mentions for human review (Russian)', async () => {
+    const result = await svc.decideReply(
       { id: '1', network: 'X', content: 'Post about Mars' },
       { id: '2', commentId: 'c1', author: 'user', text: 'У меня кризис из-за этого' },
     );
     expect(result.action).toBe('human_review');
   });
 
-  it('LD-028: detects complaints in Ukrainian (неправильно)', () => {
-    const result = svc.heuristicDecideReply(
+  it('PRE-007: flags complaints for human review (Ukrainian)', async () => {
+    const result = await svc.decideReply(
       { id: '1', network: 'X', content: 'Post about Mars' },
       { id: '2', commentId: 'c1', author: 'user', text: 'Це неправильно, ви помиляєтесь' },
     );
     expect(result.action).toBe('human_review');
   });
 
-  it('LD-029: detects questions in Ukrainian and replies in Ukrainian', () => {
-    const result = svc.heuristicDecideReply(
+  it('PRE-008: does NOT flag innocent words containing "гор" (город, гора)', async () => {
+    const result1 = await svc.decideReply(
       { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Як це працює?' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Я живу в красивому місті' },
     );
-    expect(result.action).toBe('auto_reply');
-    // RP4: reply variant is selected by hashVariant(commentId); check for Cyrillic + ✨
-    expect(result.replyText).toMatch(/[а-яіїєґА-ЯІЇЄҐ]/);
-    expect(result.replyText).toContain('✨');
+    expect(result1.action).not.toBe('human_review');
+
+    const result2 = await svc.decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Це як гора — важко піднятися' },
+    );
+    expect(result2.action).not.toBe('human_review');
   });
 
-  it('LD-030: detects questions in Russian and replies in Russian', () => {
-    const result = svc.heuristicDecideReply(
+  it('PRE-009: flags grief in Ukrainian (горе, горю)', async () => {
+    const result = await svc.decideReply(
       { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Как это работает?' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Яке горе, втратила близьку людину' },
     );
-    expect(result.action).toBe('auto_reply');
-    expect(result.replyText).toMatch(/[а-яіїєґА-ЯІЇЄҐ]/);
-    expect(result.replyText).toContain('✨');
+    expect(result.action).toBe('human_review');
   });
 
-  it('LD-031: detects positive engagement in Ukrainian (дякую) and replies in Ukrainian', () => {
-    const result = svc.heuristicDecideReply(
+  // ── LLM-only behavior ──
+
+  it('PRE-010: skips with "LLM not available" when llmService is not wired', async () => {
+    const result = await svc.decideReply(
       { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Дякую за пост, дуже цікаво' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Great post about astrology' },
     );
-    expect(result.action).toBe('auto_reply');
-    expect(result.replyText).toMatch(/[а-яіїєґА-ЯІЇЄҐ]/);
-    expect(result.replyText).toContain('✨');
+    // No LLM service → skip (no template fallback)
+    expect(result.action).toBe('skip');
+    expect(result.reason).toContain('LLM');
   });
 
-  it('LD-032: detects positive engagement in Russian (спасибо) and replies in Russian', () => {
-    const result = svc.heuristicDecideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Спасибо за пост, очень интересно' },
-    );
-    expect(result.action).toBe('auto_reply');
-    expect(result.replyText).toMatch(/[а-яіїєґА-ЯІЇЄҐ]/);
-    expect(result.replyText).toContain('✨');
-  });
-
-  it('LD-033: default reply in English for English comment', () => {
-    const result = svc.heuristicDecideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Just commenting here' },
-    );
-    expect(result.action).toBe('auto_reply');
-    expect(result.replyText).toContain('✨');
-    // English reply should not contain Cyrillic
-    expect(result.replyText).not.toMatch(/[а-яіїєґА-ЯІЇЄҐ]/);
-  });
-
-  it('LD-034: detects questions starting with Ukrainian question words (що)', () => {
-    const result = svc.heuristicDecideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Що означає цей аспект?' },
-    );
-    expect(result.action).toBe('auto_reply');
-  });
-
-  it('LD-035: detects questions starting with Russian question words (что)', () => {
-    const result = svc.heuristicDecideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Что означает этот аспект?' },
-    );
-    expect(result.action).toBe('auto_reply');
-  });
-});
-
-// ── RepliesService language detection ──
-
-describe('RepliesService — Language Detection', () => {
-  let service: RepliesService;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let svc: any;
-
-  beforeEach(() => {
-    service = new RepliesService(
-      createMockPrismaService() as any,
+  it('PRE-011: calls LLM when service is wired', async () => {
+    const mockLlm = {
+      generateChat: vi.fn().mockResolvedValue({
+        content: '{"action":"auto_reply","reason":"Positive","replyText":"Thanks! ✨"}',
+        model: 'test',
+        tokens: 10,
+      }),
+    };
+    const svcWithLlm = new RepliesMonitorService(
+      prisma as any,
       createMockConfigService({ REPLIES_ENABLED: 'true' }),
       createMockAccountsService() as any,
+      createMockSessionsService() as any,
+      createMockSchedulerRegistry() as any,
+      createMockDiscord() as any,
+      createMockSseService() as any,
+      mockLlm as any,
+      undefined, undefined,
     );
-    svc = service;
+    const result = await (svcWithLlm as any).decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Love this post!' },
+    );
+    expect(result.action).toBe('auto_reply');
+    expect(result.replyText).toContain('Thanks');
+    expect(mockLlm.generateChat).toHaveBeenCalledOnce();
   });
 
-  // ── detectLanguage ──
-
-  it('LD-036: detects English for Latin text', () => {
-    expect(svc.detectLanguage('Great post about astrology')).toBe('en');
+  it('PRE-012: skips when LLM throws (all providers failed)', async () => {
+    const mockLlm = {
+      generateChat: vi.fn().mockRejectedValue(new Error('All LLM providers failed')),
+    };
+    const svcWithLlm = new RepliesMonitorService(
+      prisma as any,
+      createMockConfigService({ REPLIES_ENABLED: 'true' }),
+      createMockAccountsService() as any,
+      createMockSessionsService() as any,
+      createMockSchedulerRegistry() as any,
+      createMockDiscord() as any,
+      createMockSseService() as any,
+      mockLlm as any,
+      undefined, undefined,
+    );
+    const result = await (svcWithLlm as any).decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Love this post!' },
+    );
+    // LLM failed → skip (no template fallback, will retry next cycle)
+    expect(result.action).toBe('skip');
+    expect(result.reason).toContain('LLM unavailable');
   });
 
-  it('LD-037: detects Ukrainian with і character', () => {
-    expect(svc.detectLanguage('Це цікавий пост про астрологію')).toBe('uk');
+  it('PRE-013: skips when LLM returns no JSON', async () => {
+    const mockLlm = {
+      generateChat: vi.fn().mockResolvedValue({
+        content: 'Sorry, I cannot help with that.',
+        model: 'test',
+        tokens: 10,
+      }),
+    };
+    const svcWithLlm = new RepliesMonitorService(
+      prisma as any,
+      createMockConfigService({ REPLIES_ENABLED: 'true' }),
+      createMockAccountsService() as any,
+      createMockSessionsService() as any,
+      createMockSchedulerRegistry() as any,
+      createMockDiscord() as any,
+      createMockSseService() as any,
+      mockLlm as any,
+      undefined, undefined,
+    );
+    const result = await (svcWithLlm as any).decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Love this post!' },
+    );
+    expect(result.action).toBe('skip');
+    expect(result.reason).toContain('no JSON');
   });
 
-  it('LD-038: detects Russian with ы character', () => {
-    expect(svc.detectLanguage('Это интересный пост про астрологию, спасибо')).toBe('ru');
+  it('PRE-014: defaults to human_review when LLM returns invalid action', async () => {
+    const mockLlm = {
+      generateChat: vi.fn().mockResolvedValue({
+        content: '{"action":"maybe","reason":"unsure"}',
+        model: 'test',
+        tokens: 10,
+      }),
+    };
+    const svcWithLlm = new RepliesMonitorService(
+      prisma as any,
+      createMockConfigService({ REPLIES_ENABLED: 'true' }),
+      createMockAccountsService() as any,
+      createMockSessionsService() as any,
+      createMockSchedulerRegistry() as any,
+      createMockDiscord() as any,
+      createMockSseService() as any,
+      mockLlm as any,
+      undefined, undefined,
+    );
+    const result = await (svcWithLlm as any).decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Love this post!' },
+    );
+    expect(result.action).toBe('human_review');
   });
 
-  it('LD-039: defaults to Ukrainian for ambiguous Cyrillic', () => {
-    expect(svc.detectLanguage('Це правда, дуже цікаво')).toBe('uk');
+  it('PRE-015: defaults to human_review when auto_reply has no replyText', async () => {
+    const mockLlm = {
+      generateChat: vi.fn().mockResolvedValue({
+        content: '{"action":"auto_reply","reason":"Positive"}',
+        model: 'test',
+        tokens: 10,
+      }),
+    };
+    const svcWithLlm = new RepliesMonitorService(
+      prisma as any,
+      createMockConfigService({ REPLIES_ENABLED: 'true' }),
+      createMockAccountsService() as any,
+      createMockSessionsService() as any,
+      createMockSchedulerRegistry() as any,
+      createMockDiscord() as any,
+      createMockSseService() as any,
+      mockLlm as any,
+      undefined, undefined,
+    );
+    const result = await (svcWithLlm as any).decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Love this post!' },
+    );
+    expect(result.action).toBe('human_review');
   });
 
-  it('LD-040: returns en for text with fewer than 3 Cyrillic chars', () => {
-    expect(svc.detectLanguage('OK')).toBe('en');
+  // ── Config ──
+
+  it('PRE-016: isEnabled returns true when REPLIES_ENABLED=true', () => {
+    expect(service.isEnabled()).toBe(true);
   });
 
-  it('LD-041: handles empty string', () => {
-    expect(svc.detectLanguage('')).toBe('en');
-  });
-
-  // ── generateReplyText ──
-
-  it('LD-042: generates Ukrainian reply for Ukrainian question', () => {
-    const comment = { id: '1', author: 'user', text: 'Як це працює?', timestamp: new Date() };
-    const reply = svc.generateReplyText('Post about Mars', comment, true);
-    expect(reply).toContain('запитання');
-  });
-
-  it('LD-043: generates Russian reply for Russian question', () => {
-    const comment = { id: '1', author: 'user', text: 'Как это работает?', timestamp: new Date() };
-    const reply = svc.generateReplyText('Post about Mars', comment, true);
-    expect(reply).toContain('вопрос');
-  });
-
-  it('LD-044: generates English reply for English question', () => {
-    const comment = { id: '1', author: 'user', text: 'How does this work?', timestamp: new Date() };
-    const reply = svc.generateReplyText('Post about Mars', comment, true);
-    expect(reply).toContain('question');
-  });
-
-  it('LD-045: generates Ukrainian reply for Ukrainian positive comment', () => {
-    const comment = { id: '1', author: 'user', text: 'Дякую за пост, дуже цікаво', timestamp: new Date() };
-    const reply = svc.generateReplyText('Post about Mars', comment, false);
-    expect(reply).toContain('Дякуємо');
-  });
-
-  it('LD-046: generates Russian reply for Russian positive comment', () => {
-    const comment = { id: '1', author: 'user', text: 'Спасибо за пост, очень интересно', timestamp: new Date() };
-    const reply = svc.generateReplyText('Post about Mars', comment, false);
-    expect(reply).toContain('Спасибо');
-  });
-
-  it('LD-047: generates English reply for English positive comment', () => {
-    const comment = { id: '1', author: 'user', text: 'Love this post, very interesting', timestamp: new Date() };
-    const reply = svc.generateReplyText('Post about Mars', comment, false);
-    expect(reply).toContain('Thank you');
-  });
-
-  it('LD-048: generates Ukrainian default reply for Ukrainian non-question non-positive comment', () => {
-    const comment = { id: '1', author: 'user', text: 'Це просто коментар', timestamp: new Date() };
-    const reply = svc.generateReplyText('Post about Mars', comment, false);
-    expect(reply).toContain('знак');
-  });
-
-  it('LD-049: generates Russian default reply for Russian non-question non-positive comment', () => {
-    const comment = { id: '1', author: 'user', text: 'Это просто комментарий', timestamp: new Date() };
-    const reply = svc.generateReplyText('Post about Mars', comment, false);
-    expect(reply).toContain('знак');
-  });
-
-  it('LD-050: generates English default reply for English non-question non-positive comment', () => {
-    const comment = { id: '1', author: 'user', text: 'Just a comment here', timestamp: new Date() };
-    const reply = svc.generateReplyText('Post about Mars', comment, false);
-    expect(reply).toContain('sign');
-  });
-
-  it('LD-051: all generated replies contain ✨ emoji (brand voice)', () => {
-    const cases = [
-      { text: 'How does this work?', isQ: true, lang: 'en' },
-      { text: 'Як це працює?', isQ: true, lang: 'uk' },
-      { text: 'Как это работает?', isQ: true, lang: 'ru' },
-      { text: 'Love this!', isQ: false, lang: 'en' },
-      { text: 'Дякую!', isQ: false, lang: 'uk' },
-      { text: 'Спасибо!', isQ: false, lang: 'ru' },
-      { text: 'Just commenting', isQ: false, lang: 'en' },
-      { text: 'Просто коментар', isQ: false, lang: 'uk' },
-      { text: 'Просто комментарий', isQ: false, lang: 'ru' },
-    ];
-    for (const c of cases) {
-      const comment = { id: '1', author: 'user', text: c.text, timestamp: new Date() };
-      const reply = svc.generateReplyText('Post content', comment, c.isQ);
-      expect(reply).toContain('✨');
-    }
+  it('PRE-017: isEnabled returns false when REPLIES_ENABLED=false', () => {
+    const disabled = new RepliesMonitorService(
+      prisma as any,
+      createMockConfigService({ REPLIES_ENABLED: 'false' }),
+      createMockAccountsService() as any,
+      createMockSessionsService() as any,
+      createMockSchedulerRegistry() as any,
+      createMockDiscord() as any,
+      createMockSseService() as any,
+      undefined, undefined, undefined,
+    );
+    expect(disabled.isEnabled()).toBe(false);
   });
 });

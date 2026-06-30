@@ -112,7 +112,6 @@ import { RecyclingService } from '../../src/modules/recycling/recycling.service'
 import { RecyclingController } from '../../src/modules/recycling/recycling.controller';
 import { QuoteCardService } from '../../src/modules/quote-cards/quote-card.service';
 import { QuoteCardController } from '../../src/modules/quote-cards/quote-card.controller';
-import { RepliesService } from '../../src/modules/replies/replies.service';
 import { RepliesMonitorService } from '../../src/modules/replies/replies-monitor.service';
 import { HumanBehaviorEngine } from '../../src/modules/engagement/human-behavior-engine';
 import { TargetingService } from '../../src/modules/engagement/targeting.service';
@@ -434,7 +433,6 @@ function restoreAllDesignParamtypes(): void {
   defineParamtypes(RecyclingController, [RecyclingService]);
   defineParamtypes(QuoteCardService, [ConfigService]);
   defineParamtypes(QuoteCardController, [QuoteCardService]);
-  defineParamtypes(RepliesService, [PrismaService, ConfigService]);
   defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, LlmService, Object, EngagementService, Object]);
   defineParamtypes(HumanBehaviorEngine, [PrismaService, Object, SseService, RateLimitService, Object]);
   defineParamtypes(TargetingService, [ConfigService]);

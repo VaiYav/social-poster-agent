@@ -3,8 +3,7 @@
  *
  * Runs as a HARD pre-filter before any LLM reply decision — a brand-safety / harm backstop so the
  * bot never auto-replies (chirpily) to a comment about grief, self-harm, a mental-health crisis, or
- * a serious complaint, even when the LLM misclassifies it as "simple". Previously this guard lived
- * only on the heuristic path and was bypassed whenever REPLIES_LLM_ENABLED=true (the default).
+ * a serious complaint, even when the LLM misclassifies it as "simple".
  *
  * The audience is RU/UA + EN, so patterns cover Cyrillic too. Note: ASCII `\b` does not work for
  * Cyrillic, and "гор" alone matches innocent words (город/гора/гордість) — so we match "горе"/"горю".

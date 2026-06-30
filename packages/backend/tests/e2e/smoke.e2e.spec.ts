@@ -85,7 +85,6 @@ import { PostingController } from '../../src/modules/posting/posting.controller'
 import { AccountsService } from '../../src/modules/accounts/accounts.service';
 import { MetricsScraperService } from '../../src/modules/analytics/metrics-scraper.service';
 import { EventsController } from '../../src/modules/events/events.controller';
-import { RepliesService } from '../../src/modules/replies/replies.service';
 import { clearHookCache } from '../../src/modules/generation/generation.graph';
 
 // ── ioredis mock (Map-backed shared store) ──────────────────────────────────
@@ -437,7 +436,6 @@ describe('E2E Smoke: generate → approve → post', () => {
 
     // Replies
     defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object, Object]);
-    defineParamtypes(RepliesService, [PrismaService, ConfigService, AccountsService]);
 
     // Sprint O: Restore paramtypes for new feature modules
     await restoreSprintOParamtypes(defineParamtypes, PrismaService);

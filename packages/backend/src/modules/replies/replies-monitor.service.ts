@@ -19,8 +19,11 @@
  *   REPLIES_CRON_SCHEDULE=0 STAR/4 STAR STAR STAR  (every 4 hours, see .env)
  *   REPLIES_MAX_PER_POST=3
  *   REPLIES_DELAY_MIN_MS=300000  (5 min delay between replies to same post)
- *   REPLIES_LLM_ENABLED=true  (use LLM for reply generation)
  *   REPLIES_AUTO_REPLY_COMPLEXITY=medium  (low/medium/high — threshold for human review)
+ *
+ * ALL reply content is LLM-generated. No template fallback.
+ * When all LLM providers fail, comments are skipped (stay NEW) and retried
+ * in the next monitoring cycle when providers may have recovered.
  */
 import { Injectable, Logger, Optional, Inject, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -62,7 +65,6 @@ export class RepliesMonitorService implements OnModuleInit {
   private readonly enabled: boolean;
   private readonly cronSchedule: string;
   private readonly maxRepliesPerPost: number;
-  private readonly llmEnabled: boolean;
   private readonly autoReplyComplexity: 'low' | 'medium' | 'high';
 
   constructor(
@@ -84,7 +86,6 @@ export class RepliesMonitorService implements OnModuleInit {
     this.cronSchedule = this.configService.get<string>('REPLIES_CRON_SCHEDULE', '0 */4 * * *');
     const rawMax = Number(this.configService.get<string>('REPLIES_MAX_PER_POST', '3'));
     this.maxRepliesPerPost = Number.isFinite(rawMax) && rawMax >= 0 ? Math.floor(rawMax) : 3;
-    this.llmEnabled = parseBool(this.configService.get<string>('REPLIES_LLM_ENABLED', 'true'));
     const rawComplexity = this.configService.get<string>('REPLIES_AUTO_REPLY_COMPLEXITY', 'medium');
     this.autoReplyComplexity = rawComplexity === 'low' || rawComplexity === 'medium' || rawComplexity === 'high' ? rawComplexity : 'medium';
   }
@@ -372,7 +373,8 @@ export class RepliesMonitorService implements OnModuleInit {
 
   /**
    * Decide whether to auto-reply, flag for human review, or skip.
-   * Uses LLM for sophisticated decision-making when enabled.
+   * ALL reply content is LLM-generated — no template fallback.
+   * When LLM is unavailable, the comment is skipped (stays NEW for retry next cycle).
    */
   async decideReply(
     post: { id: string; network: string; content: string },
@@ -406,7 +408,7 @@ export class RepliesMonitorService implements OnModuleInit {
     }
 
     // RP3: deterministic sensitive-topic backstop — runs BEFORE the LLM so a misclassification
-    // can never auto-reply to grief/crisis/complaint. Applies on both LLM and heuristic paths.
+    // can never auto-reply to grief/crisis/complaint.
     const sensitive = detectSensitive(comment.text);
     if (sensitive.sensitive) {
       return {
@@ -416,13 +418,15 @@ export class RepliesMonitorService implements OnModuleInit {
       };
     }
 
-    // 4. Use LLM to classify and generate reply
-    if (this.llmEnabled && this.llmService) {
-      return this.llmDecideReply(post, comment);
+    // 4. LLM is the sole content generator — no template fallback.
+    // If LLM service is not wired or all providers fail, skip the comment
+    // (it stays NEW and will be retried in the next monitoring cycle).
+    if (!this.llmService) {
+      this.logger.warn('LlmService not available — skipping comment (will retry next cycle)');
+      return { action: 'skip', reason: 'LLM service not available — will retry next cycle' };
     }
 
-    // 5. Fallback: simple heuristic without LLM
-    return this.heuristicDecideReply(post, comment);
+    return this.llmDecideReply(post, comment);
   }
 
   /**
@@ -476,16 +480,16 @@ IMPORTANT: Reply in the SAME LANGUAGE as the comment above. Detect the language 
       // Parse JSON response — LLM may wrap in markdown
       const jsonMatch = response.content.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
-        this.logger.warn('LLM reply decision: no JSON found in response — falling back to heuristic');
-        return this.heuristicDecideReply(post, comment);
+        this.logger.warn('LLM reply decision: no JSON found in response — skipping (will retry next cycle)');
+        return { action: 'skip', reason: 'LLM returned no JSON — will retry next cycle' };
       }
 
       let parsed: ReplyDecision;
       try {
         parsed = JSON.parse(jsonMatch[0]);
       } catch {
-        this.logger.warn('LLM reply decision: JSON parse failed — falling back to heuristic');
-        return this.heuristicDecideReply(post, comment);
+        this.logger.warn('LLM reply decision: JSON parse failed — skipping (will retry next cycle)');
+        return { action: 'skip', reason: 'LLM JSON parse failed — will retry next cycle' };
       }
 
       // Validate action — default to human_review if invalid
@@ -517,271 +521,14 @@ IMPORTANT: Reply in the SAME LANGUAGE as the comment above. Detect the language 
 
       return parsed;
     } catch (err) {
-      this.logger.warn(`LLM reply decision failed: ${(err as Error).message} — falling back to heuristic`);
-      return this.heuristicDecideReply(post, comment);
+      // LLM failed (all providers down, rate limited, etc.) — skip, don't post a template.
+      // The comment stays NEW and will be retried in the next monitoring cycle when
+      // providers may have recovered (circuit breakers reset, rate limits cleared).
+      this.logger.warn(`LLM reply decision failed: ${(err as Error).message} — skipping (will retry next cycle)`);
+      return { action: 'skip', reason: `LLM unavailable: ${(err as Error).message} — will retry next cycle` };
     }
   }
 
-  /**
-   * Heuristic-based reply decision (fallback when LLM is not available).
-   * Includes basic language detection for multilingual reply templates.
-   * RP4: multiple template variants per category + post-content keyword extraction
-   * to avoid repetitive, context-blind replies when the LLM path is unavailable.
-   */
-  private heuristicDecideReply(
-    post: { id: string; network: string; content: string },
-    comment: { id: string; commentId: string; author: string; text: string },
-  ): ReplyDecision {
-    const text = comment.text.toLowerCase();
-
-    // Detect language using Cyrillic + Latin script heuristics
-    const lang = this.detectLanguageHeuristic(comment.text);
-
-    // Sensitive topics / complaints → human review. Shared detector with the decideReply
-    // pre-filter (RP3) so both paths use a single multilingual source of truth.
-    const sensitive = detectSensitive(comment.text);
-    if (sensitive.sensitive) {
-      return {
-        action: 'human_review',
-        reason: `Sensitive topic (${sensitive.kind}) — requires human review`,
-        reviewReason: sensitive.reason,
-      };
-    }
-
-    // RP4: extract a keyword from the post content to make replies context-aware.
-    // Falls back to empty string if no keyword found — templates handle the empty case.
-    const postKeyword = this.extractPostKeyword(post.content, lang);
-
-    // RP4: deterministic-but-varied template selection — hash the commentId so the
-    // same comment always gets the same reply (idempotent), but different comments
-    // on the same post get different variants.
-    const variantIdx = this.hashVariant(comment.commentId);
-
-    // Multilingual reply templates (multiple variants per category)
-    const templates = this.getReplyTemplates(lang, postKeyword, variantIdx);
-
-    // Questions → auto-reply with template
-    // NOTE: \b in JavaScript regex is ASCII-only and does NOT work with Cyrillic.
-    // Use (?:$|[^а-яіїєґА-ЯІЇЄҐa-z]) suffix instead of \b for Cyrillic word boundaries.
-    const isQuestion = /\?$/.test(comment.text) ||
-      /^(what|why|how|when|where|who|can|do|is|are|will)\b/i.test(text) ||
-      /^(що|чому|як|коли|де|хто|чи|что|почему|как|когда|где|кто|ли)(?:$|[^а-яіїєґА-ЯІЇЄҐa-z])/i.test(text);
-    if (isQuestion) {
-      return {
-        action: 'auto_reply',
-        reason: 'Question — auto-reply with template',
-        replyText: templates.question,
-      };
-    }
-
-    // Positive engagement → auto-reply (multilingual)
-    const positivePatterns = /love|great|amazing|interesting|true|relatable|wow|thank|nice|cool|✨|🌟|💫|подоб|спасиб|дякую|клас|чудов|цікав|правда|дяка|gracias|amor|increíble|verdad|relatable|me encanta|qué bonito/i;
-    if (positivePatterns.test(text)) {
-      return {
-        action: 'auto_reply',
-        reason: 'Positive engagement — auto-reply',
-        replyText: templates.positive,
-      };
-    }
-
-    // Default → auto-reply with generic response
-    return {
-      action: 'auto_reply',
-      reason: 'General engagement — auto-reply',
-      replyText: templates.default,
-    };
-  }
-
-  /**
-   * RP4: Extract a context keyword from the post content to make heuristic replies
-   * less generic. Looks for zodiac signs, planetary bodies, or the first meaningful
-   * word after hashtags. Returns empty string if nothing useful is found.
-   */
-  private extractPostKeyword(content: string, lang: string): string {
-    if (!content) return '';
-    const lower = content.toLowerCase();
-
-    // Zodiac signs (multilingual) — high-value keywords for astrology brand
-    const zodiacPatterns = [
-      // English
-      /\b(aries|taurus|gemini|cancer|leo|virgo|libra|scorpio|sagittarius|capricorn|aquarius|pisces)\b/i,
-      // Ukrainian
-      /\b(овен|телець|близнюки|рак|лев|діва|терези|скорпіон|стрілець|козеріг|водолій|риби)\b/i,
-      // Russian
-      /\b(овен|телец|близнецы|рак|лев|дева|весы|скорпион|стрелец|козерог|водолей|рыбы)\b/i,
-      // Spanish
-      /\b(aries|tauro|géminis|cáncer|leo|virgo|libra|escorpio|sagitario|capricornio|acuario|piscis)\b/i,
-    ];
-    for (const pattern of zodiacPatterns) {
-      const match = lower.match(pattern);
-      if (match) return match[1]!;
-    }
-
-    // Planetary / astrological terms
-    const astroTerms = /\b(moon|mercury|venus|mars|jupiter|saturn|uranus|neptune|pluto|eclipse|retrograde|full moon|new moon|horoscope|zodiac|natal chart|transit|місяць|меркурій|венера|марс|юпітер|сатурн|уран|нептун|плутон|затемнення|ретроградний|повний місяць|новий місяць|гороскоп|зодіак|луна|меркурий|венера|марс|юпитер|сатурн|уран|нептун|плутон|затмение|ретроградный|полнолуние|новолуние|гороскоп|luna|mercurio|venus|marte|júpiter|saturno|urano|neptuno|plutón|eclipse|retrógrado|luna llena|luna nueva|horóscopo)\b/i;
-    const astroMatch = lower.match(astroTerms);
-    if (astroMatch) return astroMatch[1]!;
-
-    // Fallback: first hashtag (without the #)
-    const hashtagMatch = content.match(/#(\w+)/);
-    if (hashtagMatch) return hashtagMatch[1]!;
-
-    return '';
-  }
-
-  /**
-   * RP4: Deterministic variant index from a string hash.
-   * Same commentId → same variant (idempotent), different commentIds → spread across variants.
-   */
-  private hashVariant(key: string): number {
-    let hash = 0;
-    for (let i = 0; i < key.length; i++) {
-      hash = ((hash << 5) - hash + key.charCodeAt(i)) | 0;
-    }
-    return Math.abs(hash);
-  }
-
-  /**
-   * Detect language using script-based heuristics (no external dependency).
-   * Returns 'uk' for Ukrainian, 'ru' for Russian, 'es' for Spanish, 'en' for English/default.
-   * RP4: added Spanish detection (common for astrology audience).
-   */
-  private detectLanguageHeuristic(text: string): 'uk' | 'ru' | 'es' | 'en' {
-    // Count Cyrillic characters
-    const cyrillicChars = (text.match(/[а-яіїєґА-ЯІЇЄҐ]/g) || []).length;
-    if (cyrillicChars >= 3) {
-      // Cyrillic script — distinguish Ukrainian vs Russian
-      // Ukrainian-specific characters: і, ї, є, ґ
-      const ukSpecific = (text.match(/[іїєґІЇЄҐ]/g) || []).length;
-      // Russian-specific: ы, э, ъ, ё (not in Ukrainian)
-      const ruSpecific = (text.match(/[ыэъёЫЭЪЁ]/g) || []).length;
-
-      if (ukSpecific > 0 && ruSpecific === 0) return 'uk';
-      if (ruSpecific > 0 && ukSpecific === 0) return 'ru';
-      // Ambiguous — use word-level markers.
-      // NOTE: \b in JavaScript regex is ASCII-only and does NOT work with Cyrillic.
-      // Use (?:^|[^а-яіїєґА-ЯІЇЄҐ]) prefix instead of \b for Cyrillic word boundaries.
-      const cyrillicBoundary = '(?:^|[^а-яіїєґА-ЯІЇЄҐ])';
-      const ukWords = new RegExp(
-        cyrillicBoundary + '(?:і|та|що|як|це|він|вона|ми|ви|вони|бути|україн|дякую|спасибі|добре|гарно)(?=$|[^а-яіїєґА-ЯІЇЄҐ])',
-        'i',
-      ).test(text);
-      const ruWords = new RegExp(
-        cyrillicBoundary + '(?:и|да|что|как|это|он|она|мы|вы|они|быть|спасибо|хорошо|красиво)(?=$|[^а-яіїєґА-ЯІЇЄҐ])',
-        'i',
-      ).test(text);
-      if (ukWords && !ruWords) return 'uk';
-      if (ruWords && !ukWords) return 'ru';
-      // Default to Ukrainian for Cyrillic (brand is Ukraine-based)
-      return 'uk';
-    }
-
-    // Latin script — check for Spanish markers
-    // Spanish-specific: ñ, ¿, ¡, and words that are unambiguously Spanish (not English)
-    const hasSpanishChars = /[ñ¿¡]/.test(text);
-    // Use only words that are unambiguously Spanish (don't also exist in English)
-    // Short words like "no", "mi", "tu", "su", "si" are too ambiguous for reliable detection
-    const spanishUniqueWords = /\b(gracias|hola|qué|porque|horóscopo|zodiaco|estrellas|signo|muy|bien|todo|nada|aquí|allí|cuando|cómo|dónde|quién|nuestro|vuestra|universo|energía)\b/i.test(text);
-    if (hasSpanishChars || spanishUniqueWords) {
-      return 'es';
-    }
-
-    return 'en';
-  }
-
-  /**
-   * RP4: Get reply templates for the detected language.
-   * Returns one variant (selected by variantIdx) from multiple variants per category.
-   * Templates use {kw} placeholder for the extracted post keyword (empty if none found).
-   */
-  private getReplyTemplates(
-    lang: 'uk' | 'ru' | 'es' | 'en',
-    keyword: string,
-    variantIdx: number,
-  ): { question: string; positive: string; default: string } {
-    // kw: keyword phrase to weave into the reply, or empty string
-    const kw = keyword ? keyword : '';
-    const kwPhrase = kw ? ` "${kw}"` : '';
-    const kwPhraseUk = kw ? ` «${kw}»` : '';
-
-    const variants: Record<string, { question: string[]; positive: string[]; default: string[] }> = {
-      uk: {
-        question: [
-          `Чудове запитання! ✨${kwPhraseUk ? ` Енергії «${kw}» зараз особливо активні.` : ''} Який саме аспект резонує з вами?`,
-          `Дякую за запитання! ✨ Космос завжди дає підказки. Розкажіть більше — що вас цікавить?`,
-          `Цікаве питання! ✨ Зірки мають багато чого сказати про це. Який ваш знак зодіаку?`,
-        ],
-        positive: [
-          `Дякуємо, що поділилися! ✨${kwPhraseUk ? ` Енергія «${kw}» справді особлива.` : ''} Залишайтеся з нами для нових інсайтів!`,
-          `Так приємно це читати! ✨ Зірки завжди знаходять спосіб говорити з нами. Який ваш знак?`,
-          `Дякую за ваші слова! ✨ Космічна енергія об'єднує нас. Слідкуйте за новими постами!`,
-        ],
-        default: [
-          `Дякуємо за взаємодію! ✨${kwPhraseUk ? ` Енергія «${kw}» має багато чого розповісти.` : ''} Який ваш знак зодіаку?`,
-          `Дякуємо! ✨ Всесвіт має багато чого сказати. Розкажіть, що вас зацікавило?`,
-          `Приємно бачити вас тут! ✨ Зірки завжди мають що поділитися. Як вам сьогоднішня енергія?`,
-        ],
-      },
-      ru: {
-        question: [
-          `Отличный вопрос! ✨${kwPhrase ? ` Энергии «${kw}» сейчас особенно активны.` : ''} Какой именно аспект резонирует с вами?`,
-          `Спасибо за вопрос! ✨ Космос всегда даёт подсказки. Расскажите больше — что вас интересует?`,
-          `Интересный вопрос! ✨ Звёзды имеют много чего сказать об этом. Какой ваш знак зодиака?`,
-        ],
-        positive: [
-          `Спасибо, что поделились! ✨${kwPhrase ? ` Энергия «${kw}» действительно особенная.` : ''} Оставайтесь с нами для новых инсайтов!`,
-          `Так приятно это читать! ✨ Звёзды всегда находят способ говорить с нами. Какой ваш знак?`,
-          `Спасибо за ваши слова! ✨ Космическая энергия объединяет нас. Следите за новыми постами!`,
-        ],
-        default: [
-          `Спасибо за взаимодействие! ✨${kwPhrase ? ` Энергия «${kw}» имеет много чего рассказать.` : ''} Какой ваш знак зодиака?`,
-          `Спасибо! ✨ Вселенная имеет много чего сказать. Расскажите, что вас заинтересовало?`,
-          `Приятно видеть вас здесь! ✨ Звёзды всегда имеют чем поделиться. Как вам сегодняшняя энергия?`,
-        ],
-      },
-      es: {
-        question: [
-          `¡Excelente pregunta! ✨${kwPhrase ? ` Las energías de "${kw}" están especialmente activas.` : ''} ¿Qué aspecto resuena más contigo?`,
-          `¡Gracias por tu pregunta! ✨ El cosmos siempre da pistas. Cuéntanos más — ¿qué te interesa?`,
-          `¡Pregunta interesante! ✨ Las estrellas tienen mucho que decir sobre esto. ¿Cuál es tu signo?`,
-        ],
-        positive: [
-          `¡Gracias por compartir! ✨${kwPhrase ? ` La energía de "${kw}" es realmente especial.` : ''} ¡Sigue con nosotros para más insights!`,
-          `¡Qué bonito leer esto! ✨ Las estrellas siempre encuentran cómo hablarnos. ¿Cuál es tu signo?`,
-          `¡Gracias por tus palabras! ✨ La energía cósmica nos une. ¡Estén atentos a nuevos posts!`,
-        ],
-        default: [
-          `¡Gracias por interactuar! ✨${kwPhrase ? ` La energía de "${kw}" tiene mucho que contar.` : ''} ¿Cuál es tu signo del zodiaco?`,
-          `¡Gracias! ✨ El universo tiene mucho que decir. Cuéntanos, ¿qué te interesó?`,
-          `¡Qué gusto verte por aquí! ✨ Las estrellas siempre tienen algo que compartir. ¿Cómo sientes la energía hoy?`,
-        ],
-      },
-      en: {
-        question: [
-          `Great question! ✨${kwPhrase ? ` The energies around "${kw}" are especially active right now.` : ''} What specific aspect resonates with you?`,
-          `Thanks for asking! ✨ The cosmos always drops hints. Tell us more — what are you curious about?`,
-          `Interesting question! ✨ The stars have a lot to say about this. What's your sign?`,
-        ],
-        positive: [
-          `Thank you for sharing! ✨${kwPhrase ? ` The energy of "${kw}" is truly special.` : ''} Stay tuned for more cosmic insights!`,
-          `So glad to read this! ✨ The stars always find a way to speak to us. What's your sign?`,
-          `Thanks for your words! ✨ Cosmic energy connects us all. Watch for new posts coming soon!`,
-        ],
-        default: [
-          `Thanks for engaging! ✨${kwPhrase ? ` The energy of "${kw}" has a lot to reveal.` : ''} What's your zodiac sign?`,
-          `Appreciate you being here! ✨ The universe has much to share. What caught your interest?`,
-          `Great to see you here! ✨ The stars always have something to share. How's the energy treating you today?`,
-        ],
-      },
-    };
-
-    const langVariants = variants[lang] ?? variants.en!;
-    return {
-      question: langVariants.question[variantIdx % langVariants.question.length]!,
-      positive: langVariants.positive[variantIdx % langVariants.positive.length]!,
-      default: langVariants.default[variantIdx % langVariants.default.length]!,
-    };
-  }
 
   /**
    * Execute the reply decision — post reply, flag for review, or skip.
