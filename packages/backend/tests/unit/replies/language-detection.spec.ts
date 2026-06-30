@@ -177,31 +177,33 @@ describe('RepliesMonitorService — Language Detection', () => {
   });
 
   // ── getReplyTemplates ──
+  // RP4: getReplyTemplates now takes (lang, keyword, variantIdx) — tests pass variantIdx=0
+  // to get the first variant deterministically.
 
   it('LD-020: returns Ukrainian templates for uk', () => {
-    const templates = svc.getReplyTemplates('uk');
+    const templates = svc.getReplyTemplates('uk', '', 0);
     expect(templates.question).toContain('запитання');
     expect(templates.positive).toContain('Дякуємо');
     expect(templates.default).toContain('знак');
   });
 
   it('LD-021: returns Russian templates for ru', () => {
-    const templates = svc.getReplyTemplates('ru');
+    const templates = svc.getReplyTemplates('ru', '', 0);
     expect(templates.question).toContain('вопрос');
     expect(templates.positive).toContain('Спасибо');
     expect(templates.default).toContain('знак');
   });
 
   it('LD-022: returns English templates for en', () => {
-    const templates = svc.getReplyTemplates('en');
+    const templates = svc.getReplyTemplates('en', '', 0);
     expect(templates.question).toContain('question');
     expect(templates.positive).toContain('Thank you');
     expect(templates.default).toContain("sign");
   });
 
   it('LD-023: templates are non-empty strings for all languages', () => {
-    for (const lang of ['uk', 'ru', 'en']) {
-      const templates = svc.getReplyTemplates(lang);
+    for (const lang of ['uk', 'ru', 'es', 'en']) {
+      const templates = svc.getReplyTemplates(lang, '', 0);
       expect(templates.question.length).toBeGreaterThan(10);
       expect(templates.positive.length).toBeGreaterThan(10);
       expect(templates.default.length).toBeGreaterThan(10);
@@ -209,17 +211,51 @@ describe('RepliesMonitorService — Language Detection', () => {
   });
 
   it('LD-024: Ukrainian templates contain ✨ emoji (brand voice)', () => {
-    const templates = svc.getReplyTemplates('uk');
+    const templates = svc.getReplyTemplates('uk', '', 0);
     expect(templates.question).toContain('✨');
     expect(templates.positive).toContain('✨');
     expect(templates.default).toContain('✨');
   });
 
   it('LD-025: Russian templates contain ✨ emoji (brand voice)', () => {
-    const templates = svc.getReplyTemplates('ru');
+    const templates = svc.getReplyTemplates('ru', '', 0);
     expect(templates.question).toContain('✨');
     expect(templates.positive).toContain('✨');
     expect(templates.default).toContain('✨');
+  });
+
+  it('LD-025a: Spanish templates contain ✨ emoji (brand voice)', () => {
+    const templates = svc.getReplyTemplates('es', '', 0);
+    expect(templates.question).toContain('✨');
+    expect(templates.positive).toContain('✨');
+    expect(templates.default).toContain('✨');
+  });
+
+  it('LD-025b: all template variants contain ✨ emoji', () => {
+    for (const lang of ['uk', 'ru', 'es', 'en']) {
+      for (let i = 0; i < 3; i++) {
+        const templates = svc.getReplyTemplates(lang, '', i);
+        expect(templates.question).toContain('✨');
+        expect(templates.positive).toContain('✨');
+        expect(templates.default).toContain('✨');
+      }
+    }
+  });
+
+  it('LD-025c: different variantIdx values produce different question templates', () => {
+    const en0 = svc.getReplyTemplates('en', '', 0).question;
+    const en1 = svc.getReplyTemplates('en', '', 1).question;
+    const en2 = svc.getReplyTemplates('en', '', 2).question;
+    expect(en0).not.toBe(en1);
+    expect(en1).not.toBe(en2);
+    expect(en0).not.toBe(en2);
+  });
+
+  it('LD-025d: keyword is woven into reply when provided', () => {
+    const templates = svc.getReplyTemplates('en', 'scorpio', 0);
+    expect(templates.question).toContain('scorpio');
+    expect(templates.positive).toContain('scorpio');
+    expect(templates.default).toContain('scorpio');
   });
 
   // ── heuristicDecideReply — language-aware patterns ──
@@ -277,7 +313,9 @@ describe('RepliesMonitorService — Language Detection', () => {
       { id: '2', commentId: 'c1', author: 'user', text: 'Як це працює?' },
     );
     expect(result.action).toBe('auto_reply');
-    expect(result.replyText).toContain('запитання');
+    // RP4: reply variant is selected by hashVariant(commentId); check for Cyrillic + ✨
+    expect(result.replyText).toMatch(/[а-яіїєґА-ЯІЇЄҐ]/);
+    expect(result.replyText).toContain('✨');
   });
 
   it('LD-030: detects questions in Russian and replies in Russian', () => {
@@ -286,7 +324,8 @@ describe('RepliesMonitorService — Language Detection', () => {
       { id: '2', commentId: 'c1', author: 'user', text: 'Как это работает?' },
     );
     expect(result.action).toBe('auto_reply');
-    expect(result.replyText).toContain('вопрос');
+    expect(result.replyText).toMatch(/[а-яіїєґА-ЯІЇЄҐ]/);
+    expect(result.replyText).toContain('✨');
   });
 
   it('LD-031: detects positive engagement in Ukrainian (дякую) and replies in Ukrainian', () => {
@@ -295,7 +334,8 @@ describe('RepliesMonitorService — Language Detection', () => {
       { id: '2', commentId: 'c1', author: 'user', text: 'Дякую за пост, дуже цікаво' },
     );
     expect(result.action).toBe('auto_reply');
-    expect(result.replyText).toContain('Дякуємо');
+    expect(result.replyText).toMatch(/[а-яіїєґА-ЯІЇЄҐ]/);
+    expect(result.replyText).toContain('✨');
   });
 
   it('LD-032: detects positive engagement in Russian (спасибо) and replies in Russian', () => {
@@ -304,7 +344,8 @@ describe('RepliesMonitorService — Language Detection', () => {
       { id: '2', commentId: 'c1', author: 'user', text: 'Спасибо за пост, очень интересно' },
     );
     expect(result.action).toBe('auto_reply');
-    expect(result.replyText).toContain('Спасибо');
+    expect(result.replyText).toMatch(/[а-яіїєґА-ЯІЇЄҐ]/);
+    expect(result.replyText).toContain('✨');
   });
 
   it('LD-033: default reply in English for English comment', () => {
@@ -313,7 +354,9 @@ describe('RepliesMonitorService — Language Detection', () => {
       { id: '2', commentId: 'c1', author: 'user', text: 'Just commenting here' },
     );
     expect(result.action).toBe('auto_reply');
-    expect(result.replyText).toContain('sign');
+    expect(result.replyText).toContain('✨');
+    // English reply should not contain Cyrillic
+    expect(result.replyText).not.toMatch(/[а-яіїєґА-ЯІЇЄҐ]/);
   });
 
   it('LD-034: detects questions starting with Ukrainian question words (що)', () => {

@@ -163,11 +163,13 @@ export class LlmService implements ILlmPort, OnModuleInit {
     }
 
     // 4. Cerebras — FREE, fast
+    // NOTE: llama-3.3-70b was deprecated/removed from Cerebras on Feb 16, 2026.
+    // gpt-oss-120b is the current production model (120B params, ~3000 tok/s).
     const cerebrasKey = this.configService.get<string>('CEREBRAS_API_KEY', '');
     if (cerebrasKey) {
       chain.push({
         name: 'cerebras',
-        model: this.configService.get<string>('CEREBRAS_MODEL', 'llama-3.3-70b'),
+        model: this.configService.get<string>('CEREBRAS_MODEL', 'gpt-oss-120b'),
         apiKey: cerebrasKey,
         baseURL: 'https://api.cerebras.ai/v1',
         temperature: defaultTemp,
@@ -412,7 +414,24 @@ export class LlmService implements ILlmPort, OnModuleInit {
         // accepted but silently ignored (only temperature was applied), so a caller capping a
         // JSON decision at e.g. 100 tokens actually spent far more. Always assign (no-limit is
         // -1 in ChatOpenAI) so a prior call's cap can't leak through the cached model instance.
-        model.maxTokens = options?.maxTokens ?? -1;
+        //
+        // BUG-14: LangChain @langchain/openai 0.4.x's isReasoningModel() only detects o1/o3
+        // prefixes — it does NOT recognize gpt-5-nano and other gpt-5* models as reasoning
+        // models. This means it sends `max_tokens` (the legacy parameter) instead of
+        // `max_completion_tokens`, which gpt-5 models reject with HTTP 400:
+        //   "Unsupported parameter: 'max_tokens' is not supported with this model"
+        // Our provider config already flags reasoning models via supportsTemperature=false.
+        // We reuse that flag here: for reasoning models, skip maxTokens entirely (set to -1
+        // = no limit) to avoid sending the wrong parameter name. The output cap is a
+        // nice-to-have optimization, not worth a 400 that takes down the entire provider.
+        if (provider.supportsTemperature) {
+          model.maxTokens = options?.maxTokens ?? -1;
+        } else {
+          // Reasoning model — LangChain will omit max_tokens when it's -1 (for non-reasoning
+          // detection) or use max_completion_tokens (for o1/o3). For gpt-5*, setting -1
+          // ensures the parameter is omitted entirely rather than sent with the wrong name.
+          model.maxTokens = -1;
+        }
 
         const messages = systemPrompt
           ? [

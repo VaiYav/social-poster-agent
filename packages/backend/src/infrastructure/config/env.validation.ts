@@ -55,7 +55,7 @@ const envSchema = Joi.object({
   DEEPSEEK_API_KEY: Joi.string().allow('').default(''),
   DEEPSEEK_MODEL: Joi.string().default('deepseek-chat'),
   CEREBRAS_API_KEY: Joi.string().allow('').default(''),
-  CEREBRAS_MODEL: Joi.string().default('llama-3.3-70b'),
+  CEREBRAS_MODEL: Joi.string().default('gpt-oss-120b'),
 
   // ── Database ──
   DATABASE_URL: Joi.string().default('postgresql://spa:spa@localhost:5433/social_poster'),
