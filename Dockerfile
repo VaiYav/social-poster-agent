@@ -89,6 +89,13 @@ RUN SQLITE3_PKG=$(find /app/node_modules/.pnpm -maxdepth 2 -name 'better-sqlite3
 # Copy brand voice (needed by generation prompts)
 COPY brand-voice.md ./
 
+# Copy Prisma CLI from builder (prisma is a devDependency, not in --prod install)
+COPY --from=builder /app/node_modules/.pnpm/prisma@*/node_modules/prisma ./node_modules/.pnpm/prisma
+RUN PRISMA_BIN=$(find /app/node_modules/.pnpm -maxdepth 4 -path '*/prisma/build/index.js' | head -1) && \
+    ln -sf "$PRISMA_BIN" /app/packages/backend/node_modules/.bin/prisma 2>/dev/null || \
+    mkdir -p /app/packages/backend/node_modules/.bin && \
+    ln -sf "$PRISMA_BIN" /app/packages/backend/node_modules/.bin/prisma
+
 # Non-root user for security
 RUN groupadd -r spa && useradd -r -g spa -m -d /home/spa spa && \
     chown -R spa:spa /app && \
