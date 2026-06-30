@@ -25,9 +25,9 @@ interface LlmTopic {
  *
  * Env:
  *   TOPIC_GENERATION_ENABLED=true/false  (default: true)
- *   TOPIC_GENERATION_CRON=0 STAR/6 * * *  (every 6 hours)
- *   TOPIC_POOL_MIN=20                    (generate when active count < this)
- *   TOPIC_BATCH_SIZE=15                  (how many topics to generate per batch)
+ *   TOPIC_GENERATION_CRON=0 STAR/2 * * *  (every 2 hours)
+ *   TOPIC_POOL_MIN=30                    (generate when active count < this)
+ *   TOPIC_BATCH_SIZE=20                  (how many topics to generate per batch)
  */
 @Injectable()
 export class TopicGenerationService implements OnModuleInit {
@@ -44,9 +44,9 @@ export class TopicGenerationService implements OnModuleInit {
     private readonly llmService: LlmService,
   ) {
     this.enabled = parseBool(this.configService.get<string>('TOPIC_GENERATION_ENABLED', 'true'));
-    this.cronSchedule = this.configService.get<string>('TOPIC_GENERATION_CRON', '0 */6 * * *');
-    this.poolMin = Number(this.configService.get<string>('TOPIC_POOL_MIN', '20')) || 20;
-    this.batchSize = Number(this.configService.get<string>('TOPIC_BATCH_SIZE', '15')) || 15;
+    this.cronSchedule = this.configService.get<string>('TOPIC_GENERATION_CRON', '0 */2 * * *');
+    this.poolMin = Number(this.configService.get<string>('TOPIC_POOL_MIN', '30')) || 30;
+    this.batchSize = Number(this.configService.get<string>('TOPIC_BATCH_SIZE', '20')) || 20;
   }
 
   onModuleInit(): void {
@@ -95,29 +95,29 @@ export class TopicGenerationService implements OnModuleInit {
    * Deduplicates against existing topics (by exact topic string).
    */
   async generateBatch(count: number): Promise<number> {
-    const systemPrompt = `You are a content strategist for an astrology/wellness social media brand ("My Zodiac AI").
-Your task is to generate engaging social media content topics.
+    const systemPrompt = `You're a content strategist who actually knows astrology — not the "what's your sign" small-talk kind, but the "I can tell you what degree Saturn was at when you were born" kind. You're brainstorming social media post topics for an astrology brand.
 
-Each topic must include:
-- topic: A compelling, specific topic title (not generic — e.g., "Mercury Retrograde in Leo: How It Affects Your Communication" not just "Mercury Retrograde")
-- keywords: 3-5 relevant keywords/tags for the topic
-- facts: 2-3 interesting astrological facts or data points about the topic (real astronomical/astrological data, not made up)
+Each topic needs:
+- topic: A SPECIFIC, scroll-stopping topic title. Not "Mercury Retrograde" but "Mercury Retrograde in Leo: Why You're Suddenly Re-Texting Your Ex." Not "Moon Signs" but "Your Moon Sign Explains Why You Cry at Commercials." Be specific, be provocative, be human.
+- keywords: 3-5 relevant tags
+- facts: 2-3 REAL astrological/astronomical facts (no made-up data — real orbital periods, real dates, real traditions)
 - category: One of: "zodiac-signs", "planetary", "lunar", "retrograde", "relationships", "career", "wellness", "spiritual", "trending"
 
-Topic guidelines:
-- Be specific and timely (reference current astrological events when possible)
-- Mix educational, entertaining, and inspirational angles
-- Avoid repetitive topics — each should be distinct
-- Topics should work as social media posts (X, Threads, Facebook)
-- Include seasonal/timely angles when relevant
+TOPIC RULES:
+- Be SPECIFIC. "Aries horoscope" is not a topic, it's a category. "Why Aries Always Apologize With Actions Not Words" is a topic.
+- Be TIMELY. Reference current or upcoming transits when possible (check what's happening astrologically right now).
+- Mix ANGLES: some educational, some entertaining, some provocative, some relatable.
+- Don't repeat yourself. If you already have "Mercury retrograde communication," don't also generate "Mercury retrograde texts."
+- Think like a CONTENT CREATOR, not an encyclopedia. What would make someone stop scrolling?
+- It's okay to be funny, weird, or slightly unhinged. Boring topics = boring posts.
 
-Return your response as a JSON array:
+Return a JSON array:
 [{"topic": "...", "keywords": ["...", "..."], "facts": ["...", "..."], "category": "..."}]`;
 
     const userPrompt = `Generate ${count} diverse astrology/wellness topics for social media posts.
-Make them varied across categories. Avoid generic topics like just "Aries horoscope" — be specific and engaging.
+Mix categories. Be specific, provocative, and fun. Think "what would I actually stop scrolling to read?"
 
-Return ONLY the JSON array, no markdown or explanation.`;
+Return ONLY the JSON array, no markdown, no explanation.`;
 
     try {
       const response = await this.llmService.generateChat(systemPrompt, userPrompt, {

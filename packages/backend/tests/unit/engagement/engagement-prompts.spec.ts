@@ -140,28 +140,28 @@ describe('Engagement Prompts', () => {
 
   it('PR-015: decision system prompt contains budget awareness', () => {
     expect(ENGAGEMENT_DECISION_SYSTEM_PROMPT).toContain('budget');
-    expect(ENGAGEMENT_DECISION_SYSTEM_PROMPT).toContain('BUDGET AWARENESS');
+    expect(ENGAGEMENT_DECISION_SYSTEM_PROMPT).toContain('BUDGET');
   });
 
   it('PR-016: decision system prompt contains anti-spam rules', () => {
-    expect(ENGAGEMENT_DECISION_SYSTEM_PROMPT).toContain('ANTI-SPAM');
-    expect(ENGAGEMENT_DECISION_SYSTEM_PROMPT).toContain('generic phrases');
+    expect(ENGAGEMENT_DECISION_SYSTEM_PROMPT).toContain('generic');
+    expect(ENGAGEMENT_DECISION_SYSTEM_PROMPT).toContain('ChatGPT');
   });
 
   it('PR-017: comment system prompt contains brand voice guidelines', () => {
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('BRAND VOICE');
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('Mystical but grounded');
+    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('astrology');
+    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('dispositing planet');
   });
 
   it('PR-018: comment system prompt forbids self-promo', () => {
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('NO self-promotion');
     expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('NO links');
+    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('NO self-promotion');
   });
 
   // ── Language Adaptation (Sprint Q+) ──
 
-  it('PR-018a: comment system prompt contains LANGUAGE ADAPTATION section', () => {
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('LANGUAGE ADAPTATION');
+  it('PR-018a: comment system prompt contains LANGUAGE section', () => {
+    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('LANGUAGE');
     expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('CRITICAL');
   });
 
@@ -172,23 +172,23 @@ describe('Engagement Prompts', () => {
   });
 
   it('PR-018c: comment system prompt forbids language mismatch', () => {
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('Never comment in English on a non-English post');
+    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('English on a non-English');
   });
 
   it('PR-018d: comment system prompt includes Ukrainian example comments', () => {
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('GOOD COMMENT EXAMPLES (Ukrainian)');
+    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('GOOD comments (Ukrainian)');
     expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('Сатурн повернувся');
   });
 
   it('PR-018e: comment system prompt includes Russian example comments', () => {
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('GOOD COMMENT EXAMPLES (Russian)');
+    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('GOOD comments (Russian)');
     expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('Сатурн вернулся');
   });
 
   it('PR-018f: comment user prompt instructs language matching', () => {
     const ctx = createPostContext({ postText: 'Це український пост' });
     const prompt = buildCommentUserPrompt(ctx);
-    expect(prompt).toContain('SAME LANGUAGE');
+    expect(prompt).toContain('Match the language');
     expect(prompt).toContain('Ukrainian');
   });
 

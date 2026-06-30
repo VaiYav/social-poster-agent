@@ -122,9 +122,9 @@ const envSchema = Joi.object({
 
   // ── Topic generation (DB-backed content source) ──
   TOPIC_GENERATION_ENABLED: Joi.string().valid('true', 'false').default('true'),
-  TOPIC_GENERATION_CRON: Joi.string().default('0 */6 * * *'),
-  TOPIC_POOL_MIN: Joi.number().integer().min(1).default(20),
-  TOPIC_BATCH_SIZE: Joi.number().integer().min(1).default(15),
+  TOPIC_GENERATION_CRON: Joi.string().default('0 */2 * * *'),
+  TOPIC_POOL_MIN: Joi.number().integer().min(1).default(30),
+  TOPIC_BATCH_SIZE: Joi.number().integer().min(1).default(20),
 
   // ── Sprint O: New Features ──
   // Captcha solver (2Captcha)
