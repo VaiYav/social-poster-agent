@@ -122,21 +122,64 @@ Return ONLY the JSON array, no markdown, no explanation.`;
     try {
       const response = await this.llmService.generateChat(systemPrompt, userPrompt, {
         temperature: 0.8,
-        maxTokens: 2000,
+        maxTokens: 4000,
       });
 
-      // Parse JSON array from response
-      const jsonMatch = response.content.match(/\[[\s\S]*\]/);
-      if (!jsonMatch) {
-        this.logger.warn('Topic generation: no JSON array found in LLM response');
-        return 0;
+      // Log raw response for debugging if it's short enough
+      const raw = response.content.trim();
+      this.logger.debug(`Topic generation LLM response (${raw.length} chars): ${raw.slice(0, 200)}...`);
+
+      // Strip markdown code blocks if present
+      let cleaned = raw;
+      if (cleaned.startsWith('```')) {
+        cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
       }
 
-      let topics: LlmTopic[];
+      // Parse JSON array from response — try multiple strategies
+      let topics: LlmTopic[] | null = null;
+
+      // Strategy 1: direct parse (clean JSON)
       try {
-        topics = JSON.parse(jsonMatch[0]);
+        topics = JSON.parse(cleaned);
       } catch {
-        this.logger.warn('Topic generation: JSON parse failed');
+        // not clean JSON, continue to next strategy
+      }
+
+      // Strategy 2: extract first [ to last ] (regex)
+      if (!topics) {
+        const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          try {
+            topics = JSON.parse(jsonMatch[0]);
+          } catch {
+            // regex match failed too, continue
+          }
+        }
+      }
+
+      // Strategy 3: if JSON is truncated (no closing ]), try to repair it
+      if (!topics) {
+        const startIdx = cleaned.indexOf('[');
+        if (startIdx !== -1) {
+          let partial = cleaned.slice(startIdx);
+          // If no closing bracket, try to close the last object and array
+          if (!partial.includes(']')) {
+            // Find last complete object (ends with })
+            const lastObj = partial.lastIndexOf('}');
+            if (lastObj !== -1) {
+              partial = partial.slice(0, lastObj + 1) + ']';
+              try {
+                topics = JSON.parse(partial);
+              } catch {
+                // repair failed
+              }
+            }
+          }
+        }
+      }
+
+      if (!topics) {
+        this.logger.warn(`Topic generation: JSON parse failed. Raw response (first 300 chars): ${raw.slice(0, 300)}`);
         return 0;
       }
 
