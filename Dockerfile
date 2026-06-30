@@ -135,4 +135,5 @@ ENV NODE_ENV=production
 ENV SPA_API_PORT=3100
 ENV CAMOUFOX_HEADLESS=true
 
-CMD ["node", "packages/backend/dist/main.js"]
+# Run Prisma migrations before starting the app
+CMD ["sh", "-c", "cd packages/backend && npx prisma migrate deploy && cd /app && node packages/backend/dist/main.js"]
