@@ -1,8 +1,8 @@
--- AlterEnum
-ALTER TYPE "GenerationTrigger" ADD VALUE 'AUTONOMOUS';
+-- AlterEnum (IF NOT EXISTS for idempotency — enum value may already exist)
+ALTER TYPE "GenerationTrigger" ADD VALUE IF NOT EXISTS 'AUTONOMOUS';
 
--- CreateTable
-CREATE TABLE "Admin" (
+-- CreateTable (IF NOT EXISTS for idempotency)
+CREATE TABLE IF NOT EXISTS "Admin" (
     "id" TEXT NOT NULL,
     "username" TEXT NOT NULL,
     "passwordHash" TEXT NOT NULL,
@@ -12,5 +12,5 @@ CREATE TABLE "Admin" (
     CONSTRAINT "Admin_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE UNIQUE INDEX "Admin_username_key" ON "Admin"("username");
+-- CreateIndex (IF NOT EXISTS for idempotency)
+CREATE UNIQUE INDEX IF NOT EXISTS "Admin_username_key" ON "Admin"("username");
