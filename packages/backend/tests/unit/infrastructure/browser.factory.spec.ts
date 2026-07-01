@@ -231,6 +231,47 @@ describe('BrowserFactory', () => {
     expect(mocks.browserNewContext).toHaveBeenCalledOnce();
   });
 
+  it('UTC-406b: acquireContext discards an idle context past the TTL and creates a fresh one', async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.browserNewContext
+        .mockResolvedValueOnce(makeMockContext())
+        .mockResolvedValueOnce(makeMockContext());
+
+      const ctx1 = await factory.acquireContext('X');
+      factory.releaseContext('X', ctx1);
+
+      // Advance past the default 10-minute idle TTL
+      vi.setSystemTime(Date.now() + 11 * 60 * 1000);
+
+      const ctx2 = await factory.acquireContext('X');
+
+      expect(ctx2).not.toBe(ctx1);
+      expect(mocks.contextClose).toHaveBeenCalledOnce(); // stale ctx1 was closed
+      expect(mocks.browserNewContext).toHaveBeenCalledTimes(2); // fresh context created
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('UTC-406c: sweepIdleContexts (private, invoked via timer) closes contexts past the TTL', async () => {
+    vi.useFakeTimers();
+    try {
+      const ctx1 = await factory.acquireContext('X');
+      factory.releaseContext('X', ctx1);
+
+      factory.onModuleInit();
+      vi.advanceTimersByTime(11 * 60 * 1000);
+
+      expect(mocks.contextClose).toHaveBeenCalledOnce();
+      expect((factory as any).idleContexts.get('X')).toEqual([]);
+
+      await factory.onModuleDestroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // ── saveStorageState ──
 
   it('UTC-407: saveStorageState → JSON string with cookies + origins', async () => {
