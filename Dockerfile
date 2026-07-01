@@ -120,13 +120,14 @@ RUN CMX=$(find /app/node_modules/.pnpm -maxdepth 5 -path '*/camoufox-js/dist/pkg
         su spa -s /bin/sh -c '\
             for attempt in 1 2 3; do \
                 echo "[Camoufox pre-install] attempt $attempt/3..."; \
-                node -e "const{CamoufoxFetcher}=require(process.env.CMX);new CamoufoxFetcher().install().then(()=>{console.log(\"Camoufox pre-installed OK\");process.exit(0)}).catch(e=>{console.log(\"attempt $attempt failed: \"+e.message);process.exit(1)})" CMX="'"$CMX"'" 2>&1 && break; \
+                CMX="'"$CMX"'" node -e "const{CamoufoxFetcher}=require(process.env.CMX);new CamoufoxFetcher().install().then(()=>{console.log(\"Camoufox pre-installed OK\");process.exit(0)}).catch(e=>{console.log(\"attempt $attempt failed: \"+e.message);process.exit(1)})" 2>&1 && break; \
                 echo "[Camoufox pre-install] attempt $attempt failed, sleeping before retry..."; \
                 sleep $((attempt * 10)); \
             done; \
-            if [ ! -f /home/spa/.cache/camoufox/version.json ]; then \
+            if [ -f /home/spa/.cache/camoufox/version.json ]; then \
+                echo "[Camoufox pre-install] verified: version.json present"; \
+            else \
                 echo "[Camoufox pre-install] all attempts failed — will retry at runtime"; \
-                exit 0; \
             fi' || true; \
     fi
 
