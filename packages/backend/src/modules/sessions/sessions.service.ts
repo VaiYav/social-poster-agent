@@ -819,8 +819,31 @@ export class SessionsService {
               return null;
             }
 
-            // Enter the code into the 2FA input field
+            // Enter the code into the 2FA input field.
+            // Confirmed in production: has2FA can now trigger via URL even when
+            // selectors.twoFactorInput matches nothing real on the page, so fill()
+            // times out here. Dump the actual input elements to the log (retrievable
+            // via `railway logs`, unlike a screenshot on ephemeral container disk) so
+            // the real testid/name/type is known instead of guessed at again.
             this.logger.log(`X: entering verification code into 2FA field`);
+            try {
+              const inputs = await page
+                .locator('input')
+                .evaluateAll((els) =>
+                  els.map((e) => ({
+                    testid: (e as HTMLElement).getAttribute('data-testid'),
+                    name: (e as HTMLInputElement).name,
+                    type: (e as HTMLInputElement).type,
+                    inputMode: (e as HTMLInputElement).inputMode,
+                    ariaLabel: e.getAttribute('aria-label'),
+                    placeholder: (e as HTMLInputElement).placeholder,
+                  })),
+                )
+                .catch(() => []);
+              this.logger.warn(`X verify_code page inputs: ${JSON.stringify(inputs.slice(0, 10))}`);
+            } catch {
+              // non-blocking — diagnostic only
+            }
             await twoFAInput.fill(code);
             await this.browser.randomDelay(500, 1500);
 
