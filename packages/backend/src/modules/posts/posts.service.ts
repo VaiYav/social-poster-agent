@@ -211,6 +211,12 @@ export class PostsService {
       where: {
         network,
         createdAt: { gte: since },
+        // FAILED/REJECTED never actually reached the network — excluding them lets
+        // generation retry the same topic instead of treating a failed attempt as
+        // "already covered" forever. Confirmed live: every X post record was
+        // FAILED/DRAFT/REJECTED while the network's session was broken, which
+        // silently blocked all new X content once the session was fixed.
+        status: { notIn: [PostStatus.FAILED, PostStatus.REJECTED] },
       },
     });
 

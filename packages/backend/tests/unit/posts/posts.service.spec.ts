@@ -291,4 +291,13 @@ describe('MOD-02: PostsService', () => {
 
     expect(result).toEqual([]);
   });
+
+  it('UTC-042: findBySourceAndNetwork() excludes FAILED/REJECTED posts from the dedup match', async () => {
+    prisma.post.findMany.mockResolvedValue([]);
+
+    await service.findBySourceAndNetwork('/path', 'X');
+
+    const arg = prisma.post.findMany.mock.calls[0][0];
+    expect(arg.where.status).toEqual({ notIn: ['FAILED', 'REJECTED'] });
+  });
 });
