@@ -719,8 +719,19 @@ export class SessionsService {
 
         // ── Step 3: 2FA check (stealth-x Step 3) ──
         // X uses ocfEnterTextTextInput for 2FA code entry. Detect after password submit.
+        // Locator.isVisible()'s `timeout` option is a no-op (deprecated in playwright-core —
+        // "does not wait for the element to become visible and returns immediately"), so it
+        // cannot be widened to tolerate a slow-rendering field. Confirmed in production logs:
+        // a real verify_code challenge (.../s/verify_code/r-hodw) went undetected this way,
+        // so has2FA came back false and the flow fell through to a hard "login failed"
+        // instead of ever attempting email code retrieval. The URL is the one signal the logs
+        // prove is present at the moment of failure, so check it directly as a second signal;
+        // `twoFAInput.fill()` below has its own actionability auto-wait, so a field that's
+        // merely slow to render (rather than genuinely absent/mis-selected) still resolves.
         const twoFAInput = page.locator(selectors.twoFactorInput).first();
-        const has2FA = await twoFAInput.isVisible({ timeout: 5000 }).catch(() => false);
+        const has2FA =
+          (await twoFAInput.isVisible().catch(() => false)) ||
+          /verify_code|two_factor/.test(page.url());
         if (has2FA) {
           this.logger.warn(`X: two-factor authentication detected (Step 3)`);
           const isHeaded = process.env.CAMOUFOX_HEADLESS === 'false';
