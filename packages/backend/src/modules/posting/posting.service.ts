@@ -56,7 +56,7 @@ export class PostingService {
     @Optional() private readonly flowControl?: FlowControlService,
   ) {}
 
-  async postById(postId: string): Promise<{ success: boolean; url?: string; error?: string }> {
+  async postById(postId: string): Promise<{ success: boolean; url?: string; error?: string; retryable?: boolean }> {
     const post = await this.postsService.findById(postId);
 
     // Network gating — skip posts for disabled networks (e.g. Facebook)
@@ -66,7 +66,9 @@ export class PostingService {
         status: PostStatus.FAILED,
         errorMessage: `Network ${post.network as string} is disabled (ENABLED_NETWORKS)`,
       }).catch(() => {});
-      return { success: false, error: `Network ${post.network as string} is disabled` };
+      // Config-level, not transient — retrying can never succeed, so don't burn the
+      // full postingMaxRetries budget on it (see queue.module.ts worker).
+      return { success: false, error: `Network ${post.network as string} is disabled`, retryable: false };
     }
 
     // ADR-006: Flow control — skip if posting is paused (crisis mode)

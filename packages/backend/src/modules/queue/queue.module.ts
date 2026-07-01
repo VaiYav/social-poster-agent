@@ -53,6 +53,13 @@ export class QueueModule implements OnModuleInit {
         const { postId } = job.data as { postId: string };
         const result = await this.postingService.postById(postId);
         if (!result.success) {
+          // retryable === false means postById already resolved the post to a terminal
+          // state (e.g. network disabled) — retrying can never succeed, so resolve the
+          // job instead of burning the full retry budget on a guaranteed repeat failure.
+          if (result.retryable === false) {
+            this.logger.warn(`Post ${postId} failed permanently (non-retryable): ${result.error}`);
+            return;
+          }
           throw new Error(result.error ?? 'Posting failed');
         }
       });
