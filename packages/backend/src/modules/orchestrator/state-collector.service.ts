@@ -123,75 +123,83 @@ export class StateCollectorService {
   }
 
   private async collectQueueDepth(networks: string[]): Promise<Record<string, number>> {
-    const depth: Record<string, number> = {};
-    for (const network of networks) {
-      try {
-        const counts = await this.queueFactory.getJobCounts(network, 'posting');
-        depth[network] = (counts.active ?? 0) + (counts.waiting ?? 0) + (counts.delayed ?? 0);
-      } catch {
-        depth[network] = 0;
-      }
-    }
-    return depth;
+    const entries = await Promise.all(
+      networks.map(async (network) => {
+        try {
+          const counts = await this.queueFactory.getJobCounts(network, 'posting');
+          return [network, (counts.active ?? 0) + (counts.waiting ?? 0) + (counts.delayed ?? 0)] as const;
+        } catch {
+          return [network, 0] as const;
+        }
+      }),
+    );
+    return Object.fromEntries(entries);
   }
 
   private async collectSessions(networks: string[]): Promise<Record<string, SessionState>> {
-    const sessions: Record<string, SessionState> = {};
+    // Parallelize per-network queries (was sequential for...of — N+1 pattern)
+    const entries = await Promise.all(
+      networks.map(async (network) => {
+        try {
+          const account = await this.prisma.socialAccount.findFirst({
+            where: { network: network as any, active: true },
+          });
+          if (!account) {
+            return [network, { status: 'unknown', lastCheckMs: 0, circuitBreaker: 'unknown' }] as const;
+          }
 
-    for (const network of networks) {
-      try {
-        const account = await this.prisma.socialAccount.findFirst({
-          where: { network: network as any, active: true },
-        });
-        if (!account) {
-          sessions[network] = { status: 'unknown', lastCheckMs: 0, circuitBreaker: 'unknown' };
-          continue;
+          const [session, recentPosts] = await Promise.all([
+            this.prisma.session.findFirst({
+              where: { accountId: account.id, status: SessionStatus.ACTIVE },
+              orderBy: { createdAt: 'desc' },
+            }),
+            this.prisma.post.findMany({
+              where: { network: network as any },
+              orderBy: { createdAt: 'desc' },
+              take: 3,
+              select: { status: true },
+            }),
+          ]);
+
+          const recentFails = recentPosts.filter((p) => p.status === PostStatus.FAILED).length;
+          const circuitBreaker = recentFails >= 3 ? 'open' : recentFails >= 1 ? 'half_open' : 'closed';
+
+          return [
+            network,
+            {
+              status: session?.status ?? SessionStatus.EXPIRED,
+              lastCheckMs: session?.lastHealthCheck?.getTime() ?? 0,
+              circuitBreaker: circuitBreaker as SessionState['circuitBreaker'],
+            },
+          ] as const;
+        } catch {
+          return [network, { status: 'unknown', lastCheckMs: 0, circuitBreaker: 'unknown' }] as const;
         }
-
-        const session = await this.prisma.session.findFirst({
-          where: { accountId: account.id, status: SessionStatus.ACTIVE },
-          orderBy: { createdAt: 'desc' },
-        });
-
-        // CircuitBreakerRegistry is not a shared provider — each service has its own instance.
-        // We infer breaker state from recent post failures instead.
-        const recentPosts = await this.prisma.post.findMany({
-          where: { network: network as any },
-          orderBy: { createdAt: 'desc' },
-          take: 3,
-          select: { status: true },
-        });
-        const recentFails = recentPosts.filter((p) => p.status === PostStatus.FAILED).length;
-        const circuitBreaker = recentFails >= 3 ? 'open' : recentFails >= 1 ? 'half_open' : 'closed';
-
-        sessions[network] = {
-          status: session?.status ?? SessionStatus.EXPIRED,
-          lastCheckMs: session?.lastHealthCheck?.getTime() ?? 0,
-          circuitBreaker: circuitBreaker as SessionState['circuitBreaker'],
-        };
-      } catch {
-        sessions[network] = { status: 'unknown', lastCheckMs: 0, circuitBreaker: 'unknown' };
-      }
-    }
-    return sessions;
+      }),
+    );
+    return Object.fromEntries(entries);
   }
 
   private async collectRateLimits(networks: string[]): Promise<Record<string, RateLimitState>> {
-    const limits: Record<string, RateLimitState> = {};
-    for (const network of networks) {
-      try {
-        const status = await this.rateLimitService.getStatus(network);
-        limits[network] = {
-          dailyRemaining: Math.max(0, status.dailyLimit - status.dailyCount),
-          weeklyRemaining: Math.max(0, status.weeklyLimit - status.weeklyCount),
-          minIntervalMs: status.minIntervalMs,
-          lastPostMs: status.lastPostAt ?? 0,
-        };
-      } catch {
-        limits[network] = { dailyRemaining: 0, weeklyRemaining: 0, minIntervalMs: 0, lastPostMs: 0 };
-      }
-    }
-    return limits;
+    const entries = await Promise.all(
+      networks.map(async (network) => {
+        try {
+          const status = await this.rateLimitService.getStatus(network);
+          return [
+            network,
+            {
+              dailyRemaining: Math.max(0, status.dailyLimit - status.dailyCount),
+              weeklyRemaining: Math.max(0, status.weeklyLimit - status.weeklyCount),
+              minIntervalMs: status.minIntervalMs,
+              lastPostMs: status.lastPostAt ?? 0,
+            },
+          ] as const;
+        } catch {
+          return [network, { dailyRemaining: 0, weeklyRemaining: 0, minIntervalMs: 0, lastPostMs: 0 }] as const;
+        }
+      }),
+    );
+    return Object.fromEntries(entries);
   }
 
   private async collectTiming() {
@@ -256,90 +264,86 @@ export class StateCollectorService {
   }
 
   private async collectEngagement(networks: string[]) {
+    // Parallelize per-network account+browsing session queries
+    const [engagementEntries, uncheckedReplies] = await Promise.all([
+      Promise.all(
+        networks.map(async (network) => {
+          try {
+            const account = await this.prisma.socialAccount.findFirst({
+              where: { network: network as any, active: true },
+            });
+            if (account) {
+              const lastSession = await this.prisma.browsingSession.findFirst({
+                where: { accountId: account.id },
+                orderBy: { startedAt: 'desc' },
+                select: { startedAt: true },
+              });
+              return [
+                network,
+                lastSession?.startedAt?.getTime() ?? 0,
+                account.warmupEnabled ? 'warmup' : 'full',
+              ] as const;
+            }
+            return [network, 0, 'unknown'] as const;
+          } catch {
+            return [network, 0, 'unknown'] as const;
+          }
+        }),
+      ),
+      this.prisma.incomingComment.count({ where: { status: 'NEW' } }).catch(() => 0),
+    ]);
+
     const lastBrowseMs: Record<string, number> = {};
     const warmupPhase: Record<string, string> = {};
-
-    for (const network of networks) {
-      try {
-        const account = await this.prisma.socialAccount.findFirst({
-          where: { network: network as any, active: true },
-        });
-        if (account) {
-          const lastSession = await this.prisma.browsingSession.findFirst({
-            where: { accountId: account.id },
-            orderBy: { startedAt: 'desc' },
-            select: { startedAt: true },
-          });
-          lastBrowseMs[network] = lastSession?.startedAt?.getTime() ?? 0;
-          warmupPhase[network] = account.warmupEnabled ? 'warmup' : 'full';
-        } else {
-          lastBrowseMs[network] = 0;
-          warmupPhase[network] = 'unknown';
-        }
-      } catch {
-        lastBrowseMs[network] = 0;
-        warmupPhase[network] = 'unknown';
-      }
-    }
-
-    let uncheckedReplies = 0;
-    try {
-      uncheckedReplies = await this.prisma.incomingComment.count({
-        where: { status: 'NEW' },
-      });
-    } catch {
-      // non-critical
+    for (const [network, browseMs, phase] of engagementEntries) {
+      lastBrowseMs[network] = browseMs;
+      warmupPhase[network] = phase;
     }
 
     return { lastBrowseMs, uncheckedReplies, warmupPhase };
   }
 
   private async collectHealth(networks: string[]): Promise<HealthState> {
-    let stuckPosting = 0;
-    let bans = 0;
-    let dlqDepth = 0;
+    // Run stuck-post count, ban detection (parallel per network), and DLQ depth in parallel
+    const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000);
 
-    try {
-      const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000);
-      stuckPosting = await this.prisma.post.count({
-        where: {
-          status: PostStatus.POSTING,
-          postedAt: { lt: tenMinAgo },
-        },
-      });
-    } catch {
-      // non-critical
-    }
+    const [stuckPosting, banResults, dlqResults] = await Promise.all([
+      this.prisma.post.count({
+        where: { status: PostStatus.POSTING, postedAt: { lt: tenMinAgo } },
+      }).catch(() => 0),
 
-    // Count consecutive FAILED posts per network (ban detection)
-    try {
-      for (const network of networks) {
-        const recentPosts = await this.prisma.post.findMany({
-          where: { network: network as any },
-          orderBy: { createdAt: 'desc' },
-          take: 5,
-          select: { status: true },
-        });
-        let consecutiveFails = 0;
-        for (const p of recentPosts) {
-          if (p.status === PostStatus.FAILED) consecutiveFails++;
-          else break;
-        }
-        if (consecutiveFails >= 5) bans++;
-      }
-    } catch {
-      // non-critical
-    }
+      // Ban detection — parallel per network
+      Promise.all(
+        networks.map(async (network): Promise<number> => {
+          try {
+            const recentPosts = await this.prisma.post.findMany({
+              where: { network: network as any },
+              orderBy: { createdAt: 'desc' },
+              take: 5,
+              select: { status: true },
+            });
+            let consecutiveFails = 0;
+            for (const p of recentPosts) {
+              if (p.status === PostStatus.FAILED) consecutiveFails++;
+              else break;
+            }
+            return consecutiveFails >= 5 ? 1 : 0;
+          } catch {
+            return 0;
+          }
+        }),
+      ),
 
-    // DLQ depth from BullMQ
-    try {
-      for (const network of networks) {
-        const counts = await this.queueFactory.getJobCounts(network, 'posting');
-        dlqDepth += counts.failed ?? 0;
-      }
-    } catch {
-      // non-critical
-    }
+      // DLQ depth — parallel per network
+      Promise.all(
+        networks.map((network) =>
+          this.queueFactory.getJobCounts(network, 'posting').then((c) => c.failed ?? 0).catch(() => 0),
+        ),
+      ),
+    ]);
+
+    const bans = banResults.reduce((sum, n) => sum + n, 0);
+    const dlqDepth = dlqResults.reduce((sum, n) => sum + n, 0);
 
     return {
       bans,
