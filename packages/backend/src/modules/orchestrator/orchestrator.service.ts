@@ -21,6 +21,7 @@ import { parseBool } from '../../infrastructure/config/parse-bool.js';
 import { StateCollectorService } from './state-collector.service.js';
 import { DecisionEngineService } from './decision-engine.service.js';
 import { ActionExecutorService } from './action-executor.service.js';
+import { OrchestratorHistoryService } from './orchestrator-history.service.js';
 import { buildOrchestratorGraph, createInitialOrchestratorState } from './orchestrator.graph.js';
 import type { OrchestratorStateType } from './orchestrator.graph.js';
 import type { CompiledStateGraph } from '@langchain/langgraph';
@@ -32,8 +33,6 @@ import { OrchestratorEvents } from '../../events/enums/post-events.enum.js';
 const THREAD_ID = 'orchestrator';
 const HEARTBEAT_KEY_DEFAULT = 'spa:orchestrator:heartbeat';
 const HEARTBEAT_TTL_MS_DEFAULT = 600_000;
-const HISTORY_KEY_DEFAULT = 'spa:orchestrator:history';
-const HISTORY_MAX = 200;
 const CHECKPOINT_KEY_PREFIX = 'checkpoint:orchestrator';
 
 @Injectable()
@@ -42,7 +41,6 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
   private readonly enabled: boolean;
   private readonly heartbeatKey: string;
   private readonly heartbeatTtlMs: number;
-  private readonly historyKey: string;
 
   private running = false;
   private stopRequested = false;
@@ -59,13 +57,13 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     private readonly stateCollector: StateCollectorService,
     private readonly decisionEngine: DecisionEngineService,
     private readonly actionExecutor: ActionExecutorService,
+    private readonly historyService: OrchestratorHistoryService,
     @Optional() private readonly checkpointSaver: RedisCheckpointSaver,
     @Optional() private readonly eventEmitter: EventEmitter2,
   ) {
     this.enabled = parseBool(this.configService.get<string>('ORCHESTRATOR_ENABLED') ?? 'false');
     this.heartbeatKey = this.configService.get<string>('ORCHESTRATOR_HEARTBEAT_KEY') ?? HEARTBEAT_KEY_DEFAULT;
     this.heartbeatTtlMs = Number(this.configService.get<string>('ORCHESTRATOR_HEARTBEAT_TTL_MS') ?? HEARTBEAT_TTL_MS_DEFAULT);
-    this.historyKey = this.configService.get<string>('ORCHESTRATOR_HISTORY_KEY') ?? HISTORY_KEY_DEFAULT;
   }
 
   onModuleInit() {
@@ -253,7 +251,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
   private onCycleEnd(cycle: number, result: ActionResult | null, sleepMs: number): void {
     this.logger.debug(`Cycle ${cycle} ended: ${result?.type ?? 'N/A'} (sleep ${sleepMs}ms)`);
 
-    void this.recordHistory(cycle, result, sleepMs);
+    void this.historyService.record(cycle, result, sleepMs);
 
     // Emit domain event — SseEventListener bridges to SSE
     if (this.eventEmitter) {
@@ -264,23 +262,6 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
         duration: result?.duration,
         sleepMs,
       });
-    }
-  }
-
-  private async recordHistory(cycle: number, result: ActionResult | null, sleepMs: number): Promise<void> {
-    try {
-      const entry = JSON.stringify({
-        cycle,
-        type: result?.type,
-        success: result?.success,
-        duration: result?.duration,
-        sleepMs,
-        timestamp: Date.now(),
-      });
-      await this.redis.lpush(this.historyKey, entry);
-      await this.redis.ltrim(this.historyKey, 0, HISTORY_MAX - 1);
-    } catch {
-      // non-critical
     }
   }
 
@@ -316,12 +297,6 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getHistory(limit = 50): Promise<Record<string, unknown>[]> {
-    try {
-      const n = Math.max(1, Math.min(limit, HISTORY_MAX));
-      const entries = await this.redis.lrange(this.historyKey, 0, n - 1);
-      return entries.map((e) => JSON.parse(e) as Record<string, unknown>);
-    } catch {
-      return [];
-    }
+    return this.historyService.getHistory(limit);
   }
 }

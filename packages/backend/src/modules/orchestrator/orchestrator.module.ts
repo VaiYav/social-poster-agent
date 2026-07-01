@@ -24,8 +24,26 @@ import { LlmModule } from '../../infrastructure/llm/llm.module';
 import { CheckpointModule } from '../../infrastructure/checkpoint/checkpoint.module';
 import { StateCollectorService } from './state-collector.service.js';
 import { PostingWindowService } from './posting-window.service.js';
+import { HardRulesService } from './hard-rules.service.js';
+import { LlmDecisionService } from './llm-decision.service.js';
+import { GuardrailsService } from './guardrails.service.js';
 import { DecisionEngineService } from './decision-engine.service.js';
 import { ActionExecutorService } from './action-executor.service.js';
+import { OrchestratorHistoryService } from './orchestrator-history.service.js';
+import {
+  GenerateTopicsHandler,
+  GeneratePostsHandler,
+  PostHandler,
+  BrowseHandler,
+  RecoverSessionHandler,
+  CheckRepliesHandler,
+  RefreshTrendsHandler,
+  HealthCheckHandler,
+  ReconcileHandler,
+  ScrapeMetricsHandler,
+  RecycleContentHandler,
+  AggregateHooksHandler,
+} from './action-handlers.js';
 import { OrchestratorService } from './orchestrator.service.js';
 import { OrchestratorController } from './orchestrator.controller.js';
 import { WatchdogCron } from './watchdog.cron.js';
@@ -48,8 +66,25 @@ import { WatchdogCron } from './watchdog.cron.js';
   providers: [
     StateCollectorService,
     PostingWindowService,
+    HardRulesService,
+    LlmDecisionService,
+    GuardrailsService,
     DecisionEngineService,
+    // Action handlers (X18 strategy pattern)
+    GenerateTopicsHandler,
+    GeneratePostsHandler,
+    PostHandler,
+    BrowseHandler,
+    RecoverSessionHandler,
+    CheckRepliesHandler,
+    RefreshTrendsHandler,
+    HealthCheckHandler,
+    ReconcileHandler,
+    ScrapeMetricsHandler,
+    RecycleContentHandler,
+    AggregateHooksHandler,
     ActionExecutorService,
+    OrchestratorHistoryService,
     OrchestratorService,
     WatchdogCron,
   ],

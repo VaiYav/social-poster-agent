@@ -1,41 +1,33 @@
 /**
  * DecisionEngine — DECIDE node implementation (WS-2).
  *
- * Three-phase decision: hard rules → LLM → guardrails.
+ * Thin orchestrator that delegates to three phases:
+ *   Phase 1: HardRulesService — deterministic safety checks (H1-H10)
+ *   Phase 2: LlmDecisionService — LLM soft optimization (or rules-only fallback)
+ *   Phase 3: GuardrailsService — validate + clamp LLM output (G1-G7)
  *
- * Phase 1: Hard rules — deterministic safety checks (H1-H10).
- *          First match wins. Never calls LLM.
- * Phase 2: LLM — soft optimization. Only called when no hard rule matches.
- *          Falls back to rules-only if LLM disabled, fails, or times out.
- * Phase 3: Guardrails — validate + clamp LLM output (G1-G8).
+ * Also handles:
+ *   - Posting window enrichment (delegates to PostingWindowService)
+ *   - Rules-only fallback decision logic
+ *   - Action rate tracking (G6 guardrail — Redis sorted set)
  *
  * V-Model: WS-2 (critical — wrong decisions = wrong actions = bans)
  */
 
-import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { SocialNetwork } from '@prisma/client';
-import { ILlmPort } from '../../domain/ports/llm.port.js';
 import { getEnabledNetworks } from '../../domain/enabled-networks.js';
 import { parseBool } from '../../infrastructure/config/parse-bool.js';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
 import { PostingWindowService } from './posting-window.service.js';
-import { ORCHESTRATOR_SYSTEM_PROMPT, buildOrchestratorUserPrompt } from './prompts/orchestrator-prompt.js';
-import type { WorldState, Action, ActionType, NetworkActionType, GenericActionType } from './types.js';
-import { WAIT_ACTION, RECOVER_ACTION } from './types.js';
+import { HardRulesService } from './hard-rules.service.js';
+import { LlmDecisionService } from './llm-decision.service.js';
+import { GuardrailsService } from './guardrails.service.js';
+import type { WorldState, Action } from './types.js';
+import { WAIT_ACTION } from './types.js';
 
-const LLM_TIMEOUT_MS = 10000;
 const ACTION_HISTORY_KEY = 'spa:orchestrator:action-history'; // Redis sorted set (score=timestamp)
 const ACTION_HISTORY_WINDOW_SEC = 3600; // 1 hour
-const RECOVER_COOLDOWN_MS = 300_000; // 5 min between RECOVER_SESSION attempts per network
-const RECOVER_COOLDOWN_KEY = 'spa:orchestrator:recover-cooldown';
-
-const VALID_ACTIONS: ActionType[] = [
-  'GENERATE_TOPICS', 'GENERATE_POSTS', 'POST', 'BROWSE',
-  'RECOVER_SESSION', 'CHECK_REPLIES', 'REFRESH_TRENDS',
-  'HEALTH_CHECK', 'RECONCILE', 'SCRAPE_METRICS',
-  'RECYCLE_CONTENT', 'AGGREGATE_HOOKS', 'WAIT',
-];
 
 @Injectable()
 export class DecisionEngineService {
@@ -47,7 +39,9 @@ export class DecisionEngineService {
     private readonly configService: ConfigService,
     @Inject(SHARED_REDIS) private readonly redis: InstanceType<typeof import('ioredis').default>,
     private readonly postingWindowService: PostingWindowService,
-    @Optional() @Inject(ILlmPort) private readonly llm?: ILlmPort,
+    private readonly hardRules: HardRulesService,
+    private readonly llmDecision: LlmDecisionService,
+    private readonly guardrails: GuardrailsService,
   ) {
     this.llmEnabled = parseBool(process.env.ORCHESTRATOR_LLM_ENABLED ?? 'true');
     this.maxActionsPerHour = Number(process.env.ORCHESTRATOR_MAX_ACTIONS_PER_HOUR ?? '15');
@@ -62,7 +56,7 @@ export class DecisionEngineService {
     await this.enrichWithPostingWindows(world);
 
     // Phase 1: Hard rules (deterministic safety checks)
-    const hardRuleAction = await this.checkHardRules(world);
+    const hardRuleAction = await this.hardRules.check(world);
     if (hardRuleAction) {
       this.logger.debug(`Decision: hard rule → ${hardRuleAction.type} (${hardRuleAction.reason})`);
       return hardRuleAction;
@@ -70,14 +64,19 @@ export class DecisionEngineService {
 
     // Phase 2: LLM or rules-only fallback
     let action: Action;
-    if (this.llmEnabled && this.llm) {
-      action = await this.llmDecision(world);
+    if (this.llmEnabled) {
+      try {
+        action = await this.llmDecision.decide(world);
+      } catch (err) {
+        this.logger.warn(`LLM decision failed, falling back to rules: ${(err as Error).message}`);
+        action = this.rulesOnlyDecision(world);
+      }
     } else {
       action = this.rulesOnlyDecision(world);
     }
 
     // Phase 3: Guardrails (validate + clamp)
-    const guarded = this.applyGuardrails(action, world);
+    const guarded = this.guardrails.apply(action, world);
 
     if (guarded !== action) {
       this.logger.warn(
@@ -85,173 +84,13 @@ export class DecisionEngineService {
       );
     }
 
+    // G6: Record action for rate tracking (soft guardrail)
+    if (guarded.type !== 'WAIT') {
+      void this.recordAction(guarded);
+    }
+
     this.logger.log(`Decision: ${guarded.type}${guarded.network ? `:${guarded.network}` : ''} — ${guarded.reason}`);
     return guarded;
-  }
-
-  // ── Phase 1: Hard Rules ──────────────────────────────────────────────────
-
-  /**
-   * Check hard rules in priority order. First match wins.
-   * Returns null if no hard rule matches → proceed to LLM.
-   */
-  private async checkHardRules(world: WorldState): Promise<Action | null> {
-    const networks = getEnabledNetworks();
-
-    // H1: Kill switch
-    if (world.flowControl.pauseAll) {
-      return WAIT_ACTION('Kill switch active', 60000);
-    }
-
-    // H2: Expired session → RECOVER (with cooldown to avoid tight loop)
-    for (const net of networks) {
-      const session = world.sessions[net];
-      if (session && (session.status === 'EXPIRED' || session.status === 'ERROR')) {
-        // Check cooldown — if we recently tried to recover this network, WAIT instead
-        const cooldownRemaining = await this.getRecoverCooldown(net);
-        if (cooldownRemaining > 0) {
-          return WAIT_ACTION(
-            `Session ${net} is ${session.status}, recovery cooldown (${Math.round(cooldownRemaining / 1000)}s left)`,
-            cooldownRemaining,
-          );
-        }
-        // Set cooldown before attempting recovery
-        await this.setRecoverCooldown(net);
-        return RECOVER_ACTION(net, `Session ${net} is ${session.status}`);
-      }
-    }
-
-    // H3: Banned session → WAIT
-    for (const net of networks) {
-      const session = world.sessions[net];
-      if (session && session.status === 'BANNED') {
-        return WAIT_ACTION(`Session ${net} is banned`, 300000);
-      }
-    }
-
-    // H4: Circuit breaker open → WAIT
-    for (const net of networks) {
-      const session = world.sessions[net];
-      if (session && session.circuitBreaker === 'open') {
-        return WAIT_ACTION(`Circuit breaker open for ${net}`, 60000);
-      }
-    }
-
-    // H5: All networks daily limit exhausted → WAIT
-    const allDailyExhausted = networks.every(
-      (net) => (world.rateLimits[net]?.dailyRemaining ?? 0) === 0,
-    );
-    if (allDailyExhausted && networks.length > 0) {
-      return WAIT_ACTION('Daily rate limit exhausted for all networks', 300000);
-    }
-
-    // H6: All networks weekly limit exhausted → WAIT
-    const allWeeklyExhausted = networks.every(
-      (net) => (world.rateLimits[net]?.weeklyRemaining ?? 0) === 0,
-    );
-    if (allWeeklyExhausted && networks.length > 0) {
-      return WAIT_ACTION('Weekly rate limit exhausted for all networks', 600000);
-    }
-
-    // H7: DLQ overflow → HEALTH_CHECK
-    if (world.health.dlqDepth > 10) {
-      return {
-        type: 'HEALTH_CHECK',
-        reason: `DLQ depth ${world.health.dlqDepth} > 10`,
-        source: 'hard_rule',
-      };
-    }
-
-    // H8: Stuck posting → RECONCILE
-    if (world.health.stuckPosting > 5) {
-      return {
-        type: 'RECONCILE',
-        reason: `${world.health.stuckPosting} posts stuck in POSTING`,
-        source: 'hard_rule',
-      };
-    }
-
-    // H9: Bans detected → WAIT
-    if (world.health.bans > 0) {
-      return WAIT_ACTION(`${world.health.bans} ban(s) detected`, 300000);
-    }
-
-    // H10: Queue backed up → WAIT
-    for (const net of networks) {
-      if ((world.queueDepth[net] ?? 0) > 5) {
-        return WAIT_ACTION(`Queue depth for ${net} > 5`, 60000);
-      }
-    }
-
-    return null; // No hard rule matched → proceed to LLM
-  }
-
-  // ── Phase 2: LLM Decision ────────────────────────────────────────────────
-
-  private async llmDecision(world: WorldState): Promise<Action> {
-    try {
-      if (!this.llm) throw new Error('LLM port not available');
-
-      const userPrompt = buildOrchestratorUserPrompt(world);
-
-      const result = await Promise.race([
-        this.llm.generateChat(ORCHESTRATOR_SYSTEM_PROMPT, userPrompt, {
-          temperature: 0.3,
-          maxTokens: 200,
-        }),
-        this.timeout(),
-      ]);
-
-      const action = this.parseLlmResponse(result.content, world);
-      this.logger.debug(`LLM decision: ${action.type}:${action.network} — ${action.reason}`);
-      return action;
-    } catch (err) {
-      this.logger.warn(`LLM decision failed, falling back to rules: ${(err as Error).message}`);
-      return this.rulesOnlyDecision(world);
-    }
-  }
-
-  private timeout(): Promise<never> {
-    return new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('LLM timeout')), LLM_TIMEOUT_MS),
-    );
-  }
-
-  private parseLlmResponse(text: string, world: WorldState): Action {
-    // Try to extract JSON from the response
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error('No JSON in LLM response');
-    }
-
-    const parsed = JSON.parse(jsonMatch[0]);
-    const actionType = String(parsed.action).toUpperCase() as ActionType;
-    const networkRaw = parsed.network && parsed.network !== 'null' ? parsed.network : undefined;
-    const reason = String(parsed.reason ?? 'LLM decision');
-
-    if (!VALID_ACTIONS.includes(actionType)) {
-      throw new Error(`Invalid action type: ${actionType}`);
-    }
-
-    // Build discriminated union — network actions require network
-    const networkActionTypes: ReadonlySet<string> = new Set(['POST', 'BROWSE', 'RECOVER_SESSION']);
-    if (networkActionTypes.has(actionType)) {
-      if (!networkRaw) {
-        throw new Error(`${actionType} requires a network`);
-      }
-      return {
-        type: actionType as NetworkActionType,
-        network: networkRaw as SocialNetwork,
-        reason,
-        source: 'llm',
-      };
-    }
-    return {
-      type: actionType as GenericActionType,
-      network: networkRaw as SocialNetwork | undefined,
-      reason,
-      source: 'llm',
-    };
   }
 
   // ── Rules-Only Fallback ──────────────────────────────────────────────────
@@ -280,7 +119,6 @@ export class DecisionEngineService {
           };
         }
       }
-      // Drafts exist but not in window → WAIT
       return WAIT_ACTION('Approved drafts waiting for posting window', 120000, 'rules_fallback');
     }
 
@@ -330,75 +168,6 @@ export class DecisionEngineService {
     return WAIT_ACTION('No actionable condition', 120000, 'rules_fallback');
   }
 
-  // ── Phase 3: Guardrails ──────────────────────────────────────────────────
-
-  private applyGuardrails(action: Action, world: WorldState): Action {
-    // G1: Validate action type
-    if (!VALID_ACTIONS.includes(action.type)) {
-      return WAIT_ACTION(`Invalid action type: ${action.type}`, 60000, 'guardrail_override');
-    }
-
-    // G2: Validate network is enabled
-    const networks = getEnabledNetworks();
-    if (action.network && !networks.includes(action.network)) {
-      return WAIT_ACTION(`Network ${action.network} not enabled`, 60000, 'guardrail_override');
-    }
-
-    // G3: POST requires rate limit remaining
-    if (action.type === 'POST' && action.network) {
-      const remaining = world.rateLimits[action.network]?.dailyRemaining ?? 0;
-      if (remaining === 0) {
-        return WAIT_ACTION(`Rate limit exhausted for ${action.network}`, 300000, 'guardrail_override');
-      }
-    }
-
-    // G4: POST/BROWSE require active session
-    if ((action.type === 'POST' || action.type === 'BROWSE') && action.network) {
-      const session = world.sessions[action.network];
-      if (session && session.status !== 'ACTIVE') {
-        return RECOVER_ACTION(action.network, `Session ${action.network} not active (was ${action.type})`);
-      }
-    }
-
-    // G5: POST requires queue depth < 5
-    if (action.type === 'POST' && action.network) {
-      const depth = world.queueDepth[action.network] ?? 0;
-      if (depth > 5) {
-        return WAIT_ACTION(`Queue depth for ${action.network} > 5`, 60000, 'guardrail_override');
-      }
-    }
-
-    // G6: Max actions per hour (soft guardrail — allows action if Redis is down)
-    if (action.type !== 'WAIT') {
-      void this.recordAction(action);
-    }
-
-    // G7: Flow control paused for specific action
-    if (this.isFlowPausedForAction(action, world)) {
-      return WAIT_ACTION(`Flow paused for ${action.type}`, 60000, 'guardrail_override');
-    }
-
-    return action;
-  }
-
-  private isFlowPausedForAction(action: Action, world: WorldState): boolean {
-    const fc = world.flowControl;
-    switch (action.type) {
-      case 'GENERATE_TOPICS':
-      case 'GENERATE_POSTS':
-      case 'RECYCLE_CONTENT':
-        return fc.pauseGeneration;
-      case 'POST':
-        return fc.pausePosting;
-      case 'BROWSE':
-        return fc.pauseEngagement;
-      case 'CHECK_REPLIES':
-        return fc.pauseReplies;
-      default:
-        return false;
-    }
-  }
-
   // ── Posting Window Enrichment ────────────────────────────────────────────
 
   private async enrichWithPostingWindows(world: WorldState): Promise<void> {
@@ -420,15 +189,12 @@ export class DecisionEngineService {
   /**
    * Count actions in the last hour using Redis sorted set.
    * O(log N) — uses ZCOUNT which is efficient.
-   * Also removes expired entries (ZREMRANGEBYSCORE) to keep the set bounded.
    */
   async getActionsThisHour(): Promise<number> {
     try {
       const now = Date.now();
       const cutoff = now - ACTION_HISTORY_WINDOW_SEC * 1000;
-      // Remove expired entries (O(log N))
       await this.redis.zremrangebyscore(ACTION_HISTORY_KEY, '-inf', String(cutoff));
-      // Count remaining (O(log N))
       return await this.redis.zcount(ACTION_HISTORY_KEY, String(cutoff), String(now));
     } catch {
       return 0;
@@ -437,7 +203,6 @@ export class DecisionEngineService {
 
   /**
    * Record an action in the sorted set for rate limiting.
-   * O(log N) — ZADD is efficient.
    */
   async recordAction(action: Action): Promise<void> {
     try {
@@ -452,28 +217,5 @@ export class DecisionEngineService {
 
   get maxActionsPerHourValue(): number {
     return this.maxActionsPerHour;
-  }
-
-  // ── RECOVER_SESSION Cooldown ──────────────────────────────────────────────
-
-  private async getRecoverCooldown(network: string): Promise<number> {
-    try {
-      const key = `${RECOVER_COOLDOWN_KEY}:${network}`;
-      const ttl = await this.redis.pttl(key);
-      // pttl returns -2 if key doesn't exist, -1 if no TTL
-      if (ttl > 0) return ttl;
-      return 0;
-    } catch {
-      return 0;
-    }
-  }
-
-  private async setRecoverCooldown(network: string): Promise<void> {
-    try {
-      const key = `${RECOVER_COOLDOWN_KEY}:${network}`;
-      await this.redis.set(key, '1', 'PX', RECOVER_COOLDOWN_MS);
-    } catch {
-      // non-critical — cooldown is best-effort
-    }
   }
 }
