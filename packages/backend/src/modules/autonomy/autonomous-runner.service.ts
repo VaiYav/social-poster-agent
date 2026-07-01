@@ -65,6 +65,7 @@ export class AutonomousRunnerService {
    */
   @Cron(process.env.AUTONOMOUS_RUNNER_SCHEDULE ?? '0 */4 * * *')
   async runAutonomousCycle(): Promise<void> {
+    if (parseBool(process.env.ORCHESTRATOR_ENABLED ?? 'false')) return; // Orchestrator handles this
     if (!this.enabled) return;
 
     // Check flow control

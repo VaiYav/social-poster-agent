@@ -41,6 +41,7 @@ import { ProxyModule } from './infrastructure/proxy/proxy.module';
 import { EventsEdaModule } from './events/events.module';
 import { RedisModule } from './infrastructure/redis/redis.module';
 import { EmailModule } from './infrastructure/email/email.module';
+import { OrchestratorModule } from './modules/orchestrator/orchestrator.module';
 import { parseBool } from './infrastructure/config/parse-bool';
 
 /**
@@ -62,6 +63,13 @@ const repliesImports =
   parseBool(process.env.REPLIES_ENABLED)
     ? [parseBool(process.env.ENGAGEMENT_ENABLED) ? RepliesModule.withEngagement(EngagementModule) : RepliesModule]
     : [];
+
+/**
+ * Orchestrator (LangGraph agent loop) — replaces all crons when enabled.
+ * Gated behind ORCHESTRATOR_ENABLED (default: false).
+ * When disabled, the old cron-based scheduling is used.
+ */
+const orchestratorImports = parseBool(process.env.ORCHESTRATOR_ENABLED) ? [OrchestratorModule] : [];
 
 @Module({
   imports: [
@@ -107,6 +115,7 @@ const repliesImports =
     ...repliesImports, // Sprint O / F4: Adaptive replies — gated by REPLIES_ENABLED
     FlowControlModule, // ADR-006: Flow control (pause/resume, crisis mode)
     AutonomyModule, // ADR-006: Auto-check, auto-approve, autonomous runner
+    ...orchestratorImports, // LangGraph orchestrator — gated by ORCHESTRATOR_ENABLED
   ],
   providers: [
     // Global JWT auth guard (gated by AUTH_ENABLED; /auth/login and /health stay public).

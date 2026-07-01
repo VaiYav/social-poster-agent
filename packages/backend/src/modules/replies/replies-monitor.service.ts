@@ -116,6 +116,7 @@ export class RepliesMonitorService implements OnModuleInit {
    * 3. Process new comments (decide + reply/flag)
    */
   async runMonitoringCycle(): Promise<{ postsChecked: number; commentsScraped: number; repliesPosted: number; humanReview: number }> {
+    if (parseBool(process.env.ORCHESTRATOR_ENABLED ?? 'false')) return { postsChecked: 0, commentsScraped: 0, repliesPosted: 0, humanReview: 0 };
     this.logger.log('Replies monitoring cycle started');
     const stats = { postsChecked: 0, commentsScraped: 0, repliesPosted: 0, humanReview: 0 };
 

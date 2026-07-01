@@ -54,6 +54,7 @@ export class CronService implements OnModuleInit {
   }
 
   async handleCronGeneration(): Promise<void> {
+    if (parseBool(process.env.ORCHESTRATOR_ENABLED ?? 'false')) return; // Orchestrator handles this
     this.logger.log('Cron generation triggered');
     try {
       const runId = await this.generationService.generate(

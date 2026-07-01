@@ -77,6 +77,7 @@ export class TopicGenerationService implements OnModuleInit {
    * Check active topic pool and generate if below threshold.
    */
   async generateIfNeeded(): Promise<void> {
+    if (parseBool(process.env.ORCHESTRATOR_ENABLED ?? 'false')) return; // Orchestrator handles this
     const activeCount = await this.prisma.topic.count({ where: { status: 'active' } });
     this.logger.log(`Topic pool: ${activeCount} active (threshold: ${this.poolMin})`);
 

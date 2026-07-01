@@ -242,6 +242,7 @@ export class SessionsService {
    */
   @Cron(process.env.SESSION_RELOGIN_CRON ?? '*/15 * * * *')
   async refreshSessionsCron(): Promise<void> {
+    if (parseBool(process.env.ORCHESTRATOR_ENABLED ?? 'false')) return; // Orchestrator handles this
     if (!this.deferredLogin) return;
     for (const network of Object.values(SocialNetwork)) {
       try {

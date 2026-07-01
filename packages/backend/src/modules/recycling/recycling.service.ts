@@ -105,6 +105,7 @@ export class RecyclingService {
    */
   @Cron(process.env.RECYCLING_CRON_SCHEDULE ?? '0 8 * * 1') // weekly, Mon 08:00
   async recyclingCron(): Promise<void> {
+    if (parseBool(process.env.ORCHESTRATOR_ENABLED ?? 'false')) return; // Orchestrator handles this
     if (!parseBool(process.env.RECYCLING_CRON_ENABLED ?? 'false')) {
       return;
     }

@@ -73,6 +73,7 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
    */
   @Cron(process.env.ENGAGEMENT_SCHEDULE_CRON ?? '0 0 * * *')
   scheduleDailySessionsCron(): void {
+    if (parseBool(process.env.ORCHESTRATOR_ENABLED ?? 'false')) return; // Orchestrator handles this
     if (!this.enabled || this.networks.length === 0) {
       return;
     }

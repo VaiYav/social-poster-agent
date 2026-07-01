@@ -142,6 +142,11 @@ export class SseService implements OnModuleDestroy {
     rejected?: number;
     pauseAll?: boolean;
     flows?: Record<string, boolean>;
+    // Orchestrator events
+    cycle?: number;
+    sleepMs?: number;
+    success?: boolean;
+    duration?: number;
   }): Promise<void> {
     if (!this.publisher) return;
     await this.publisher.publish(this.channel, JSON.stringify(event));

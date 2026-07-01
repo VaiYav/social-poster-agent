@@ -94,6 +94,7 @@ export class HealthMonitorService implements OnModuleInit {
    * could create duplicate jobs, leading to double-posting.
    */
   async runReconciliation(): Promise<{ requeued: number; skipped: number; deduplicated: number }> {
+    if (parseBool(process.env.ORCHESTRATOR_ENABLED ?? 'false')) return { requeued: 0, skipped: 0, deduplicated: 0 };
     this.logger.log('Running reconciliation — checking for orphaned APPROVED posts...');
 
     const approvedPosts = await this.prisma.post.findMany({
@@ -254,6 +255,7 @@ export class HealthMonitorService implements OnModuleInit {
    * Run a full health check — called by cron and manually via API.
    */
   async runHealthCheck(): Promise<HealthReport> {
+    if (parseBool(process.env.ORCHESTRATOR_ENABLED ?? 'false')) return { timestamp: new Date().toISOString(), sessions: [], posts: {} as any, queues: {} as any, alerts: [] } as HealthReport;
     this.logger.log('Running health check...');
 
     const [sessionHealth, postHealth, queueHealth] = await Promise.all([

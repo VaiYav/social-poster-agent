@@ -98,6 +98,21 @@ const envSchema = Joi.object({
   // solely in AutoApproveService (AUTO_APPROVE_MIN_SCORE / AUTO_APPROVE_REVIEW_SCORE).
   // A leftover value in the env is harmless (schema allows unknown keys).
 
+  // ── Orchestrator (LangGraph agent loop — replaces all crons) ──
+  ORCHESTRATOR_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  ORCHESTRATOR_LLM_ENABLED: Joi.string().valid('true', 'false').default('true'),
+  ORCHESTRATOR_MAX_ACTIONS_PER_HOUR: Joi.number().integer().min(1).default(15),
+  ORCHESTRATOR_HEARTBEAT_TTL_MS: Joi.number().integer().min(10000).default(600000),
+  ORCHESTRATOR_CHECKPOINT_KEY: Joi.string().default('spa:orchestrator:checkpoint'),
+  ORCHESTRATOR_HEARTBEAT_KEY: Joi.string().default('spa:orchestrator:heartbeat'),
+  ORCHESTRATOR_HISTORY_KEY: Joi.string().default('spa:orchestrator:history'),
+
+  // ── Posting windows (Smart — data-driven from PostMetrics) ──
+  POSTING_WINDOW_MIN_SAMPLES: Joi.number().integer().min(1).default(10),
+  POSTING_WINDOW_TOP_HOURS: Joi.number().integer().min(1).max(24).default(3),
+  POSTING_WINDOW_DECAY_DAYS: Joi.number().integer().min(1).default(30),
+  POSTING_WINDOW_FALLBACK_HOURS: Joi.string().default('9,12,18,21'),
+
   // ── Monitoring ──
   SENTRY_DSN: Joi.string().allow('').default(''),
 

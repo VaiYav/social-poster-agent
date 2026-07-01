@@ -184,6 +184,7 @@ export class TrendingScraperService implements OnModuleInit {
    * Called by cron and on startup. Errors are logged but never thrown.
    */
   private async refreshCache(): Promise<void> {
+    if (parseBool(process.env.ORCHESTRATOR_ENABLED ?? 'false')) return; // Orchestrator handles this
     try {
       this.logger.log('Refreshing trending cache (cron)...');
       const [google, x] = await Promise.allSettled([

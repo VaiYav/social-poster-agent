@@ -26,6 +26,7 @@ import type { Redis } from 'ioredis';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service.js';
 import { SocialNetwork, PostStatus, Prisma } from '@prisma/client';
+import { parseBool } from '../../infrastructure/config/parse-bool.js';
 
 /**
  * Hook techniques — matches the categories in the hook_generation prompt.
@@ -115,6 +116,7 @@ export class HookPerformanceBank {
    */
   @Cron(process.env.HOOK_BANK_AGGREGATE_SCHEDULE ?? '0 7 * * *')
   async scheduledAggregate(): Promise<void> {
+    if (parseBool(process.env.ORCHESTRATOR_ENABLED ?? 'false')) return; // Orchestrator handles this
     await this.aggregateStats();
   }
 
