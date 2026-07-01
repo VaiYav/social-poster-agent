@@ -156,7 +156,7 @@ function wrapPage(realPage: Page, state: DryRunPageState): Page {
   ]);
 
   return new Proxy(realPage, {
-    get(target, prop, receiver) {
+    get(target, prop, _receiver) {
       // REAL_PAGE symbol — return the unwrapped real page (for extractRealPage)
       if (prop === REAL_PAGE) {
         return target;
@@ -211,7 +211,7 @@ function wrapContext(
   pageStates: WeakMap<object, DryRunPageState>,
 ): BrowserContext {
   return new Proxy(realContext, {
-    get(target, prop, receiver) {
+    get(target, prop, _receiver) {
       if (prop === 'newPage') {
         return async () => {
           const realPage = await target.newPage();
