@@ -20,6 +20,7 @@ import { BrowserModule } from '../../infrastructure/browser/browser.module';
 import { LlmModule } from '../../infrastructure/llm/llm.module';
 import { SseModule } from '../../infrastructure/sse/sse.module';
 import { QueueModule as QueueInfraModule } from '../../infrastructure/queue/queue.module';
+import { IRepliesMonitorPort } from '../orchestrator/ports';
 
 @Module({
   imports: [
@@ -33,9 +34,15 @@ import { QueueModule as QueueInfraModule } from '../../infrastructure/queue/queu
     SseModule,
     QueueInfraModule, // RP1: QueueFactory for scheduling delayed auto-reply jobs
   ],
-  providers: [RepliesMonitorService],
+  providers: [
+    RepliesMonitorService,
+    {
+      provide: IRepliesMonitorPort,
+      useExisting: RepliesMonitorService,
+    },
+  ],
   controllers: [RepliesController],
-  exports: [RepliesMonitorService],
+  exports: [RepliesMonitorService, IRepliesMonitorPort],
 })
 export class RepliesModule {
   // Allow conditional registration with engagement module
@@ -54,9 +61,15 @@ export class RepliesModule {
         QueueInfraModule, // RP1: QueueFactory for scheduling delayed auto-reply jobs
         engagementModule,
       ],
-      providers: [RepliesMonitorService],
+      providers: [
+        RepliesMonitorService,
+        {
+          provide: IRepliesMonitorPort,
+          useExisting: RepliesMonitorService,
+        },
+      ],
       controllers: [RepliesController],
-      exports: [RepliesMonitorService],
+      exports: [RepliesMonitorService, IRepliesMonitorPort],
     };
   }
 }

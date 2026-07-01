@@ -24,7 +24,7 @@ import type { WorldState, Action, ActionType } from './types.js';
 import { WAIT_ACTION, RECOVER_ACTION } from './types.js';
 
 const LLM_TIMEOUT_MS = 10000;
-const ACTION_HISTORY_KEY = 'spa:orchestrator:action-history';
+const ACTION_HISTORY_KEY = 'spa:orchestrator:action-history'; // Redis sorted set (score=timestamp)
 const ACTION_HISTORY_WINDOW_SEC = 3600; // 1 hour
 const RECOVER_COOLDOWN_MS = 300_000; // 5 min between RECOVER_SESSION attempts per network
 const RECOVER_COOLDOWN_KEY = 'spa:orchestrator:recover-cooldown';
@@ -352,9 +352,10 @@ export class DecisionEngineService {
       }
     }
 
-    // G6: Max actions per hour
-    // (checked asynchronously — if we can't verify, we allow the action)
-    // This is a soft guardrail — checked in the executor before running
+    // G6: Max actions per hour (soft guardrail — allows action if Redis is down)
+    if (action.type !== 'WAIT') {
+      void this.recordAction(action);
+    }
 
     // G7: Flow control paused for specific action
     if (this.isFlowPausedForAction(action, world)) {
@@ -400,28 +401,33 @@ export class DecisionEngineService {
 
   // ── Action Rate Tracking (for G6 guardrail) ──────────────────────────────
 
+  /**
+   * Count actions in the last hour using Redis sorted set.
+   * O(log N) — uses ZCOUNT which is efficient.
+   * Also removes expired entries (ZREMRANGEBYSCORE) to keep the set bounded.
+   */
   async getActionsThisHour(): Promise<number> {
     try {
-      const count = await this.redis.llen(ACTION_HISTORY_KEY);
-      // Clean up old entries
-      const cutoff = Date.now() - ACTION_HISTORY_WINDOW_SEC * 1000;
-      const entries = await this.redis.lrange(ACTION_HISTORY_KEY, 0, -1);
-      for (const entry of entries) {
-        const ts = Number(entry.split(':')[0]);
-        if (ts < cutoff) {
-          await this.redis.lrem(ACTION_HISTORY_KEY, 1, entry);
-        }
-      }
-      return await this.redis.llen(ACTION_HISTORY_KEY);
+      const now = Date.now();
+      const cutoff = now - ACTION_HISTORY_WINDOW_SEC * 1000;
+      // Remove expired entries (O(log N))
+      await this.redis.zremrangebyscore(ACTION_HISTORY_KEY, '-inf', String(cutoff));
+      // Count remaining (O(log N))
+      return await this.redis.zcount(ACTION_HISTORY_KEY, String(cutoff), String(now));
     } catch {
       return 0;
     }
   }
 
+  /**
+   * Record an action in the sorted set for rate limiting.
+   * O(log N) — ZADD is efficient.
+   */
   async recordAction(action: Action): Promise<void> {
     try {
-      const entry = `${Date.now()}:${action.type}:${action.network ?? 'null'}`;
-      await this.redis.lpush(ACTION_HISTORY_KEY, entry);
+      const now = Date.now();
+      const member = `${now}:${action.type}:${action.network ?? 'null'}`;
+      await this.redis.zadd(ACTION_HISTORY_KEY, String(now), member);
       await this.redis.expire(ACTION_HISTORY_KEY, ACTION_HISTORY_WINDOW_SEC);
     } catch {
       // non-critical

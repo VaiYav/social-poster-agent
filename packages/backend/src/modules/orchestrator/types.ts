@@ -134,13 +134,29 @@ export type ActionType =
   | 'AGGREGATE_HOOKS'
   | 'WAIT';
 
-export interface Action {
-  type: ActionType;
-  network?: SocialNetwork;
+/** Actions that require a network target */
+export type NetworkActionType = 'POST' | 'BROWSE' | 'RECOVER_SESSION';
+
+/** Actions that don't require a network */
+export type GenericActionType = Exclude<ActionType, NetworkActionType>;
+
+interface BaseAction {
   reason: string;
   source: 'hard_rule' | 'llm' | 'guardrail_override' | 'rules_fallback';
   params?: Record<string, unknown>;
 }
+
+export interface NetworkAction extends BaseAction {
+  type: NetworkActionType;
+  network: SocialNetwork;
+}
+
+export interface GenericAction extends BaseAction {
+  type: GenericActionType;
+  network?: SocialNetwork;
+}
+
+export type Action = NetworkAction | GenericAction;
 
 // ── Action Results (produced by EXECUTE node) ──────────────────────────────
 
@@ -166,14 +182,18 @@ export interface OrchestratorState {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-export const WAIT_ACTION = (reason: string, sleepMs = 120000, source: Action['source'] = 'hard_rule'): Action => ({
+export const WAIT_ACTION = (
+  reason: string,
+  sleepMs = 120_000,
+  source: Action['source'] = 'hard_rule',
+): GenericAction => ({
   type: 'WAIT',
   reason,
   source,
   params: { sleepMs },
 });
 
-export const RECOVER_ACTION = (network: SocialNetwork, reason: string): Action => ({
+export const RECOVER_ACTION = (network: SocialNetwork, reason: string): NetworkAction => ({
   type: 'RECOVER_SESSION',
   network,
   reason,

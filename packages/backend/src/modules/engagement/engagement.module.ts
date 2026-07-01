@@ -22,6 +22,7 @@ import { EngagementDecisionService } from './engagement-decision.service.js';
 import { TargetingService } from './targeting.service.js';
 import { EngagementSchedulerService } from './engagement-scheduler.service.js';
 import { IEngagementDecisionPort } from '../../domain/ports/engagement-decision.port.js';
+import { IBrowsingSessionPort } from '../orchestrator/ports.js';
 
 @Module({
   imports: [
@@ -48,8 +49,12 @@ import { IEngagementDecisionPort } from '../../domain/ports/engagement-decision.
       provide: IEngagementDecisionPort,
       useClass: EngagementDecisionService,
     },
+    {
+      provide: IBrowsingSessionPort,
+      useExisting: BrowsingSessionService,
+    },
   ],
   controllers: [EngagementController],
-  exports: [EngagementService, BrowsingSessionService, EngagementSchedulerService],
+  exports: [EngagementService, BrowsingSessionService, EngagementSchedulerService, IBrowsingSessionPort],
 })
 export class EngagementModule {}

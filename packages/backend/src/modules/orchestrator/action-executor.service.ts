@@ -11,7 +11,7 @@
  * Errors are caught and returned as ActionResult — never thrown.
  */
 
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { PostStatus, SocialNetwork, GenerationTrigger } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -26,6 +26,7 @@ import { RecyclingService } from '../recycling/recycling.service.js';
 import { HookPerformanceBank } from '../content-enhancements/hook-performance-bank.js';
 import { AutoApproveService } from '../autonomy/auto-approve.service.js';
 import { TopicGenerationService } from '../../infrastructure/content/topic-generation.service.js';
+import { IBrowsingSessionPort, IRepliesMonitorPort } from './ports.js';
 import type { Action, ActionResult } from './types.js';
 
 @Injectable()
@@ -35,6 +36,8 @@ export class ActionExecutorService {
   constructor(
     private readonly moduleRef: ModuleRef,
     private readonly prisma: PrismaService,
+    @Optional() @Inject(IBrowsingSessionPort) private readonly browsingSession?: IBrowsingSessionPort,
+    @Optional() @Inject(IRepliesMonitorPort) private readonly repliesMonitor?: IRepliesMonitorPort,
   ) {}
 
   /**
@@ -172,14 +175,13 @@ export class ActionExecutorService {
   private async browse(action: Action): Promise<Record<string, unknown>> {
     if (!action.network) throw new Error('BROWSE action requires network');
 
-    // Engagement is feature-flagged — BrowsingSessionService may not be registered
-    const browsingSessionService = this.resolveOptionalByName('BrowsingSessionService');
-    if (!browsingSessionService) {
+    // Engagement is feature-flagged — browsingSession port may not be registered
+    if (!this.browsingSession) {
       return { browsed: false, reason: 'Engagement module not enabled' };
     }
 
     const durationSec = Number(process.env.F1_BROWSING_SESSION_MINUTES ?? '15') * 60;
-    const result = await browsingSessionService.runBrowsingSession(action.network, durationSec);
+    const result = await this.browsingSession.runBrowsingSession(action.network, durationSec);
     return { browsed: true, sessionId: result.sessionId, interactions: result.interactionsCount };
   }
 
@@ -197,13 +199,12 @@ export class ActionExecutorService {
   }
 
   private async checkReplies(): Promise<Record<string, unknown>> {
-    // Replies are feature-flagged
-    const repliesMonitor = this.resolveOptionalByName('RepliesMonitorService');
-    if (!repliesMonitor) {
+    // Replies are feature-flagged — repliesMonitor port may not be registered
+    if (!this.repliesMonitor) {
       return { checked: false, reason: 'Replies module not enabled' };
     }
 
-    const result = await repliesMonitor.runMonitoringCycle();
+    const result = await this.repliesMonitor.runMonitoringCycle();
     return {
       checked: true,
       postsChecked: result.postsChecked,
@@ -292,33 +293,10 @@ export class ActionExecutorService {
    * Resolve a service by class reference. Returns null if not registered
    * (e.g., feature-flagged module not loaded).
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private resolveOptional<T>(serviceClass: new (...args: any[]) => T): T | null {
     try {
       return this.moduleRef.get(serviceClass, { strict: false }) ?? null;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Resolve a service by class name string. Used for feature-flagged services
-   * that we can't import statically (would cause module load errors when the
-   * feature flag is off).
-   */
-  private resolveOptionalByName<T = any>(name: string): T | null {
-    try {
-      // Scan all providers for one matching the class name
-      const container = (this.moduleRef as any).container;
-      const modules = container.getModules();
-      for (const [, moduleRef] of modules) {
-        const providers = moduleRef.providers;
-        for (const [key, provider] of providers) {
-          if (typeof key === 'function' && key.name === name) {
-            return provider.instance as T;
-          }
-        }
-      }
-      return null;
     } catch {
       return null;
     }
