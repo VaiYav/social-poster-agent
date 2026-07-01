@@ -8,13 +8,16 @@
  * orchestrator (which replaces all other crons) is always alive.
  */
 
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Inject, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { Inject, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
 import { DiscordNotificationService } from '../../infrastructure/notifications/discord-notification.service.js';
 import { OrchestratorService } from './orchestrator.service.js';
 import { parseBool } from '../../infrastructure/config/parse-bool.js';
+
+const HEARTBEAT_KEY_DEFAULT = 'spa:orchestrator:heartbeat';
+const HEARTBEAT_TTL_MS_DEFAULT = 600_000;
 
 @Injectable()
 export class WatchdogCron implements OnModuleInit {
@@ -24,13 +27,14 @@ export class WatchdogCron implements OnModuleInit {
   private readonly enabled: boolean;
 
   constructor(
+    private readonly configService: ConfigService,
     @Inject(SHARED_REDIS) private readonly redis: InstanceType<typeof import('ioredis').default>,
     @Optional() private readonly discord: DiscordNotificationService,
     @Optional() private readonly orchestratorService: OrchestratorService,
   ) {
-    this.heartbeatKey = process.env.ORCHESTRATOR_HEARTBEAT_KEY ?? 'spa:orchestrator:heartbeat';
-    this.heartbeatTtlMs = Number(process.env.ORCHESTRATOR_HEARTBEAT_TTL_MS ?? '600000');
-    this.enabled = parseBool(process.env.ORCHESTRATOR_ENABLED ?? 'false');
+    this.heartbeatKey = this.configService.get<string>('ORCHESTRATOR_HEARTBEAT_KEY') ?? HEARTBEAT_KEY_DEFAULT;
+    this.heartbeatTtlMs = Number(this.configService.get<string>('ORCHESTRATOR_HEARTBEAT_TTL_MS') ?? HEARTBEAT_TTL_MS_DEFAULT);
+    this.enabled = parseBool(this.configService.get<string>('ORCHESTRATOR_ENABLED') ?? 'false');
   }
 
   onModuleInit() {
@@ -69,7 +73,7 @@ export class WatchdogCron implements OnModuleInit {
     const ageStr = ageMs ? `${Math.round(ageMs / 1000)}s` : 'missing';
     this.logger.warn(`Orchestrator heartbeat stale (${ageStr}) — attempting restart`);
 
-    // Attempt restart
+    // Attempt restart (OrchestratorService has its own lifecycle mutex)
     if (this.orchestratorService) {
       try {
         await this.orchestratorService.stop();

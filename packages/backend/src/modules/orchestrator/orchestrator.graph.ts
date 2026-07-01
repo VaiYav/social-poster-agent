@@ -16,28 +16,27 @@ import type { CompiledStateGraph } from '@langchain/langgraph';
 import type { StateCollectorService } from './state-collector.service.js';
 import type { DecisionEngineService } from './decision-engine.service.js';
 import type { ActionExecutorService } from './action-executor.service.js';
-import type { OrchestratorService } from './orchestrator.service.js';
 import type { WorldState, Action, ActionResult, ActionType } from './types.js';
 
 // ── State Definition ───────────────────────────────────────────────────────
 
 export const OrchestratorState = Annotation.Root({
-  // OBSERVE: world state snapshot
-  world: Annotation<WorldState>({
+  // OBSERVE: world state snapshot (null until first observe node runs)
+  world: Annotation<WorldState | null>({
     reducer: (_, next) => next,
-    default: () => null as unknown as WorldState,
+    default: () => null,
   }),
 
-  // DECIDE: chosen action
-  action: Annotation<Action>({
+  // DECIDE: chosen action (null until first decide node runs)
+  action: Annotation<Action | null>({
     reducer: (_, next) => next,
-    default: () => null as unknown as Action,
+    default: () => null,
   }),
 
-  // EXECUTE: result of last action
-  result: Annotation<ActionResult>({
+  // EXECUTE: result of last action (null until first execute node runs)
+  result: Annotation<ActionResult | null>({
     reducer: (_, next) => next,
-    default: () => null as unknown as ActionResult,
+    default: () => null,
   }),
 
   // EVALUATE: loop control
@@ -69,12 +68,10 @@ export interface OrchestratorGraphDeps {
   stateCollector: StateCollectorService;
   decisionEngine: DecisionEngineService;
   actionExecutor: ActionExecutorService;
-  orchestratorService: OrchestratorService;
   writeHeartbeat: () => Promise<void>;
   sleep: (ms: number) => Promise<void>;
   isStopped: () => boolean;
-  onCycleStart?: (cycle: number, action: Action) => void;
-  onCycleEnd?: (cycle: number, result: ActionResult, sleepMs: number) => void;
+  onCycleEnd?: (cycle: number, result: ActionResult | null, sleepMs: number) => void;
 }
 
 // ── Node Functions ──────────────────────────────────────────────────────────
@@ -97,6 +94,10 @@ function observeNode(deps: OrchestratorGraphDeps) {
  */
 function decideNode(deps: OrchestratorGraphDeps) {
   return async (state: OrchestratorStateType): Promise<Partial<OrchestratorStateType>> => {
+    if (!state.world) {
+      // Observe failed catastrophically — return WAIT to retry next cycle
+      return { action: { type: 'WAIT', reason: 'No world state (observe failed)', source: 'hard_rule' } };
+    }
     const action = await deps.decisionEngine.decide(state.world);
     return { action };
   };
@@ -108,6 +109,9 @@ function decideNode(deps: OrchestratorGraphDeps) {
  */
 function executeNode(deps: OrchestratorGraphDeps) {
   return async (state: OrchestratorStateType): Promise<Partial<OrchestratorStateType>> => {
+    if (!state.action) {
+      return { result: { success: false, type: 'WAIT', duration: 0, error: 'No action to execute' } };
+    }
     if (state.action.type === 'WAIT') {
       return { result: { success: true, type: 'WAIT', duration: 0 } };
     }
@@ -130,7 +134,9 @@ function executeNode(deps: OrchestratorGraphDeps) {
  */
 function evaluateNode(deps: OrchestratorGraphDeps) {
   return async (state: OrchestratorStateType): Promise<Partial<OrchestratorStateType>> => {
-    const sleepMs = calculateAdaptiveSleep(state.action, state.world);
+    const action = state.action ?? { type: 'WAIT' as const, reason: 'No action', source: 'hard_rule' as const };
+    const world = state.world;
+    const sleepMs = world ? calculateAdaptiveSleep(action, world) : 60_000;
 
     // Write heartbeat before sleeping (so watchdog knows we're alive)
     await deps.writeHeartbeat();
@@ -233,9 +239,9 @@ export function buildOrchestratorGraph(deps: OrchestratorGraphDeps) {
 
 export function createInitialOrchestratorState(): OrchestratorStateType {
   return {
-    world: null as unknown as WorldState,
-    action: null as unknown as Action,
-    result: null as unknown as ActionResult,
+    world: null,
+    action: null,
+    result: null,
     cycle: 0,
     sleepMs: 60_000,
     heartbeat: Date.now(),

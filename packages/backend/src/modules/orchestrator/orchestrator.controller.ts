@@ -7,6 +7,7 @@
  *   POST   /api/v1/orchestrator/pause    — pause all flows (kill switch)
  *   POST   /api/v1/orchestrator/resume   — resume all flows
  *   POST   /api/v1/orchestrator/restart  — restart orchestrator (stop + start)
+ *   POST   /api/v1/orchestrator/reset    — reset checkpoint (fresh start)
  */
 
 import { Controller, Get, Post, Query, Logger } from '@nestjs/common';
@@ -29,7 +30,8 @@ export class OrchestratorController {
 
   @Get('history')
   async getHistory(@Query('limit') limit?: string) {
-    const n = limit ? Math.min(Number(limit), 200) : 50;
+    const parsed = limit ? Number(limit) : 50;
+    const n = Number.isFinite(parsed) ? Math.max(1, Math.min(parsed, 200)) : 50;
     return this.orchestratorService.getHistory(n);
   }
 
@@ -54,5 +56,12 @@ export class OrchestratorController {
     await new Promise((r) => setTimeout(r, 3000));
     await this.orchestratorService.start();
     return { success: true, message: 'Orchestrator restarted' };
+  }
+
+  @Post('reset')
+  async resetCheckpoint() {
+    await this.orchestratorService.resetCheckpoint();
+    this.logger.log('Orchestrator checkpoint reset via API');
+    return { success: true, message: 'Checkpoint reset — next restart will begin fresh' };
   }
 }

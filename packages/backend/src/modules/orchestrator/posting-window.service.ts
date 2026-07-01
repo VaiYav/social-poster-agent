@@ -126,6 +126,7 @@ export class PostingWindowService {
         post: { select: { postedAt: true } },
       },
       orderBy: { collectedAt: 'desc' },
+      take: 500, // Limit to prevent unbounded queries on high-volume networks
     });
 
     // Group by hour, accumulate weighted engagement scores

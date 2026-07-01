@@ -23,20 +23,34 @@ import { DecisionEngineService } from './decision-engine.service.js';
 import { ActionExecutorService } from './action-executor.service.js';
 import { buildOrchestratorGraph, createInitialOrchestratorState } from './orchestrator.graph.js';
 import type { OrchestratorStateType } from './orchestrator.graph.js';
+import type { CompiledStateGraph } from '@langchain/langgraph';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyCompiledGraph = CompiledStateGraph<any, any>;
+import type { ActionResult } from './types.js';
 
 const THREAD_ID = 'orchestrator';
-const HEARTBEAT_KEY = process.env.ORCHESTRATOR_HEARTBEAT_KEY ?? 'spa:orchestrator:heartbeat';
-const HEARTBEAT_TTL_MS = Number(process.env.ORCHESTRATOR_HEARTBEAT_TTL_MS ?? '600000');
-const HISTORY_KEY = process.env.ORCHESTRATOR_HISTORY_KEY ?? 'spa:orchestrator:history';
+const HEARTBEAT_KEY_DEFAULT = 'spa:orchestrator:heartbeat';
+const HEARTBEAT_TTL_MS_DEFAULT = 600_000;
+const HISTORY_KEY_DEFAULT = 'spa:orchestrator:history';
 const HISTORY_MAX = 200;
+const CHECKPOINT_KEY_PREFIX = 'checkpoint:orchestrator';
 
 @Injectable()
 export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(OrchestratorService.name);
   private readonly enabled: boolean;
+  private readonly heartbeatKey: string;
+  private readonly heartbeatTtlMs: number;
+  private readonly historyKey: string;
+
   private running = false;
   private stopRequested = false;
   private graphPromise: Promise<void> | null = null;
+  private sleepAbort: AbortController | null = null;
+  private currentCycle = 0;
+
+  // Mutex to prevent concurrent start/stop/restart (watchdog + API race)
+  private lifecycleLock = false;
 
   constructor(
     private readonly configService: ConfigService,
@@ -47,7 +61,10 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly checkpointSaver: RedisCheckpointSaver,
     @Optional() private readonly sseService: SseService,
   ) {
-    this.enabled = parseBool(process.env.ORCHESTRATOR_ENABLED ?? 'false');
+    this.enabled = parseBool(this.configService.get<string>('ORCHESTRATOR_ENABLED') ?? 'false');
+    this.heartbeatKey = this.configService.get<string>('ORCHESTRATOR_HEARTBEAT_KEY') ?? HEARTBEAT_KEY_DEFAULT;
+    this.heartbeatTtlMs = Number(this.configService.get<string>('ORCHESTRATOR_HEARTBEAT_TTL_MS') ?? HEARTBEAT_TTL_MS_DEFAULT);
+    this.historyKey = this.configService.get<string>('ORCHESTRATOR_HISTORY_KEY') ?? HISTORY_KEY_DEFAULT;
   }
 
   onModuleInit() {
@@ -61,75 +78,106 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
   }
 
   async start(): Promise<void> {
+    if (this.lifecycleLock) {
+      this.logger.warn('Lifecycle operation in progress — start skipped');
+      return;
+    }
     if (this.running) {
       this.logger.warn('Orchestrator already running');
       return;
     }
 
-    this.running = true;
-    this.stopRequested = false;
-    this.logger.log('Orchestrator starting...');
+    this.lifecycleLock = true;
+    try {
+      this.running = true;
+      this.stopRequested = false;
+      this.currentCycle = 0;
+      this.logger.log('Orchestrator starting...');
 
-    // Build graph dependencies
-    const deps = {
-      stateCollector: this.stateCollector,
-      decisionEngine: this.decisionEngine,
-      actionExecutor: this.actionExecutor,
-      orchestratorService: this,
-      writeHeartbeat: () => this.writeHeartbeat(),
-      sleep: (ms: number) => this.sleep(ms),
-      isStopped: () => this.stopRequested,
-      onCycleStart: (cycle: number, action: any) => this.onCycleStart(cycle, action),
-      onCycleEnd: (cycle: number, result: any, sleepMs: number) => this.onCycleEnd(cycle, result, sleepMs),
-    };
+      // Build graph dependencies
+      const deps = {
+        stateCollector: this.stateCollector,
+        decisionEngine: this.decisionEngine,
+        actionExecutor: this.actionExecutor,
+        writeHeartbeat: () => this.writeHeartbeat(),
+        sleep: (ms: number) => this.sleep(ms),
+        isStopped: () => this.stopRequested,
+        onCycleEnd: (cycle: number, result: ActionResult | null, sleepMs: number) =>
+          this.onCycleEnd(cycle, result, sleepMs),
+      };
 
-    // Build and compile graph
-    const graphBuilder = buildOrchestratorGraph(deps);
-    const compileOpts: any = {};
-    if (this.checkpointSaver) {
-      compileOpts.checkpointer = this.checkpointSaver;
+      // Build and compile graph
+      const graphBuilder = buildOrchestratorGraph(deps);
+      const compileOpts: { checkpointer?: RedisCheckpointSaver } = {};
+      if (this.checkpointSaver) {
+        compileOpts.checkpointer = this.checkpointSaver;
+      }
+      const compiledGraph = graphBuilder.compile(compileOpts) as AnyCompiledGraph;
+
+      // Run graph in background
+      this.graphPromise = this.runGraphLoop(compiledGraph);
+
+      this.logger.log('Orchestrator started');
+    } finally {
+      this.lifecycleLock = false;
     }
-    const compiledGraph = graphBuilder.compile(compileOpts);
-
-    // Run graph in background
-    this.graphPromise = this.runGraphLoop(compiledGraph);
-
-    this.logger.log('Orchestrator started');
   }
 
   async stop(): Promise<void> {
+    if (this.lifecycleLock) {
+      this.logger.warn('Lifecycle operation in progress — stop skipped');
+      return;
+    }
     if (!this.running) return;
 
-    this.stopRequested = true;
-    this.logger.log('Orchestrator stop requested...');
+    this.lifecycleLock = true;
+    try {
+      this.stopRequested = true;
+      this.logger.log('Orchestrator stop requested...');
 
-    // Wait for graph to exit (should happen within current sleep cycle)
-    if (this.graphPromise) {
-      await Promise.race([
-        this.graphPromise,
-        new Promise((r) => setTimeout(r, 10_000)), // max 10s wait
-      ]).catch(() => void 0);
+      // Abort any in-progress sleep
+      this.sleepAbort?.abort();
+
+      // Wait for graph to exit (should happen within current sleep cycle)
+      if (this.graphPromise) {
+        await Promise.race([
+          this.graphPromise,
+          new Promise((r) => setTimeout(r, 10_000)), // max 10s wait
+        ]).catch(() => void 0);
+      }
+
+      this.running = false;
+      this.graphPromise = null;
+      this.logger.log('Orchestrator stopped');
+    } finally {
+      this.lifecycleLock = false;
     }
-
-    this.running = false;
-    this.graphPromise = null;
-    this.logger.log('Orchestrator stopped');
   }
 
   isRunning(): boolean {
     return this.running;
   }
 
+  /**
+   * Reset checkpoint — allows a fresh start without resuming old state.
+   * Deletes the Redis checkpoint key for the orchestrator thread.
+   */
+  async resetCheckpoint(): Promise<void> {
+    try {
+      // RedisCheckpointSaver stores under a prefix; delete all matching keys
+      const keys = await this.redis.keys(`${CHECKPOINT_KEY_PREFIX}*`);
+      if (keys.length > 0) {
+        await this.redis.del(...keys);
+        this.logger.log(`Checkpoint reset — deleted ${keys.length} key(s)`);
+      }
+    } catch (err) {
+      this.logger.warn(`Checkpoint reset failed: ${(err as Error).message}`);
+    }
+  }
+
   // ── Graph Loop ───────────────────────────────────────────────────────────
 
-  /**
-   * The graph is invoked in a loop because LangGraph's conditional edge
-   * returning to a previous node creates an infinite loop that the graph
-   * runtime handles. However, for long-running loops with sleeps, we use
-   * a manual loop approach: invoke the graph once per cycle, then re-invoke
-   * with the updated state. This gives us better control over lifecycle.
-   */
-  private async runGraphLoop(compiledGraph: any): Promise<void> {
+  private async runGraphLoop(compiledGraph: AnyCompiledGraph): Promise<void> {
     let state = createInitialOrchestratorState();
 
     // Try to resume from checkpoint
@@ -139,7 +187,6 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
       });
       if (checkpoint) {
         this.logger.log('Resuming orchestrator from checkpoint');
-        // The graph will resume from checkpoint automatically when invoked with same thread_id
       }
     } catch {
       this.logger.warn('Failed to load checkpoint, starting fresh');
@@ -147,21 +194,14 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
 
     while (!this.stopRequested) {
       try {
-        // Invoke one full cycle: observe → decide → execute → evaluate → END
-        // Each invoke runs exactly 4 nodes (well within LangGraph's default
-        // recursion limit of 25). The outer while loop handles repetition.
         const result = await compiledGraph.invoke(state, {
           configurable: { thread_id: THREAD_ID },
         });
 
-        // Update state from result (for next cycle)
         state = result as OrchestratorStateType;
-
-        // The evaluate node already slept, so we immediately loop back
-        // If stop was requested during sleep, the loop exits
+        this.currentCycle = state.cycle;
       } catch (err) {
         this.logger.error(`Orchestrator cycle error: ${(err as Error).message}`);
-        // Wait before retrying to avoid tight error loop
         await this.sleep(60_000);
       }
     }
@@ -173,42 +213,45 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
 
   private async writeHeartbeat(): Promise<void> {
     try {
-      await this.redis.set(HEARTBEAT_KEY, String(Date.now()), 'PX', HEARTBEAT_TTL_MS);
+      await this.redis.set(this.heartbeatKey, String(Date.now()), 'PX', this.heartbeatTtlMs);
     } catch (err) {
       this.logger.warn(`Failed to write heartbeat: ${(err as Error).message}`);
     }
   }
 
-  // ── Sleep (interruptible) ────────────────────────────────────────────────
+  // ── Sleep (interruptible via AbortController) ─────────────────────────────
 
   private async sleep(ms: number): Promise<void> {
-    // Sleep in 1s increments so we can detect stop requests quickly
-    const remaining = ms;
-    const start = Date.now();
-    while (Date.now() - start < remaining && !this.stopRequested) {
-      await new Promise((r) => setTimeout(r, Math.min(1000, remaining - (Date.now() - start))));
-    }
+    this.sleepAbort = new AbortController();
+    const signal = this.sleepAbort.signal;
+
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        signal.removeEventListener('abort', onAbort);
+        resolve();
+      }, ms);
+
+      const onAbort = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+
+      if (signal.aborted) {
+        clearTimeout(timer);
+        resolve();
+      } else {
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+    });
+
+    this.sleepAbort = null;
   }
 
   // ── Cycle Callbacks ──────────────────────────────────────────────────────
 
-  private onCycleStart(cycle: number, action: any): void {
-    this.logger.debug(`Cycle ${cycle} started`);
-    if (this.sseService) {
-      void this.sseService.publish({
-        type: 'orchestrator_cycle_start',
-        cycle,
-        action: action?.type,
-        network: action?.network,
-        reason: action?.reason,
-      });
-    }
-  }
+  private onCycleEnd(cycle: number, result: ActionResult | null, sleepMs: number): void {
+    this.logger.debug(`Cycle ${cycle} ended: ${result?.type ?? 'N/A'} (sleep ${sleepMs}ms)`);
 
-  private onCycleEnd(cycle: number, result: any, sleepMs: number): void {
-    this.logger.debug(`Cycle ${cycle} ended: ${result?.type} (sleep ${sleepMs}ms)`);
-
-    // Record action in history
     void this.recordHistory(cycle, result, sleepMs);
 
     if (this.sseService) {
@@ -223,7 +266,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async recordHistory(cycle: number, result: any, sleepMs: number): Promise<void> {
+  private async recordHistory(cycle: number, result: ActionResult | null, sleepMs: number): Promise<void> {
     try {
       const entry = JSON.stringify({
         cycle,
@@ -233,8 +276,8 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
         sleepMs,
         timestamp: Date.now(),
       });
-      await this.redis.lpush(HISTORY_KEY, entry);
-      await this.redis.ltrim(HISTORY_KEY, 0, HISTORY_MAX - 1);
+      await this.redis.lpush(this.historyKey, entry);
+      await this.redis.ltrim(this.historyKey, 0, HISTORY_MAX - 1);
     } catch {
       // non-critical
     }
@@ -253,7 +296,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     let heartbeatAgeMs: number | null = null;
 
     try {
-      const hb = await this.redis.get(HEARTBEAT_KEY);
+      const hb = await this.redis.get(this.heartbeatKey);
       if (hb) {
         heartbeat = Number(hb);
         heartbeatAgeMs = Date.now() - heartbeat;
@@ -265,16 +308,17 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     return {
       enabled: this.enabled,
       running: this.running,
-      cycle: 0, // Updated from graph state in future
+      cycle: this.currentCycle,
       heartbeat,
       heartbeatAgeMs,
     };
   }
 
-  async getHistory(limit = 50): Promise<any[]> {
+  async getHistory(limit = 50): Promise<Record<string, unknown>[]> {
     try {
-      const entries = await this.redis.lrange(HISTORY_KEY, 0, limit - 1);
-      return entries.map((e) => JSON.parse(e));
+      const n = Math.max(1, Math.min(limit, HISTORY_MAX));
+      const entries = await this.redis.lrange(this.historyKey, 0, n - 1);
+      return entries.map((e) => JSON.parse(e) as Record<string, unknown>);
     } catch {
       return [];
     }
