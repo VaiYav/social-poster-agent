@@ -1336,7 +1336,7 @@ describe('MOD-04: SessionsService', () => {
 
     const page = createMockPage({ url: 'https://www.threads.com/', successVisible: false });
     const context = createMockContext(page, {
-      cookies: [{ name: 'sessionid', value: 'test-session-id', domain: '.threads.net' }],
+      cookies: [{ name: 'sessionid', value: 'test-session-id', domain: '.threads.com' }],
     });
     browser.acquireContext.mockResolvedValue(context);
 
@@ -1435,7 +1435,7 @@ describe('MOD-04: SessionsService', () => {
 
     const page = createMockPage({ url: 'https://www.threads.com/', successVisible: true });
     const context = createMockContext(page, {
-      cookies: [{ name: 'sessionid', value: 'test-session-id', domain: '.threads.net' }],
+      cookies: [{ name: 'sessionid', value: 'test-session-id', domain: '.threads.com' }],
     });
     browser.createContext.mockResolvedValue(context);
     browser.saveStorageState.mockResolvedValue(JSON.stringify({ cookies: [], origins: [] }));

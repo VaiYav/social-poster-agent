@@ -379,7 +379,7 @@ export class SessionsService {
     network: SocialNetwork,
   ): Array<{ name: string; value: string; domain: string; path: string }> {
     const domain = network === 'X' ? '.x.com' :
-      network === 'THREADS' ? '.threads.net' :
+      network === 'THREADS' ? '.threads.com' :
       '.facebook.com';
 
     const cookies: Array<{ name: string; value: string; domain: string; path: string }> = [];
@@ -1201,7 +1201,7 @@ export class SessionsService {
       { name: 'ct0', domain: 'x.com' },
     ],
     THREADS: [
-      { name: 'sessionid', domain: 'threads.net' },
+      { name: 'sessionid', domain: 'threads.com' },
     ],
     FACEBOOK: [
       { name: 'c_user', domain: 'facebook.com' },
