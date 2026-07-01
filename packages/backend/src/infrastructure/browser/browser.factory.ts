@@ -327,6 +327,29 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
           continue;
         }
 
+        // A reused context keeps whatever cookies it had from its LAST use — createContext()
+        // applies storageState only at Playwright context-creation time, so a caller passing
+        // a freshly-saved storageState here was previously silently ignored on the reuse path.
+        // Confirmed in production: a health check right after a successful login reused a
+        // stale pooled context (no valid auth cookies yet), saw the auth cookies "missing",
+        // and marked the brand-new session EXPIRED — triggering an unnecessary relogin loop.
+        // Cookies are re-applied here; localStorage/origins from storageState are NOT (no
+        // post-creation Playwright API for that) — acceptable since AUTH_COOKIES-based health
+        // checks and cookie-based auth are what actually gate session validity in this app.
+        if (storageState) {
+          try {
+            const parsed = JSON.parse(storageState) as { cookies?: Parameters<BrowserContext['addCookies']>[0] };
+            if (parsed.cookies?.length) {
+              await entry.context.clearCookies();
+              await entry.context.addCookies(parsed.cookies);
+            }
+          } catch (err) {
+            this.logger.warn(
+              `Failed to re-apply storageState cookies to reused context for ${network}: ${(err as Error).message}`,
+            );
+          }
+        }
+
         const inUse = this.inUseContexts.get(network) ?? new Set();
         inUse.add(entry.context);
         this.inUseContexts.set(network, inUse);

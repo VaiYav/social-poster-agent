@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => ({
   contextStorageState: vi.fn().mockResolvedValue({ cookies: [], origins: [] }),
   contextClose: vi.fn().mockResolvedValue(undefined),
   contextNewPage: vi.fn().mockResolvedValue({}),
+  contextClearCookies: vi.fn().mockResolvedValue(undefined),
+  contextAddCookies: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('camoufox-js', () => ({
@@ -60,6 +62,8 @@ function makeMockContext() {
     newPage: mocks.contextNewPage,
     storageState: mocks.contextStorageState,
     close: mocks.contextClose,
+    clearCookies: mocks.contextClearCookies,
+    addCookies: mocks.contextAddCookies,
   };
 }
 
@@ -229,6 +233,40 @@ describe('BrowserFactory', () => {
     const reused = await factory.acquireContext('X');
     expect(reused).toBe(ctx);
     expect(mocks.browserNewContext).toHaveBeenCalledOnce();
+  });
+
+  it('UTC-406d: acquireContext re-applies storageState cookies to a reused idle context', async () => {
+    // Arrange — acquire and release a context (no storageState), then re-acquire WITH
+    // storageState. Regression for: the reuse path previously ignored the storageState
+    // argument entirely (only createContext() applied it), so a caller passing a
+    // freshly-saved session's cookies onto a reused context silently got the OLD
+    // context's cookies instead — this is what let a health check see a brand-new
+    // session as having no auth cookies and mark it EXPIRED.
+    const ctx = await factory.acquireContext('X');
+    factory.releaseContext('X', ctx);
+
+    const storageState = JSON.stringify({
+      cookies: [{ name: 'auth_token', value: 'fresh-token', domain: '.x.com', path: '/' }],
+      origins: [],
+    });
+    const reused = await factory.acquireContext('X', storageState);
+
+    expect(reused).toBe(ctx);
+    expect(mocks.contextClearCookies).toHaveBeenCalledOnce();
+    expect(mocks.contextAddCookies).toHaveBeenCalledWith([
+      { name: 'auth_token', value: 'fresh-token', domain: '.x.com', path: '/' },
+    ]);
+  });
+
+  it('UTC-406e: acquireContext skips cookie re-apply on reuse when no storageState is passed', async () => {
+    const ctx = await factory.acquireContext('X');
+    factory.releaseContext('X', ctx);
+
+    const reused = await factory.acquireContext('X');
+
+    expect(reused).toBe(ctx);
+    expect(mocks.contextClearCookies).not.toHaveBeenCalled();
+    expect(mocks.contextAddCookies).not.toHaveBeenCalled();
   });
 
   it('UTC-406b: acquireContext discards an idle context past the TTL and creates a fresh one', async () => {
