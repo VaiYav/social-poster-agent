@@ -86,7 +86,18 @@ export class QueueModule implements OnModuleInit {
             const { BrowsingSessionService } = await import(
               '../engagement/browsing-session.service.js'
             );
-            const browsingService = this.moduleRef.get(BrowsingSessionService, { strict: false });
+            // moduleRef.get(..., { strict: false }) throws UnknownElementException rather than
+            // returning undefined when the provider isn't registered ANYWHERE in the app (as
+            // opposed to merely out of the current module's scope) — which is exactly what
+            // happens when ENGAGEMENT_ENABLED=false excludes EngagementModule entirely. Without
+            // this try/catch, leftover BullMQ delayed jobs enqueued before the flag was flipped
+            // off crash the worker on every delivery instead of hitting the intended skip below.
+            let browsingService: InstanceType<typeof BrowsingSessionService> | undefined;
+            try {
+              browsingService = this.moduleRef.get(BrowsingSessionService, { strict: false });
+            } catch {
+              browsingService = undefined;
+            }
             if (browsingService) {
               await browsingService.runBrowsingSession(
                 jobNetwork as SocialNetwork,
@@ -104,7 +115,13 @@ export class QueueModule implements OnModuleInit {
             const { RepliesMonitorService } = await import(
               '../replies/replies-monitor.service.js'
             );
-            const repliesMonitor = this.moduleRef.get(RepliesMonitorService, { strict: false });
+            // Same UnknownElementException issue as the browsing-session branch above.
+            let repliesMonitor: InstanceType<typeof RepliesMonitorService> | undefined;
+            try {
+              repliesMonitor = this.moduleRef.get(RepliesMonitorService, { strict: false });
+            } catch {
+              repliesMonitor = undefined;
+            }
             if (repliesMonitor && job.data?.commentDbId && job.data?.postUrl && job.data?.replyText) {
               await repliesMonitor.postScheduledReply({
                 commentDbId: job.data.commentDbId,
