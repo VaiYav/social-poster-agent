@@ -133,6 +133,7 @@ export class BrowsingSessionService {
         : undefined;
       context = await this.browser.acquireContext(network, storageState);
       const page = await context.newPage();
+      await this.browser.suppressPageErrors(page);
 
       // Build and invoke the EngagementGraph (LangGraph)
       const graph = buildEngagementGraph(engager, {

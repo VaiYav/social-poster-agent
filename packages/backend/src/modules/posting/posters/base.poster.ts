@@ -589,6 +589,7 @@ export abstract class BasePoster {
     let page: Page | null = null;
     try {
       page = await context.newPage();
+      await this.browser.suppressPageErrors(page);
       return await this.validatePostOnProfile(page, profileUrl, content, this.getVerificationUrlPattern());
     } catch {
       // Not found / not verifiable — treat as "not posted" (caller will re-post).

@@ -437,4 +437,8 @@ export class DryRunBrowserPort implements IBrowserPort {
   dismissDialogs(page: Page): Promise<void> {
     return this.real.dismissDialogs(page);
   }
+
+  suppressPageErrors(page: Page): Promise<void> {
+    return this.real.suppressPageErrors(page);
+  }
 }

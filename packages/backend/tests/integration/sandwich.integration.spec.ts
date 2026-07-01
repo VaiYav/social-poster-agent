@@ -188,6 +188,7 @@ function createIntegrationBrowserPort(context: ReturnType<typeof createMockConte
     dismissDialogs: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
     waitForStable: vi.fn().mockResolvedValue(undefined),
+    suppressPageErrors: vi.fn().mockResolvedValue(undefined),
   };
 }
 

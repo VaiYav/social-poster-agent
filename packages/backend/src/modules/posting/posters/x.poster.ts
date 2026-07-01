@@ -37,15 +37,7 @@ export class XPoster extends BasePoster {
     threadItems?: string[],
   ): Promise<PostResult> {
     const page = await context.newPage();
-
-    // Suppress page errors — X.com throws uncaught JS errors that crash Playwright 1.61.1
-    // (FFPage._onUncaughtError → addPageError → TypeError: Cannot read 'url' of undefined)
-    // addInitScript runs before page JS — intercepts window.onerror before X.com can throw
-    await page.addInitScript(() => {
-      window.addEventListener('error', (e) => { e.preventDefault(); e.stopImmediatePropagation(); }, true);
-      window.addEventListener('unhandledrejection', (e) => { e.preventDefault(); e.stopImmediatePropagation(); }, true);
-    });
-    page.on('pageerror', () => {});
+    await this.browser.suppressPageErrors(page);
 
     try {
       // Navigate to compose page — X never reaches networkidle (constant polling), use domcontentloaded

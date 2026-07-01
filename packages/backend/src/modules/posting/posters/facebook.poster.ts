@@ -38,6 +38,7 @@ export class FacebookPoster extends BasePoster {
     }
 
     const page = await context.newPage();
+    await this.browser.suppressPageErrors(page);
 
     try {
       // Navigate to business page
@@ -176,6 +177,7 @@ export class FacebookPoster extends BasePoster {
 
     const replyResults: Array<{ index: number; success: boolean; error?: string }> = [];
     const page = await context.newPage();
+    await this.browser.suppressPageErrors(page);
 
     try {
       // Navigate to the root post

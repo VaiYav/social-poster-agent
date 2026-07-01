@@ -31,6 +31,7 @@ export class ThreadsPoster extends BasePoster {
     threadItems?: string[],
   ): Promise<PostResult> {
     const page = await context.newPage();
+    await this.browser.suppressPageErrors(page);
 
     try {
       // Navigate to Threads home

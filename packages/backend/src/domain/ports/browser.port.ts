@@ -140,4 +140,14 @@ export interface IBrowserPort {
    * Dismiss any dialogs, popups, or cookie banners that might block interactions.
    */
   dismissDialogs(page: Page): Promise<void>;
+
+  /**
+   * Suppress uncaught page-side JS errors and unhandled rejections. Social feeds
+   * (X, Threads, Facebook) routinely throw uncaught errors that crash Playwright
+   * 1.61.1's Firefox implementation (FFPage._onUncaughtError → addPageError →
+   * "Cannot read properties of undefined (reading 'url')"), which can leave the
+   * page/context connection in a broken state. Call this immediately after
+   * every `context.newPage()`, before navigating.
+   */
+  suppressPageErrors(page: Page): Promise<void>;
 }

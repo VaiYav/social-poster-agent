@@ -620,6 +620,23 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
   }
 
   /**
+   * Suppress uncaught page-side JS errors and unhandled rejections. Social feeds
+   * (X, Threads, Facebook) routinely throw uncaught errors that crash Playwright
+   * 1.61.1's Firefox implementation (FFPage._onUncaughtError → addPageError →
+   * "Cannot read properties of undefined (reading 'url')"). addInitScript runs
+   * before page JS — it intercepts window.onerror/unhandledrejection before the
+   * site's own error can propagate up into Playwright and break the page/context
+   * connection.
+   */
+  async suppressPageErrors(page: Page): Promise<void> {
+    await page.addInitScript(() => {
+      window.addEventListener('error', (e) => { e.preventDefault(); e.stopImmediatePropagation(); }, true);
+      window.addEventListener('unhandledrejection', (e) => { e.preventDefault(); e.stopImmediatePropagation(); }, true);
+    });
+    page.on('pageerror', () => {});
+  }
+
+  /**
    * Dismiss any dialogs, popups, or cookie banners that might block interactions.
    * Tries common close button selectors used by social networks.
    */
