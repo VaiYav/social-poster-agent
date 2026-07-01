@@ -1004,14 +1004,22 @@ export class SessionsService {
         postChallengeUrl.includes('/auth') ||
         postChallengeUrl.includes('/onboarding');
 
-      // If we have c_user cookie, login succeeded regardless of URL
+      // If the network's auth cookies are present, login succeeded regardless of URL.
+      // Needed because SPA-routed onboarding flows (e.g. X's /i/jf/onboarding/web) can
+      // still show a "/onboarding"/"/login"-matching URL fragment for a beat after the
+      // real login completes — this was previously hardcoded to Facebook's c_user cookie,
+      // so X/Threads had no cookie-based success path and relied solely on the URL check,
+      // which produces false "still on login page" failures for exactly this reason.
       const cookies = await context.cookies();
-      const hasCUserCookie = cookies.some(
-        (c) => c.name === 'c_user' && c.domain.includes('facebook.com'),
-      );
+      const requiredAuthCookies = this.AUTH_COOKIES[network] ?? [];
+      const hasAuthCookies =
+        requiredAuthCookies.length > 0 &&
+        requiredAuthCookies.every((req) =>
+          cookies.some((c) => c.name === req.name && c.domain.includes(req.domain)),
+        );
 
-      if (hasCUserCookie) {
-        this.logger.log(`Login verified for ${network} — c_user cookie present`);
+      if (hasAuthCookies) {
+        this.logger.log(`Login verified for ${network} — auth cookies present`);
         // Take post-login screenshot for debugging
         await this.browser.screenshot(page, network, 'after-login');
         // Save storageState

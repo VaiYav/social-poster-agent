@@ -1465,7 +1465,10 @@ describe('MOD-04: SessionsService', () => {
     // After login form, c_user still present → hasCUserCookie=true → save session
     const page = createMockPage({ url: 'https://www.facebook.com/login', successVisible: true });
     const context = createMockContext(page, {
-      cookies: [{ name: 'c_user', value: '10000123', domain: '.facebook.com' }],
+      cookies: [
+        { name: 'c_user', value: '10000123', domain: '.facebook.com' },
+        { name: 'xs', value: 'xs-token', domain: '.facebook.com' },
+      ],
     });
     browser.createContext.mockResolvedValue(context);
     browser.saveStorageState.mockResolvedValue(JSON.stringify({ cookies: [], origins: [] }));
@@ -1978,7 +1981,10 @@ describe('MOD-04: SessionsService', () => {
     const context = createMockContext(page);
     context.cookies
       .mockResolvedValueOnce([]) // pre-login check → no c_user
-      .mockResolvedValue([{ name: 'c_user', value: '10000123', domain: '.facebook.com' }]); // polling + post-challenge
+      .mockResolvedValue([
+        { name: 'c_user', value: '10000123', domain: '.facebook.com' },
+        { name: 'xs', value: 'xs-token', domain: '.facebook.com' },
+      ]); // polling + post-challenge
 
     browser.createContext.mockResolvedValue(context);
     browser.saveStorageState.mockResolvedValue(JSON.stringify({ cookies: [], origins: [] }));
