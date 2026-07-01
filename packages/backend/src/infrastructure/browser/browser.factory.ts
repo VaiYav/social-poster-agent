@@ -1,4 +1,4 @@
-import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Browser, BrowserContext, Locator, Page } from '../../domain/ports/browser-primitives';
 import type { SocialNetwork } from '@prisma/client';
@@ -30,7 +30,7 @@ import { parseBool } from '../config/parse-bool.js';
  * @see OQ-25 in CONSTITUTION.md — decision rationale
  */
 @Injectable()
-export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
+export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BrowserFactory.name);
   private readonly headless: boolean;
   private readonly humanize: boolean;
@@ -60,9 +60,15 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
   // Each network gets up to `poolSize` contexts. Idle contexts are returned to the pool.
   private readonly poolSize: number;
   private readonly poolAcquireTimeoutMs: number;
-  private readonly idleContexts = new Map<SocialNetwork, BrowserContext[]>();
+  // Idle contexts carry a releasedAt timestamp so the pool can evict ones that have
+  // sat unused past contextIdleTtlMs — each is a real Camoufox (Firefox) process,
+  // and without eviction a warm pool of up to `poolSize` contexts per network sits
+  // in memory indefinitely even when nothing is running.
+  private readonly idleContexts = new Map<SocialNetwork, Array<{ context: BrowserContext; releasedAt: number }>>();
   private readonly inUseContexts = new Map<SocialNetwork, Set<BrowserContext>>();
   private readonly contextWaiters = new Map<SocialNetwork, Array<{ resolve: () => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> }>>();
+  private readonly contextIdleTtlMs: number;
+  private idleSweepInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(private readonly configService: ConfigService) {
     this.headless = parseBool(this.configService.get<string>('CAMOUFOX_HEADLESS', 'true'));
@@ -82,6 +88,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
     this.screenshotFullPage = parseBool(this.configService.get<string>('SPA_SCREENSHOT_FULLPAGE', 'false'));
     this.poolSize = Math.max(1, this.configService.get<number>('BROWSER_POOL_SIZE', 3));
     this.poolAcquireTimeoutMs = Math.max(1000, this.configService.get<number>('BROWSER_POOL_ACQUIRE_TIMEOUT_MS', 60000));
+    this.contextIdleTtlMs = Math.max(60000, this.configService.get<number>('BROWSER_CONTEXT_IDLE_TTL_MS', 10 * 60 * 1000));
     // Persistent browser profiles directory — stores fingerprint + cookies per network
     // Facebook requires this to avoid "suspicious login" challenges on every run
     this.profileDir = this.configService.get<string>('CAMOUFOX_PROFILE_DIR', '/tmp/spa-profiles');
@@ -310,15 +317,22 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
     for (;;) {
       const idle = this.idleContexts.get(network) ?? [];
       if (idle.length > 0) {
-        const context = idle.pop()!;
+        const entry = idle.pop()!;
         this.idleContexts.set(network, idle);
 
+        if (Date.now() - entry.releasedAt > this.contextIdleTtlMs) {
+          // Stale — discard and loop back (creates fresh if still within pool capacity)
+          void entry.context.close().catch(() => {});
+          this.logger.debug(`Context pool: discarded stale idle context for ${network} (past ${this.contextIdleTtlMs}ms TTL)`);
+          continue;
+        }
+
         const inUse = this.inUseContexts.get(network) ?? new Set();
-        inUse.add(context);
+        inUse.add(entry.context);
         this.inUseContexts.set(network, inUse);
 
         this.logger.debug(`Context pool: reused idle context for ${network}`);
-        return context;
+        return entry.context;
       }
 
       // Check if we're at pool capacity
@@ -380,7 +394,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
     // hand-off bug where the context was placed directly into inUse,
     // causing the waiter's recursive call to see capacity still full.
     const idle = this.idleContexts.get(network) ?? [];
-    idle.push(context);
+    idle.push({ context, releasedAt: Date.now() });
     this.idleContexts.set(network, idle);
 
     // Wake up one waiter if any — they'll grab the context from idle
@@ -672,11 +686,44 @@ export class BrowserFactory implements IBrowserPort, OnModuleDestroy {
     }
   }
 
+  /**
+   * Sprint K+: evict pooled contexts that have sat idle past contextIdleTtlMs.
+   * Runs on a timer so memory drops back down during idle stretches, not just
+   * lazily on the next acquireContext() call for that network.
+   */
+  private sweepIdleContexts(): void {
+    const now = Date.now();
+    for (const [network, entries] of this.idleContexts) {
+      const fresh = entries.filter((entry) => now - entry.releasedAt <= this.contextIdleTtlMs);
+      const evicted = entries.length - fresh.length;
+      if (evicted > 0) {
+        for (const entry of entries) {
+          if (now - entry.releasedAt > this.contextIdleTtlMs) {
+            void entry.context.close().catch(() => {});
+          }
+        }
+        this.idleContexts.set(network, fresh);
+        this.logger.debug(`Context pool: swept ${evicted} idle context(s) for ${network} past ${this.contextIdleTtlMs}ms TTL`);
+      }
+    }
+  }
+
+  onModuleInit(): void {
+    const sweepIntervalMs = Math.min(this.contextIdleTtlMs, 60000);
+    this.idleSweepInterval = setInterval(() => this.sweepIdleContexts(), sweepIntervalMs);
+    this.idleSweepInterval.unref?.();
+  }
+
   async onModuleDestroy(): Promise<void> {
+    if (this.idleSweepInterval) {
+      clearInterval(this.idleSweepInterval);
+      this.idleSweepInterval = null;
+    }
+
     // Close all pooled contexts — guard against undefined entries (defensive)
-    for (const [, contexts] of this.idleContexts) {
-      for (const ctx of contexts) {
-        if (ctx) await ctx.close().catch(() => {});
+    for (const [, entries] of this.idleContexts) {
+      for (const entry of entries) {
+        if (entry.context) await entry.context.close().catch(() => {});
       }
     }
     this.idleContexts.clear();

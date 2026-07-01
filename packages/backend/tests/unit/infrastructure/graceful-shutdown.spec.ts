@@ -107,8 +107,11 @@ describe('B10: BrowserFactory graceful shutdown', () => {
     const fakeCtx = { close: ctxClose };
 
     const factory = new BrowserFactory(createMockConfigService());
-    (factory as any).idleContexts.set('X', [fakeCtx, fakeCtx]);
-    (factory as any).idleContexts.set('THREADS', [fakeCtx]);
+    (factory as any).idleContexts.set('X', [
+      { context: fakeCtx, releasedAt: Date.now() },
+      { context: fakeCtx, releasedAt: Date.now() },
+    ]);
+    (factory as any).idleContexts.set('THREADS', [{ context: fakeCtx, releasedAt: Date.now() }]);
 
     await factory.onModuleDestroy();
 
@@ -142,7 +145,7 @@ describe('B10: BrowserFactory graceful shutdown', () => {
     const fakeCtx = { close: ctxClose };
 
     const factory = new BrowserFactory(createMockConfigService());
-    (factory as any).idleContexts.set('X', [fakeCtx]);
+    (factory as any).idleContexts.set('X', [{ context: fakeCtx, releasedAt: Date.now() }]);
 
     // Should not throw — errors are caught with .catch(() => {})
     await expect(factory.onModuleDestroy()).resolves.not.toThrow();
@@ -150,7 +153,9 @@ describe('B10: BrowserFactory graceful shutdown', () => {
 
   it('B10-BF-005: onModuleDestroy clears context maps', async () => {
     const factory = new BrowserFactory(createMockConfigService());
-    (factory as any).idleContexts.set('X', [{ close: vi.fn().mockResolvedValue(undefined) }]);
+    (factory as any).idleContexts.set('X', [
+      { context: { close: vi.fn().mockResolvedValue(undefined) }, releasedAt: Date.now() },
+    ]);
     (factory as any).inUseContexts.set('X', new Set([{ close: vi.fn().mockResolvedValue(undefined) }]));
 
     await factory.onModuleDestroy();
