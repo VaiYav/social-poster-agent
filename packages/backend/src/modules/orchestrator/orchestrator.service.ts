@@ -147,7 +147,9 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
 
     while (!this.stopRequested) {
       try {
-        // Invoke one full cycle: observe → decide → execute → evaluate
+        // Invoke one full cycle: observe → decide → execute → evaluate → END
+        // Each invoke runs exactly 4 nodes (well within LangGraph's default
+        // recursion limit of 25). The outer while loop handles repetition.
         const result = await compiledGraph.invoke(state, {
           configurable: { thread_id: THREAD_ID },
         });

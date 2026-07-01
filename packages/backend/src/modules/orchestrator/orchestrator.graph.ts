@@ -217,19 +217,14 @@ export function buildOrchestratorGraph(deps: OrchestratorGraphDeps) {
     .addNode('execute', executeNode(deps))
     .addNode('evaluate', evaluateNode(deps));
 
-  // Edges: linear cycle
+  // Edges: linear cycle — each invoke runs exactly ONE cycle (4 nodes).
+  // The outer while loop in OrchestratorService handles repetition.
+  // This avoids LangGraph recursion limit issues and gives better lifecycle control.
   graph.addEdge(START, 'observe');
   graph.addEdge('observe', 'decide');
   graph.addEdge('decide', 'execute');
   graph.addEdge('execute', 'evaluate');
-
-  // Conditional edge: evaluate → observe (loop) or END (if stopped)
-  graph.addConditionalEdges('evaluate', (state: OrchestratorStateType) => {
-    if (deps.isStopped()) {
-      return END;
-    }
-    return 'observe';
-  });
+  graph.addEdge('evaluate', END);
 
   return graph;
 }
