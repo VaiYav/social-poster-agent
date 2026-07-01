@@ -14,9 +14,9 @@
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
 import { RedisCheckpointSaver } from '../../infrastructure/checkpoint/redis-checkpoint.js';
-import { SseService } from '../../infrastructure/sse/sse.service.js';
 import { parseBool } from '../../infrastructure/config/parse-bool.js';
 import { StateCollectorService } from './state-collector.service.js';
 import { DecisionEngineService } from './decision-engine.service.js';
@@ -27,6 +27,7 @@ import type { CompiledStateGraph } from '@langchain/langgraph';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyCompiledGraph = CompiledStateGraph<any, any>;
 import type { ActionResult } from './types.js';
+import { OrchestratorEvents } from '../../events/enums/post-events.enum.js';
 
 const THREAD_ID = 'orchestrator';
 const HEARTBEAT_KEY_DEFAULT = 'spa:orchestrator:heartbeat';
@@ -59,7 +60,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     private readonly decisionEngine: DecisionEngineService,
     private readonly actionExecutor: ActionExecutorService,
     @Optional() private readonly checkpointSaver: RedisCheckpointSaver,
-    @Optional() private readonly sseService: SseService,
+    @Optional() private readonly eventEmitter: EventEmitter2,
   ) {
     this.enabled = parseBool(this.configService.get<string>('ORCHESTRATOR_ENABLED') ?? 'false');
     this.heartbeatKey = this.configService.get<string>('ORCHESTRATOR_HEARTBEAT_KEY') ?? HEARTBEAT_KEY_DEFAULT;
@@ -254,9 +255,9 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
 
     void this.recordHistory(cycle, result, sleepMs);
 
-    if (this.sseService) {
-      void this.sseService.publish({
-        type: 'orchestrator_cycle_end',
+    // Emit domain event — SseEventListener bridges to SSE
+    if (this.eventEmitter) {
+      this.eventEmitter.emit(OrchestratorEvents.CYCLE_END, {
         cycle,
         action: result?.type,
         success: result?.success,

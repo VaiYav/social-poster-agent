@@ -5,6 +5,7 @@ import { CronJob } from 'cron';
 import { PrismaService } from '../prisma/prisma.service';
 import { LlmService } from '../llm/llm.service';
 import { parseBool } from '../config/parse-bool';
+import { skipIfOrchestrator } from '../../modules/orchestrator/feature-flag.js';
 
 interface LlmTopic {
   topic: string;
@@ -77,7 +78,7 @@ export class TopicGenerationService implements OnModuleInit {
    * Check active topic pool and generate if below threshold.
    */
   async generateIfNeeded(): Promise<void> {
-    if (parseBool(process.env.ORCHESTRATOR_ENABLED ?? 'false')) return; // Orchestrator handles this
+    if (skipIfOrchestrator()) return; // Orchestrator handles this
     const activeCount = await this.prisma.topic.count({ where: { status: 'active' } });
     this.logger.log(`Topic pool: ${activeCount} active (threshold: ${this.poolMin})`);
 

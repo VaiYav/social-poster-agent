@@ -10,6 +10,7 @@ import { SessionStatus, SocialNetwork, type Prisma } from '@prisma/client';
 import { withRetry, navigateWithRetry, type RetryOptions } from '../../domain/retry.js';
 import { CircuitBreakerRegistry, CircuitOpenError } from '../../domain/circuit-breaker.js';
 import { parseBool } from '../../infrastructure/config/parse-bool';
+import { skipIfOrchestrator } from '../orchestrator/feature-flag.js';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
 import { EmailReaderService } from '../../infrastructure/email/email-reader.service.js';
 
@@ -242,7 +243,7 @@ export class SessionsService {
    */
   @Cron(process.env.SESSION_RELOGIN_CRON ?? '*/15 * * * *')
   async refreshSessionsCron(): Promise<void> {
-    if (parseBool(process.env.ORCHESTRATOR_ENABLED ?? 'false')) return; // Orchestrator handles this
+    if (skipIfOrchestrator()) return; // Orchestrator handles this
     if (!this.deferredLogin) return;
     for (const network of Object.values(SocialNetwork)) {
       try {

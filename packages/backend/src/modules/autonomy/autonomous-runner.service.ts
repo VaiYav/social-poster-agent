@@ -23,6 +23,7 @@ import { FlowControlService } from '../flow-control/flow-control.service';
 import { AutoApproveService } from './auto-approve.service';
 import { ModuleRef } from '@nestjs/core';
 import { parseBool } from '../../infrastructure/config/parse-bool';
+import { skipIfOrchestrator } from '../orchestrator/feature-flag.js';
 import { IPostingQueuePort } from '../../domain/ports/posting-queue.port.js';
 import { parseTargetNetworks } from './parse-networks';
 
@@ -65,7 +66,7 @@ export class AutonomousRunnerService {
    */
   @Cron(process.env.AUTONOMOUS_RUNNER_SCHEDULE ?? '0 */4 * * *')
   async runAutonomousCycle(): Promise<void> {
-    if (parseBool(process.env.ORCHESTRATOR_ENABLED ?? 'false')) return; // Orchestrator handles this
+    if (skipIfOrchestrator()) return; // Orchestrator handles this
     if (!this.enabled) return;
 
     // Check flow control

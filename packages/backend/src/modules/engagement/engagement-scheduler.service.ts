@@ -20,6 +20,7 @@ import { ConfigService } from '@nestjs/config';
 import { SocialNetwork } from '@prisma/client';
 import { QueueFactory } from '../../infrastructure/queue/queue.factory.js';
 import { parseBool } from '../../infrastructure/config/parse-bool';
+import { skipIfOrchestrator } from '../orchestrator/feature-flag.js';
 import { getEnabledNetworks } from '../../domain/enabled-networks.js';
 
 @Injectable()
@@ -73,7 +74,7 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
    */
   @Cron(process.env.ENGAGEMENT_SCHEDULE_CRON ?? '0 0 * * *')
   scheduleDailySessionsCron(): void {
-    if (parseBool(process.env.ORCHESTRATOR_ENABLED ?? 'false')) return; // Orchestrator handles this
+    if (skipIfOrchestrator()) return; // Orchestrator handles this
     if (!this.enabled || this.networks.length === 0) {
       return;
     }

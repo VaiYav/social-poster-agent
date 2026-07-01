@@ -14,13 +14,14 @@
 
 import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { SocialNetwork } from '@prisma/client';
 import { ILlmPort } from '../../domain/ports/llm.port.js';
 import { getEnabledNetworks } from '../../domain/enabled-networks.js';
 import { parseBool } from '../../infrastructure/config/parse-bool.js';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
 import { PostingWindowService } from './posting-window.service.js';
 import { ORCHESTRATOR_SYSTEM_PROMPT, buildOrchestratorUserPrompt } from './prompts/orchestrator-prompt.js';
-import type { WorldState, Action, ActionType } from './types.js';
+import type { WorldState, Action, ActionType, NetworkActionType, GenericActionType } from './types.js';
 import { WAIT_ACTION, RECOVER_ACTION } from './types.js';
 
 const LLM_TIMEOUT_MS = 10000;
@@ -46,7 +47,7 @@ export class DecisionEngineService {
     private readonly configService: ConfigService,
     @Inject(SHARED_REDIS) private readonly redis: InstanceType<typeof import('ioredis').default>,
     private readonly postingWindowService: PostingWindowService,
-    @Optional() @Inject(ILlmPort) private readonly llm?: typeof ILlmPort extends never ? never : any,
+    @Optional() @Inject(ILlmPort) private readonly llm?: ILlmPort,
   ) {
     this.llmEnabled = parseBool(process.env.ORCHESTRATOR_LLM_ENABLED ?? 'true');
     this.maxActionsPerHour = Number(process.env.ORCHESTRATOR_MAX_ACTIONS_PER_HOUR ?? '15');
@@ -189,6 +190,8 @@ export class DecisionEngineService {
 
   private async llmDecision(world: WorldState): Promise<Action> {
     try {
+      if (!this.llm) throw new Error('LLM port not available');
+
       const userPrompt = buildOrchestratorUserPrompt(world);
 
       const result = await Promise.race([
@@ -199,7 +202,7 @@ export class DecisionEngineService {
         this.timeout(),
       ]);
 
-      const action = this.parseLlmResponse(result.text, world);
+      const action = this.parseLlmResponse(result.content, world);
       this.logger.debug(`LLM decision: ${action.type}:${action.network} — ${action.reason}`);
       return action;
     } catch (err) {
@@ -223,16 +226,29 @@ export class DecisionEngineService {
 
     const parsed = JSON.parse(jsonMatch[0]);
     const actionType = String(parsed.action).toUpperCase() as ActionType;
-    const network = parsed.network && parsed.network !== 'null' ? parsed.network : undefined;
+    const networkRaw = parsed.network && parsed.network !== 'null' ? parsed.network : undefined;
     const reason = String(parsed.reason ?? 'LLM decision');
 
     if (!VALID_ACTIONS.includes(actionType)) {
       throw new Error(`Invalid action type: ${actionType}`);
     }
 
+    // Build discriminated union — network actions require network
+    const networkActionTypes: ReadonlySet<string> = new Set(['POST', 'BROWSE', 'RECOVER_SESSION']);
+    if (networkActionTypes.has(actionType)) {
+      if (!networkRaw) {
+        throw new Error(`${actionType} requires a network`);
+      }
+      return {
+        type: actionType as NetworkActionType,
+        network: networkRaw as SocialNetwork,
+        reason,
+        source: 'llm',
+      };
+    }
     return {
-      type: actionType,
-      network: network as any,
+      type: actionType as GenericActionType,
+      network: networkRaw as SocialNetwork | undefined,
       reason,
       source: 'llm',
     };
@@ -258,7 +274,7 @@ export class DecisionEngineService {
         if (world.inPostingWindow[net] && (world.rateLimits[net]?.dailyRemaining ?? 0) > 0) {
           return {
             type: 'POST',
-            network: net as any,
+            network: net,
             reason: `${world.drafts.approved} approved drafts, ${net} in posting window`,
             source: 'rules_fallback',
           };
@@ -284,7 +300,7 @@ export class DecisionEngineService {
       if (lastBrowse < fourHoursAgo && world.sessions[net]?.status === 'ACTIVE') {
         return {
           type: 'BROWSE',
-          network: net as any,
+          network: net,
           reason: `Last browse for ${net} > 4h ago`,
           source: 'rules_fallback',
         };
@@ -324,7 +340,7 @@ export class DecisionEngineService {
 
     // G2: Validate network is enabled
     const networks = getEnabledNetworks();
-    if (action.network && !networks.includes(action.network as any)) {
+    if (action.network && !networks.includes(action.network)) {
       return WAIT_ACTION(`Network ${action.network} not enabled`, 60000, 'guardrail_override');
     }
 

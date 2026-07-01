@@ -22,7 +22,6 @@ import { QueueModule } from '../queue/queue.module';
 import { NotificationsModule } from '../../infrastructure/notifications/notifications.module';
 import { LlmModule } from '../../infrastructure/llm/llm.module';
 import { CheckpointModule } from '../../infrastructure/checkpoint/checkpoint.module';
-import { SseModule } from '../../infrastructure/sse/sse.module';
 import { StateCollectorService } from './state-collector.service.js';
 import { PostingWindowService } from './posting-window.service.js';
 import { DecisionEngineService } from './decision-engine.service.js';
@@ -41,7 +40,9 @@ import { WatchdogCron } from './watchdog.cron.js';
     NotificationsModule,
     LlmModule,
     CheckpointModule,
-    SseModule,
+    // EventEmitter2 is provided globally by EventsEdaModule in app.module.ts
+    // SseModule no longer needed — orchestrator emits domain events via EventEmitter2,
+    // SseEventListener bridges them to SSE
   ],
   controllers: [OrchestratorController],
   providers: [

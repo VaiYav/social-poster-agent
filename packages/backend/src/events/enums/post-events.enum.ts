@@ -28,3 +28,7 @@ export enum GenerationEvents {
   RUN_PAUSED = 'generation.run_paused',
   RUN_RESUMED = 'generation.run_resumed',
 }
+
+export enum OrchestratorEvents {
+  CYCLE_END = 'orchestrator.cycle_end',
+}

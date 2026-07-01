@@ -6,6 +6,7 @@ import { GenerationService } from './generation.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { GenerationTrigger } from '@prisma/client';
 import { parseBool } from '../../infrastructure/config/parse-bool';
+import { skipIfOrchestrator } from '../orchestrator/feature-flag.js';
 
 /**
  * Cron service — triggers generation on schedule.
@@ -54,7 +55,7 @@ export class CronService implements OnModuleInit {
   }
 
   async handleCronGeneration(): Promise<void> {
-    if (parseBool(process.env.ORCHESTRATOR_ENABLED ?? 'false')) return; // Orchestrator handles this
+    if (skipIfOrchestrator()) return; // Orchestrator handles this
     this.logger.log('Cron generation triggered');
     try {
       const runId = await this.generationService.generate(

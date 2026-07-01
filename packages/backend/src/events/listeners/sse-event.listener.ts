@@ -12,7 +12,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { SseService } from '../../infrastructure/sse/sse.service';
-import { PostEvents } from '../enums/post-events.enum';
+import { PostEvents, OrchestratorEvents } from '../enums/post-events.enum';
 
 @Injectable()
 export class SseEventListener {
@@ -104,6 +104,30 @@ export class SseEventListener {
         `SSE publish failed for ${payload.postId} (FAILED): ${(err as Error).message}`,
       );
       // NEVER rethrow — event bus must continue
+    }
+  }
+
+  @OnEvent(OrchestratorEvents.CYCLE_END)
+  handleOrchestratorCycleEnd(payload: {
+    cycle: number;
+    action?: string;
+    success?: boolean;
+    duration?: number;
+    sleepMs: number;
+  }): void {
+    try {
+      this.sseService.publish({
+        type: 'orchestrator_cycle_end',
+        cycle: payload.cycle,
+        action: payload.action,
+        success: payload.success,
+        duration: payload.duration,
+        sleepMs: payload.sleepMs,
+      });
+    } catch (err) {
+      this.logger.error(
+        `SSE publish failed for orchestrator cycle ${payload.cycle}: ${(err as Error).message}`,
+      );
     }
   }
 }
