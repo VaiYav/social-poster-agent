@@ -22,6 +22,7 @@ import { QueueFactory } from '../../infrastructure/queue/queue.factory.js';
 import { parseBool } from '../../infrastructure/config/parse-bool';
 import { skipIfOrchestrator } from '../orchestrator/feature-flag.js';
 import { getEnabledNetworks } from '../../domain/enabled-networks.js';
+import type { WorldState } from '../orchestrator/types.js';
 
 @Injectable()
 export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy {
@@ -196,6 +197,68 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
       .map((s) => s.trim().toUpperCase())
       .filter((s) => s === 'X' || s === 'THREADS' || s === 'FACEBOOK')
       .map((s) => SocialNetwork[s as keyof typeof SocialNetwork]);
+  }
+
+  /**
+   * Check for stale browsing sessions and enqueue them as fire-and-forget BullMQ jobs.
+   * Called by the orchestrator on every observe cycle — runs in PARALLEL with the
+   * main decision (GENERATE_POSTS, POST, etc.) so engagement never blocks content pipeline.
+   *
+   * BullMQ dedups by jobId, so calling this every cycle is safe — only the first
+   * enqueue per network-per-stale-window actually creates a job.
+   *
+   * Conditions for enqueue:
+   *   - Engagement is enabled and orchestrator is running (this method is only called then)
+   *   - Flow control is not pausing engagement
+   *   - Session for the network is ACTIVE
+   *   - Last browse was > 4h ago (stale)
+   *   - Not in night mode (01:00-07:00 UTC) — let the account rest
+   */
+  async checkStaleAndEnqueue(world: WorldState): Promise<void> {
+    if (!this.enabled || this.networks.length === 0) return;
+    if (world.flowControl.pauseAll || world.flowControl.pauseEngagement) return;
+
+    // Night mode — skip engagement to let accounts rest
+    if (world.utcHour >= 1 && world.utcHour < 7) return;
+
+    const fourHoursAgo = Date.now() - 4 * 60 * 60 * 1000;
+    const durationSec = this.configService.get<number>('F1_BROWSING_SESSION_MINUTES', 10) * 60;
+
+    for (const network of this.networks) {
+      const netKey = network as string;
+      const lastBrowse = world.engagement.lastBrowseMs[netKey] ?? 0;
+      const session = world.sessions[netKey];
+
+      if (lastBrowse >= fourHoursAgo) continue; // not stale
+      if (!session || session.status !== 'ACTIVE') continue; // no active session
+
+      // Dedup key — one browsing session per network per 4h window
+      const windowStart = new Date(fourHoursAgo).toISOString().slice(0, 13); // YYYY-MM-DDTHH
+      const jobId = `browsing-stale-${netKey}-${windowStart}`;
+
+      try {
+        await this.queueFactory.enqueueEngagement(
+          jobId,
+          netKey,
+          'browsing-session',
+          {
+            network: netKey,
+            scheduledAt: new Date().toISOString(),
+            durationSec,
+            source: 'orchestrator-stale-check',
+          },
+          { delay: 0 }, // run immediately — it's already stale
+        );
+        this.logger.debug(
+          `Orchestrator: enqueued stale browsing session for ${netKey} (last browse ${Math.round((Date.now() - lastBrowse) / 1000 / 60)}min ago)`,
+        );
+      } catch (err) {
+        // Non-critical — likely a duplicate jobId (already enqueued this window)
+        this.logger.debug(
+          `Orchestrator: skipping browsing session for ${netKey}: ${(err as Error).message}`,
+        );
+      }
+    }
   }
 
   /**

@@ -131,19 +131,10 @@ export class DecisionEngineService {
       };
     }
 
-    // Stale browse → BROWSE
-    const fourHoursAgo = Date.now() - 4 * 60 * 60 * 1000;
-    for (const net of networks) {
-      const lastBrowse = world.engagement.lastBrowseMs[net] ?? 0;
-      if (lastBrowse < fourHoursAgo && world.sessions[net]?.status === 'ACTIVE') {
-        return {
-          type: 'BROWSE',
-          network: net,
-          reason: `Last browse for ${net} > 4h ago`,
-          source: 'rules_fallback',
-        };
-      }
-    }
+    // NOTE: BROWSE (engagement) is now handled in PARALLEL by the observeNode
+    // via EngagementSchedulerService.checkStaleAndEnqueue(). It no longer needs
+    // to be chosen as the main action — browsing sessions are enqueued as
+    // fire-and-forget BullMQ jobs and run concurrently with content pipeline.
 
     // Unchecked replies → CHECK_REPLIES
     if (world.engagement.uncheckedReplies > 0) {

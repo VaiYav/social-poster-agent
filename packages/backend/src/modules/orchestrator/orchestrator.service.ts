@@ -27,8 +27,9 @@ import type { OrchestratorStateType } from './orchestrator.graph.js';
 import type { CompiledStateGraph } from '@langchain/langgraph';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyCompiledGraph = CompiledStateGraph<any, any>;
-import type { ActionResult } from './types.js';
+import type { ActionResult, WorldState } from './types.js';
 import { OrchestratorEvents } from '../../events/enums/post-events.enum.js';
+import { EngagementSchedulerService } from '../engagement/engagement-scheduler.service.js';
 
 const THREAD_ID = 'orchestrator';
 const HEARTBEAT_KEY_DEFAULT = 'spa:orchestrator:heartbeat';
@@ -60,6 +61,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     private readonly historyService: OrchestratorHistoryService,
     @Optional() private readonly checkpointSaver: RedisCheckpointSaver,
     @Optional() private readonly eventEmitter: EventEmitter2,
+    @Optional() private readonly engagementScheduler?: EngagementSchedulerService,
   ) {
     this.enabled = parseBool(this.configService.get<string>('ORCHESTRATOR_ENABLED') ?? 'false');
     this.heartbeatKey = this.configService.get<string>('ORCHESTRATOR_HEARTBEAT_KEY') ?? HEARTBEAT_KEY_DEFAULT;
@@ -103,6 +105,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
         isStopped: () => this.stopRequested,
         onCycleEnd: (cycle: number, result: ActionResult | null, sleepMs: number) =>
           this.onCycleEnd(cycle, result, sleepMs),
+        onEngagementCheck: (world: WorldState) => this.onEngagementCheck(world),
       };
 
       // Build and compile graph
@@ -266,6 +269,22 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.sleepAbort = null;
+  }
+
+  // ── Engagement Check (parallel, fire-and-forget) ──────────────────────────
+
+  /**
+   * Called from observeNode on every cycle — checks for stale browsing sessions
+   * and enqueues them via BullMQ. Runs in PARALLEL with the main decision flow
+   * so engagement (likes, scrolling) never blocks content pipeline (generation, posting).
+   *
+   * Fire-and-forget: errors are logged but never propagate to the graph loop.
+   */
+  private onEngagementCheck(world: WorldState): void {
+    if (!this.engagementScheduler) return;
+    void this.engagementScheduler.checkStaleAndEnqueue(world).catch((err) => {
+      this.logger.warn(`Engagement check failed: ${(err as Error).message}`);
+    });
   }
 
   // ── Cycle Callbacks ──────────────────────────────────────────────────────

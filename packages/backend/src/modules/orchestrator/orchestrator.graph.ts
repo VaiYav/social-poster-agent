@@ -72,16 +72,27 @@ export interface OrchestratorGraphDeps {
   sleep: (ms: number) => Promise<void>;
   isStopped: () => boolean;
   onCycleEnd?: (cycle: number, result: ActionResult | null, sleepMs: number) => void;
+  /** Fire-and-forget engagement check — enqueues stale browsing sessions in parallel */
+  onEngagementCheck?: (world: WorldState) => void;
 }
 
 // ── Node Functions ──────────────────────────────────────────────────────────
 
 /**
  * OBSERVE — collect world state from DB, Redis, services.
+ * Also fires engagement check in parallel (fire-and-forget) so browsing sessions
+ * are enqueued without blocking the main decision flow.
  */
 function observeNode(deps: OrchestratorGraphDeps) {
   return async (state: OrchestratorStateType): Promise<Partial<OrchestratorStateType>> => {
     const world = await deps.stateCollector.collectWorldState();
+
+    // Fire-and-forget: check for stale browsing sessions and enqueue via BullMQ.
+    // Runs in PARALLEL with the main decision — engagement never blocks content pipeline.
+    if (deps.onEngagementCheck) {
+      deps.onEngagementCheck(world);
+    }
+
     return {
       world,
       heartbeat: Date.now(),
