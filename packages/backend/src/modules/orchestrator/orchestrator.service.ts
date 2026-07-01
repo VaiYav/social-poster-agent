@@ -177,15 +177,27 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
   // ── Graph Loop ───────────────────────────────────────────────────────────
 
   private async runGraphLoop(compiledGraph: AnyCompiledGraph): Promise<void> {
-    let state = createInitialOrchestratorState();
-
-    // Try to resume from checkpoint
+    // Check if we have a checkpoint to resume from
+    let hasCheckpoint = false;
     try {
       const checkpoint = await this.checkpointSaver?.getTuple({
         configurable: { thread_id: THREAD_ID },
       });
       if (checkpoint) {
-        this.logger.log('Resuming orchestrator from checkpoint');
+        // Sanity check — if cycle counter is absurdly high (doubling bug from
+        // passing full state as input), reset the checkpoint and start fresh
+        const checkpointState = checkpoint.checkpoint?.channel_values;
+        const cycleValue = checkpointState?.cycle as number | undefined;
+        if (typeof cycleValue === 'number' && cycleValue > 1_000_000) {
+          this.logger.warn(
+            `Checkpoint cycle=${cycleValue} is abnormally high (doubling bug) — resetting checkpoint`,
+          );
+          await this.resetCheckpoint();
+          hasCheckpoint = false;
+        } else {
+          hasCheckpoint = true;
+          this.logger.log(`Resuming orchestrator from checkpoint (cycle=${cycleValue ?? 0})`);
+        }
       }
     } catch {
       this.logger.warn('Failed to load checkpoint, starting fresh');
@@ -193,12 +205,22 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
 
     while (!this.stopRequested) {
       try {
-        const result = await compiledGraph.invoke(state, {
+        // On first iteration without checkpoint: pass full initial state.
+        // On subsequent iterations: pass ONLY reset fields (world/action/result = null).
+        // Do NOT pass cycle/sleepMs/heartbeat — those come from the checkpoint.
+        // Passing the full previous state would cause the cycle reducer
+        // (prev + next) to DOUBLE the cycle counter each iteration.
+        const input = hasCheckpoint
+          ? { world: null, action: null, result: null } as Partial<OrchestratorStateType>
+          : createInitialOrchestratorState();
+
+        const result = await compiledGraph.invoke(input, {
           configurable: { thread_id: THREAD_ID },
         });
 
-        state = result as OrchestratorStateType;
-        this.currentCycle = state.cycle;
+        hasCheckpoint = true; // checkpoint now exists after first invoke
+        const resultState = result as OrchestratorStateType;
+        this.currentCycle = resultState.cycle;
       } catch (err) {
         this.logger.error(`Orchestrator cycle error: ${(err as Error).message}`);
         await this.sleep(60_000);
