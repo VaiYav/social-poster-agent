@@ -235,6 +235,39 @@ describe('MOD-03: PostingService', () => {
     await expect(ctx.service.postById('post-3')).rejects.toThrow('not approved');
   });
 
+  it('UTC-044b: postById() returns retryable:false (not a throw) when post is already FAILED', async () => {
+    ctx.postsService.findById.mockResolvedValue({
+      ...APPROVED_POST_X,
+      id: 'post-3b',
+      status: PostStatus.FAILED,
+      network: SocialNetwork.X,
+    });
+
+    const result = await ctx.service.postById('post-3b');
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Post post-3b is FAILED, not retryable',
+      retryable: false,
+    });
+    expect(ctx.rateLimitService.checkRateLimit).not.toHaveBeenCalled();
+    expect(ctx.browser.acquireContext).not.toHaveBeenCalled();
+  });
+
+  it('UTC-044c: postById() returns retryable:false when post is already REJECTED', async () => {
+    ctx.postsService.findById.mockResolvedValue({
+      ...APPROVED_POST_X,
+      id: 'post-3c',
+      status: PostStatus.REJECTED,
+      network: SocialNetwork.X,
+    });
+
+    const result = await ctx.service.postById('post-3c');
+
+    expect(result.success).toBe(false);
+    expect(result.retryable).toBe(false);
+  });
+
   // ── postById() — Rate Limiting ─────────────────────────────────────────────
 
   it('UTC-045: postById() throws Error when rate limit exceeded (BullMQ retry trigger)', async () => {

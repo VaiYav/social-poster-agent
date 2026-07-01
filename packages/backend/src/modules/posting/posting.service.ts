@@ -84,6 +84,15 @@ export class PostingService {
     if (post.status === PostStatus.POSTING) {
       return { success: false, error: 'Post is already being posted' };
     }
+    // FAILED/REJECTED are terminal — a prior attempt already resolved this post, and
+    // retrying postById() on the same postId (BullMQ jobId = postId) will hit this exact
+    // branch every time forever. Confirmed live: jobs kept throwing and burning through
+    // the full postingMaxRetries budget (8 attempts) after a post was marked FAILED by an
+    // earlier posting error, identical to the disabled-network case above.
+    if (post.status === PostStatus.FAILED || post.status === PostStatus.REJECTED) {
+      this.logger.warn(`Post ${postId} is already ${post.status} — not retrying`);
+      return { success: false, error: `Post ${postId} is ${post.status}, not retryable`, retryable: false };
+    }
     if (post.status !== PostStatus.APPROVED) {
       throw new NotFoundException(`Post ${postId} is not approved (status: ${post.status})`);
     }
