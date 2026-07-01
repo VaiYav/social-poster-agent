@@ -1,6 +1,7 @@
 import { Injectable, Logger, type OnModuleInit, type OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Queue, Worker, type Job } from 'bullmq';
+import IORedis from 'ioredis';
 import { DiscordNotificationService } from '../notifications/discord-notification.service';
 
 /**
@@ -34,6 +35,14 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
 
   // Worker instances per network
   private readonly workers = new Map<string, Worker>();
+
+  // MEM: shared Redis connections for BullMQ. Without createClient, each Queue
+  // creates 3 connections (client, subscriber, bclient) and each Worker creates
+  // 1-2 — 6 queues + 6 workers = ~27 connections. With shared client+subscriber,
+  // only bclient (blocking) connections are per-queue (cannot be shared), reducing
+  // the total to ~15. Each connection holds TCP buffers + ioredis internal state.
+  private sharedClient: IORedis | null = null;
+  private sharedSubscriber: IORedis | null = null;
 
   constructor(
     private readonly configService: ConfigService,
@@ -79,11 +88,63 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
     for (const queue of this.queues.values()) {
       await queue.close();
     }
+    // MEM: close shared connections created by getConnectionOpts()
+    if (this.sharedClient) {
+      await this.sharedClient.quit().catch(() => void 0);
+      this.sharedClient = null;
+    }
+    if (this.sharedSubscriber) {
+      await this.sharedSubscriber.quit().catch(() => void 0);
+      this.sharedSubscriber = null;
+    }
     this.logger.log('BullMQ queues and workers closed');
   }
 
+  /**
+   * MEM: Return BullMQ connection options with shared client+subscriber connections.
+   * BullMQ's `createClient(type)` callback lets us reuse a single ioredis instance
+   * for 'client' and 'subscriber' types across all queues and workers. The 'bclient'
+   * (blocking client) MUST be unique per queue/worker — it issues BLMOVE/BRPOPLPUSH
+   * which blocks the connection, so sharing it would serialize all queues.
+   */
   private getConnectionOpts() {
-    return { connection: { url: this.redisUrl } };
+    if (!this.sharedClient) {
+      this.sharedClient = new IORedis(this.redisUrl, {
+        maxRetriesPerRequest: null,
+        lazyConnect: false,
+        retryStrategy: (times: number) => Math.min(times * 500, 5000),
+      });
+    }
+    if (!this.sharedSubscriber) {
+      this.sharedSubscriber = new IORedis(this.redisUrl, {
+        maxRetriesPerRequest: null,
+        lazyConnect: false,
+        retryStrategy: (times: number) => Math.min(times * 500, 5000),
+      });
+    }
+
+    return {
+      connection: { url: this.redisUrl },
+      createClient: (type: 'client' | 'subscriber' | 'bclient') => {
+        switch (type) {
+          case 'client':
+            return this.sharedClient!;
+          case 'subscriber':
+            return this.sharedSubscriber!;
+          case 'bclient':
+            // Blocking client must be unique per queue/worker — cannot be shared.
+            return new IORedis(this.redisUrl, {
+              maxRetriesPerRequest: null,
+              retryStrategy: (times: number) => Math.min(times * 500, 5000),
+            });
+          default:
+            return new IORedis(this.redisUrl, {
+              maxRetriesPerRequest: null,
+              retryStrategy: (times: number) => Math.min(times * 500, 5000),
+            });
+        }
+      },
+    };
   }
 
   /**

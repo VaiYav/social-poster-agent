@@ -151,6 +151,7 @@ describe('B3: Reconciliation — runReconciliation()', () => {
     expect(mockPrisma.post.findMany).toHaveBeenCalledWith({
       where: { status: PostStatus.APPROVED },
       orderBy: { approvedAt: 'desc' },
+      take: 1000,
     });
   });
 

@@ -48,6 +48,10 @@ const DEGRADED_THRESHOLD = 0.5;
 export class SelectorHealthService {
   private readonly logger = new Logger(SelectorHealthService.name);
   private readonly records = new Map<string, SelectorRecord>();
+  // MEM: prune records whose last activity (success or failure) is older than this.
+  // Prevents unbounded growth over the service lifetime — selector keys are finite
+  // but drift/refactors add new ones, and stale ones should not accumulate forever.
+  private readonly recordTtlMs = 30 * 24 * 60 * 60 * 1000; // 30 days
   private alertCallback?: (alert: {
     selectorKey: string;
     network: SocialNetwork;
@@ -74,6 +78,7 @@ export class SelectorHealthService {
 
   /** Record a successful selector resolution. */
   recordSuccess(network: SocialNetwork, selectorKey: string): void {
+    this.maybePruneStaleRecords();
     const k = this.key(network, selectorKey);
     const record = this.records.get(k) ?? {
       totalAttempts: 0,
@@ -99,6 +104,7 @@ export class SelectorHealthService {
 
   /** Record a failed selector resolution. */
   recordFailure(network: SocialNetwork, selectorKey: string): void {
+    this.maybePruneStaleRecords();
     const k = this.key(network, selectorKey);
     const record = this.records.get(k) ?? {
       totalAttempts: 0,
@@ -165,6 +171,30 @@ export class SelectorHealthService {
   }
 
   // ── Internal helpers ──────────────────────────────────────────
+
+  /**
+   * MEM: Remove records with no activity in the last recordTtlMs.
+   * Called opportunistically on recordSuccess/recordFailure — runs at most
+   * once per pruneIntervalMs to avoid scanning the Map on every call.
+   */
+  private lastPruneAt = 0;
+  private readonly pruneIntervalMs = 60 * 60 * 1000; // 1 hour — pruning is cheap but no need to run every call
+
+  private maybePruneStaleRecords(): void {
+    const now = Date.now();
+    if (now - this.lastPruneAt < this.pruneIntervalMs) return;
+    this.lastPruneAt = now;
+    const cutoff = now - this.recordTtlMs;
+    for (const [k, record] of this.records) {
+      const lastActivity = Math.max(
+        record.lastSuccessAt?.getTime() ?? 0,
+        record.lastFailureAt?.getTime() ?? 0,
+      );
+      if (lastActivity < cutoff) {
+        this.records.delete(k);
+      }
+    }
+  }
 
   private computeStatus(record: SelectorRecord): SelectorHealthStatus {
     if (record.totalAttempts < 5) return 'HEALTHY'; // Not enough data

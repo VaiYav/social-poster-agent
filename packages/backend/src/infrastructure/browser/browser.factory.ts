@@ -54,6 +54,11 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
   // P5: key network → in-flight launch promise, so concurrent callers share a
   // single Camoufox launch instead of racing two processes onto one user_data_dir.
   private readonly persistentContextPromises = new Map<SocialNetwork, Promise<BrowserContext>>();
+  // MEM: track when each persistent context was last used so the idle sweep can
+  // close it during idle stretches (Facebook posts infrequently — keeping a Firefox
+  // process alive 24/7 for 1-2 posts/day wastes ~200 MB).
+  private readonly persistentContextLastUsed = new Map<SocialNetwork, number>();
+  private readonly persistentContextIdleTtlMs: number;
   private readonly profileDir: string;
 
   // Sprint K: Context pool — reuse contexts per network to avoid repeated creation overhead.
@@ -65,7 +70,9 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
   // and without eviction a warm pool of up to `poolSize` contexts per network sits
   // in memory indefinitely even when nothing is running.
   private readonly idleContexts = new Map<SocialNetwork, Array<{ context: BrowserContext; releasedAt: number }>>();
-  private readonly inUseContexts = new Map<SocialNetwork, Set<BrowserContext>>();
+  // MEM: tracks acquiredAt per context so sweepIdleContexts can also reap
+  // orphaned in-use contexts (releaseContext never called due to exception).
+  private readonly inUseContexts = new Map<SocialNetwork, Map<BrowserContext, number>>();
   // Reserves pool capacity for an in-flight createContext() call. Without this, two
   // concurrent acquirers can both read inUse.size before either awaits createContext(),
   // both pass the capacity check, and both create a context — pushing the pool above
@@ -92,9 +99,20 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     // Enable for debugging via SPA_SCREENSHOTS=true; fullPage via SPA_SCREENSHOT_FULLPAGE=true.
     this.screenshotsEnabled = parseBool(this.configService.get<string>('SPA_SCREENSHOTS', 'false'));
     this.screenshotFullPage = parseBool(this.configService.get<string>('SPA_SCREENSHOT_FULLPAGE', 'false'));
-    this.poolSize = Math.max(1, this.configService.get<number>('BROWSER_POOL_SIZE', 3));
+    // MEM: pool default lowered from 3 → 1. Each pooled context is a real Firefox
+    // process (~150-300 MB RSS). With 2 pooled networks (X + Threads) the old default
+    // kept up to 6 Firefox processes resident for 10 min after last use = ~1.2 GB.
+    // Concurrency=1 per queue means only one post runs at a time per network anyway,
+    // so poolSize=1 is sufficient; raise via env only if you run parallel engagement.
+    this.poolSize = Math.max(1, this.configService.get<number>('BROWSER_POOL_SIZE', 1));
     this.poolAcquireTimeoutMs = Math.max(1000, this.configService.get<number>('BROWSER_POOL_ACQUIRE_TIMEOUT_MS', 60000));
-    this.contextIdleTtlMs = Math.max(60000, this.configService.get<number>('BROWSER_CONTEXT_IDLE_TTL_MS', 10 * 60 * 1000));
+    // MEM: idle TTL lowered from 10 min → 3 min. Idle Firefox processes are pure
+    // memory overhead — re-creating a context takes ~2-4s, acceptable vs 200 MB saved.
+    this.contextIdleTtlMs = Math.max(60000, this.configService.get<number>('BROWSER_CONTEXT_IDLE_TTL_MS', 3 * 60 * 1000));
+    // MEM: persistent (Facebook) context idle TTL — defaults to 15 min. FB posts
+    // infrequently, so the persistent Firefox process is closed when idle >15 min
+    // and re-opened on demand (cookies/fingerprint persist on disk via user_data_dir).
+    this.persistentContextIdleTtlMs = Math.max(60000, this.configService.get<number>('PERSISTENT_CONTEXT_IDLE_TTL_MS', 15 * 60 * 1000));
     // Persistent browser profiles directory — stores fingerprint + cookies per network
     // Facebook requires this to avoid "suspicious login" challenges on every run
     this.profileDir = this.configService.get<string>('CAMOUFOX_PROFILE_DIR', '/tmp/spa-profiles');
@@ -274,8 +292,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     // Facebook: use persistent context to avoid repeated challenges
     if (network === 'FACEBOOK') {
       const persistentContext = await this.getOrCreatePersistentContext(network);
-      // Create a new page within the persistent context
-      // The persistent context itself is shared — callers get a new page
+      this.persistentContextLastUsed.set(network, Date.now());
       return persistentContext;
     }
 
@@ -315,7 +332,9 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
   ): Promise<BrowserContext> {
     // Facebook: persistent context is shared (not pooled) — return it directly
     if (network === 'FACEBOOK') {
-      return this.getOrCreatePersistentContext(network);
+      const ctx = await this.getOrCreatePersistentContext(network);
+      this.persistentContextLastUsed.set(network, Date.now());
+      return ctx;
     }
 
     // Try to get an idle context — loop to handle race between check and pop
@@ -356,8 +375,8 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
           }
         }
 
-        const inUse = this.inUseContexts.get(network) ?? new Set();
-        inUse.add(entry.context);
+        const inUse = this.inUseContexts.get(network) ?? new Map();
+        inUse.set(entry.context, Date.now());
         this.inUseContexts.set(network, inUse);
 
         this.logger.debug(`Context pool: reused idle context for ${network}`);
@@ -367,14 +386,14 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
       // Check if we're at pool capacity — reserve the slot synchronously (before
       // the createContext() await) so two concurrent callers can't both pass this
       // check for the same free slot.
-      const inUse = this.inUseContexts.get(network) ?? new Set();
+      const inUse = this.inUseContexts.get(network) ?? new Map();
       const pending = this.pendingCreates.get(network) ?? 0;
       if (inUse.size + pending < this.poolSize) {
         this.pendingCreates.set(network, pending + 1);
         try {
           const context = await this.createContext(network, storageState);
-          const inUseNow = this.inUseContexts.get(network) ?? new Set();
-          inUseNow.add(context);
+          const inUseNow = this.inUseContexts.get(network) ?? new Map();
+          inUseNow.set(context, Date.now());
           this.inUseContexts.set(network, inUseNow);
           return context;
         } finally {
@@ -728,6 +747,8 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
    */
   private sweepIdleContexts(): void {
     const now = Date.now();
+
+    // MEM: sweep idle contexts past TTL (existing behavior)
     for (const [network, entries] of this.idleContexts) {
       const fresh = entries.filter((entry) => now - entry.releasedAt <= this.contextIdleTtlMs);
       const evicted = entries.length - fresh.length;
@@ -739,6 +760,55 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
         }
         this.idleContexts.set(network, fresh);
         this.logger.debug(`Context pool: swept ${evicted} idle context(s) for ${network} past ${this.contextIdleTtlMs}ms TTL`);
+      }
+    }
+
+    // MEM: sweep orphaned in-use contexts — releaseContext() was never called
+    // (exception in posting/engagement). Without this, a leaked context holds a
+    // Firefox process (~200 MB) forever AND blocks pool capacity (inUse.size never
+    // drops to 0), so new acquires hang until the acquire timeout.
+    // Grace period: 3x idle TTL (a real posting job should finish in minutes, not 9).
+    const orphanGraceMs = this.contextIdleTtlMs * 3;
+    for (const [network, contexts] of this.inUseContexts) {
+      const orphans: BrowserContext[] = [];
+      for (const [ctx, acquiredAt] of contexts) {
+        if (now - acquiredAt > orphanGraceMs) {
+          orphans.push(ctx);
+        }
+      }
+      if (orphans.length > 0) {
+        for (const ctx of orphans) {
+          contexts.delete(ctx);
+          void ctx.close().catch(() => {});
+        }
+        this.logger.warn(
+          `Context pool: reaped ${orphans.length} orphaned in-use context(s) for ${network} ` +
+            `(held > ${Math.round(orphanGraceMs / 1000)}s without release — likely an uncaught exception in the caller)`,
+        );
+        // Wake up a waiter if any — capacity just freed up
+        const waiters = this.contextWaiters.get(network);
+        if (waiters && waiters.length > 0) {
+          const waiter = waiters.shift()!;
+          clearTimeout(waiter.timer);
+          this.contextWaiters.set(network, waiters);
+          waiter.resolve();
+        }
+      }
+    }
+
+    // MEM: close idle persistent (Facebook) contexts — the FB persistent context
+    // holds a Firefox process alive 24/7 for infrequent posts. Close it when idle
+    // > persistentContextIdleTtlMs; cookies/fingerprint persist on disk and it will
+    // be re-opened on the next acquireContext/createContext call.
+    for (const [network, ctx] of this.persistentContexts) {
+      const lastUsed = this.persistentContextLastUsed.get(network) ?? now;
+      if (now - lastUsed > this.persistentContextIdleTtlMs) {
+        this.logger.log(
+          `Persistent context for ${network} idle > ${Math.round(this.persistentContextIdleTtlMs / 1000)}s — closing to free memory (will re-open on next use)`,
+        );
+        void ctx.close().catch(() => {});
+        this.persistentContexts.delete(network);
+        this.persistentContextLastUsed.delete(network);
       }
     }
   }
@@ -764,7 +834,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     this.idleContexts.clear();
 
     for (const [, contexts] of this.inUseContexts) {
-      for (const ctx of contexts) {
+      for (const ctx of contexts.keys()) {
         if (ctx) await ctx.close().catch(() => {});
       }
     }
@@ -775,6 +845,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
       if (ctx) await ctx.close().catch(() => {});
     }
     this.persistentContexts.clear();
+    this.persistentContextLastUsed.clear();
 
     // Reject any pending waiters so they don't hang forever
     for (const [, waiters] of this.contextWaiters) {

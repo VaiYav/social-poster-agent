@@ -101,6 +101,9 @@ export class HealthMonitorService implements OnModuleInit {
     const approvedPosts = await this.prisma.post.findMany({
       where: { status: PostStatus.APPROVED },
       orderBy: { approvedAt: 'desc' },
+      take: 1000, // MEM: safety cap — without this, thousands of APPROVED posts
+      // are loaded into memory every reconciliation tick (hourly), each carrying
+      // content + llmMetadata JSON. 1000 is well above any realistic stuck-post count.
     });
 
     const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000);
@@ -188,6 +191,8 @@ export class HealthMonitorService implements OnModuleInit {
 
     const postingPosts = await this.prisma.post.findMany({
       where: { status: PostStatus.POSTING, approvedAt: { lt: cutoff } },
+      take: 500, // MEM: safety cap — orphaned POSTING posts should be rare (<10),
+      // but without a limit a pathological state could load thousands into memory.
     });
     if (postingPosts.length === 0) return { reaped: 0, skipped: 0 };
 

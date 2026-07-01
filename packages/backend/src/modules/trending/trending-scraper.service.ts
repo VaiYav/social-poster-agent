@@ -124,9 +124,12 @@ export class TrendingScraperService implements OnModuleInit {
   /**
    * LLM relevance cache — avoids re-calling the LLM for the same topic across runs.
    * Key = lowercased topic, value = boolean (relevant to niche).
-   * Lives for the lifetime of the service instance (cleared on invalidateCache).
+   * MEM: bounded to llmCacheMaxSize entries with llmCacheTtlMs TTL to prevent
+   * unbounded growth over the service lifetime. Eviction is FIFO (oldest first).
    */
-  private readonly llmRelevanceCache = new Map<string, boolean>();
+  private readonly llmRelevanceCache = new Map<string, { value: boolean; expiresAt: number }>();
+  private readonly llmCacheMaxSize = 1000;
+  private readonly llmCacheTtlMs = 6 * 60 * 60 * 1000; // 6 hours — trends rotate, stale relevance is wrong
 
   constructor(
     private readonly configService: ConfigService,
@@ -399,11 +402,13 @@ export class TrendingScraperService implements OnModuleInit {
   private async isRelevantByLlm(topic: string): Promise<boolean> {
     const key = topic.toLowerCase().trim();
     const cached = this.llmRelevanceCache.get(key);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined && Date.now() < cached.expiresAt) return cached.value;
+    // Expired entry — remove it so FIFO eviction below doesn't count stale slots
+    if (cached) this.llmRelevanceCache.delete(key);
 
     if (!this.llmService || !this.llmFilterEnabled) {
       // No LLM available — fail-closed (reject borderline topics)
-      this.llmRelevanceCache.set(key, false);
+      this.setRelevanceCache(key, false);
       return false;
     }
 
@@ -430,14 +435,25 @@ export class TrendingScraperService implements OnModuleInit {
       });
       const answer = response.content.trim().toUpperCase();
       const relevant = answer.startsWith('YES');
-      this.llmRelevanceCache.set(key, relevant);
+      this.setRelevanceCache(key, relevant);
       this.logger.debug(`LLM relevance for "${topic}": ${relevant ? 'YES' : 'NO'}`);
       return relevant;
     } catch (err) {
       this.logger.warn(`LLM relevance filter failed for "${topic}": ${(err as Error).message}`);
-      this.llmRelevanceCache.set(key, false);
+      this.setRelevanceCache(key, false);
       return false;
     }
+  }
+
+  /**
+   * MEM: Set a relevance cache entry with FIFO eviction when at capacity.
+   */
+  private setRelevanceCache(key: string, value: boolean): void {
+    if (this.llmRelevanceCache.size >= this.llmCacheMaxSize) {
+      const oldestKey = this.llmRelevanceCache.keys().next().value;
+      if (oldestKey) this.llmRelevanceCache.delete(oldestKey);
+    }
+    this.llmRelevanceCache.set(key, { value, expiresAt: Date.now() + this.llmCacheTtlMs });
   }
 
   /**
