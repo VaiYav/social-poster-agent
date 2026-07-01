@@ -207,8 +207,8 @@ export class HumanBehaviorEngine {
     decision: ActionDecision,
     context: PostContext,
     config: BehaviorEngineConfig,
-    likesThisSession: number,
-    commentsThisSession: number,
+    _likesThisSession: number,
+    _commentsThisSession: number,
   ): Promise<PostInteractionResult> {
     const baseResult: PostInteractionResult = {
       postUrl: context.postUrl,
@@ -498,7 +498,7 @@ export class HumanBehaviorEngine {
   /**
    * Human-like pause after an action — varies by action type.
    */
-  private async postActionPause(action: string, context: PostContext): Promise<void> {
+  private async postActionPause(action: string, _context: PostContext): Promise<void> {
     switch (action) {
       case 'like':
         // Brief pause after liking

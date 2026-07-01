@@ -8,7 +8,7 @@ import { IBrowserPort } from '../../domain/ports/browser.port.js';
 import { EncryptionService } from '../../infrastructure/crypto/encryption.service.js';
 import { DiscordNotificationService } from '../../infrastructure/notifications/discord-notification.service.js';
 import { SessionStatus, SocialNetwork, type Prisma } from '@prisma/client';
-import { withRetry, navigateWithRetry, type RetryOptions } from '../../domain/retry.js';
+import { navigateWithRetry } from '../../domain/retry.js';
 import { CircuitBreakerRegistry, CircuitOpenError } from '../../domain/circuit-breaker.js';
 import { parseBool } from '../../infrastructure/config/parse-bool';
 import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
@@ -932,7 +932,6 @@ export class SessionsService implements OnModuleInit {
       // Check if login succeeded — first by URL (not on login page), then by success indicator
       await this.browser.randomDelay(3000, 5000);
       const pageUrl = page.url();
-      const isOnLoginPage = pageUrl.includes('/login') || pageUrl.includes('/auth') || pageUrl.includes('/onboarding');
       const isOnChallengePage = pageUrl.includes('challenge') || pageUrl.includes('checkpoint') || pageUrl.includes('two_factor') || pageUrl.includes('two_step_verification') || pageUrl.includes('captcha') || pageUrl.includes('/2fa');
 
       if (isOnChallengePage) {

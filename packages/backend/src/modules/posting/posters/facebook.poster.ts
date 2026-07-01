@@ -31,7 +31,7 @@ export class FacebookPoster extends BasePoster {
     context: BrowserContext,
     _browserPort: IBrowserPort,
     content: string,
-    threadItems?: string[],
+    _threadItems?: string[],
   ): Promise<PostResult> {
     if (!this.pageSlug) {
       return { error: 'SOCIAL_FACEBOOK_PAGE_SLUG not configured' };

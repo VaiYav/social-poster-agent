@@ -1,4 +1,4 @@
-import { Module, type OnModuleInit, type DynamicModule, Logger } from '@nestjs/common';
+import { Module, type OnModuleInit, Logger } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';

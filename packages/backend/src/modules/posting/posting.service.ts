@@ -16,7 +16,7 @@ import type { PostResult } from './posters/base.poster.js';
 import { PostStatus, SocialNetwork } from '@prisma/client';
 import { withRetry } from '../../domain/retry.js';
 import { CircuitBreakerRegistry, CircuitOpenError } from '../../domain/circuit-breaker.js';
-import { SpaError, NetworkError } from '../../domain/errors.js';
+import { SpaError } from '../../domain/errors.js';
 import { isNetworkEnabled } from '../../domain/enabled-networks.js';
 
 /**

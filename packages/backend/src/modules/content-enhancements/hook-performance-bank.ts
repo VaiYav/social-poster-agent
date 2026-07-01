@@ -27,7 +27,6 @@ import type { Redis } from 'ioredis';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service.js';
 import { SocialNetwork, PostStatus, Prisma } from '@prisma/client';
-import { parseBool } from '../../infrastructure/config/parse-bool.js';
 import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 
 /**

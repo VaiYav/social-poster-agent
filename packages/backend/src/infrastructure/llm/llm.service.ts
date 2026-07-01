@@ -1,4 +1,4 @@
-import { Injectable, Logger, Optional, Inject, type OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, Optional, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI } from '@langchain/openai';
 import { createHash } from 'node:crypto';

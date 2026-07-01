@@ -1,4 +1,4 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ImapFlow, type ImapFlowOptions } from 'imapflow';
 
 /**

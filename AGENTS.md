@@ -6,7 +6,7 @@
 
 Some utilities read `process.env` directly instead of using NestJS `ConfigService`:
 - `getEnabledNetworks()` (`domain/enabled-networks.ts`) — used in static contexts, module loaders, and service constructors without DI
-- `isOrchestratorEnabled()` / `skipIfOrchestrator()` (`modules/orchestrator/feature-flag.ts`) — guard clause used in 11+ cron services
+- `isOrchestratorEnabled()` (`modules/orchestrator/feature-flag.ts`) — checked in `onModuleInit()` of 11 cron services to skip cron registration when orchestrator is enabled
 - `app.module.ts` — reads env at module-load time to conditionally register modules
 
 This is intentional. `ConfigService` is only available after DI bootstrap, but these functions run during module loading. Don't "fix" this by switching to `ConfigService`.
@@ -27,7 +27,11 @@ Orchestrator module files use `.js` extensions in imports (e.g., `import { X } f
 - `IActionHandler` implementations (`action-handlers.ts`) — one per action type
 - `StateCollectorService` — OBSERVE node, parallel per-network collection
 - `PostingWindowService` — engagement heatmap + posting window recommendations
-- `WatchdogCron` — safety net cron, restarts orchestrator if heartbeat stale
+- `WatchdogCron` — safety net cron (`@Cron('*/5 * * * *')`, the only remaining `@Cron` decorator in the codebase), restarts orchestrator if heartbeat stale
+
+### Cron services (post-refactor)
+
+All 11 cron services (CronService, EngagementScheduler, SessionsService, TrendingScraper, MetricsScraper, RecyclingService, HookPerformanceBank, AutonomousRunner, RepliesMonitor, TopicGeneration, HealthMonitor) use **dynamic cron registration** via `SchedulerRegistry.addCronJob()` in `onModuleInit()`. When `ORCHESTRATOR_ENABLED=true`, they skip registration entirely — no timer, no CPU, no memory. The `@Cron` decorator is no longer used (except `WatchdogCron`). The old `skipIfOrchestrator()` guard function has been removed; use `isOrchestratorEnabled()` at registration time instead.
 
 ### Feature-flagged services
 

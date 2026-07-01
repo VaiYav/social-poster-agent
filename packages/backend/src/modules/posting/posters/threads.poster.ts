@@ -50,7 +50,6 @@ export class ThreadsPoster extends BasePoster {
       await this.screenshot(page, 'before-compose');
 
       // Click compose button — try multiple strategies
-      let composeOpened = false;
       try {
         const composeResolution = await this.resolve(
           page,
@@ -61,12 +60,10 @@ export class ThreadsPoster extends BasePoster {
         // Human-like: scroll into view, hover, then click
         await this.humanPreAction(page, composeResolution.locator);
         await this.humanClick(composeResolution.locator, 10000);
-        composeOpened = true;
       } catch (clickErr) {
         this.logger.warn(`Compose button click failed: ${(clickErr as Error).message} — trying /compose URL`);
         // Fallback: navigate directly to compose URL
         await page.goto('https://www.threads.com/compose', { waitUntil: 'networkidle', timeout: 15000 });
-        composeOpened = true;
       }
       await this.browser.randomDelay(2000, 5000);
 

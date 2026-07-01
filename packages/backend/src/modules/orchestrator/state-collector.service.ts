@@ -12,12 +12,12 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
-import { SessionStatus, PostStatus } from '@prisma/client';
+import { SessionStatus, PostStatus, SocialNetwork } from '@prisma/client';
 import { RateLimitService } from '../rate-limit/rate-limit.service.js';
 import { FlowControlService } from '../flow-control/flow-control.service.js';
 import { QueueFactory } from '../../infrastructure/queue/queue.factory.js';
 import { getEnabledNetworks } from '../../domain/enabled-networks.js';
-import type { WorldState, SessionState, RateLimitState, HealthState, FlowControlState } from './types.js';
+import type { WorldState, SessionState, RateLimitState, HealthState, FlowControlState, PostMetricsSummary } from './types.js';
 
 @Injectable()
 export class StateCollectorService {
@@ -59,7 +59,7 @@ export class StateCollectorService {
       trends,
     ] = await Promise.all([
       this.collectTopicPool().catch((e) => { degraded.push('topicPool'); this.logger.warn(`topicPool degraded: ${e.message}`); return null; }),
-      this.collectDraftCounts(networks).catch((e) => { degraded.push('drafts'); this.logger.warn(`drafts degraded: ${e.message}`); return null; }),
+      this.collectDraftCounts().catch((e) => { degraded.push('drafts'); this.logger.warn(`drafts degraded: ${e.message}`); return null; }),
       this.collectQueueDepth(networks).catch((e) => { degraded.push('queueDepth'); this.logger.warn(`queueDepth degraded: ${e.message}`); return null; }),
       this.collectSessions(networks).catch((e) => { degraded.push('sessions'); this.logger.warn(`sessions degraded: ${e.message}`); return null; }),
       this.collectRateLimits(networks).catch((e) => { degraded.push('rateLimits'); this.logger.warn(`rateLimits degraded: ${e.message}`); return null; }),
@@ -113,7 +113,7 @@ export class StateCollectorService {
     return { count, threshold: this.topicPoolThreshold, oldestAgeMs };
   }
 
-  private async collectDraftCounts(networks: string[]) {
+  private async collectDraftCounts() {
     const [pending, approved, rejected] = await Promise.all([
       this.prisma.post.count({ where: { status: PostStatus.DRAFT } }),
       this.prisma.post.count({ where: { status: PostStatus.APPROVED } }),
@@ -142,7 +142,7 @@ export class StateCollectorService {
       networks.map(async (network) => {
         try {
           const account = await this.prisma.socialAccount.findFirst({
-            where: { network: network as any, active: true },
+            where: { network: network as SocialNetwork, active: true },
           });
           if (!account) {
             return [network, { status: 'unknown', lastCheckMs: 0, circuitBreaker: 'unknown' }] as const;
@@ -154,7 +154,7 @@ export class StateCollectorService {
               orderBy: { createdAt: 'desc' },
             }),
             this.prisma.post.findMany({
-              where: { network: network as any },
+              where: { network: network as SocialNetwork },
               orderBy: { createdAt: 'desc' },
               take: 3,
               select: { status: true },
@@ -212,11 +212,11 @@ export class StateCollectorService {
   }
 
   private async collectPerformance(networks: string[]) {
-    const performance: Record<string, any> = {};
+    const performance: Record<string, PostMetricsSummary> = {};
     for (const network of networks) {
       try {
         const recentMetrics = await this.prisma.postMetrics.findMany({
-          where: { post: { network: network as any } },
+          where: { post: { network: network as SocialNetwork } },
           orderBy: { collectedAt: 'desc' },
           take: 10,
           include: { post: { select: { postedAt: true } } },
@@ -270,7 +270,7 @@ export class StateCollectorService {
         networks.map(async (network) => {
           try {
             const account = await this.prisma.socialAccount.findFirst({
-              where: { network: network as any, active: true },
+              where: { network: network as SocialNetwork, active: true },
             });
             if (account) {
               const lastSession = await this.prisma.browsingSession.findFirst({
@@ -317,7 +317,7 @@ export class StateCollectorService {
         networks.map(async (network): Promise<number> => {
           try {
             const recentPosts = await this.prisma.post.findMany({
-              where: { network: network as any },
+              where: { network: network as SocialNetwork },
               orderBy: { createdAt: 'desc' },
               take: 5,
               select: { status: true },

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { SocialNetwork, SessionStatus } from '@prisma/client';
+import { SessionStatus } from '@prisma/client';
 
 /**
  * F20: Session Warm-up Mode — gradual ramp for new accounts.

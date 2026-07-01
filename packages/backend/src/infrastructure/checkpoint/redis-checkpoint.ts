@@ -169,7 +169,7 @@ export class RedisCheckpointSaver
     config: RunnableConfig,
     checkpoint: Checkpoint,
     metadata: CheckpointMetadata,
-    newVersions: ChannelVersions,
+    _newVersions: ChannelVersions,
   ): Promise<RunnableConfig> {
     if (!this.redis) return config;
 

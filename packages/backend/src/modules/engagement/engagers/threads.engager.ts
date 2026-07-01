@@ -22,7 +22,7 @@ export class ThreadsEngager extends BaseEngager {
       await this.navigate(page, postUrl);
 
       const screenshotPath = await this.screenshot(page, 'before-like');
-      const liked = await this.performLike(
+      await this.performLike(
         page,
         THREADS_SELECTORS.engagement.like,
         THREADS_SELECTORS.engagement.unlike,

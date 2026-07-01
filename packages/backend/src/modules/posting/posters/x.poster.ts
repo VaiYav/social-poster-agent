@@ -203,11 +203,9 @@ export class XPoster extends BasePoster {
       // 2. Cmd+Enter keyboard shortcut (X native shortcut, bypasses mouse/humanize issues)
       // 3. JavaScript click (dispatches real DOM event that React processes)
       await this.humanPreAction(page, postButton);
-      let clickSuccess = false;
       let humanClickFailed = false;
       try {
         await this.browser.humanClick(postButton, { timeoutMs: 15000 });
-        clickSuccess = true;
       } catch (clickErr) {
         this.logger.warn(`X humanClick on Post button failed: ${(clickErr as Error).message}`);
         humanClickFailed = true;
@@ -227,7 +225,6 @@ export class XPoster extends BasePoster {
         await this.browser.randomDelay(200, 400);
         await page.keyboard.press('Control+Enter').catch(() => {});
         await this.browser.randomDelay(2000, 4000);
-        clickSuccess = !page.url().includes('/compose/post');
       }
 
       // Fallback 2: if still on compose page, try JavaScript click (last resort)
@@ -238,7 +235,6 @@ export class XPoster extends BasePoster {
           if (btn) btn.click();
         }).catch(() => {});
         await this.browser.randomDelay(2000, 4000);
-        clickSuccess = !page.url().includes('/compose/post');
       }
 
       // Screenshot after submit

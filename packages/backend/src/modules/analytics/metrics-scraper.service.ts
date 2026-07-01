@@ -29,7 +29,6 @@ import { SseService } from '../../infrastructure/sse/sse.service.js';
 import { IBrowserPort } from '../../domain/ports/browser.port.js';
 import { Inject } from '@nestjs/common';
 import { SocialNetwork, PostStatus } from '@prisma/client';
-import { parseBool } from '../../infrastructure/config/parse-bool.js';
 import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 import type { IMetricsSource, PostMetricsData } from './metrics-sources/metrics-source.port.js';
 import { ThreadsInsightsSource } from './metrics-sources/threads-insights.source.js';

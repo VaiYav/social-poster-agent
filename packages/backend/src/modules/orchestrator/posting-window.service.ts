@@ -13,6 +13,7 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
+import { SocialNetwork } from '@prisma/client';
 import type { PostingWindow } from './types.js';
 
 const CACHE_KEY_PREFIX = 'spa:posting-window:heatmap';
@@ -120,7 +121,7 @@ export class PostingWindowService {
 
     const metrics = await this.prisma.postMetrics.findMany({
       where: {
-        post: { network: network as any, postedAt: { gte: sinceDate } },
+        post: { network: network as SocialNetwork, postedAt: { gte: sinceDate } },
       },
       include: {
         post: { select: { postedAt: true } },

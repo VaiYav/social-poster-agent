@@ -23,7 +23,7 @@ import { StateGraph, END, START, Annotation } from '@langchain/langgraph';
 import type { Page } from '../../domain/ports/browser-primitives';
 import { SocialNetwork } from '@prisma/client';
 import { Logger } from '@nestjs/common';
-import type { IEngagementDecisionPort, PostContext, ActionDecision, EngagementSource } from '../../domain/ports/engagement-decision.port.js';
+import type { EngagementSource } from '../../domain/ports/engagement-decision.port.js';
 import type { BaseEngager } from './engagers/base.engager.js';
 import type { TargetingService } from './targeting.service.js';
 import type { WarmupService, WarmupStatus } from '../sessions/warmup.service.js';

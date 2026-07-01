@@ -10,7 +10,6 @@ import type { BrowserContext, Locator, Page } from '../../../domain/ports/browse
 import type { SocialNetwork } from '@spa/shared';
 import type { IBrowserPort, ScreenshotPhase } from '../../../domain/ports/browser.port.js';
 import {
-  resolveSelector,
   waitForSelector,
   type SelectorStrategy,
   type SelectorResolution,
@@ -22,7 +21,7 @@ import {
   AccountRestrictedError,
   classifyPlaywrightError,
 } from '../../../domain/errors.js';
-import { navigateWithRetry, withRetry } from '../../../domain/retry.js';
+import { navigateWithRetry } from '../../../domain/retry.js';
 
 /** Result of a posting operation. */
 export interface PostResult {
@@ -63,7 +62,7 @@ export abstract class BasePoster {
       const result = await waitForSelector(page, strategy, timeoutMs);
       this.logger.debug(`Selector resolved via ${result.method}: ${result.selector}`);
       return result;
-    } catch (err) {
+    } catch {
       const screenshotPath = await this.browser.screenshot(page, this.network, 'on-error');
       throw new SelectorNotFoundError(this.network, context, { screenshotPath });
     }

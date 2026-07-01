@@ -1,7 +1,7 @@
 // Engagement controller — REST API endpoints for engagement actions.
 // All endpoints trigger browser automation to perform the action.
 
-import { Body, Controller, Get, Param, Post, Query, BadRequestException } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, BadRequestException } from '@nestjs/common';
 import { z } from 'zod';
 import { EngagementService } from './engagement.service.js';
 import { BrowsingSessionService } from './browsing-session.service.js';

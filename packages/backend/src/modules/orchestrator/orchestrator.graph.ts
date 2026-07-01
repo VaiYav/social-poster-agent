@@ -12,11 +12,10 @@
  */
 
 import { StateGraph, END, START, Annotation } from '@langchain/langgraph';
-import type { CompiledStateGraph } from '@langchain/langgraph';
 import type { StateCollectorService } from './state-collector.service.js';
 import type { DecisionEngineService } from './decision-engine.service.js';
 import type { ActionExecutorService } from './action-executor.service.js';
-import type { WorldState, Action, ActionResult, ActionType } from './types.js';
+import type { WorldState, Action, ActionResult } from './types.js';
 
 // ── State Definition ───────────────────────────────────────────────────────
 
@@ -84,7 +83,7 @@ export interface OrchestratorGraphDeps {
  * are enqueued without blocking the main decision flow.
  */
 function observeNode(deps: OrchestratorGraphDeps) {
-  return async (state: OrchestratorStateType): Promise<Partial<OrchestratorStateType>> => {
+  return async (_state: OrchestratorStateType): Promise<Partial<OrchestratorStateType>> => {
     const world = await deps.stateCollector.collectWorldState();
 
     // Fire-and-forget: check for stale browsing sessions and enqueue via BullMQ.
