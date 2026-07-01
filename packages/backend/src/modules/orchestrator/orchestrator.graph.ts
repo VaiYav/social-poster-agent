@@ -145,7 +145,7 @@ function evaluateNode(deps: OrchestratorGraphDeps) {
       await deps.sleep(sleepMs);
     }
 
-    return { sleepMs };
+    return { sleepMs, cycle: 1 };
   };
 }
 

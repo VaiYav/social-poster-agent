@@ -26,6 +26,8 @@ import { WAIT_ACTION, RECOVER_ACTION } from './types.js';
 const LLM_TIMEOUT_MS = 10000;
 const ACTION_HISTORY_KEY = 'spa:orchestrator:action-history';
 const ACTION_HISTORY_WINDOW_SEC = 3600; // 1 hour
+const RECOVER_COOLDOWN_MS = 300_000; // 5 min between RECOVER_SESSION attempts per network
+const RECOVER_COOLDOWN_KEY = 'spa:orchestrator:recover-cooldown';
 
 const VALID_ACTIONS: ActionType[] = [
   'GENERATE_TOPICS', 'GENERATE_POSTS', 'POST', 'BROWSE',
@@ -59,7 +61,7 @@ export class DecisionEngineService {
     await this.enrichWithPostingWindows(world);
 
     // Phase 1: Hard rules (deterministic safety checks)
-    const hardRuleAction = this.checkHardRules(world);
+    const hardRuleAction = await this.checkHardRules(world);
     if (hardRuleAction) {
       this.logger.debug(`Decision: hard rule → ${hardRuleAction.type} (${hardRuleAction.reason})`);
       return hardRuleAction;
@@ -92,7 +94,7 @@ export class DecisionEngineService {
    * Check hard rules in priority order. First match wins.
    * Returns null if no hard rule matches → proceed to LLM.
    */
-  private checkHardRules(world: WorldState): Action | null {
+  private async checkHardRules(world: WorldState): Promise<Action | null> {
     const networks = getEnabledNetworks();
 
     // H1: Kill switch
@@ -100,10 +102,20 @@ export class DecisionEngineService {
       return WAIT_ACTION('Kill switch active', 60000);
     }
 
-    // H2: Expired session → RECOVER
+    // H2: Expired session → RECOVER (with cooldown to avoid tight loop)
     for (const net of networks) {
       const session = world.sessions[net];
       if (session && (session.status === 'EXPIRED' || session.status === 'ERROR')) {
+        // Check cooldown — if we recently tried to recover this network, WAIT instead
+        const cooldownRemaining = await this.getRecoverCooldown(net);
+        if (cooldownRemaining > 0) {
+          return WAIT_ACTION(
+            `Session ${net} is ${session.status}, recovery cooldown (${Math.round(cooldownRemaining / 1000)}s left)`,
+            cooldownRemaining,
+          );
+        }
+        // Set cooldown before attempting recovery
+        await this.setRecoverCooldown(net);
         return RECOVER_ACTION(net, `Session ${net} is ${session.status}`);
       }
     }
@@ -418,5 +430,28 @@ export class DecisionEngineService {
 
   get maxActionsPerHourValue(): number {
     return this.maxActionsPerHour;
+  }
+
+  // ── RECOVER_SESSION Cooldown ──────────────────────────────────────────────
+
+  private async getRecoverCooldown(network: string): Promise<number> {
+    try {
+      const key = `${RECOVER_COOLDOWN_KEY}:${network}`;
+      const ttl = await this.redis.pttl(key);
+      // pttl returns -2 if key doesn't exist, -1 if no TTL
+      if (ttl > 0) return ttl;
+      return 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  private async setRecoverCooldown(network: string): Promise<void> {
+    try {
+      const key = `${RECOVER_COOLDOWN_KEY}:${network}`;
+      await this.redis.set(key, '1', 'PX', RECOVER_COOLDOWN_MS);
+    } catch {
+      // non-critical — cooldown is best-effort
+    }
   }
 }
