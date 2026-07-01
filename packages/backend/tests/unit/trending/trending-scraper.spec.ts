@@ -48,11 +48,11 @@ function createMockBrowserPort() {
       { topic: '#MercuryRetrograde', rank: 2 },
       { topic: 'World Cup 2026', rank: 3 },
     ]),
-    close: vi.fn(),
+    close: vi.fn().mockResolvedValue(undefined),
   };
   const mockContext = {
     newPage: vi.fn().mockResolvedValue(mockPage),
-    close: vi.fn(),
+    close: vi.fn().mockResolvedValue(undefined),
   };
   return {
     acquireContext: vi.fn().mockResolvedValue(mockContext),
@@ -260,6 +260,20 @@ describe('TrendingScraperService (Item 38 — F22 Google Trends + X scraping)', 
     await service.getXTrends(10);
 
     expect(mockBrowser.releaseContext).toHaveBeenCalled();
+  });
+
+  it('UTC-XT-006: closes the page it opened on success (was never closed — page leak)', async () => {
+    await service.getXTrends(10);
+
+    expect(mockBrowser._mockPage.close).toHaveBeenCalled();
+  });
+
+  it('UTC-XT-007: closes the page it opened even when scraping fails', async () => {
+    mockBrowser._mockPage.evaluate.mockRejectedValue(new Error('Selector timeout'));
+
+    await service.getXTrends(10);
+
+    expect(mockBrowser._mockPage.close).toHaveBeenCalled();
   });
 
   // ── Feature flags ──

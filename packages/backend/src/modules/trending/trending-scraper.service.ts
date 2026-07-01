@@ -290,9 +290,10 @@ export class TrendingScraperService implements OnModuleInit {
     }
 
     let context: BrowserContext | null = null;
+    let page: Awaited<ReturnType<BrowserContext['newPage']>> | undefined;
     try {
       context = await this.browser.acquireContext('X' as SocialNetwork);
-      const page = await context.newPage();
+      page = await context.newPage();
 
       // Try multiple URLs — X has changed the explore page structure multiple times.
       // The trends may be on /explore/tabs/trending, /explore, or the home page sidebar.
@@ -316,6 +317,11 @@ export class TrendingScraperService implements OnModuleInit {
       this.logger.warn(`Failed to scrape X trends: ${(err as Error).message}`);
       return this.xTrendsCache?.topics ?? [];
     } finally {
+      // The pool's releaseContext() returns the context as-is — it does not
+      // close pages, so a page left open here leaks for the pooled context's lifetime.
+      if (page) {
+        await page.close().catch(() => {});
+      }
       if (context) {
         try {
           await this.browser.releaseContext('X' as SocialNetwork, context);

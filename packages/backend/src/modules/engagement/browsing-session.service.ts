@@ -124,6 +124,7 @@ export class BrowsingSessionService {
     let postsViewed = 0;
     let interactionsCount = 0;
     let context: Awaited<ReturnType<IBrowserPort['acquireContext']>> | null = null;
+    let page: Awaited<ReturnType<Awaited<ReturnType<IBrowserPort['acquireContext']>>['newPage']>> | undefined;
 
     try {
       // Sprint K: Acquire browser context from pool (enables parallel sessions)
@@ -132,7 +133,7 @@ export class BrowsingSessionService {
         ? this.sessionsService.decryptStorageState(session)
         : undefined;
       context = await this.browser.acquireContext(network, storageState);
-      const page = await context.newPage();
+      page = await context.newPage();
       await this.browser.suppressPageErrors(page);
 
       // Build and invoke the EngagementGraph (LangGraph)
@@ -172,7 +173,6 @@ export class BrowsingSessionService {
       // Save updated session state
       const updatedState = await this.browser.saveStorageState(context);
       await this.sessionsService.updateStorageState(session.id, updatedState);
-      await page.close();
 
       // Update browsing session record
       await this.prisma.browsingSession.update({
@@ -224,6 +224,12 @@ export class BrowsingSessionService {
 
       throw err;
     } finally {
+      // Always close the page we opened — releaseContext() returns the
+      // context to the pool as-is and does not close pages itself, so a
+      // page left open here leaks for the lifetime of the pooled context.
+      if (page) {
+        await page.close().catch(() => {});
+      }
       // Sprint K: Release context back to pool for reuse
       if (context) {
         this.browser.releaseContext(network, context);

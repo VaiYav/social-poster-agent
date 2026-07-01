@@ -66,6 +66,12 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
   // in memory indefinitely even when nothing is running.
   private readonly idleContexts = new Map<SocialNetwork, Array<{ context: BrowserContext; releasedAt: number }>>();
   private readonly inUseContexts = new Map<SocialNetwork, Set<BrowserContext>>();
+  // Reserves pool capacity for an in-flight createContext() call. Without this, two
+  // concurrent acquirers can both read inUse.size before either awaits createContext(),
+  // both pass the capacity check, and both create a context — pushing the pool above
+  // poolSize with no further cap (the excess context then persists as idle inventory
+  // until the TTL sweep closes it).
+  private readonly pendingCreates = new Map<SocialNetwork, number>();
   private readonly contextWaiters = new Map<SocialNetwork, Array<{ resolve: () => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> }>>();
   private readonly contextIdleTtlMs: number;
   private idleSweepInterval: ReturnType<typeof setInterval> | null = null;
@@ -358,17 +364,23 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
         return entry.context;
       }
 
-      // Check if we're at pool capacity
+      // Check if we're at pool capacity — reserve the slot synchronously (before
+      // the createContext() await) so two concurrent callers can't both pass this
+      // check for the same free slot.
       const inUse = this.inUseContexts.get(network) ?? new Set();
-      if (inUse.size < this.poolSize) {
-        // Create a new context (within pool capacity)
-        const context = await this.createContext(network, storageState);
-        // Re-fetch inUse set — createContext is async and another caller may have added
-        const inUseNow = this.inUseContexts.get(network) ?? new Set();
-        // If we exceeded capacity during await (rare), still return — we already created it
-        inUseNow.add(context);
-        this.inUseContexts.set(network, inUseNow);
-        return context;
+      const pending = this.pendingCreates.get(network) ?? 0;
+      if (inUse.size + pending < this.poolSize) {
+        this.pendingCreates.set(network, pending + 1);
+        try {
+          const context = await this.createContext(network, storageState);
+          const inUseNow = this.inUseContexts.get(network) ?? new Set();
+          inUseNow.add(context);
+          this.inUseContexts.set(network, inUseNow);
+          return context;
+        } finally {
+          const current = this.pendingCreates.get(network) ?? 1;
+          this.pendingCreates.set(network, Math.max(0, current - 1));
+        }
       }
 
       // At capacity — wait for a release. The release will put the context

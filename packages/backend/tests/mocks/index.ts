@@ -242,6 +242,9 @@ export function createMockPrismaService() {
     socialAccount: {
       ...createModelMock(),
     },
+    browsingSession: {
+      ...createModelMock(),
+    },
     $connect: vi.fn(),
     $disconnect: vi.fn(),
     $queryRaw: vi.fn(),
