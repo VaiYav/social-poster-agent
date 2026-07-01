@@ -92,8 +92,10 @@ export class BrowsingSessionService {
     const duration = durationSec ?? this.defaultDurationSec;
     const engager = this.getEngager(network);
 
-    // Get or create session
-    const session = await this.sessionsService.getOrCreateSession(network);
+    // Get or create session. Deferred: engagement must not force an inline form login in the
+    // job hot-path (same reasoning as posting.service.ts) — recovery happens out-of-band via the
+    // orchestrator's RECOVER_SESSION action, which has its own cooldown/circuit-breaker guards.
+    const session = await this.sessionsService.getOrCreateSession(network, { deferFormLogin: true });
     if (!session) {
       throw new Error(`No active session for ${network} — auto-login failed`);
     }
