@@ -40,6 +40,7 @@ import { CaptchaModule } from './infrastructure/captcha/captcha.module';
 import { ProxyModule } from './infrastructure/proxy/proxy.module';
 import { EventsEdaModule } from './events/events.module';
 import { RedisModule } from './infrastructure/redis/redis.module';
+import { EmailModule } from './infrastructure/email/email.module';
 import { parseBool } from './infrastructure/config/parse-bool';
 
 /**
@@ -70,6 +71,7 @@ const repliesImports =
     }),
     ScheduleModule.forRoot(),
     RedisModule, // Sprint L: Shared Redis connection pooling
+    EmailModule, // IMAP email reader for auto-verification codes
     AppClsModule, // G-6: correlationId via CLS
     LoggingModule, // G-7: RedactInterceptor (global)
     FiltersModule, // GAP-001: ZodValidationFilter → 400 instead of 500 + SentryGlobalFilter

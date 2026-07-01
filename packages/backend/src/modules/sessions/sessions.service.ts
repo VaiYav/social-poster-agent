@@ -11,6 +11,7 @@ import { withRetry, navigateWithRetry, type RetryOptions } from '../../domain/re
 import { CircuitBreakerRegistry, CircuitOpenError } from '../../domain/circuit-breaker.js';
 import { parseBool } from '../../infrastructure/config/parse-bool';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
+import { EmailReaderService } from '../../infrastructure/email/email-reader.service.js';
 
 /**
  * Session manager — persistent browser sessions via Playwright storageState.
@@ -102,6 +103,7 @@ export class SessionsService {
     private readonly encryptionService: EncryptionService,
     private readonly discord: DiscordNotificationService,
     @Inject(SHARED_REDIS) private readonly redis: InstanceType<typeof import('ioredis').default>,
+    private readonly emailReader: EmailReaderService,
   ) {
     // Default 0 = cooldown disabled (opt-in). Operators set FORM_LOGIN_COOLDOWN_MS in prod
     // (e.g. 1800000 = 30 min) to throttle the riskiest action; keeping it off by default
@@ -765,21 +767,40 @@ export class SessionsService {
             }
             await this.browser.randomDelay(3000, 5000);
           } else {
-            // Headless mode: wait for operator to submit the verification code via API
-            // POST /api/v1/sessions/verify-code?network=X&code=123456
-            this.logger.warn(`X: 2FA challenge in headless mode — waiting for verification code via API`);
-            void this.discord
-              .warning(
-                'X Login 2FA — Verification Code Needed',
-                `Auto-login for **X** hit a 2FA challenge. Submit the code from your email via:\n` +
-                  '`POST /api/v1/sessions/verify-code?network=X&code=<CODE>`\n' +
-                  'The login flow will wait up to 120 seconds for the code.',
-              )
-              .catch(() => void 0);
+            // Headless mode: try to get the verification code automatically.
+            // Strategy:
+            //   1. Poll email via IMAP (if configured) — fully automatic
+            //   2. Fall back to manual API submission (POST /sessions/verify-code)
+            //   3. Also check API while polling email (race — first code wins)
+            this.logger.warn(`X: 2FA challenge in headless mode — attempting automatic email code retrieval`);
 
-            const code = await this.waitForVerificationCode(network, 120000);
+            // Try email first (up to 60s), then fall back to API (remaining time)
+            let code: string | null = null;
+
+            // Phase 1: Try email (if configured)
+            code = await this.emailReader.pollForVerificationCode(60000, 5000).catch((err) => {
+              this.logger.warn(`Email reader error: ${(err as Error).message}`);
+              return null;
+            });
+
+            // Phase 2: If email didn't find a code, wait for manual API submission
             if (!code) {
-              this.logger.error(`X: 2FA timed out — no verification code submitted within 120s`);
+              this.logger.warn(`X: email code not found — waiting for manual submission via API`);
+              void this.discord
+                .warning(
+                  'X Login 2FA — Verification Code Needed',
+                  `Auto-login for **X** hit a 2FA challenge. Email retrieval failed or not configured.\n` +
+                    'Submit the code manually via:\n' +
+                    '`POST /api/v1/sessions/verify-code?network=X&code=<CODE>`\n' +
+                    'The login flow will wait up to 60 seconds for the code.',
+                )
+                .catch(() => void 0);
+
+              code = await this.waitForVerificationCode(network, 60000);
+            }
+
+            if (!code) {
+              this.logger.error(`X: 2FA timed out — no verification code obtained within 120s`);
               await this.browser.screenshot(page, network, 'on-error');
               await page.close();
               return null;

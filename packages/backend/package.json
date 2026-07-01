@@ -53,6 +53,7 @@
     "class-validator": "^0.15.1",
     "cron": "^4.4.0",
     "gray-matter": "^4.0.3",
+    "imapflow": "^1.4.3",
     "ioredis": "^5.0.0",
     "joi": "^18.2.3",
     "nestjs-cls": "^6.2.1",

@@ -31,6 +31,7 @@ import { EncryptionService } from '../../../src/infrastructure/crypto/encryption
 import { DiscordNotificationService } from '../../../src/infrastructure/notifications/discord-notification.service.js';
 import { IBrowserPort } from '../../../src/domain/ports/browser.port.js';
 import { SHARED_REDIS } from '../../../src/infrastructure/redis/redis.module.js';
+import { EmailReaderService } from '../../../src/infrastructure/email/email-reader.service.js';
 import {
   createMockPrismaService,
   createMockBrowserPort,
@@ -45,6 +46,14 @@ function createMockRedis() {
     set: vi.fn((key: string, value: string) => { store.set(key, value); return Promise.resolve('OK'); }),
     del: vi.fn((key: string) => { store.delete(key); return Promise.resolve(1); }),
     _store: store,
+  };
+}
+
+// ── EmailReader mock ──
+function createMockEmailReader() {
+  return {
+    fetchVerificationCode: vi.fn().mockResolvedValue(null),
+    pollForVerificationCode: vi.fn().mockResolvedValue(null),
   };
 }
 
@@ -185,12 +194,13 @@ async function buildModule(opts: {
   const config = opts.config ?? createMockConfigService();
   const encryption = createMockEncryptionService();
   const redis = createMockRedis();
+  const emailReader = createMockEmailReader();
   const discord = { sendAlert: vi.fn().mockResolvedValue(undefined), critical: vi.fn().mockResolvedValue(undefined), warning: vi.fn().mockResolvedValue(undefined), info: vi.fn().mockResolvedValue(undefined) } as unknown as DiscordNotificationService;
 
   // Restore design:paramtypes — always set (esbuild doesn't emit them)
   Reflect.defineMetadata(
     'design:paramtypes',
-    [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService, Object],
+    [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService, Object, EmailReaderService],
     SessionsService,
   );
 
@@ -204,6 +214,7 @@ async function buildModule(opts: {
       { provide: EncryptionService, useValue: encryption },
       { provide: DiscordNotificationService, useValue: discord },
       { provide: SHARED_REDIS, useValue: redis },
+      { provide: EmailReaderService, useValue: emailReader },
     ],
   }).compile();
 
@@ -241,18 +252,19 @@ describe('MOD-04: SessionsService', () => {
 
     // Restore design:paramtypes stripped by esbuild so Nest DI can resolve
     // the type-injected constructor params. Order matches the constructor:
-    //   (prisma, accountsService, browser, configService, encryptionService, discord, redis)
+    //   (prisma, accountsService, browser, configService, encryptionService, discord, redis, emailReader)
     // The @Inject(IBrowserPort) token at index 2 overrides whatever is here.
     // Always set — esbuild doesn't emit design:paramtypes, and stale metadata
     // from other test files must be overwritten.
     Reflect.defineMetadata(
       'design:paramtypes',
-      [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService, Object],
+      [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService, Object, EmailReaderService],
       SessionsService,
     );
 
     const encryption = createMockEncryptionService();
     const redis = createMockRedis();
+    const emailReader = createMockEmailReader();
     const discord = { sendAlert: vi.fn().mockResolvedValue(undefined), critical: vi.fn().mockResolvedValue(undefined), warning: vi.fn().mockResolvedValue(undefined), info: vi.fn().mockResolvedValue(undefined) } as unknown as DiscordNotificationService;
     const compiled = await Test.createTestingModule({
       providers: [
@@ -264,6 +276,7 @@ describe('MOD-04: SessionsService', () => {
         { provide: EncryptionService, useValue: encryption },
         { provide: DiscordNotificationService, useValue: discord },
         { provide: SHARED_REDIS, useValue: redis },
+        { provide: EmailReaderService, useValue: emailReader },
       ],
     }).compile();
     module = compiled;
@@ -1541,7 +1554,9 @@ describe('MOD-04: SessionsService', () => {
     });
     const warnSpy = vi.spyOn(t.service['logger'], 'warn');
 
-    // Mock waitForVerificationCode to return null immediately (simulates timeout)
+    // Mock email reader + waitForVerificationCode to return null (simulates no code found)
+    const emailReader = t.service['emailReader'] as { pollForVerificationCode: ReturnType<typeof vi.fn> };
+    emailReader.pollForVerificationCode.mockResolvedValue(null);
     vi.spyOn(t.service, 'waitForVerificationCode').mockResolvedValue(null);
 
     const result = await t.service.getOrCreateSession(SocialNetwork.X);

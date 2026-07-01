@@ -17,6 +17,13 @@ const envSchema = Joi.object({
   SOCIAL_FACEBOOK_PASSWORD: Joi.string().allow('').default(''),
   SOCIAL_FACEBOOK_PAGE_SLUG: Joi.string().allow('').default(''),
 
+  // ── Email IMAP — automatic 2FA/verification code retrieval ──
+  EMAIL_IMAP_HOST: Joi.string().default('imap.gmail.com'),
+  EMAIL_IMAP_PORT: Joi.number().integer().default(993),
+  EMAIL_USER: Joi.string().allow('').default(''),
+  EMAIL_PASSWORD: Joi.string().allow('').default(''),
+  EMAIL_FROM_FILTER: Joi.string().default('x.com'),
+
   // ── AN1: metrics-scraper (free official read APIs — own account) ──
   METRICS_SCRAPER_ENABLED: Joi.string().valid('true', 'false').default('false'),
   METRICS_SCRAPER_SCHEDULE: Joi.string().default('0 6 * * *'),
