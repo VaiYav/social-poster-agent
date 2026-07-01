@@ -240,6 +240,12 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
       concurrency: this.concurrency,
     });
 
+    // Attempts are configured per-action at enqueue time (enqueuePosting uses
+    // postingMaxRetries, enqueueEngagement uses maxRetries) — mirror that here so failure
+    // logs and the DLQ alert report the retry budget actually in effect for this queue,
+    // instead of always assuming the general-queue default.
+    const effectiveMaxRetries = action === 'posting' ? this.postingMaxRetries : this.maxRetries;
+
     worker.on('completed', (job) => {
       this.logger.log(`Job ${job.id} completed (${queueName})`);
     });
@@ -247,19 +253,19 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
     worker.on('failed', (job, err) => {
       const attemptsMade = job?.attemptsMade ?? 0;
       this.logger.error(
-        `Job ${job?.id} failed (${queueName}): ${err.message} (attempts: ${attemptsMade}/${this.maxRetries})`,
+        `Job ${job?.id} failed (${queueName}): ${err.message} (attempts: ${attemptsMade}/${effectiveMaxRetries})`,
       );
 
       // Send Discord alert when job exhausts all retries → enters DLQ
-      if (attemptsMade >= this.maxRetries) {
+      if (attemptsMade >= effectiveMaxRetries) {
         this.discord
           .critical(
             'Job Entered DLQ — Manual Intervention Needed',
-            `Job **${job?.id}** in \`${queueName}\` exhausted all ${this.maxRetries} retry attempts.`,
+            `Job **${job?.id}** in \`${queueName}\` exhausted all ${effectiveMaxRetries} retry attempts.`,
             [
               { name: 'Error', value: err.message.slice(0, 1024) },
               { name: 'Queue', value: queueName, inline: true },
-              { name: 'Attempts', value: `${attemptsMade}/${this.maxRetries}`, inline: true },
+              { name: 'Attempts', value: `${attemptsMade}/${effectiveMaxRetries}`, inline: true },
             ],
           )
           .catch(() => void 0);

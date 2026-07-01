@@ -413,8 +413,10 @@ describe('QueueFactory (MOD-05 — Infrastructure Adapters)', () => {
     expect(failedCall).toBeDefined();
     const failedHandler = failedCall![1] as (job: { id: string; attemptsMade: number }, err: Error) => void;
 
-    // Act — simulate a job that exhausted all 3 retries
-    const job = { id: 'job-exhausted', attemptsMade: 3 };
+    // Act — simulate a job that exhausted all retries. registerWorker() defaults to the
+    // 'posting' action, so the effective budget is BULLMQ_POSTING_MAX_RETRIES (8), not the
+    // general-queue BULLMQ_MAX_RETRIES (3) — see queue.factory.ts registerWorker().
+    const job = { id: 'job-exhausted', attemptsMade: 8 };
     const err = new Error('persistent failure');
     failedHandler(job, err);
 
