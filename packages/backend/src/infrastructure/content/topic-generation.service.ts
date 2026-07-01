@@ -5,7 +5,7 @@ import { CronJob } from 'cron';
 import { PrismaService } from '../prisma/prisma.service';
 import { LlmService } from '../llm/llm.service';
 import { parseBool } from '../config/parse-bool';
-import { skipIfOrchestrator } from '../../modules/orchestrator/feature-flag.js';
+import { isOrchestratorEnabled } from '../../modules/orchestrator/feature-flag.js';
 
 interface LlmTopic {
   topic: string;
@@ -56,6 +56,16 @@ export class TopicGenerationService implements OnModuleInit {
       return;
     }
 
+    // Orchestrator mode: GENERATE_TOPICS is handled by the orchestrator decision loop.
+    // Still do initial pool warm-up so the first cycle has data.
+    if (isOrchestratorEnabled()) {
+      this.logger.log('Orchestrator is enabled — topic generation cron NOT registered (initial warm-up still runs)');
+      this.generateIfNeeded().catch((err) => {
+        this.logger.warn(`Startup topic generation failed: ${(err as Error).message}`);
+      });
+      return;
+    }
+
     // Generate immediately on startup if pool is empty (first boot / cold start)
     this.generateIfNeeded().catch((err) => {
       this.logger.warn(`Startup topic generation failed: ${(err as Error).message}`);
@@ -78,7 +88,6 @@ export class TopicGenerationService implements OnModuleInit {
    * Check active topic pool and generate if below threshold.
    */
   async generateIfNeeded(): Promise<void> {
-    if (skipIfOrchestrator()) return; // Orchestrator handles this
     const activeCount = await this.prisma.topic.count({ where: { status: 'active' } });
     this.logger.log(`Topic pool: ${activeCount} active (threshold: ${this.poolMin})`);
 

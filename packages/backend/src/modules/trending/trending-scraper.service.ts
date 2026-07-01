@@ -32,7 +32,7 @@ import type { BrowserContext, Page } from '../../domain/ports/browser-primitives
 import { SocialNetwork } from '@prisma/client';
 import { parseGoogleTrendsRss as parseGoogleTrendsRssPure } from './google-trends-rss.js';
 import { parseBool } from '../../infrastructure/config/parse-bool';
-import { skipIfOrchestrator } from '../orchestrator/feature-flag.js';
+import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 
 // ── Types ──
 
@@ -162,6 +162,14 @@ export class TrendingScraperService implements OnModuleInit {
       return;
     }
 
+    // Orchestrator mode: REFRESH_TRENDS is handled by the orchestrator decision loop.
+    // Still do initial cache warm-up so the first cycle has data.
+    if (isOrchestratorEnabled()) {
+      this.logger.log('Orchestrator is enabled — trending scraper cron NOT registered (initial warm-up still runs)');
+      void this.refreshCache();
+      return;
+    }
+
     const cronExpr = this.configService.get<string>(
       'TRENDING_SCRAPER_SCHEDULE',
       '0 */2 * * *',
@@ -188,7 +196,6 @@ export class TrendingScraperService implements OnModuleInit {
    * Called by cron and on startup. Errors are logged but never thrown.
    */
   private async refreshCache(): Promise<void> {
-    if (skipIfOrchestrator()) return; // Orchestrator handles this
     try {
       this.logger.log('Refreshing trending cache (cron)...');
       const [google, x] = await Promise.allSettled([

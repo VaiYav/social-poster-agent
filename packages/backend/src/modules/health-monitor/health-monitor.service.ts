@@ -9,7 +9,7 @@ import { QueueService } from '../queue/queue.service';
 import { QueueFactory } from '../../infrastructure/queue/queue.factory';
 import { SessionStatus, PostStatus, SocialNetwork } from '@prisma/client';
 import { parseBool } from '../../infrastructure/config/parse-bool';
-import { skipIfOrchestrator } from '../orchestrator/feature-flag.js';
+import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 
 /**
  * F21: Account Health Monitor — hourly cron that checks:
@@ -50,6 +50,13 @@ export class HealthMonitorService implements OnModuleInit {
     const isDryRun = parseBool(this.configService?.get<string>('SPA_DRY_RUN', 'false'));
     if (isDryRun) {
       this.logger.warn('SPA_DRY_RUN=true — health monitor cron jobs NOT registered');
+      return;
+    }
+
+    // Orchestrator mode: health checks + reconciliation are handled by the
+    // orchestrator decision loop (HEALTH_CHECK, RECONCILE actions), no crons needed.
+    if (isOrchestratorEnabled()) {
+      this.logger.log('Orchestrator is enabled — health monitor crons NOT registered');
       return;
     }
 
@@ -95,7 +102,6 @@ export class HealthMonitorService implements OnModuleInit {
    * could create duplicate jobs, leading to double-posting.
    */
   async runReconciliation(): Promise<{ requeued: number; skipped: number; deduplicated: number }> {
-    if (skipIfOrchestrator()) return { requeued: 0, skipped: 0, deduplicated: 0 };
     this.logger.log('Running reconciliation — checking for orphaned APPROVED posts...');
 
     const approvedPosts = await this.prisma.post.findMany({
@@ -261,7 +267,6 @@ export class HealthMonitorService implements OnModuleInit {
    * Run a full health check — called by cron and manually via API.
    */
   async runHealthCheck(): Promise<HealthReport> {
-    if (skipIfOrchestrator()) return { timestamp: new Date().toISOString(), sessions: [], posts: {} as any, queues: {} as any, alerts: [] } as HealthReport;
     this.logger.log('Running health check...');
 
     const [sessionHealth, postHealth, queueHealth] = await Promise.all([

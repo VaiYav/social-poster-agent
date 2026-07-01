@@ -21,15 +21,16 @@
  *   - Human-like delays between page loads (5-15s)
  *   - Limited to posts from last 30 days (configurable)
  */
-import { Injectable, Logger, Optional } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Injectable, Logger, Optional, type OnModuleInit } from '@nestjs/common';
+import { SchedulerRegistry } from '@nestjs/schedule';
+import { CronJob } from 'cron';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { SseService } from '../../infrastructure/sse/sse.service.js';
 import { IBrowserPort } from '../../domain/ports/browser.port.js';
 import { Inject } from '@nestjs/common';
 import { SocialNetwork, PostStatus } from '@prisma/client';
 import { parseBool } from '../../infrastructure/config/parse-bool.js';
-import { skipIfOrchestrator } from '../orchestrator/feature-flag.js';
+import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 import type { IMetricsSource, PostMetricsData } from './metrics-sources/metrics-source.port.js';
 import { ThreadsInsightsSource } from './metrics-sources/threads-insights.source.js';
 import { FacebookInsightsSource } from './metrics-sources/facebook-insights.source.js';
@@ -41,7 +42,7 @@ export interface ScrapedMetrics {
 }
 
 @Injectable()
-export class MetricsScraperService {
+export class MetricsScraperService implements OnModuleInit {
   private readonly logger = new Logger(MetricsScraperService.name);
   private readonly maxPostsPerRun = 50;
   private readonly daysLookback = 30;
@@ -49,6 +50,7 @@ export class MetricsScraperService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sseService: SseService,
+    private readonly schedulerRegistry: SchedulerRegistry,
     @Inject(IBrowserPort) @Optional() private readonly browser?: IBrowserPort,
   ) {}
 
@@ -73,14 +75,27 @@ export class MetricsScraperService {
    * Daily cron — collect metrics from posted content.
    * Default: 6:00 AM daily. Configurable via METRICS_SCRAPER_SCHEDULE.
    * Gated by METRICS_SCRAPER_ENABLED env var (default: false).
+   *
+   * Dynamically registered (not @Cron) so it is NOT created when orchestrator is enabled.
    */
-  @Cron(process.env.METRICS_SCRAPER_SCHEDULE ?? '0 6 * * *')
-  async collectMetricsCron(): Promise<void> {
-    if (skipIfOrchestrator()) return; // Orchestrator handles this
+  onModuleInit(): void {
+    if (isOrchestratorEnabled()) {
+      this.logger.log('Orchestrator is enabled — metrics scraper cron NOT registered');
+      return;
+    }
     if (process.env.METRICS_SCRAPER_ENABLED !== 'true') {
       return;
     }
-    await this.collectMetrics();
+
+    const cronExpr = process.env.METRICS_SCRAPER_SCHEDULE ?? '0 6 * * *';
+    const job = new CronJob(cronExpr, async () => { await this.collectMetrics(); });
+    try {
+      this.schedulerRegistry.addCronJob('metrics-scraper', job);
+      job.start();
+      this.logger.log(`Metrics scraper cron registered: ${cronExpr}`);
+    } catch {
+      this.logger.warn('SchedulerRegistry not available — metrics scraper cron will not run');
+    }
   }
 
   /**

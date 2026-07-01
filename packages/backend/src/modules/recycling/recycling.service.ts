@@ -4,23 +4,25 @@
  * Identifies posts that performed well (posted >30 days ago) and creates
  * new draft variants with updated angles/hooks. Avoids exact duplicates via SimHash.
  */
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { SchedulerRegistry } from '@nestjs/schedule';
+import { CronJob } from 'cron';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { PostStatus } from '@prisma/client';
 import { simhash, hammingDistance } from '../generation/simhash.js';
 import { GenerationService } from '../generation/generation.service.js';
 import { parseBool } from '../../infrastructure/config/parse-bool.js';
-import { skipIfOrchestrator } from '../orchestrator/feature-flag.js';
+import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 
 @Injectable()
-export class RecyclingService {
+export class RecyclingService implements OnModuleInit {
   private readonly logger = new Logger(RecyclingService.name);
 
   constructor(
     private readonly prisma: PrismaService,
     // RC3: recycling re-writes content through the generation graph (no verbatim copies).
     private readonly generationService: GenerationService,
+    private readonly schedulerRegistry: SchedulerRegistry,
   ) {}
 
   /**
@@ -103,15 +105,30 @@ export class RecyclingService {
    * Flag-gated cron (default OFF, like the other autonomy features) so enabling auto-recycling
    * is an explicit opt-in. NOTE: until metrics land (AN1), candidate selection is by age, not
    * by real performance — recycled drafts still require approval (auto-approve is separate).
+   *
+   * Dynamically registered (not @Cron) so it is NOT created when orchestrator is enabled.
    */
-  @Cron(process.env.RECYCLING_CRON_SCHEDULE ?? '0 8 * * 1') // weekly, Mon 08:00
-  async recyclingCron(): Promise<void> {
-    if (skipIfOrchestrator()) return; // Orchestrator handles this
+  onModuleInit(): void {
+    if (isOrchestratorEnabled()) {
+      this.logger.log('Orchestrator is enabled — recycling cron NOT registered');
+      return;
+    }
     if (!parseBool(process.env.RECYCLING_CRON_ENABLED ?? 'false')) {
       return;
     }
-    this.logger.log('RC2: scheduled recycling run starting');
-    await this.runRecycling();
+
+    const cronExpr = process.env.RECYCLING_CRON_SCHEDULE ?? '0 8 * * 1';
+    const job = new CronJob(cronExpr, async () => {
+      this.logger.log('RC2: scheduled recycling run starting');
+      await this.runRecycling();
+    });
+    try {
+      this.schedulerRegistry.addCronJob('recycling', job);
+      job.start();
+      this.logger.log(`Recycling cron registered: ${cronExpr}`);
+    } catch {
+      this.logger.warn('SchedulerRegistry not available — recycling cron will not run');
+    }
   }
 
   private async loadRecentHashes(): Promise<string[]> {

@@ -44,7 +44,7 @@ import { QueueFactory } from '../../infrastructure/queue/queue.factory.js';
 import { PostStatus, SocialNetwork, CommentStatus } from '@prisma/client';
 import type { Page } from '../../domain/ports/browser-primitives';
 import { parseBool } from '../../infrastructure/config/parse-bool';
-import { skipIfOrchestrator } from '../orchestrator/feature-flag.js';
+import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 
 export interface ScrapedComment {
   commentId: string;
@@ -97,6 +97,12 @@ export class RepliesMonitorService implements OnModuleInit {
       return;
     }
 
+    // Orchestrator mode: CHECK_REPLIES is handled by the orchestrator decision loop.
+    if (isOrchestratorEnabled()) {
+      this.logger.log('Orchestrator is enabled — replies monitor cron NOT registered');
+      return;
+    }
+
     const job = new CronJob(this.cronSchedule, async () => {
       await this.runMonitoringCycle();
     });
@@ -117,7 +123,6 @@ export class RepliesMonitorService implements OnModuleInit {
    * 3. Process new comments (decide + reply/flag)
    */
   async runMonitoringCycle(): Promise<{ postsChecked: number; commentsScraped: number; repliesPosted: number; humanReview: number }> {
-    if (skipIfOrchestrator()) return { postsChecked: 0, commentsScraped: 0, repliesPosted: 0, humanReview: 0 };
     this.logger.log('Replies monitoring cycle started');
     const stats = { postsChecked: 0, commentsScraped: 0, repliesPosted: 0, humanReview: 0 };
 

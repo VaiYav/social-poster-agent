@@ -26,6 +26,11 @@ const mockBrowsingSessionService = {
   runBrowsingSession: vi.fn().mockResolvedValue({ sessionId: 'test', postsViewed: 10, interactionsCount: 3 }),
 } as unknown as BrowsingSessionService;
 
+const mockSchedulerRegistry = {
+  addCronJob: vi.fn(),
+  deleteCronJob: vi.fn(),
+} as unknown as import('@nestjs/schedule').SchedulerRegistry;
+
 describe('EngagementSchedulerService', () => {
   let service: EngagementSchedulerService;
 
@@ -42,6 +47,7 @@ describe('EngagementSchedulerService', () => {
     service = new EngagementSchedulerService(
       createMockConfigService(),
       mockQueueFactory,
+      mockSchedulerRegistry,
     );
     service.onModuleInit();
     const status = service.getStatus();
@@ -58,6 +64,7 @@ describe('EngagementSchedulerService', () => {
         ENGAGEMENT_SESSION_WINDOWS: '23:59', // far future to avoid scheduling past times
       }),
       mockQueueFactory,
+      mockSchedulerRegistry,
     );
     service.onModuleInit();
     const status = service.getStatus();
@@ -76,6 +83,7 @@ describe('EngagementSchedulerService', () => {
         ENGAGEMENT_SESSIONS_PER_DAY: '1',
       }),
       mockQueueFactory,
+      mockSchedulerRegistry,
     );
     service.onModuleInit();
     // 3 networks * 1 session = 3 enqueueEngagement calls
@@ -92,6 +100,7 @@ describe('EngagementSchedulerService', () => {
         ENGAGEMENT_SESSIONS_PER_DAY: '1',
       }),
       mockQueueFactory,
+      mockSchedulerRegistry,
     );
     service.onModuleInit();
     expect(service.getStatus().pendingSessions).toBe(0);
@@ -106,6 +115,7 @@ describe('EngagementSchedulerService', () => {
         ENGAGEMENT_SESSION_WINDOWS: '23:59',
       }),
       mockQueueFactory,
+      mockSchedulerRegistry,
     );
     service.onModuleInit();
     // Scheduler now uses BullMQ — verify enqueueEngagement was called
@@ -125,6 +135,7 @@ describe('EngagementSchedulerService', () => {
         ENGAGEMENT_NETWORKS: 'X,THREADS',
       }),
       mockQueueFactory,
+      mockSchedulerRegistry,
     );
     const status = service.getStatus();
     expect(status.sessionsPerDay).toBe(2);
@@ -140,6 +151,7 @@ describe('EngagementSchedulerService', () => {
         ENGAGEMENT_NETWORKS: '',
       }),
       mockQueueFactory,
+      mockSchedulerRegistry,
     );
     service.onModuleInit();
     expect(service.getStatus().networks).toEqual([]);
@@ -153,12 +165,13 @@ describe('EngagementSchedulerService', () => {
         ENGAGEMENT_NETWORKS: 'X,INVALID,THREADS',
       }),
       mockQueueFactory,
+      mockSchedulerRegistry,
     );
     const status = service.getStatus();
     expect(status.networks).toEqual(['X', 'THREADS']);
   });
 
-  it('BUG-2: the daily cron re-schedules sessions (engagement does not die after day 1)', () => {
+  it('BUG-2: scheduleDailySessions re-schedules sessions (engagement does not die after day 1)', () => {
     vi.setSystemTime(new Date('2026-06-27T00:00:00Z'));
     service = new EngagementSchedulerService(
       createMockConfigService({
@@ -168,17 +181,18 @@ describe('EngagementSchedulerService', () => {
         ENGAGEMENT_SESSIONS_PER_DAY: '1',
       }),
       mockQueueFactory,
+      mockSchedulerRegistry,
     );
     service.onModuleInit();
     expect(mockQueueFactory.enqueueEngagement).toHaveBeenCalledTimes(1); // start day
     // Simulate the next midnight cron firing — must re-populate the queue.
-    service.scheduleDailySessionsCron();
+    (service as unknown as { scheduleDailySessions: () => void }).scheduleDailySessions();
     expect(mockQueueFactory.enqueueEngagement).toHaveBeenCalledTimes(2);
   });
 
-  it('BUG-2: the daily cron is a no-op when disabled', () => {
-    service = new EngagementSchedulerService(createMockConfigService(), mockQueueFactory);
-    service.scheduleDailySessionsCron();
+  it('BUG-2: scheduleDailySessions is a no-op when disabled', () => {
+    service = new EngagementSchedulerService(createMockConfigService(), mockQueueFactory, mockSchedulerRegistry);
+    (service as unknown as { scheduleDailySessions: () => void }).scheduleDailySessions();
     expect(mockQueueFactory.enqueueEngagement).not.toHaveBeenCalled();
   });
 
@@ -193,6 +207,7 @@ describe('EngagementSchedulerService', () => {
         ENGAGEMENT_JITTER_MINUTES: '0',
       }),
       mockQueueFactory,
+      mockSchedulerRegistry,
     );
     expect(service.getStatus().windows).toEqual(['09:00', '23:59']);
     // The old NaN path threw on .toISOString() and killed the whole tick.

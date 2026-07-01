@@ -20,14 +20,15 @@
  *   `spa:hookbank:updated`         — timestamp of last aggregation
  */
 
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import { Inject, Injectable, Logger, Optional, type OnModuleInit } from '@nestjs/common';
+import { SchedulerRegistry } from '@nestjs/schedule';
+import { CronJob } from 'cron';
 import type { Redis } from 'ioredis';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service.js';
 import { SocialNetwork, PostStatus, Prisma } from '@prisma/client';
 import { parseBool } from '../../infrastructure/config/parse-bool.js';
-import { skipIfOrchestrator } from '../orchestrator/feature-flag.js';
+import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 
 /**
  * Hook techniques — matches the categories in the hook_generation prompt.
@@ -103,22 +104,36 @@ export function classifyHookTechnique(hook: string): HookTechnique {
 }
 
 @Injectable()
-export class HookPerformanceBank {
+export class HookPerformanceBank implements OnModuleInit {
   private readonly logger = new Logger(HookPerformanceBank.name);
 
   constructor(
     @Inject(SHARED_REDIS) private readonly redis: Redis,
+    private readonly schedulerRegistry: SchedulerRegistry,
     @Optional() private readonly prisma?: PrismaService,
   ) {}
 
   /**
    * Daily cron: aggregate hook performance at 7am (after metrics scraper at 6am).
    * Configurable via HOOK_BANK_AGGREGATE_SCHEDULE env var.
+   *
+   * Dynamically registered (not @Cron) so it is NOT created when orchestrator is enabled.
    */
-  @Cron(process.env.HOOK_BANK_AGGREGATE_SCHEDULE ?? '0 7 * * *')
-  async scheduledAggregate(): Promise<void> {
-    if (skipIfOrchestrator()) return; // Orchestrator handles this
-    await this.aggregateStats();
+  onModuleInit(): void {
+    if (isOrchestratorEnabled()) {
+      this.logger.log('Orchestrator is enabled — hook bank aggregation cron NOT registered');
+      return;
+    }
+
+    const cronExpr = process.env.HOOK_BANK_AGGREGATE_SCHEDULE ?? '0 7 * * *';
+    const job = new CronJob(cronExpr, async () => { await this.aggregateStats(); });
+    try {
+      this.schedulerRegistry.addCronJob('hook-bank-aggregate', job);
+      job.start();
+      this.logger.log(`Hook bank aggregation cron registered: ${cronExpr}`);
+    } catch {
+      this.logger.warn('SchedulerRegistry not available — hook bank cron will not run');
+    }
   }
 
   /**

@@ -22,6 +22,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
+import { SchedulerRegistry } from '@nestjs/schedule';
 import { SessionStatus, SocialNetwork } from '@prisma/client';
 
 import { SessionsService } from '../../../src/modules/sessions/sessions.service';
@@ -252,13 +253,13 @@ describe('MOD-04: SessionsService', () => {
 
     // Restore design:paramtypes stripped by esbuild so Nest DI can resolve
     // the type-injected constructor params. Order matches the constructor:
-    //   (prisma, accountsService, browser, configService, encryptionService, discord, redis, emailReader)
+    //   (prisma, accountsService, browser, configService, encryptionService, discord, redis, emailReader, schedulerRegistry)
     // The @Inject(IBrowserPort) token at index 2 overrides whatever is here.
     // Always set — esbuild doesn't emit design:paramtypes, and stale metadata
     // from other test files must be overwritten.
     Reflect.defineMetadata(
       'design:paramtypes',
-      [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService, Object, EmailReaderService],
+      [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService, Object, EmailReaderService, SchedulerRegistry],
       SessionsService,
     );
 
@@ -266,6 +267,7 @@ describe('MOD-04: SessionsService', () => {
     const redis = createMockRedis();
     const emailReader = createMockEmailReader();
     const discord = { sendAlert: vi.fn().mockResolvedValue(undefined), critical: vi.fn().mockResolvedValue(undefined), warning: vi.fn().mockResolvedValue(undefined), info: vi.fn().mockResolvedValue(undefined) } as unknown as DiscordNotificationService;
+    const schedulerRegistry = { addCronJob: vi.fn(), deleteCronJob: vi.fn() } as unknown as SchedulerRegistry;
     const compiled = await Test.createTestingModule({
       providers: [
         SessionsService,
@@ -277,6 +279,7 @@ describe('MOD-04: SessionsService', () => {
         { provide: DiscordNotificationService, useValue: discord },
         { provide: SHARED_REDIS, useValue: redis },
         { provide: EmailReaderService, useValue: emailReader },
+        { provide: SchedulerRegistry, useValue: schedulerRegistry },
       ],
     }).compile();
     module = compiled;
@@ -395,15 +398,10 @@ describe('MOD-04: SessionsService', () => {
     expect(t.prisma.session.create).toHaveBeenCalledTimes(1); // no second login
   });
 
-  it('SE1: refreshSessionsCron is a no-op when deferral is off, and drives logins when on', async () => {
-    const off = await setup({ config: createMockConfigService({ SESSION_DEFERRED_LOGIN: 'false' }) });
-    const offSpy = vi.spyOn(off.service, 'getOrCreateSession').mockResolvedValue(null as never);
-    await off.service.refreshSessionsCron();
-    expect(offSpy).not.toHaveBeenCalled();
-
+  it('SE1: refreshSessions drives logins for all networks when called', async () => {
     const on = await setup({ config: createMockConfigService({ SESSION_DEFERRED_LOGIN: 'true' }) });
     const onSpy = vi.spyOn(on.service, 'getOrCreateSession').mockResolvedValue(null as never);
-    await on.service.refreshSessionsCron();
+    await (on.service as unknown as { refreshSessions: () => Promise<void> }).refreshSessions();
     // One controlled re-login attempt per network (X, THREADS, FACEBOOK).
     expect(onSpy).toHaveBeenCalledTimes(3);
   });

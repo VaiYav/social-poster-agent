@@ -15,12 +15,13 @@
 //   ENGAGEMENT_SESSION_WINDOWS=09:00,13:00,18:00  (base times, jitter applied)
 
 import { Injectable, Logger, type OnModuleInit, type OnModuleDestroy } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import { SchedulerRegistry } from '@nestjs/schedule';
+import { CronJob } from 'cron';
 import { ConfigService } from '@nestjs/config';
 import { SocialNetwork } from '@prisma/client';
 import { QueueFactory } from '../../infrastructure/queue/queue.factory.js';
 import { parseBool } from '../../infrastructure/config/parse-bool';
-import { skipIfOrchestrator } from '../orchestrator/feature-flag.js';
+import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 import { getEnabledNetworks } from '../../domain/enabled-networks.js';
 import type { WorldState } from '../orchestrator/types.js';
 
@@ -38,6 +39,7 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
   constructor(
     private readonly configService: ConfigService,
     private readonly queueFactory: QueueFactory,
+    private readonly schedulerRegistry: SchedulerRegistry,
   ) {
     this.enabled = parseBool(this.configService.get<string>('ENGAGEMENT_SCHEDULER_ENABLED', 'false'));
     this.sessionsPerDay = Number(this.configService.get<string>('ENGAGEMENT_SESSIONS_PER_DAY', '3'));
@@ -61,7 +63,19 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
       return;
     }
 
+    // When orchestrator is enabled, engagement runs in PARALLEL via
+    // checkStaleAndEnqueue() called from the orchestrator observeNode.
+    // The daily cron + scheduleDailySessions are NOT needed.
+    if (isOrchestratorEnabled()) {
+      this.logger.log(
+        'Engagement scheduler: orchestrator is enabled — stale-check runs in parallel, daily cron skipped',
+      );
+      return;
+    }
+
+    // Legacy mode: schedule today's sessions + register daily midnight cron
     this.scheduleDailySessions();
+    this.registerDailyCron();
     this.logger.log(
       `Engagement scheduler started: ${this.sessionsPerDay} sessions/day across ${this.networks.length} networks (via BullMQ)`,
     );
@@ -72,15 +86,19 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
    * scheduled exactly once (onModuleInit, today only) and engagement stopped forever after the
    * start day — the browsing-session worker doesn't enqueue the next one. Guards are re-applied
    * here (they lived only in onModuleInit); BullMQ dedups by jobId so a re-run is safe.
+   *
+   * Dynamically registered (not @Cron) so it is NOT created when orchestrator is enabled.
    */
-  @Cron(process.env.ENGAGEMENT_SCHEDULE_CRON ?? '0 0 * * *')
-  scheduleDailySessionsCron(): void {
-    if (skipIfOrchestrator()) return; // Orchestrator handles this
-    if (!this.enabled || this.networks.length === 0) {
-      return;
+  private registerDailyCron(): void {
+    const cronExpr = process.env.ENGAGEMENT_SCHEDULE_CRON ?? '0 0 * * *';
+    const job = new CronJob(cronExpr, () => this.scheduleDailySessions());
+    try {
+      this.schedulerRegistry.addCronJob('engagement-daily', job);
+      job.start();
+      this.logger.debug(`Engagement daily cron registered: ${cronExpr}`);
+    } catch {
+      this.logger.warn('SchedulerRegistry not available — engagement daily cron will not run');
     }
-    this.logger.log('Engagement daily cron: re-scheduling browsing sessions for today');
-    this.scheduleDailySessions();
   }
 
   onModuleDestroy(): void {
@@ -94,8 +112,13 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
    * Schedule today's browsing sessions for all networks.
    * Each session is enqueued as a BullMQ delayed job with randomized jitter.
    * All networks are scheduled in parallel — each has its own engagement queue.
+   *
+   * No-op when disabled or no networks configured (guards that used to live in
+   * the old scheduleDailySessionsCron wrapper).
    */
   scheduleDailySessions(): void {
+    if (!this.enabled || this.networks.length === 0) return;
+
     const today = new Date();
 
     for (const network of this.networks) {

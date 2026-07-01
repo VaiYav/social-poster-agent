@@ -63,6 +63,7 @@ describe('F6: MetricsScraperService', () => {
     service = new MetricsScraperService(
       prisma as any,
       sse as any,
+      { addCronJob: vi.fn(), deleteCronJob: vi.fn() } as any,
       browser as any,
     );
   });
@@ -75,6 +76,7 @@ describe('F6: MetricsScraperService', () => {
     const noBrowserService = new MetricsScraperService(
       prisma as any,
       sse as any,
+      { addCronJob: vi.fn(), deleteCronJob: vi.fn() } as any,
       undefined as any,
     );
     const result = await noBrowserService.collectMetrics();
@@ -171,21 +173,9 @@ describe('F6: MetricsScraperService', () => {
     expect(result[2].likes).toBe(42);
   });
 
-  it('F6-008: collectMetricsCron() does nothing when METRICS_SCRAPER_ENABLED is not true', async () => {
-    const original = process.env.METRICS_SCRAPER_ENABLED;
-    process.env.METRICS_SCRAPER_ENABLED = 'false';
-    const spy = vi.spyOn(service, 'collectMetrics');
-    await service.collectMetricsCron();
-    expect(spy).not.toHaveBeenCalled();
-    process.env.METRICS_SCRAPER_ENABLED = original;
-  });
-
-  it('F6-009: collectMetricsCron() runs when METRICS_SCRAPER_ENABLED is true', async () => {
-    const original = process.env.METRICS_SCRAPER_ENABLED;
-    process.env.METRICS_SCRAPER_ENABLED = 'true';
+  it('F6-008: collectMetrics() can be called directly (cron registration is in onModuleInit)', async () => {
     prisma.post.findMany.mockResolvedValue([]);
-    await service.collectMetricsCron();
-    // collectMetrics was called (no posts → 0 collected)
-    process.env.METRICS_SCRAPER_ENABLED = original;
+    const result = await service.collectMetrics();
+    expect(result.collected).toBe(0);
   });
 });

@@ -38,7 +38,8 @@ describe('RecyclingService (RC2/RC3)', () => {
   beforeEach(() => {
     prisma = mockPrisma();
     gen = mockGeneration();
-    service = new RecyclingService(prisma, gen);
+    const schedulerRegistry = { addCronJob: vi.fn(), deleteCronJob: vi.fn() } as unknown as import('@nestjs/schedule').SchedulerRegistry;
+    service = new RecyclingService(prisma, gen, schedulerRegistry);
   });
 
   afterEach(() => {
@@ -59,16 +60,9 @@ describe('RecyclingService (RC2/RC3)', () => {
     expect(await service.recyclePost('missing')).toBeNull();
   });
 
-  it('RC2 cron: skips when RECYCLING_CRON_ENABLED is not "true"', async () => {
+  it('RC2: runRecycling can be called directly (cron registration is in onModuleInit)', async () => {
     const spy = vi.spyOn(service, 'runRecycling');
-    await service.recyclingCron();
-    expect(spy).not.toHaveBeenCalled();
-  });
-
-  it('RC2 cron: runs recycling when explicitly enabled', async () => {
-    process.env.RECYCLING_CRON_ENABLED = 'true';
-    const spy = vi.spyOn(service, 'runRecycling');
-    await service.recyclingCron();
+    await service.runRecycling();
     expect(spy).toHaveBeenCalledTimes(1);
   });
 });

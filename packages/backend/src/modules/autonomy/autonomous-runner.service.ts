@@ -13,8 +13,9 @@
  * Schedule: configurable via AUTONOMOUS_RUNNER_SCHEDULE (default: every 4 hours).
  * Feature flag: AUTONOMOUS_RUNNER_ENABLED (default: false).
  */
-import { Injectable, Logger, Inject } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import { Injectable, Logger, Inject, type OnModuleInit } from '@nestjs/common';
+import { SchedulerRegistry } from '@nestjs/schedule';
+import { CronJob } from 'cron';
 import { ConfigService } from '@nestjs/config';
 import { SocialNetwork, PostStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -23,12 +24,12 @@ import { FlowControlService } from '../flow-control/flow-control.service';
 import { AutoApproveService } from './auto-approve.service';
 import { ModuleRef } from '@nestjs/core';
 import { parseBool } from '../../infrastructure/config/parse-bool';
-import { skipIfOrchestrator } from '../orchestrator/feature-flag.js';
+import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 import { IPostingQueuePort } from '../../domain/ports/posting-queue.port.js';
 import { parseTargetNetworks } from './parse-networks';
 
 @Injectable()
-export class AutonomousRunnerService {
+export class AutonomousRunnerService implements OnModuleInit {
   private readonly logger = new Logger(AutonomousRunnerService.name);
   private readonly enabled: boolean;
   private readonly postsPerRun: number;
@@ -44,6 +45,7 @@ export class AutonomousRunnerService {
     private readonly autoApprove: AutoApproveService,
     private readonly moduleRef: ModuleRef,
     @Inject(IPostingQueuePort) private readonly postingQueue: IPostingQueuePort,
+    private readonly schedulerRegistry: SchedulerRegistry,
   ) {
     this.enabled = parseBool(this.configService.get<string>('AUTONOMOUS_RUNNER_ENABLED', 'false'));
     this.postsPerRun = Number(this.configService.get<string>('AUTONOMOUS_POSTS_PER_RUN', '3'));
@@ -63,10 +65,28 @@ export class AutonomousRunnerService {
   /**
    * Cron-driven autonomous cycle.
    * Default: every 4 hours. Configurable via AUTONOMOUS_RUNNER_SCHEDULE.
+   *
+   * Dynamically registered (not @Cron) so it is NOT created when orchestrator is enabled.
    */
-  @Cron(process.env.AUTONOMOUS_RUNNER_SCHEDULE ?? '0 */4 * * *')
+  onModuleInit(): void {
+    if (isOrchestratorEnabled()) {
+      this.logger.log('Orchestrator is enabled — autonomous runner cron NOT registered');
+      return;
+    }
+    if (!this.enabled) return;
+
+    const cronExpr = process.env.AUTONOMOUS_RUNNER_SCHEDULE ?? '0 */4 * * *';
+    const job = new CronJob(cronExpr, async () => { await this.runAutonomousCycle(); });
+    try {
+      this.schedulerRegistry.addCronJob('autonomous-runner', job);
+      job.start();
+      this.logger.log(`Autonomous runner cron registered: ${cronExpr}`);
+    } catch {
+      this.logger.warn('SchedulerRegistry not available — autonomous runner cron will not run');
+    }
+  }
+
   async runAutonomousCycle(): Promise<void> {
-    if (skipIfOrchestrator()) return; // Orchestrator handles this
     if (!this.enabled) return;
 
     // Check flow control

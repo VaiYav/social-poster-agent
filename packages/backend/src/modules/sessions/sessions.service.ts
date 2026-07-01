@@ -1,5 +1,6 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { SchedulerRegistry } from '@nestjs/schedule';
+import { CronJob } from 'cron';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AccountsService } from '../accounts/accounts.service';
@@ -10,7 +11,7 @@ import { SessionStatus, SocialNetwork, type Prisma } from '@prisma/client';
 import { withRetry, navigateWithRetry, type RetryOptions } from '../../domain/retry.js';
 import { CircuitBreakerRegistry, CircuitOpenError } from '../../domain/circuit-breaker.js';
 import { parseBool } from '../../infrastructure/config/parse-bool';
-import { skipIfOrchestrator } from '../orchestrator/feature-flag.js';
+import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
 import { EmailReaderService } from '../../infrastructure/email/email-reader.service.js';
 
@@ -23,7 +24,7 @@ import { EmailReaderService } from '../../infrastructure/email/email-reader.serv
  * - Auto-login: if session expired, login from env credentials (OQ-8: auto-login)
  */
 @Injectable()
-export class SessionsService {
+export class SessionsService implements OnModuleInit {
   private readonly logger = new Logger(SessionsService.name);
   // In-memory lock per network to prevent race conditions in session creation.
   // If two concurrent calls try to create a session for the same network, the second
@@ -109,6 +110,7 @@ export class SessionsService {
     private readonly discord: DiscordNotificationService,
     @Inject(SHARED_REDIS) private readonly redis: InstanceType<typeof import('ioredis').default>,
     private readonly emailReader: EmailReaderService,
+    private readonly schedulerRegistry: SchedulerRegistry,
   ) {
     // Default 0 = cooldown disabled (opt-in). Operators set FORM_LOGIN_COOLDOWN_MS in prod
     // (e.g. 1800000 = 30 min) to throttle the riskiest action; keeping it off by default
@@ -244,11 +246,28 @@ export class SessionsService {
    * form-logs-in inline — it defers. This cron proactively (re)establishes a session per network
    * off the posting path, subject to the same cookie-first + cooldown + circuit-breaker + alert
    * guards in getOrCreateSession. No-op when deferral is off (current inline behavior).
+   *
+   * Dynamically registered (not @Cron) so it is NOT created when orchestrator is enabled.
    */
-  @Cron(process.env.SESSION_RELOGIN_CRON ?? '*/15 * * * *')
-  async refreshSessionsCron(): Promise<void> {
-    if (skipIfOrchestrator()) return; // Orchestrator handles this
+  onModuleInit(): void {
+    if (isOrchestratorEnabled()) {
+      this.logger.log('Orchestrator is enabled — session relogin cron NOT registered');
+      return;
+    }
     if (!this.deferredLogin) return;
+
+    const cronExpr = process.env.SESSION_RELOGIN_CRON ?? '*/15 * * * *';
+    const job = new CronJob(cronExpr, async () => { await this.refreshSessions(); });
+    try {
+      this.schedulerRegistry.addCronJob('session-relogin', job);
+      job.start();
+      this.logger.log(`Session relogin cron registered: ${cronExpr}`);
+    } catch {
+      this.logger.warn('SchedulerRegistry not available — session relogin cron will not run');
+    }
+  }
+
+  private async refreshSessions(): Promise<void> {
     for (const network of Object.values(SocialNetwork)) {
       try {
         await this.getOrCreateSession(network); // no deferFormLogin → controlled form login allowed here

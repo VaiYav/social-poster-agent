@@ -6,7 +6,7 @@ import { GenerationService } from './generation.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { GenerationTrigger } from '@prisma/client';
 import { parseBool } from '../../infrastructure/config/parse-bool';
-import { skipIfOrchestrator } from '../orchestrator/feature-flag.js';
+import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 
 /**
  * Cron service — triggers generation on schedule.
@@ -38,6 +38,13 @@ export class CronService implements OnModuleInit {
       return;
     }
 
+    // Orchestrator mode: generation is handled by the orchestrator decision loop,
+    // no cron needed.
+    if (isOrchestratorEnabled()) {
+      this.logger.log('Orchestrator is enabled — generation cron NOT registered');
+      return;
+    }
+
     // B4: Register dynamic cron job from env
     const cronExpr = this.configService?.get<string>(
       'CRON_GENERATION_SCHEDULE',
@@ -55,7 +62,6 @@ export class CronService implements OnModuleInit {
   }
 
   async handleCronGeneration(): Promise<void> {
-    if (skipIfOrchestrator()) return; // Orchestrator handles this
     this.logger.log('Cron generation triggered');
     try {
       const runId = await this.generationService.generate(
