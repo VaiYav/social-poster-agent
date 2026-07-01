@@ -47,8 +47,12 @@ export class SessionsService {
       // "Log in" button — submits the password step
       submitButton: '[data-testid="LoginForm_Login_Button"], button[role="button"]:has-text("Log in"), div[role="button"]:has-text("Log in"), button[type="submit"]',
       // 2FA / identity verification input (stealth-x Step 1.5 / Step 3)
-      // X uses ocfEnterTextTextInput for both 2FA code and "enter phone/email to verify identity"
-      twoFactorInput: 'input[data-testid="ocfEnterTextTextInput"], input[name="text"][type="text"]',
+      // Confirmed via production DOM dump on the real verify_code screen: the actual field is
+      // input[name="code"][type="text"] — neither ocfEnterTextTextInput nor name="text" matched
+      // anything (the page still has the prior step's now-hidden username_or_email/password
+      // inputs mounted, but none named "text"), which is why fill() timed out despite has2FA
+      // correctly detecting the challenge via URL.
+      twoFactorInput: 'input[name="code"][type="text"], input[data-testid="ocfEnterTextTextInput"], input[name="text"][type="text"]',
       twoFactorConfirm: '[data-testid="ocfEnterTextNextButton"], button[role="button"]:has-text("Next"), div[role="button"]:has-text("Next")',
       // Account switcher — most reliable logged-in indicator (stealth-x checkLoggedIn)
       // aria-label format: "Account menu, Accounts: @username"
