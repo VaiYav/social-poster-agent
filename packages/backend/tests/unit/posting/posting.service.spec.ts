@@ -218,6 +218,11 @@ describe('MOD-03: PostingService', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('already being posted');
+    // Not retryable: with concurrency=1 + jobId=postId, this branch is only reached via
+    // BullMQ's stalled-job recovery re-dispatching a job whose original worker died
+    // mid-post — nothing will ever move the post out of POSTING from outside, so retrying
+    // would just burn the full retry budget returning this exact result every time.
+    expect(result.retryable).toBe(false);
     // No further processing
     expect(ctx.rateLimitService.checkRateLimit).not.toHaveBeenCalled();
     expect(ctx.browser.acquireContext).not.toHaveBeenCalled();

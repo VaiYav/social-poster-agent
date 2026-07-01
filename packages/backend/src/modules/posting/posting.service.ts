@@ -82,7 +82,17 @@ export class PostingService {
       return { success: true, url: post.postUrl ?? undefined };
     }
     if (post.status === PostStatus.POSTING) {
-      return { success: false, error: 'Post is already being posted' };
+      // With concurrency=1 and jobId=postId, the only way this branch is reached is
+      // BullMQ's stalled-job recovery re-dispatching a job whose original worker died
+      // mid-post (e.g. a redeploy) without ever transitioning the post out of POSTING.
+      // Nothing will ever change that status from outside this method, so — same as
+      // FAILED/REJECTED above — retrying just burns the full postingMaxRetries budget
+      // returning this exact message every time. Confirmed live: job attempts 5/8 with
+      // no progress. Not marking the post FAILED here (only stopping the retry): the
+      // original invocation could still be genuinely in-flight, and writing FAILED from
+      // this branch could race with its own eventual POSTED/FAILED update.
+      this.logger.warn(`Post ${postId} is already POSTING — not retrying (likely orphaned by a worker restart)`);
+      return { success: false, error: 'Post is already being posted', retryable: false };
     }
     // FAILED/REJECTED are terminal — a prior attempt already resolved this post, and
     // retrying postById() on the same postId (BullMQ jobId = postId) will hit this exact
