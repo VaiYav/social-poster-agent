@@ -33,7 +33,7 @@ import { OrchestratorEvents } from '../../events/enums/post-events.enum.js';
 const THREAD_ID = 'orchestrator';
 const HEARTBEAT_KEY_DEFAULT = 'spa:orchestrator:heartbeat';
 const HEARTBEAT_TTL_MS_DEFAULT = 600_000;
-const CHECKPOINT_KEY_PREFIX = 'checkpoint:orchestrator';
+const CHECKPOINT_KEY_PREFIX = 'spa:checkpoint'; // must match RedisCheckpointSaver.prefix
 
 @Injectable()
 export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
