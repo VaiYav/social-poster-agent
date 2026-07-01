@@ -21,7 +21,7 @@ export class DbContentReader {
       const rows = await this.prisma.topic.findMany({
         where: { status: 'active' },
         orderBy: [{ createdAt: 'desc' }],
-        take: limit,
+        take: Number(limit) || 5,
       });
 
       const topics: ContentTopic[] = rows.map((r) => ({

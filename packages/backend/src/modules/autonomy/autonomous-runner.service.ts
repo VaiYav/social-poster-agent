@@ -45,9 +45,9 @@ export class AutonomousRunnerService {
     @Inject(IPostingQueuePort) private readonly postingQueue: IPostingQueuePort,
   ) {
     this.enabled = parseBool(this.configService.get<string>('AUTONOMOUS_RUNNER_ENABLED', 'false'));
-    this.postsPerRun = this.configService.get<number>('AUTONOMOUS_POSTS_PER_RUN', 3);
-    this.postingDelayMinMs = this.configService.get<number>('AUTONOMOUS_POSTING_DELAY_MIN_MS', 600000); // 10 min
-    this.postingDelayMaxMs = this.configService.get<number>('AUTONOMOUS_POSTING_DELAY_MAX_MS', 3600000); // 1 hour
+    this.postsPerRun = Number(this.configService.get<string>('AUTONOMOUS_POSTS_PER_RUN', '3'));
+    this.postingDelayMinMs = Number(this.configService.get<string>('AUTONOMOUS_POSTING_DELAY_MIN_MS', '600000')); // 10 min
+    this.postingDelayMaxMs = Number(this.configService.get<string>('AUTONOMOUS_POSTING_DELAY_MAX_MS', '3600000')); // 1 hour
 
     // AU4: parse + validate target networks from env (default: all three). Unknown tokens are
     // dropped (not cast blindly) so a typo can't create a never-drained queue.

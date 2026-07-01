@@ -904,15 +904,21 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
     const merged = await this.trendingScraper.getMergedTrending(astroTopics);
 
     // Convert to ContentTopic format
-    return merged.slice(0, limit).map((t) => ({
-      sourceType: 'topic' as const,
-      path: `trending/${t.sources.join('+')}`,
-      topic: t.topic,
-      keywords: t.sources, // use sources as keywords for LLM context
-      facts: [],
-      category: 'trending',
-      publishedAt: t.scrapedAt ?? new Date(),
-    }));
+    return merged.slice(0, limit).map((t) => {
+      // Include topic slug in path so dedup is per-topic, not per-source
+      // (otherwise all Google Trends topics share "trending/google_trends" and
+      // only the first one ever gets posted)
+      const slug = t.topic.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 50);
+      return {
+        sourceType: 'topic' as const,
+        path: `trending/${t.sources.join('+')}/${slug}`,
+        topic: t.topic,
+        keywords: t.sources, // use sources as keywords for LLM context
+        facts: [],
+        category: 'trending',
+        publishedAt: t.scrapedAt ?? new Date(),
+      };
+    });
   }
 
   private prioritizeTopics(topics: ContentTopic[], count: number): ContentTopic[] {
