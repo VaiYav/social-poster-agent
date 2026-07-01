@@ -32,6 +32,8 @@ interface CircuitBreakerState {
   failures: number;
   lastFailureAt: number;
   tripped: boolean;
+  /** Set when the last failure was a terminal (auth/billing) error — see recordFailure(). */
+  terminal: boolean;
 }
 
 /** Sprint J: Cache entry for content caching. */
@@ -65,7 +67,8 @@ export class LlmService implements ILlmPort, OnModuleInit {
   // Sprint J: Circuit breaker — per-provider failure tracking
   private readonly circuitBreakers = new Map<string, CircuitBreakerState>();
   private readonly cbThreshold: number; // failures before tripping
-  private readonly cbCooldownMs: number; // cooldown after tripping
+  private readonly cbCooldownMs: number; // cooldown after tripping (transient failures)
+  private readonly cbTerminalCooldownMs: number; // cooldown after a terminal (401/402/403) failure
 
   // Sprint J: Response cache — avoids re-calling LLM for identical prompts
   private readonly cache = new Map<string, CacheEntry>();
@@ -82,6 +85,9 @@ export class LlmService implements ILlmPort, OnModuleInit {
   ) {
     this.cbThreshold = this.configService.get<number>('LLM_CB_THRESHOLD', 3);
     this.cbCooldownMs = this.configService.get<number>('LLM_CB_COOLDOWN_MS', 60_000);
+    // Auth/billing errors (401/402/403) are permanent until a human acts (rotate a key, top up
+    // balance) — retrying every cbCooldownMs just repeats the same failure. Default 6h.
+    this.cbTerminalCooldownMs = this.configService.get<number>('LLM_CB_TERMINAL_COOLDOWN_MS', 6 * 60 * 60 * 1000);
     this.cacheTtlMs = this.configService.get<number>('LLM_CACHE_TTL_MS', 300_000); // 5 min
     this.cacheMaxSize = this.configService.get<number>('LLM_CACHE_MAX_SIZE', 100);
   }
@@ -275,10 +281,12 @@ export class LlmService implements ILlmPort, OnModuleInit {
   private isProviderAvailable(providerName: string): boolean {
     const cb = this.circuitBreakers.get(providerName);
     if (!cb || !cb.tripped) return true;
-    // Check if cooldown has elapsed
-    if (Date.now() - cb.lastFailureAt > this.cbCooldownMs) {
+    // Terminal (auth/billing) failures get a much longer cooldown than transient ones.
+    const cooldownMs = cb.terminal ? this.cbTerminalCooldownMs : this.cbCooldownMs;
+    if (Date.now() - cb.lastFailureAt > cooldownMs) {
       cb.tripped = false;
       cb.failures = 0;
+      cb.terminal = false;
       this.logger.log(`Circuit breaker reset for ${providerName} (cooldown elapsed)`);
       return true;
     }
@@ -286,20 +294,38 @@ export class LlmService implements ILlmPort, OnModuleInit {
   }
 
   /**
-   * Sprint J: Record a provider failure in the circuit breaker.
+   * Detect auth/billing errors (401/402/403) that are permanent until a human acts —
+   * as opposed to transient errors (429/5xx/timeouts) worth retrying soon.
    */
-  private recordFailure(providerName: string): void {
+  private isTerminalLlmError(err: unknown): boolean {
+    const status = (err as { status?: number; statusCode?: number })?.status
+      ?? (err as { status?: number; statusCode?: number })?.statusCode;
+    if (status === 401 || status === 402 || status === 403) return true;
+    const message = (err as Error)?.message ?? '';
+    return /^\s*(401|402|403)\b/.test(message);
+  }
+
+  /**
+   * Sprint J: Record a provider failure in the circuit breaker.
+   * Terminal (auth/billing) failures trip the breaker immediately (no point waiting for
+   * cbThreshold — the same key/balance issue will fail on every subsequent call too) and
+   * use the much longer cbTerminalCooldownMs cooldown.
+   */
+  private recordFailure(providerName: string, terminal = false): void {
     const cb = this.circuitBreakers.get(providerName) ?? {
       failures: 0,
       lastFailureAt: 0,
       tripped: false,
+      terminal: false,
     };
     cb.failures += 1;
     cb.lastFailureAt = Date.now();
-    if (cb.failures >= this.cbThreshold && !cb.tripped) {
+    cb.terminal = terminal;
+    if ((terminal || cb.failures >= this.cbThreshold) && !cb.tripped) {
       cb.tripped = true;
+      const cooldownMs = terminal ? this.cbTerminalCooldownMs : this.cbCooldownMs;
       this.logger.warn(
-        `Circuit breaker TRIPPED for ${providerName} (${cb.failures} failures) — cooldown ${this.cbCooldownMs}ms`,
+        `Circuit breaker TRIPPED for ${providerName} (${cb.failures} failures${terminal ? ', terminal' : ''}) — cooldown ${cooldownMs}ms`,
       );
     }
     this.circuitBreakers.set(providerName, cb);
@@ -470,7 +496,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
       } catch (err) {
         const msg = (err as Error).message;
         errors.push(`${provider.name}: ${msg}`);
-        this.recordFailure(provider.name);
+        this.recordFailure(provider.name, this.isTerminalLlmError(err));
         this.logger.warn(
           `LLM provider ${provider.name} failed: ${msg.slice(0, 120)}`,
         );
