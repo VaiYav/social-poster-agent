@@ -34,8 +34,16 @@ export class GuardrailsService {
       }
     }
 
-    // G4: POST/BROWSE require active session
+    // G4: POST/BROWSE require active session — but check flow-pause for the *original*
+    // action type first. Otherwise a paused posting/engagement/replies flow doesn't stop
+    // the resulting RECOVER_SESSION action (RECOVER_SESSION has no flow of its own to
+    // pause — see isFlowPausedForAction's default case), so recovery attempts (and the
+    // browser contexts/logins they spawn) would keep firing on their cooldown regardless
+    // of Flow Control, defeating the operator's intent to silence that network.
     if ((action.type === 'POST' || action.type === 'BROWSE') && action.network) {
+      if (this.isFlowPausedForAction(action, world)) {
+        return WAIT_ACTION(`Flow paused for ${action.type}`, 60000, 'guardrail_override');
+      }
       const session = world.sessions[action.network];
       if (session && session.status !== 'ACTIVE') {
         return RECOVER_ACTION(action.network, `Session ${action.network} not active (was ${action.type})`);
@@ -52,7 +60,8 @@ export class GuardrailsService {
 
     // G6: Max actions per hour — handled by DecisionEngine (needs Redis)
 
-    // G7: Flow control paused for specific action
+    // G7: Flow control paused for specific action (covers action types not already
+    // gated by G4 above, e.g. GENERATE_*, RECYCLE_CONTENT, CHECK_REPLIES)
     if (this.isFlowPausedForAction(action, world)) {
       return WAIT_ACTION(`Flow paused for ${action.type}`, 60000, 'guardrail_override');
     }
