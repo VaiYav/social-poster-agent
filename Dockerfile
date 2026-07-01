@@ -131,32 +131,6 @@ RUN CMX=$(find /app/node_modules/.pnpm -maxdepth 5 -path '*/camoufox-js/dist/pkg
             fi' || true; \
     fi
 
-# Pre-download the GeoIP (GeoLite2-City.mmdb) database during build, same rationale as the
-# Camoufox binary above. Without this, CAMOUFOX_GEOIP=true makes every container cold-start
-# race to download this file at runtime via camoufox-js's getGeolocation() — concurrent
-# browser launches (e.g. X + Facebook both starting near restart) can both miss the
-# fs.existsSync() check and write the same file concurrently, corrupting it. A corrupted
-# MMDB then fails every subsequent parse with "Invalid Extended Type at offset N val M"
-# (maxmind package's binary decoder erroring on a truncated/interleaved file) until the
-# container restarts again. Baking it into the image at build time removes the race entirely.
-RUN LOCALE_JS=$(find /app/node_modules/.pnpm -maxdepth 5 -path '*/camoufox-js/dist/locale.js' | head -1) && \
-    if [ -n "$LOCALE_JS" ]; then \
-        su spa -s /bin/sh -c '\
-            for attempt in 1 2 3; do \
-                echo "[GeoIP pre-install] attempt $attempt/3..."; \
-                LOCALE_JS="'"$LOCALE_JS"'" node -e "const{downloadMMDB}=require(process.env.LOCALE_JS);downloadMMDB().then(()=>{console.log(\"GeoIP database pre-installed OK\");process.exit(0)}).catch(e=>{console.log(\"attempt $attempt failed: \"+e.message);process.exit(1)})" 2>&1 && break; \
-                echo "[GeoIP pre-install] attempt $attempt failed, sleeping before retry..."; \
-                sleep $((attempt * 10)); \
-            done; \
-            if [ -f /home/spa/.cache/camoufox/GeoLite2-City.mmdb ]; then \
-                echo "[GeoIP pre-install] verified: GeoLite2-City.mmdb present"; \
-            else \
-                echo "[GeoIP pre-install] all attempts failed — will retry at runtime (race-prone but non-fatal)"; \
-            fi' || true; \
-    else \
-        echo "[GeoIP pre-install] WARNING: locale.js not found — will retry at runtime."; \
-    fi
-
 USER spa
 
 EXPOSE 3100
