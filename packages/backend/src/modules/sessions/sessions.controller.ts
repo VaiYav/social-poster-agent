@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Query, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Query, HttpCode, HttpStatus, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { SessionsService } from './sessions.service';
 
@@ -22,5 +22,29 @@ export class SessionsController {
   @ApiResponse({ status: 200, description: 'Health check result' })
   async healthCheck(@Query('network') network: 'X' | 'THREADS' | 'FACEBOOK') {
     return this.sessionsService.healthCheck(network);
+  }
+
+  @Post('verify-code')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Submit a verification/2FA code for an ongoing login attempt',
+    description:
+      'When X (or another network) sends a verification code via email during auto-login, ' +
+      'submit it here. The login flow polls Redis for this code and enters it into the browser. ' +
+      'Code expires in 5 minutes.',
+  })
+  @ApiQuery({ name: 'network', required: true, enum: ['X', 'THREADS', 'FACEBOOK'] })
+  @ApiQuery({ name: 'code', required: true, description: 'Verification code from email/SMS' })
+  @ApiResponse({ status: 200, description: 'Code stored successfully' })
+  @ApiResponse({ status: 400, description: 'Missing network or code' })
+  async submitVerifyCode(
+    @Query('network') network: 'X' | 'THREADS' | 'FACEBOOK',
+    @Query('code') code: string,
+  ) {
+    if (!network || !code) {
+      throw new BadRequestException('Both network and code are required');
+    }
+    await this.sessionsService.setVerificationCode(network, code.trim());
+    return { success: true, message: `Verification code stored for ${network} — login flow will pick it up` };
   }
 }

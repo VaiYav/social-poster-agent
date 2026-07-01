@@ -30,11 +30,23 @@ import { PrismaService } from '../../../src/infrastructure/prisma/prisma.service
 import { EncryptionService } from '../../../src/infrastructure/crypto/encryption.service.js';
 import { DiscordNotificationService } from '../../../src/infrastructure/notifications/discord-notification.service.js';
 import { IBrowserPort } from '../../../src/domain/ports/browser.port.js';
+import { SHARED_REDIS } from '../../../src/infrastructure/redis/redis.module.js';
 import {
   createMockPrismaService,
   createMockBrowserPort,
   createMockEncryptionService,
 } from '../../mocks/index';
+
+// ── Redis mock ──
+function createMockRedis() {
+  const store = new Map<string, string>();
+  return {
+    get: vi.fn((key: string) => Promise.resolve(store.get(key) ?? null)),
+    set: vi.fn((key: string, value: string) => { store.set(key, value); return Promise.resolve('OK'); }),
+    del: vi.fn((key: string) => { store.delete(key); return Promise.resolve(1); }),
+    _store: store,
+  };
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -172,12 +184,13 @@ async function buildModule(opts: {
   const accounts = opts.accounts ?? createMockAccountsService();
   const config = opts.config ?? createMockConfigService();
   const encryption = createMockEncryptionService();
+  const redis = createMockRedis();
   const discord = { sendAlert: vi.fn().mockResolvedValue(undefined), critical: vi.fn().mockResolvedValue(undefined), warning: vi.fn().mockResolvedValue(undefined), info: vi.fn().mockResolvedValue(undefined) } as unknown as DiscordNotificationService;
 
   // Restore design:paramtypes — always set (esbuild doesn't emit them)
   Reflect.defineMetadata(
     'design:paramtypes',
-    [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService],
+    [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService, Object],
     SessionsService,
   );
 
@@ -190,6 +203,7 @@ async function buildModule(opts: {
       { provide: ConfigService, useValue: config },
       { provide: EncryptionService, useValue: encryption },
       { provide: DiscordNotificationService, useValue: discord },
+      { provide: SHARED_REDIS, useValue: redis },
     ],
   }).compile();
 
@@ -227,17 +241,18 @@ describe('MOD-04: SessionsService', () => {
 
     // Restore design:paramtypes stripped by esbuild so Nest DI can resolve
     // the type-injected constructor params. Order matches the constructor:
-    //   (prisma, accountsService, browser, configService, encryptionService, discord)
+    //   (prisma, accountsService, browser, configService, encryptionService, discord, redis)
     // The @Inject(IBrowserPort) token at index 2 overrides whatever is here.
     // Always set — esbuild doesn't emit design:paramtypes, and stale metadata
     // from other test files must be overwritten.
     Reflect.defineMetadata(
       'design:paramtypes',
-      [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService],
+      [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService, Object],
       SessionsService,
     );
 
     const encryption = createMockEncryptionService();
+    const redis = createMockRedis();
     const discord = { sendAlert: vi.fn().mockResolvedValue(undefined), critical: vi.fn().mockResolvedValue(undefined), warning: vi.fn().mockResolvedValue(undefined), info: vi.fn().mockResolvedValue(undefined) } as unknown as DiscordNotificationService;
     const compiled = await Test.createTestingModule({
       providers: [
@@ -248,6 +263,7 @@ describe('MOD-04: SessionsService', () => {
         { provide: ConfigService, useValue: cfg },
         { provide: EncryptionService, useValue: encryption },
         { provide: DiscordNotificationService, useValue: discord },
+        { provide: SHARED_REDIS, useValue: redis },
       ],
     }).compile();
     module = compiled;
@@ -1493,7 +1509,7 @@ describe('MOD-04: SessionsService', () => {
 
   // ── X 2FA in headless mode ─────────────────────────────────────────────────
 
-  it('UTC-108: autoLogin() X — 2FA challenge detected in headless mode → returns null, sends discord alert', async () => {
+  it('UTC-108: autoLogin() X — 2FA challenge in headless mode → waits for code via API, returns null on timeout', async () => {
     prisma.session.findFirst.mockResolvedValue(null);
 
     // Create page where 2FA input IS visible (override default mock that hides it)
@@ -1525,17 +1541,20 @@ describe('MOD-04: SessionsService', () => {
     });
     const warnSpy = vi.spyOn(t.service['logger'], 'warn');
 
+    // Mock waitForVerificationCode to return null immediately (simulates timeout)
+    vi.spyOn(t.service, 'waitForVerificationCode').mockResolvedValue(null);
+
     const result = await t.service.getOrCreateSession(SocialNetwork.X);
 
     expect(result).toBeNull();
     expect(page.close).toHaveBeenCalled();
     expect(t.prisma.session.create).not.toHaveBeenCalled();
     // 2FA detected warning
-    const twoFAWarn = warnSpy.mock.calls.find((c) => /two-factor/i.test(String(c[0])));
+    const twoFAWarn = warnSpy.mock.calls.find((c) => /two-factor|2FA/i.test(String(c[0])));
     expect(twoFAWarn).toBeTruthy();
-    // Discord critical alert sent
-    const discord = t.service['discord'] as { critical: ReturnType<typeof vi.fn> };
-    expect(discord.critical).toHaveBeenCalled();
+    // Discord warning sent (not critical — it's a "code needed" alert)
+    const discord = t.service['discord'] as { warning: ReturnType<typeof vi.fn> };
+    expect(discord.warning).toHaveBeenCalled();
   });
 
   // ── Facebook: no c_user cookie → proceed with login (log message) ──────────

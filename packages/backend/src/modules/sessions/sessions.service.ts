@@ -10,6 +10,7 @@ import { SessionStatus, SocialNetwork, type Prisma } from '@prisma/client';
 import { withRetry, navigateWithRetry, type RetryOptions } from '../../domain/retry.js';
 import { CircuitBreakerRegistry, CircuitOpenError } from '../../domain/circuit-breaker.js';
 import { parseBool } from '../../infrastructure/config/parse-bool';
+import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
 
 /**
  * Session manager — persistent browser sessions via Playwright storageState.
@@ -100,6 +101,7 @@ export class SessionsService {
     private readonly configService: ConfigService,
     private readonly encryptionService: EncryptionService,
     private readonly discord: DiscordNotificationService,
+    @Inject(SHARED_REDIS) private readonly redis: InstanceType<typeof import('ioredis').default>,
   ) {
     // Default 0 = cooldown disabled (opt-in). Operators set FORM_LOGIN_COOLDOWN_MS in prod
     // (e.g. 1800000 = 30 min) to throttle the riskiest action; keeping it off by default
@@ -763,21 +765,52 @@ export class SessionsService {
             }
             await this.browser.randomDelay(3000, 5000);
           } else {
-            this.logger.error(`X: 2FA challenge — manual intervention needed (re-run with CAMOUFOX_HEADLESS=false)`);
-            await this.browser.screenshot(page, network, 'on-error');
-            await page.close();
+            // Headless mode: wait for operator to submit the verification code via API
+            // POST /api/v1/sessions/verify-code?network=X&code=123456
+            this.logger.warn(`X: 2FA challenge in headless mode — waiting for verification code via API`);
             void this.discord
-              .critical(
-                'X Login 2FA Detected — Manual Intervention Needed',
-                `Auto-login for **X** hit a 2FA challenge. The account cannot be logged in automatically.`,
-                [
-                  { name: 'Network', value: 'X', inline: true },
-                  { name: 'Challenge', value: 'Two-factor authentication' },
-                  { name: 'Action Needed', value: 'Re-run with CAMOUFOX_HEADLESS=false and enter the 2FA code in the browser window.' },
-                ],
+              .warning(
+                'X Login 2FA — Verification Code Needed',
+                `Auto-login for **X** hit a 2FA challenge. Submit the code from your email via:\n` +
+                  '`POST /api/v1/sessions/verify-code?network=X&code=<CODE>`\n' +
+                  'The login flow will wait up to 120 seconds for the code.',
               )
               .catch(() => void 0);
-            return null;
+
+            const code = await this.waitForVerificationCode(network, 120000);
+            if (!code) {
+              this.logger.error(`X: 2FA timed out — no verification code submitted within 120s`);
+              await this.browser.screenshot(page, network, 'on-error');
+              await page.close();
+              return null;
+            }
+
+            // Enter the code into the 2FA input field
+            this.logger.log(`X: entering verification code into 2FA field`);
+            await twoFAInput.fill(code);
+            await this.browser.randomDelay(500, 1500);
+
+            // Click the confirm/next button
+            const twoFAConfirm = page.locator(selectors.twoFactorConfirm).first();
+            const hasConfirm = await twoFAConfirm.isVisible({ timeout: 3000 }).catch(() => false);
+            if (hasConfirm) {
+              await twoFAConfirm.click();
+            } else {
+              // Fallback: press Enter
+              await twoFAInput.press('Enter');
+            }
+            await this.browser.randomDelay(3000, 5000);
+
+            // Verify login succeeded
+            const postLoginUrl = page.url();
+            const hasSwitcher = await page.locator(selectors.accountSwitcher).first().isVisible({ timeout: 5000 }).catch(() => false);
+            if (!hasSwitcher && (postLoginUrl.includes('/login') || postLoginUrl.includes('/onboarding'))) {
+              this.logger.error(`X: 2FA code entered but login did not succeed — URL: ${postLoginUrl}`);
+              await this.browser.screenshot(page, network, 'on-error');
+              await page.close();
+              return null;
+            }
+            this.logger.log(`X: 2FA completed successfully — URL: ${postLoginUrl}`);
           }
         }
         await this.browser.randomDelay(3000, 5000);
@@ -1347,5 +1380,55 @@ export class SessionsService {
       this.logger.warn(`Failed to cleanup expired sessions: ${(err as Error).message}`);
       return { deleted: 0 };
     }
+  }
+
+  // ── 2FA / Verification Code API ──────────────────────────────────────────
+  // When X (or another network) sends a verification code via email, the operator
+  // submits it via POST /api/v1/sessions/verify-code. The code is stored in Redis
+  // with a 5-minute TTL. The login flow polls Redis for a pending code when it
+  // hits a 2FA/challenge page in headless mode.
+
+  private verifyCodeKey(network: string): string {
+    return `spa:verify-code:${network.toUpperCase()}`;
+  }
+
+  /**
+   * Store a verification code submitted by the operator (via API).
+   * TTL: 5 minutes (codes expire quickly).
+   */
+  async setVerificationCode(network: string, code: string): Promise<void> {
+    const key = this.verifyCodeKey(network);
+    await this.redis.set(key, code, 'EX', 300); // 5 min TTL
+    this.logger.log(`Verification code stored for ${network} (expires in 5 min)`);
+  }
+
+  /**
+   * Poll for a verification code submitted by the operator.
+   * Used by the login flow when it hits a 2FA/challenge page in headless mode.
+   * Waits up to `timeoutMs` for a code to appear in Redis.
+   * Returns the code string, or null if no code was submitted in time.
+   */
+  async waitForVerificationCode(network: string, timeoutMs = 120000): Promise<string | null> {
+    const key = this.verifyCodeKey(network);
+    const pollIntervalMs = 2000;
+    const startTime = Date.now();
+
+    this.logger.warn(
+      `Waiting for verification code for ${network} — submit via POST /api/v1/sessions/verify-code?network=${network}&code=<CODE> (timeout: ${timeoutMs / 1000}s)`,
+    );
+
+    while (Date.now() - startTime < timeoutMs) {
+      const code = await this.redis.get(key).catch(() => null);
+      if (code) {
+        // Delete the code after consuming it (single-use)
+        await this.redis.del(key).catch(() => {});
+        this.logger.log(`Verification code received for ${network}`);
+        return code;
+      }
+      await this.browser.randomDelay(pollIntervalMs, pollIntervalMs + 500);
+    }
+
+    this.logger.error(`No verification code submitted for ${network} within ${timeoutMs / 1000}s`);
+    return null;
   }
 }
