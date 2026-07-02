@@ -49,3 +49,15 @@ cd packages/backend && npx vitest run tests/unit/
 # Full test suite
 cd packages/backend && npx vitest run
 ```
+
+## Playwright coreBundle.js post-install patch
+
+Camoufox's Juggler protocol emits `Page.uncaughtError` **without** a `location` field for some uncaught JS errors. Playwright's Firefox driver unconditionally dereferences `pageError.location.url` → `TypeError: Cannot read properties of undefined (reading 'url')`. The crash is in the **driver subprocess** — it kills the browser and **cannot be caught** from the Node client. This breaks engagement browsing sessions (scroll_feed on X/Threads feeds, which throw lots of uncaught third-party JS errors). `suppressPageErrors` in `browser.factory.ts` is useless here — the crash happens in the driver before the event reaches the client.
+
+Refs: [camoufox#635](https://github.com/daijro/camoufox/issues/635), [playwright#41046](https://github.com/microsoft/playwright/issues/41046), [playwright#41169](https://github.com/microsoft/playwright/issues/41169). Upstream Playwright declined the defensive fix (PR #40982) — their own Firefox always supplies `location`; Camoufox doesn't.
+
+**Fix:** `packages/backend/scripts/patch-playwright.js` patches three sites in `playwright-core/lib/coreBundle.js` (null-guard for `pageError.location`). Idempotent. Runs via:
+- `postinstall` in `packages/backend/package.json` (local dev)
+- `RUN node .../patch-playwright.js` in `docker/Dockerfile.backend` after `pnpm install` (both builder + production stages)
+
+**When upgrading `playwright-core`**: re-run `node packages/backend/scripts/patch-playwright.js` and verify the patch sites still match. The script logs a warning if no sites matched (version drift).

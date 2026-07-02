@@ -26,7 +26,7 @@
     "dry-run": "nest build && node dist/dry-run/cli.js",
     "live": "tsc -p tsconfig.build.json && node dist/dry-run/live-run.cli.js",
     "test:discord": "tsc -p tsconfig.build.json && node --env-file=../../.env dist/dry-run/test-discord.cli.js",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate && (node scripts/patch-playwright.js 2>/dev/null || echo '[patch-playwright] skipped — script not found yet')"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
