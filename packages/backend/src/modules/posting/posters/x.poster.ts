@@ -106,9 +106,12 @@ export class XPoster extends BasePoster {
       }
       await this.browser.randomDelay(500, 1000);
 
-      // Strategy 1: typeHuman (keyboard.type per char — real key events for DraftJS)
-      this.logger.log(`X typing tweet via typeHuman (stealth-x approach)...`);
-      await this.browser.typeHuman(page, content).catch(() => {});
+      // Strategy 1: typeHuman with locator (pressSequentially per char — real key events
+      // sent directly to the element, ensuring DraftJS processes them and updates React state)
+      // Using locator is critical: page.keyboard.type() without locator may send keys to
+      // the wrong element if focus is lost, leaving DOM text without DraftJS state.
+      this.logger.log(`X typing tweet via typeHuman with locator (pressSequentially)...`);
+      await this.browser.typeHuman(page, content, textbox).catch(() => {});
       await this.browser.randomDelay(500, 1000);
 
       // Verify content was entered
@@ -197,17 +200,40 @@ export class XPoster extends BasePoster {
       // DraftJS may take a moment to process the content and enable the button
       await postButton.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
       // Check if button is disabled
-      const isDisabled = await postButton.isDisabled().catch(() => false);
+      let isDisabled = await postButton.isDisabled().catch(() => false);
       if (isDisabled) {
-        this.logger.warn(`X post button is disabled — retrying text entry...`);
+        this.logger.warn(`X post button is disabled — DraftJS state not updated. Trying fill() to force React state update...`);
+        // Strategy A: fill() — Playwright sets innerText via accessibility API,
+        // which properly triggers DraftJS onChange and updates React state.
+        await textbox.fill(content, { timeout: 10000 }).catch(() => {});
+        await this.browser.randomDelay(500, 1000);
+        // DraftJS nudge: type a char and delete it to trigger state update
         await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
-        // Clear existing content (fill() may have set DOM text without DraftJS state)
+        await page.keyboard.type(' ', { delay: 50 }).catch(() => {});
+        await page.keyboard.press('Backspace').catch(() => {});
+        await this.browser.randomDelay(500, 1000);
+        isDisabled = await postButton.isDisabled().catch(() => false);
+        this.logger.log(`X after fill() + nudge — button disabled: ${isDisabled}`);
+      }
+      if (isDisabled) {
+        // Strategy B: clear and re-type with keyboard.type into focused textbox
+        this.logger.warn(`X post button still disabled after fill() — trying keyboard.type()...`);
+        await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
         await page.keyboard.press('Control+A').catch(() => {});
         await page.keyboard.press('Backspace').catch(() => {});
         await this.browser.randomDelay(200, 400);
-        // Re-type via keyboard events — DraftJS processes these correctly
         await page.keyboard.type(content, { delay: 30 });
         await page.waitForTimeout(1000);
+        isDisabled = await postButton.isDisabled().catch(() => false);
+        this.logger.log(`X after keyboard.type() retry — button disabled: ${isDisabled}`);
+      }
+      if (isDisabled) {
+        // Button is still disabled — DraftJS refuses to accept the content.
+        // Do NOT force-click a disabled button — it won't submit and may navigate
+        // to /home without posting, creating a false "URL changed" signal.
+        this.logger.error(`X post button is disabled after all retries — DraftJS state not updated. Aborting.`);
+        await this.screenshot(page, 'button-disabled-abort');
+        return { error: 'Post button is disabled — DraftJS state not updated after all text entry strategies' };
       }
 
       // Submit the tweet — try multiple strategies in order:
