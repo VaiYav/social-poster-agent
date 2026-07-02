@@ -28,6 +28,10 @@ RUN pnpm install --frozen-lockfile
 COPY packages/shared/ ./packages/shared/
 COPY packages/backend/ ./packages/backend/
 
+# Patch Playwright coreBundle.js — Camoufox/Juggler uncaughtError crash (camoufox#635).
+# Must run AFTER pnpm install so coreBundle.js exists. Idempotent.
+RUN node packages/backend/scripts/patch-playwright.js
+
 # Build shared package first
 RUN pnpm --filter @spa/shared build
 
@@ -66,6 +70,12 @@ COPY packages/shared/package.json ./packages/shared/
 COPY packages/backend/package.json ./packages/backend/
 
 RUN pnpm install --frozen-lockfile --prod --ignore-scripts
+
+# Copy the Playwright patch script (needed before patching coreBundle.js)
+COPY packages/backend/scripts/patch-playwright.js ./packages/backend/scripts/patch-playwright.js
+
+# Patch Playwright coreBundle.js — Camoufox/Juggler uncaughtError crash (camoufox#635).
+RUN node packages/backend/scripts/patch-playwright.js
 
 # Copy built artifacts
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
