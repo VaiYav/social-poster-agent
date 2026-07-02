@@ -287,16 +287,44 @@ export class XPoster extends BasePoster {
       const textboxContentAfterClick = await textbox.innerText().catch(() => '');
       this.logger.log(`X textbox content after click: "${textboxContentAfterClick.slice(0, 60)}..." (len=${textboxContentAfterClick.length})`);
 
-      // Fallback 1: if humanClick failed OR URL didn't change, try Cmd+Enter
-      if (humanClickFailed || stillOnCompose) {
-        this.logger.log(`X trying Cmd+Enter keyboard shortcut to submit...`);
-        await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
-        await this.browser.randomDelay(300, 600);
-        await page.keyboard.press('Meta+Enter').catch(() => {});
-        await this.browser.randomDelay(200, 400);
-        await page.keyboard.press('Control+Enter').catch(() => {});
-        await this.browser.randomDelay(2000, 4000);
-        this.logger.log(`X after Cmd+Enter — URL: ${page.url()}`);
+      // Fallback 1: if humanClick failed OR URL didn't change OR click navigated to /home
+      // without submitting (known /compose/post issue: button navigates to /home but
+      // tweet is not posted — text remains in textbox)
+      const navigatedToHomeWithoutPosting = !stillOnCompose && textboxContentAfterClick.length > 0 && page.url().includes('/home');
+      if (humanClickFailed || stillOnCompose || navigatedToHomeWithoutPosting) {
+        this.logger.log(`X trying Cmd+Enter keyboard shortcut to submit (navigatedToHomeWithoutPosting: ${navigatedToHomeWithoutPosting})...`);
+        // Navigate back to /compose/post if we're on /home (textbox won't exist there)
+        if (page.url().includes('/home')) {
+          this.logger.log(`X navigating back to /compose/post for Cmd+Enter retry...`);
+          await this.navigate(page, 'https://x.com/compose/post', 'domcontentloaded');
+          await this.browser.randomDelay(1000, 2000);
+          // Re-find the textbox and re-type the content
+          const retryTextbox = page
+            .locator('[data-testid="tweetTextarea_0"]')
+            .first()
+            .or(page.locator('[role="textbox"]').first());
+          await retryTextbox.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+          await retryTextbox.click({ force: true, timeout: 5000 }).catch(() => {});
+          await this.browser.randomDelay(300, 600);
+          await this.browser.typeHuman(page, content, retryTextbox).catch(() => {});
+          await this.browser.randomDelay(500, 1000);
+          // Now press Cmd+Enter while the textbox is focused
+          await retryTextbox.click({ force: true, timeout: 5000 }).catch(() => {});
+          await this.browser.randomDelay(300, 600);
+          await page.keyboard.press('Meta+Enter').catch(() => {});
+          await this.browser.randomDelay(200, 400);
+          await page.keyboard.press('Control+Enter').catch(() => {});
+          await this.browser.randomDelay(2000, 4000);
+          this.logger.log(`X after Cmd+Enter retry — URL: ${page.url()}`);
+        } else {
+          await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+          await this.browser.randomDelay(300, 600);
+          await page.keyboard.press('Meta+Enter').catch(() => {});
+          await this.browser.randomDelay(200, 400);
+          await page.keyboard.press('Control+Enter').catch(() => {});
+          await this.browser.randomDelay(2000, 4000);
+          this.logger.log(`X after Cmd+Enter — URL: ${page.url()}`);
+        }
       }
 
       // Fallback 2: if still on compose page, try JavaScript click (last resort)
@@ -450,8 +478,9 @@ export class XPoster extends BasePoster {
 
       // Wait for the React app to mount — X uses a SPA that renders after domcontentloaded.
       // The body text starts with <style> before React mounts, so we wait for a real X element.
+      // Don't use [role="navigation"] — it matches the noscript fallback <nav> element.
       this.logger.log(`X fallback: waiting for React app to mount on home page...`);
-      await page.waitForSelector('[data-testid="primaryColumn"], [data-testid="SideNav_NewTweet_Button"], [role="navigation"]', { timeout: 20000 }).catch(() => {});
+      await page.waitForSelector('[data-testid="primaryColumn"], [data-testid="SideNav_NewTweet_Button"]', { timeout: 20000 }).catch(() => {});
 
       // Wait for the side nav to load — the compose button may not be immediately visible
       // after navigation. Wait up to 15s for it to appear.
