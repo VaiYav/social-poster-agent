@@ -6,6 +6,7 @@
  */
 
 import { Injectable } from '@nestjs/common';
+import { SocialNetwork } from '@prisma/client';
 import { getEnabledNetworks } from '../../domain/enabled-networks.js';
 import type { WorldState, Action } from './types.js';
 import { WAIT_ACTION, RECOVER_ACTION } from './types.js';
@@ -65,7 +66,12 @@ export class GuardrailsService {
     // believes no posting window is active, but approved content should always be posted
     // when a network is ready. Engagement runs in parallel via checkStaleAndEnqueue, so
     // BROWSE/WAIT as the main action is redundant when there are drafts to post.
+    //
+    // Among ready networks, pick the one with the oldest lastPostMs so posting rotates
+    // across X and Threads instead of always hammering the first enabled network.
     if ((action.type === 'BROWSE' || action.type === 'WAIT') && world.drafts.approved > 0) {
+      let chosenNet: SocialNetwork | undefined;
+      let chosenLastPostMs = Infinity;
       for (const net of networks) {
         if (world.sessions[net]?.circuitBreaker === 'open') continue;
         if (
@@ -73,13 +79,20 @@ export class GuardrailsService {
           (world.rateLimits[net]?.dailyRemaining ?? 0) > 0 &&
           world.sessions[net]?.status === 'ACTIVE'
         ) {
-          return {
-            type: 'POST' as const,
-            network: net,
-            reason: `Guardrail G8: ${world.drafts.approved} approved drafts take priority over ${action.type} (${net} in posting window)`,
-            source: 'guardrail_override',
-          };
+          const lastPostMs = world.rateLimits[net]?.lastPostMs ?? 0;
+          if (lastPostMs < chosenLastPostMs) {
+            chosenNet = net as SocialNetwork;
+            chosenLastPostMs = lastPostMs;
+          }
         }
+      }
+      if (chosenNet) {
+        return {
+          type: 'POST' as const,
+          network: chosenNet,
+          reason: `Guardrail G8: ${world.drafts.approved} approved drafts take priority over ${action.type} (${chosenNet} in posting window, oldest lastPost)`,
+          source: 'guardrail_override',
+        };
       }
     }
 

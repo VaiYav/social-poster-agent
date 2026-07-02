@@ -296,7 +296,8 @@ export class XPoster extends BasePoster {
           this.logger.log(`X navigating back to /compose/post for Cmd+Enter retry...`);
           await this.navigate(page, 'https://x.com/compose/post', 'domcontentloaded');
           await this.browser.randomDelay(1000, 2000);
-          // Re-find the textbox and re-type the content
+          // Re-find the textbox and re-type the content using execCommand so DraftJS
+          // actually registers the input and the Post button enables.
           const retryTextbox = page
             .locator('[data-testid="tweetTextarea_0"]')
             .first()
@@ -304,7 +305,7 @@ export class XPoster extends BasePoster {
           await retryTextbox.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
           await retryTextbox.click({ force: true, timeout: 5000 }).catch(() => {});
           await this.browser.randomDelay(300, 600);
-          await this.browser.typeHuman(page, content, retryTextbox).catch(() => {});
+          await this.setComposeText(page, retryTextbox, content);
           await this.browser.randomDelay(500, 1000);
           // Now press Cmd+Enter while the textbox is focused
           await retryTextbox.click({ force: true, timeout: 5000 }).catch(() => {});

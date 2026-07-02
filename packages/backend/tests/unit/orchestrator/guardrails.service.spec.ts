@@ -131,6 +131,27 @@ describe('GuardrailsService', () => {
     expect(result.source).toBe('guardrail_override');
   });
 
+  it('G8: rotates to the network with the oldest lastPostMs', () => {
+    const world = makeWorld({
+      drafts: { pending: 0, approved: 5, rejected: 0 },
+      sessions: {
+        X: { status: SessionStatus.ACTIVE, lastCheckMs: 0, circuitBreaker: 'closed' },
+        THREADS: { status: SessionStatus.ACTIVE, lastCheckMs: 0, circuitBreaker: 'closed' },
+      },
+      rateLimits: {
+        X: { dailyRemaining: 10, weeklyRemaining: 50, minIntervalMs: 0, lastPostMs: Date.now() },
+        THREADS: { dailyRemaining: 10, weeklyRemaining: 50, minIntervalMs: 0, lastPostMs: Date.now() - 3600000 },
+      },
+      inPostingWindow: { X: true, THREADS: true },
+    });
+
+    const result = guardrails.apply(WAIT_ACTION, world);
+
+    expect(result.type).toBe('POST');
+    expect(result.network).toBe(SocialNetwork.THREADS);
+    expect(result.source).toBe('guardrail_override');
+  });
+
   it('passes the action through unchanged when no guardrail fires', () => {
     const world = makeWorld({
       sessions: { X: { status: SessionStatus.ACTIVE, lastCheckMs: 0, circuitBreaker: 'closed' } },
