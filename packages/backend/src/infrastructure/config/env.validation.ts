@@ -101,7 +101,7 @@ const envSchema = Joi.object({
   // ── Orchestrator (LangGraph agent loop — replaces all crons) ──
   ORCHESTRATOR_ENABLED: Joi.string().valid('true', 'false').default('false'),
   ORCHESTRATOR_LLM_ENABLED: Joi.string().valid('true', 'false').default('true'),
-  ORCHESTRATOR_MAX_ACTIONS_PER_HOUR: Joi.number().integer().min(1).default(15),
+  ORCHESTRATOR_MAX_ACTIONS_PER_HOUR: Joi.number().integer().min(1).default(60),
   ORCHESTRATOR_HEARTBEAT_TTL_MS: Joi.number().integer().min(10000).default(600000),
   ORCHESTRATOR_CHECKPOINT_KEY: Joi.string().default('spa:orchestrator:checkpoint'),
   ORCHESTRATOR_HEARTBEAT_KEY: Joi.string().default('spa:orchestrator:heartbeat'),
