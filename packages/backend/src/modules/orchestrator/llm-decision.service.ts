@@ -73,9 +73,18 @@ export class LlmDecisionService {
       if (!networkRaw) {
         throw new Error(`${actionType} requires a network`);
       }
+      // LLM sometimes returns pipe-separated networks (e.g. "X|THREADS") or
+      // invalid values. Validate against the SocialNetwork enum and pick the
+      // first valid one; throw if none match (triggers rules fallback).
+      const validNetworks = new Set<string>(Object.values(SocialNetwork));
+      const candidates = String(networkRaw).split('|').map((s) => s.trim().toUpperCase());
+      const validNetwork = candidates.find((c) => validNetworks.has(c));
+      if (!validNetwork) {
+        throw new Error(`Invalid network "${networkRaw}" for ${actionType}`);
+      }
       return {
         type: actionType as NetworkActionType,
-        network: networkRaw as SocialNetwork,
+        network: validNetwork as SocialNetwork,
         reason,
         source: 'llm',
       };
