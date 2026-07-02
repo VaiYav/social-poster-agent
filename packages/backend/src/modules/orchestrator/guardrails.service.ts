@@ -60,12 +60,12 @@ export class GuardrailsService {
 
     // G6: Max actions per hour — handled by DecisionEngine (needs Redis)
 
-    // G8: POST takes priority over BROWSE when there are approved drafts.
-    // The LLM sometimes chooses BROWSE when it sees stale engagement, but posting
-    // approved content should always take priority. Engagement runs in parallel
-    // via checkStaleAndEnqueue anyway, so BROWSE as the main action is redundant
-    // when there are drafts to post.
-    if (action.type === 'BROWSE' && world.drafts.approved > 0) {
+    // G8: POST takes priority over BROWSE/WAIT when there are approved drafts.
+    // The LLM sometimes chooses BROWSE when it sees stale engagement, or WAIT when it
+    // believes no posting window is active, but approved content should always be posted
+    // when a network is ready. Engagement runs in parallel via checkStaleAndEnqueue, so
+    // BROWSE/WAIT as the main action is redundant when there are drafts to post.
+    if ((action.type === 'BROWSE' || action.type === 'WAIT') && world.drafts.approved > 0) {
       for (const net of networks) {
         if (world.sessions[net]?.circuitBreaker === 'open') continue;
         if (
@@ -76,7 +76,7 @@ export class GuardrailsService {
           return {
             type: 'POST' as const,
             network: net,
-            reason: `Guardrail G8: ${world.drafts.approved} approved drafts take priority over BROWSE (${net} in posting window)`,
+            reason: `Guardrail G8: ${world.drafts.approved} approved drafts take priority over ${action.type} (${net} in posting window)`,
             source: 'guardrail_override',
           };
         }

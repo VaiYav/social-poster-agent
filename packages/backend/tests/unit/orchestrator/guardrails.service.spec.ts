@@ -40,6 +40,7 @@ function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
 
 const POST_ACTION: Action = { type: 'POST', network: SocialNetwork.X, reason: 'test', source: 'llm' };
 const BROWSE_ACTION: Action = { type: 'BROWSE', network: SocialNetwork.X, reason: 'test', source: 'llm' };
+const WAIT_ACTION: Action = { type: 'WAIT', reason: 'test', source: 'llm' };
 
 describe('GuardrailsService', () => {
   let guardrails: GuardrailsService;
@@ -111,6 +112,23 @@ describe('GuardrailsService', () => {
     const result = guardrails.apply(action, world);
 
     expect(result.type).toBe('WAIT');
+  });
+
+  it('G8: WAIT + approved drafts + network in posting window → POST', () => {
+    const world = makeWorld({
+      drafts: { pending: 0, approved: 5, rejected: 0 },
+      sessions: {
+        X: { status: SessionStatus.ACTIVE, lastCheckMs: 0, circuitBreaker: 'closed' },
+      },
+      rateLimits: { X: { dailyRemaining: 10, weeklyRemaining: 50, minIntervalMs: 0, lastPostMs: 0 } },
+      inPostingWindow: { X: true },
+    });
+
+    const result = guardrails.apply(WAIT_ACTION, world);
+
+    expect(result.type).toBe('POST');
+    expect(result.network).toBe(SocialNetwork.X);
+    expect(result.source).toBe('guardrail_override');
   });
 
   it('passes the action through unchanged when no guardrail fires', () => {
