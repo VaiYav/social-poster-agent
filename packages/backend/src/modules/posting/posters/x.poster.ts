@@ -51,7 +51,26 @@ export class XPoster extends BasePoster {
     await this.browser.suppressPageErrors(page);
 
     try {
-      // Navigate to compose page — X never reaches networkidle (constant polling), use domcontentloaded
+      // Primary path: use home page compose dialog (more reliable than /compose/post).
+      // The /compose/post URL has a known issue where the Post button navigates to /home
+      // without actually submitting the tweet. The home page compose dialog's Post button
+      // is a proper submit button that triggers the X API call.
+      this.logger.log(`X using home page compose dialog (primary path)...`);
+      const homeResult = await this.postViaHomePageCompose(page, content);
+      if (homeResult && !homeResult.error) {
+        // Successfully posted via home page compose — post thread replies if needed
+        if (homeResult.url && threadItems && threadItems.length > 0) {
+          const replyResults = await this.postThreadReplies(page, homeResult.url, threadItems);
+          return { ...homeResult, threadReplyResults: replyResults };
+        }
+        return homeResult;
+      }
+      if (homeResult?.error) {
+        // Home page compose returned an error (not "null" — null means dialog couldn't open)
+        this.logger.warn(`X home page compose failed: ${homeResult.error} — falling back to /compose/post`);
+      }
+
+      // Fallback: navigate to /compose/post page (legacy path)
       this.logger.log(`X navigating to compose page: ${X_SELECTORS.compose.url}`);
       await this.navigate(page, X_SELECTORS.compose.url, 'domcontentloaded');
 
@@ -448,9 +467,10 @@ export class XPoster extends BasePoster {
       await textbox.click({ force: true, timeout: 10000 }).catch(() => {});
       await page.waitForTimeout(500);
 
-      // Type content using keyboard.type (more reliable for DraftJS)
-      this.logger.log(`X fallback: typing tweet via keyboard.type()...`);
-      await page.keyboard.type(content, { delay: 30 });
+      // Type content using typeHuman with locator (pressSequentially — real key events
+      // sent directly to the element, ensuring DraftJS processes them and updates React state)
+      this.logger.log(`X fallback: typing tweet via typeHuman with locator...`);
+      await this.browser.typeHuman(page, content, textbox).catch(() => {});
       await page.waitForTimeout(1000);
 
       await this.screenshot(page, 'after-type-fallback');
@@ -464,16 +484,41 @@ export class XPoster extends BasePoster {
         .or(page.getByRole('button', { name: 'Post', exact: true }).first());
 
       await postButton.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+
+      // Check if button is disabled — if so, try fill() + DraftJS nudge
+      let fbDisabled = await postButton.isDisabled().catch(() => false);
+      if (fbDisabled) {
+        this.logger.warn(`X fallback: post button disabled — trying fill() + DraftJS nudge...`);
+        await textbox.fill(content, { timeout: 10000 }).catch(() => {});
+        await this.browser.randomDelay(500, 1000);
+        await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+        await page.keyboard.type(' ', { delay: 50 }).catch(() => {});
+        await page.keyboard.press('Backspace').catch(() => {});
+        await this.browser.randomDelay(500, 1000);
+        fbDisabled = await postButton.isDisabled().catch(() => false);
+        this.logger.log(`X fallback: after fill() + nudge — button disabled: ${fbDisabled}`);
+      }
+      if (fbDisabled) {
+        this.logger.error(`X fallback: post button disabled after fill() — DraftJS state not updated`);
+        await this.screenshot(page, 'button-disabled-abort');
+        return { error: 'Post button is disabled — DraftJS state not updated (home page compose)' };
+      }
+
       let fbClickSuccess = false;
       try {
         await this.browser.humanClick(postButton, { timeoutMs: 10000 });
         fbClickSuccess = true;
+        this.logger.log(`X fallback: humanClick on Post button succeeded`);
       } catch (clickErr) {
         this.logger.warn(`X fallback: humanClick failed: ${(clickErr as Error).message}`);
       }
       await this.browser.randomDelay(2000, 4000);
 
-      // Cmd+Enter fallback for home page compose dialog
+      // Check if textbox is empty after click (sign that tweet was submitted)
+      const fbTextboxAfterClick = await textbox.innerText().catch(() => '');
+      this.logger.log(`X fallback: textbox after click: "${fbTextboxAfterClick.slice(0, 60)}..." (len=${fbTextboxAfterClick.length})`);
+
+      // Cmd+Enter fallback for home page compose dialog — only if click failed
       if (!fbClickSuccess) {
         this.logger.log(`X fallback: trying Cmd+Enter shortcut...`);
         await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
