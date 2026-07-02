@@ -310,6 +310,60 @@ describe('BrowserFactory', () => {
     }
   });
 
+  it('UTC-406f: acquireContext discards a closed idle context and creates a fresh one', async () => {
+    const baseCtx = makeMockContext();
+    let closeListener: (() => void) | undefined;
+    const ctx1 = {
+      ...baseCtx,
+      on: vi.fn((_event: string, handler: () => void) => {
+        closeListener = handler;
+      }),
+    };
+    mocks.browserNewContext
+      .mockResolvedValueOnce(ctx1)
+      .mockResolvedValueOnce(makeMockContext());
+
+    const acquired1 = await factory.acquireContext('X');
+    expect(acquired1).toBe(ctx1);
+
+    factory.releaseContext('X', ctx1);
+
+    // Simulate the browser/context closing while idle
+    closeListener?.();
+
+    const ctx2 = await factory.acquireContext('X');
+    expect(ctx2).not.toBe(ctx1);
+    expect(mocks.browserNewContext).toHaveBeenCalledTimes(2);
+  });
+
+  it('UTC-406g: releaseContext does not return a closed context to the idle pool', async () => {
+    const baseCtx = makeMockContext();
+    let closeListener: (() => void) | undefined;
+    const ctx1 = {
+      ...baseCtx,
+      on: vi.fn((_event: string, handler: () => void) => {
+        closeListener = handler;
+      }),
+    };
+    mocks.browserNewContext
+      .mockResolvedValueOnce(ctx1)
+      .mockResolvedValueOnce(makeMockContext());
+
+    const acquired1 = await factory.acquireContext('X');
+    expect(acquired1).toBe(ctx1);
+
+    // Simulate the context closing while in use (e.g. page crash)
+    closeListener?.();
+
+    factory.releaseContext('X', ctx1);
+
+    // The closed context should not be in the idle pool, so the next acquire creates a new one
+    const ctx2 = await factory.acquireContext('X');
+    expect(ctx2).not.toBe(ctx1);
+    expect((factory as any).idleContexts.get('X')?.length ?? 0).toBe(0);
+    expect(mocks.browserNewContext).toHaveBeenCalledTimes(2);
+  });
+
   // ── saveStorageState ──
 
   it('UTC-407: saveStorageState → JSON string with cookies + origins', async () => {

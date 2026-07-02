@@ -80,6 +80,9 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
   // until the TTL sweep closes it).
   private readonly pendingCreates = new Map<SocialNetwork, number>();
   private readonly contextWaiters = new Map<SocialNetwork, Array<{ resolve: () => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> }>>();
+  // Tracks contexts that have been closed (by us, by the browser, or by a page crash).
+  // Prevents the pool from reusing dead contexts after a failed session or sweep.
+  private readonly closedContexts = new WeakSet<BrowserContext>();
   private readonly contextIdleTtlMs: number;
   private orphanGraceMs: number;
   private idleSweepInterval: ReturnType<typeof setInterval> | null = null;
@@ -320,6 +323,14 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
 
     const context = await browser.newContext(contextOptions);
 
+    // Mark the context as closed if it closes itself (browser crash, page crash, etc.)
+    // so the pool never reuses a dead context.
+    if (typeof context.on === 'function') {
+      context.on('close', () => {
+        this.closedContexts.add(context);
+      });
+    }
+
     this.logger.debug(`Context created for ${network}`);
     return context;
   }
@@ -370,6 +381,11 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
         // Cookies are re-applied here; localStorage/origins from storageState are NOT (no
         // post-creation Playwright API for that) — acceptable since AUTH_COOKIES-based health
         // checks and cookie-based auth are what actually gate session validity in this app.
+        if (this.closedContexts.has(entry.context)) {
+          this.logger.debug(`Context pool: discarded closed idle context for ${network}`);
+          continue;
+        }
+
         if (storageState) {
           try {
             const parsed = JSON.parse(storageState) as { cookies?: Parameters<BrowserContext['addCookies']>[0] };
@@ -449,6 +465,21 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     const inUse = this.inUseContexts.get(network);
     if (inUse) {
       inUse.delete(context);
+    }
+
+    // Dead contexts must not return to the pool, otherwise the next acquire
+    // reuses them and immediately fails with "Target page, context or browser has been closed".
+    if (this.closedContexts.has(context)) {
+      this.logger.debug(`Context pool: not returning closed context for ${network} to idle pool`);
+      // Wake up a waiter so they can create/reuse a fresh context instead of hanging
+      const waiters = this.contextWaiters.get(network);
+      if (waiters && waiters.length > 0) {
+        const waiter = waiters.shift()!;
+        clearTimeout(waiter.timer);
+        this.contextWaiters.set(network, waiters);
+        waiter.resolve();
+      }
+      return;
     }
 
     // Always put the context back into the idle pool first.
@@ -764,6 +795,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
       if (evicted > 0) {
         for (const entry of entries) {
           if (now - entry.releasedAt > this.contextIdleTtlMs) {
+            this.closedContexts.add(entry.context);
             void entry.context.close().catch(() => {});
           }
         }
@@ -790,6 +822,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
       if (orphans.length > 0) {
         for (const ctx of orphans) {
           contexts.delete(ctx);
+          this.closedContexts.add(ctx);
           void ctx.close().catch(() => {});
         }
         this.logger.warn(
@@ -817,6 +850,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
         this.logger.log(
           `Persistent context for ${network} idle > ${Math.round(this.persistentContextIdleTtlMs / 1000)}s — closing to free memory (will re-open on next use)`,
         );
+        this.closedContexts.add(ctx);
         void ctx.close().catch(() => {});
         this.persistentContexts.delete(network);
         this.persistentContextLastUsed.delete(network);
@@ -839,21 +873,30 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     // Close all pooled contexts — guard against undefined entries (defensive)
     for (const [, entries] of this.idleContexts) {
       for (const entry of entries) {
-        if (entry.context) await entry.context.close().catch(() => {});
+        if (entry.context) {
+          this.closedContexts.add(entry.context);
+          await entry.context.close().catch(() => {});
+        }
       }
     }
     this.idleContexts.clear();
 
     for (const [, contexts] of this.inUseContexts) {
       for (const ctx of contexts.keys()) {
-        if (ctx) await ctx.close().catch(() => {});
+        if (ctx) {
+          this.closedContexts.add(ctx);
+          await ctx.close().catch(() => {});
+        }
       }
     }
     this.inUseContexts.clear();
 
     // Close persistent contexts (Facebook) — saves cookies/fingerprint to disk
     for (const [, ctx] of this.persistentContexts) {
-      if (ctx) await ctx.close().catch(() => {});
+      if (ctx) {
+        this.closedContexts.add(ctx);
+        await ctx.close().catch(() => {});
+      }
     }
     this.persistentContexts.clear();
     this.persistentContextLastUsed.clear();
