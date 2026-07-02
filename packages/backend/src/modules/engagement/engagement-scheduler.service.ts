@@ -261,9 +261,14 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
       const netKey = network as string;
       const lastBrowse = world.engagement.lastBrowseMs[netKey] ?? 0;
       const session = world.sessions[netKey];
-      this.logger.debug(`checkStaleAndEnqueue ${netKey}: lastBrowse=${lastBrowse}, stale=${lastBrowse < fourHoursAgo}, sessionStatus=${session?.status}, dailyRemaining=${world.rateLimits[netKey]?.dailyRemaining}`);
+      const lastSessionStatus = world.engagement.lastSessionStatus[netKey] ?? 'none';
+      const lastSessionInteractions = world.engagement.lastSessionInteractions[netKey] ?? 0;
+      this.logger.debug(
+        `checkStaleAndEnqueue ${netKey}: lastBrowse=${lastBrowse}, stale=${lastBrowse < fourHoursAgo}, ` +
+          `sessionStatus=${session?.status}, lastSessionStatus=${lastSessionStatus}, lastSessionInteractions=${lastSessionInteractions}`,
+      );
 
-      if (lastBrowse >= fourHoursAgo) continue; // not stale
+      if (lastBrowse >= fourHoursAgo && lastSessionStatus !== 'FAILED') continue; // not stale
       if (!session || session.status !== 'ACTIVE') continue; // no active session
 
       // Dedup key — one browsing session per network per 4h window

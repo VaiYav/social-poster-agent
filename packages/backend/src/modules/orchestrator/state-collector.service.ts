@@ -91,7 +91,7 @@ export class StateCollectorService {
       postingWindows: {}, // Filled by PostingWindowService in Phase 2
       inPostingWindow: {},
       performance: performance ?? {},
-      engagement: engagement ?? { lastBrowseMs: {}, uncheckedReplies: 0, warmupPhase: {} },
+      engagement: engagement ?? { lastBrowseMs: {}, uncheckedReplies: 0, warmupPhase: {}, lastSessionStatus: {}, lastSessionInteractions: {} },
       health: health ?? { bans: 0, dlqDepth: 0, stuckPosting: 0, orphanedPosts: 0, killSwitch: false },
       flowControl: flowControl ?? { pauseAll: false, pauseGeneration: false, pausePosting: false, pauseEngagement: false, pauseReplies: false },
       trends: trends ?? { lastRefreshMs: 0, count: 0 },
@@ -294,17 +294,19 @@ export class StateCollectorService {
               const lastSession = await this.prisma.browsingSession.findFirst({
                 where: { accountId: account.id },
                 orderBy: { startedAt: 'desc' },
-                select: { startedAt: true },
+                select: { startedAt: true, status: true, interactionsCount: true },
               });
               return [
                 network,
                 lastSession?.startedAt?.getTime() ?? 0,
                 account.warmupEnabled ? 'warmup' : 'full',
+                lastSession?.status ?? 'none',
+                lastSession?.interactionsCount ?? 0,
               ] as const;
             }
-            return [network, 0, 'unknown'] as const;
+            return [network, 0, 'unknown', 'none', 0] as const;
           } catch {
-            return [network, 0, 'unknown'] as const;
+            return [network, 0, 'unknown', 'none', 0] as const;
           }
         }),
       ),
@@ -313,12 +315,16 @@ export class StateCollectorService {
 
     const lastBrowseMs: Record<string, number> = {};
     const warmupPhase: Record<string, string> = {};
-    for (const [network, browseMs, phase] of engagementEntries) {
+    const lastSessionStatus: Record<string, string> = {};
+    const lastSessionInteractions: Record<string, number> = {};
+    for (const [network, browseMs, phase, status, interactions] of engagementEntries) {
       lastBrowseMs[network] = browseMs;
       warmupPhase[network] = phase;
+      lastSessionStatus[network] = status;
+      lastSessionInteractions[network] = interactions;
     }
 
-    return { lastBrowseMs, uncheckedReplies, warmupPhase };
+    return { lastBrowseMs, uncheckedReplies, warmupPhase, lastSessionStatus, lastSessionInteractions };
   }
 
   private async collectHealth(networks: string[]): Promise<HealthState> {

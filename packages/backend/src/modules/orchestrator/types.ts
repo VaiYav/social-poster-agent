@@ -56,6 +56,8 @@ export interface EngagementState {
   lastBrowseMs: Record<string, number>;
   uncheckedReplies: number;
   warmupPhase: Record<string, string>;
+  lastSessionStatus: Record<string, string>;
+  lastSessionInteractions: Record<string, number>;
 }
 
 export interface HealthState {

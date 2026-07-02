@@ -214,4 +214,60 @@ describe('EngagementSchedulerService', () => {
     expect(() => service.onModuleInit()).not.toThrow();
     expect(mockQueueFactory.enqueueEngagement).toHaveBeenCalled();
   });
+
+  it('SC-010: checkStaleAndEnqueue enqueues a session when last session failed', async () => {
+    vi.setSystemTime(new Date('2026-06-27T12:00:00Z'));
+    service = new EngagementSchedulerService(
+      createMockConfigService({
+        ENGAGEMENT_SCHEDULER_ENABLED: 'true',
+        ENGAGEMENT_NETWORKS: 'X',
+      }),
+      mockQueueFactory,
+      mockSchedulerRegistry,
+    );
+    const world = {
+      timestamp: Date.now(),
+      utcHour: 12,
+      flowControl: { pauseAll: false, pauseEngagement: false },
+      sessions: { X: { status: 'ACTIVE', lastCheckMs: 0, circuitBreaker: 'closed' } },
+      rateLimits: { X: { dailyRemaining: 10, weeklyRemaining: 50, minIntervalMs: 0, lastPostMs: 0 } },
+      engagement: {
+        lastBrowseMs: { X: Date.now() - 30 * 60 * 1000 }, // 30 min ago
+        uncheckedReplies: 0,
+        warmupPhase: { X: 'full' },
+        lastSessionStatus: { X: 'FAILED' },
+        lastSessionInteractions: { X: 0 },
+      },
+    } as unknown as import('../../../src/modules/orchestrator/types').WorldState;
+    await service.checkStaleAndEnqueue(world);
+    expect(mockQueueFactory.enqueueEngagement).toHaveBeenCalled();
+  });
+
+  it('SC-011: checkStaleAndEnqueue skips when last session succeeded and is recent', async () => {
+    vi.setSystemTime(new Date('2026-06-27T12:00:00Z'));
+    service = new EngagementSchedulerService(
+      createMockConfigService({
+        ENGAGEMENT_SCHEDULER_ENABLED: 'true',
+        ENGAGEMENT_NETWORKS: 'X',
+      }),
+      mockQueueFactory,
+      mockSchedulerRegistry,
+    );
+    const world = {
+      timestamp: Date.now(),
+      utcHour: 12,
+      flowControl: { pauseAll: false, pauseEngagement: false },
+      sessions: { X: { status: 'ACTIVE', lastCheckMs: 0, circuitBreaker: 'closed' } },
+      rateLimits: { X: { dailyRemaining: 10, weeklyRemaining: 50, minIntervalMs: 0, lastPostMs: 0 } },
+      engagement: {
+        lastBrowseMs: { X: Date.now() - 30 * 60 * 1000 },
+        uncheckedReplies: 0,
+        warmupPhase: { X: 'full' },
+        lastSessionStatus: { X: 'COMPLETED' },
+        lastSessionInteractions: { X: 3 },
+      },
+    } as unknown as import('../../../src/modules/orchestrator/types').WorldState;
+    await service.checkStaleAndEnqueue(world);
+    expect(mockQueueFactory.enqueueEngagement).not.toHaveBeenCalled();
+  });
 });
