@@ -82,4 +82,14 @@ export class QueueController {
     const retried = await this.queueService.retryAllFailed(network);
     return { retried, network };
   }
+
+  @Post(':network/clear-completed')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Clear completed jobs from a network queue (BullMQ dedup workaround)' })
+  @ApiParam({ name: 'network', enum: ['X', 'THREADS', 'FACEBOOK'] })
+  @ApiResponse({ status: 200, description: 'Number of completed jobs cleared' })
+  async clearCompleted(@Param('network', new ParseEnumPipe(SocialNetwork)) network: SocialNetwork) {
+    const cleared = await this.queueService.clearCompleted(network);
+    return { cleared, network };
+  }
 }

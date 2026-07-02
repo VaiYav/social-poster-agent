@@ -125,7 +125,7 @@ describe('MOD-03: XPoster (BasePoster architecture)', () => {
     expect(page.close).toHaveBeenCalledTimes(1);
   });
 
-  it('UTC-057: XPoster.post() accepts post when URL changed from /compose/post (likely success)', async () => {
+  it('UTC-057: XPoster.post() returns error when URL does not match post URL pattern', async () => {
     const page = createMockPage({
       url: 'https://x.com/home',
     });
@@ -133,11 +133,10 @@ describe('MOD-03: XPoster (BasePoster architecture)', () => {
 
     const result = await poster.post(context as unknown, browserPort as unknown, 'Hello!');
 
-    // URL changed from /compose/post to /home — post likely succeeded even though
-    // profile validation couldn't find the content (mock page has empty body text).
-    // The fallback accepts this as a likely success to avoid false negatives.
-    expect(result.url).toBeDefined();
-    expect(result.error).toBeUndefined();
+    // URL doesn't match /\/status\/\d+/, and profile validation fails (mock page has
+    // empty body text). No false-positive "likely success" — fail honestly.
+    expect(result.error).toBeDefined();
+    expect(result.url).toBeUndefined();
   });
 
   it('UTC-057: XPoster.post() applies human-like delays via browserPort.randomDelay', async () => {

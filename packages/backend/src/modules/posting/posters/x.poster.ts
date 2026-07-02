@@ -37,6 +37,16 @@ export class XPoster extends BasePoster {
     threadItems?: string[],
   ): Promise<PostResult> {
     this.logger.log(`X post started — content length: ${content.length}, thread items: ${threadItems?.length ?? 0}`);
+
+    // Pre-flight check: X limit is 280 chars for standard accounts.
+    // If content exceeds this, the Post button will be disabled and the tweet won't publish.
+    // Fail fast with a clear error instead of wasting a browser session.
+    const X_CHAR_LIMIT = 280;
+    if (content.length > X_CHAR_LIMIT) {
+      this.logger.warn(`X content ${content.length} chars exceeds limit ${X_CHAR_LIMIT} — rejecting before browser session`);
+      return { error: `Content ${content.length} chars exceeds X limit ${X_CHAR_LIMIT}` };
+    }
+
     const page = await context.newPage();
     await this.browser.suppressPageErrors(page);
 
@@ -288,17 +298,10 @@ export class XPoster extends BasePoster {
               }
             }
             if (lastErr) {
-              // Last resort: if URL changed away from /compose/post, the post likely succeeded
-              // but profile verification failed (X rate-limit, UI lag, shadowban display issue).
-              // Accept the post as likely successful to avoid false negatives.
-              if (!currentUrl.includes('/compose/post')) {
-                this.logger.warn(
-                  `X profile validation failed but URL changed from /compose/post — accepting as likely success`,
-                );
-                postUrl = `https://x.com/${handle}`;
-              } else {
-                throw lastErr;
-              }
+              // Profile validation failed after 3 retries — the post was NOT published.
+              // Do NOT accept as "likely success" — that creates false positives and
+              // marks unpublished posts as POSTED. Fail honestly so the queue can retry.
+              throw lastErr;
             }
           } else {
             throw new ValidationError(this.network, 'Post URL does not match expected pattern', {

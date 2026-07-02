@@ -58,4 +58,13 @@ export class QueueService {
     }
     return retried;
   }
+
+  /**
+   * Clear completed jobs from a network's posting queue.
+   * Needed because BullMQ dedup: queue.add() with same jobId no-ops if job exists
+   * in completed/failed set. Clearing completed allows re-enqueueing the same postId.
+   */
+  async clearCompleted(network: SocialNetwork): Promise<number> {
+    return this.queueFactory.clearCompletedJobs(network);
+  }
 }

@@ -382,4 +382,22 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
     const queue = this.getQueue(network, action);
     return queue.isPaused();
   }
+
+  /**
+   * Remove completed jobs from a queue so BullMQ will accept new jobs with the same jobId.
+   * BullMQ dedup: if a job with the same jobId exists in completed/failed/delayed set,
+   * queue.add() silently no-ops. This clears the completed set for a network.
+   */
+  async clearCompletedJobs(network: string, action: 'posting' | 'engagement' = 'posting'): Promise<number> {
+    const queue = this.getQueue(network, action);
+    const completed = await queue.getCompleted();
+    let cleared = 0;
+    for (const job of completed) {
+      if (job.id) {
+        await job.remove().catch(() => {});
+        cleared++;
+      }
+    }
+    return cleared;
+  }
 }
