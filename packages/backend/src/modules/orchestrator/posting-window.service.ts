@@ -46,6 +46,9 @@ export class PostingWindowService {
     const fallbackCsv = this.configService.get<string>('POSTING_WINDOW_FALLBACK_HOURS', '9,12,18,21');
     this.fallbackHours = fallbackCsv.split(',').map((h) => Number(h.trim())).filter((h) => !isNaN(h));
     this.bypass = parseBool(this.configService.get<string>('POSTING_WINDOW_BYPASS', 'false'));
+    if (this.bypass) {
+      this.logger.log('Posting window bypass enabled — all networks will report inWindow=true');
+    }
   }
 
   /**
