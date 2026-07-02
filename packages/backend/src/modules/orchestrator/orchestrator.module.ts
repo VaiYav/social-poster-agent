@@ -22,6 +22,8 @@ import { QueueModule } from '../queue/queue.module';
 import { NotificationsModule } from '../../infrastructure/notifications/notifications.module';
 import { LlmModule } from '../../infrastructure/llm/llm.module';
 import { CheckpointModule } from '../../infrastructure/checkpoint/checkpoint.module';
+import { parseBool } from '../../infrastructure/config/parse-bool.js';
+import { EngagementModule } from '../engagement/engagement.module.js';
 import { StateCollectorService } from './state-collector.service.js';
 import { PostingWindowService } from './posting-window.service.js';
 import { HardRulesService } from './hard-rules.service.js';
@@ -48,6 +50,14 @@ import { OrchestratorService } from './orchestrator.service.js';
 import { OrchestratorController } from './orchestrator.controller.js';
 import { WatchdogCron } from './watchdog.cron.js';
 
+// Conditionally import EngagementModule so EngagementSchedulerService is available
+// for the parallel engagement check (checkStaleAndEnqueue). Without this, the
+// @Optional() engagementScheduler in OrchestratorService is undefined and engagement
+// silently never runs.
+const engagementImports = parseBool(process.env.ENGAGEMENT_ENABLED)
+  ? [EngagementModule]
+  : [];
+
 @Module({
   imports: [
     PrismaModule,
@@ -58,6 +68,7 @@ import { WatchdogCron } from './watchdog.cron.js';
     NotificationsModule,
     LlmModule,
     CheckpointModule,
+    ...engagementImports,
     // EventEmitter2 is provided globally by EventsEdaModule in app.module.ts
     // SseModule no longer needed — orchestrator emits domain events via EventEmitter2,
     // SseEventListener bridges them to SSE

@@ -153,16 +153,26 @@ export class StateCollectorService {
               where: { accountId: account.id, status: SessionStatus.ACTIVE },
               orderBy: { createdAt: 'desc' },
             }),
+            // Check posts from the last 30 minutes only — a circuit breaker based
+            // on the last 3 posts never recovers because old failures stay in the
+            // window forever. A time-based window auto-heals after 30 min.
             this.prisma.post.findMany({
-              where: { network: network as SocialNetwork },
+              where: {
+                network: network as SocialNetwork,
+                createdAt: { gte: new Date(Date.now() - 30 * 60 * 1000) },
+              },
               orderBy: { createdAt: 'desc' },
-              take: 3,
+              take: 10,
               select: { status: true },
             }),
           ]);
 
           const recentFails = recentPosts.filter((p) => p.status === PostStatus.FAILED).length;
-          const circuitBreaker = recentFails >= 3 ? 'open' : recentFails >= 1 ? 'half_open' : 'closed';
+          const recentTotal = recentPosts.length;
+          // Open only if ≥3 failures in the last 30 min (active failure storm).
+          // Half-open if 1-2 failures. Closed if no failures or no recent posts.
+          const circuitBreaker =
+            recentFails >= 3 ? 'open' : recentFails >= 1 && recentTotal >= 2 ? 'half_open' : 'closed';
 
           return [
             network,

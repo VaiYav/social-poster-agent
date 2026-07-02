@@ -110,6 +110,8 @@ export class DecisionEngineService {
     // Approved drafts + in posting window → POST
     if (world.drafts.approved > 0) {
       for (const net of networks) {
+        // Skip networks with open circuit breaker — let a healthy network post instead
+        if (world.sessions[net]?.circuitBreaker === 'open') continue;
         if (world.inPostingWindow[net] && (world.rateLimits[net]?.dailyRemaining ?? 0) > 0) {
           return {
             type: 'POST',

@@ -57,12 +57,14 @@ export class HardRulesService {
       }
     }
 
-    // H4: Circuit breaker open → WAIT
-    for (const net of networks) {
-      const session = world.sessions[net];
-      if (session && session.circuitBreaker === 'open') {
-        return WAIT_ACTION(`Circuit breaker open for ${net}`, 60000);
-      }
+    // H4: Circuit breaker open for ALL networks → WAIT
+    // If only some networks have open circuit breakers, let the decision engine
+    // pick a healthy network instead of blocking everything.
+    const openCircuits = networks.filter(
+      (net) => world.sessions[net]?.circuitBreaker === 'open',
+    );
+    if (openCircuits.length > 0 && openCircuits.length === networks.length) {
+      return WAIT_ACTION(`Circuit breaker open for all networks (${openCircuits.join(', ')})`, 60000);
     }
 
     // H5: All networks daily limit exhausted → WAIT
