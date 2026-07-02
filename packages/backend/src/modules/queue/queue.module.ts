@@ -71,6 +71,9 @@ export class QueueModule implements OnModuleInit {
       this.queueFactory.registerWorker(
         network,
         async (job) => {
+          this.logger.log(
+            `Engagement worker received job ${job.id} for ${network}: ${JSON.stringify(job.data)}`,
+          );
           const { action, network: jobNetwork } = job.data as {
             action: string;
             network: string;
