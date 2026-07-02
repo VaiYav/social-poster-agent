@@ -5,7 +5,7 @@
  * the action with a WAIT if the condition is violated.
  */
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { SocialNetwork } from '@prisma/client';
 import { getEnabledNetworks } from '../../domain/enabled-networks.js';
 import type { WorldState, Action } from './types.js';
@@ -13,6 +13,8 @@ import { WAIT_ACTION, RECOVER_ACTION } from './types.js';
 
 @Injectable()
 export class GuardrailsService {
+  private readonly logger = new Logger(GuardrailsService.name);
+
   /**
    * Apply guardrails to an action. Returns the original action if all
    * guardrails pass, or a WAIT/RECOVER override if any guardrail fires.
@@ -72,6 +74,15 @@ export class GuardrailsService {
     if ((action.type === 'BROWSE' || action.type === 'WAIT') && world.drafts.approved > 0) {
       let chosenNet: SocialNetwork | undefined;
       let chosenLastPostMs = Infinity;
+      const readyDebug = networks.map((net) => ({
+        net,
+        inWindow: world.inPostingWindow[net],
+        dailyRemaining: world.rateLimits[net]?.dailyRemaining ?? 0,
+        status: world.sessions[net]?.status,
+        circuitBreaker: world.sessions[net]?.circuitBreaker,
+        lastPostMs: world.rateLimits[net]?.lastPostMs ?? 0,
+      }));
+      this.logger.debug(`G8 ready networks: ${JSON.stringify(readyDebug)}`);
       for (const net of networks) {
         if (world.sessions[net]?.circuitBreaker === 'open') continue;
         if (
