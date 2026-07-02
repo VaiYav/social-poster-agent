@@ -81,6 +81,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
   private readonly pendingCreates = new Map<SocialNetwork, number>();
   private readonly contextWaiters = new Map<SocialNetwork, Array<{ resolve: () => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> }>>();
   private readonly contextIdleTtlMs: number;
+  private orphanGraceMs: number;
   private idleSweepInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(private readonly configService: ConfigService) {
@@ -109,6 +110,14 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     // MEM: idle TTL lowered from 10 min → 3 min. Idle Firefox processes are pure
     // memory overhead — re-creating a context takes ~2-4s, acceptable vs 200 MB saved.
     this.contextIdleTtlMs = Math.max(60000, this.configService.get<number>('BROWSER_CONTEXT_IDLE_TTL_MS', 3 * 60 * 1000));
+    // MEM: orphan grace period — how long an in-use context can be held before the
+    // sweep closes it as leaked. Must be longer than the max browsing session duration
+    // (F1_BROWSING_SESSION_MINUTES, default 15 min) plus buffer, otherwise the sweep
+    // closes contexts mid-session. Default: max(3 × idle TTL, 25 min).
+    const browsingMinutes = this.configService.get<number>('F1_BROWSING_SESSION_MINUTES', 15);
+    const minOrphanGrace = (browsingMinutes + 10) * 60 * 1000; // browsing + 10 min buffer
+    const defaultOrphanGrace = Math.max(this.contextIdleTtlMs * 3, minOrphanGrace);
+    this.orphanGraceMs = Math.max(60000, this.configService.get<number>('BROWSER_ORPHAN_GRACE_MS', defaultOrphanGrace));
     // MEM: persistent (Facebook) context idle TTL — defaults to 15 min. FB posts
     // infrequently, so the persistent Firefox process is closed when idle >15 min
     // and re-opened on demand (cookies/fingerprint persist on disk via user_data_dir).
@@ -767,8 +776,10 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     // (exception in posting/engagement). Without this, a leaked context holds a
     // Firefox process (~200 MB) forever AND blocks pool capacity (inUse.size never
     // drops to 0), so new acquires hang until the acquire timeout.
-    // Grace period: 3x idle TTL (a real posting job should finish in minutes, not 9).
-    const orphanGraceMs = this.contextIdleTtlMs * 3;
+    // Grace period: configurable via BROWSER_ORPHAN_GRACE_MS, defaults to
+    // max(3 × idle TTL, browsing session duration + 10 min) so legitimate
+    // browsing sessions (up to 15 min) are not swept mid-session.
+    const orphanGraceMs = this.orphanGraceMs;
     for (const [network, contexts] of this.inUseContexts) {
       const orphans: BrowserContext[] = [];
       for (const [ctx, acquiredAt] of contexts) {
