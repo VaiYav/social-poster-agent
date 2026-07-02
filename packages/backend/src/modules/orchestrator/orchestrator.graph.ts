@@ -126,6 +126,10 @@ function executeNode(deps: OrchestratorGraphDeps) {
       return { result: { success: true, type: 'WAIT', duration: 0 } };
     }
 
+    // Write heartbeat before executing — long-running actions (BROWSE, up to 15 min)
+    // would otherwise let the heartbeat go stale and trigger a watchdog restart mid-action.
+    await deps.writeHeartbeat();
+
     try {
       const result = await deps.actionExecutor.execute(state.action);
       return { result };
