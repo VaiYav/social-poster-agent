@@ -26,7 +26,8 @@ export type ScreenshotPhase =
   | 'after-like'
   | 'before-comment'
   | 'after-comment'
-  | 'during-scroll';
+  | 'during-scroll'
+  | 'button-disabled-abort';
 
 export interface IBrowserPort {
   // ── Context & Session ──────────────────────────────────────────
