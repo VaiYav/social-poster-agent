@@ -440,6 +440,9 @@ export class XPoster extends BasePoster {
         return { error: 'Not logged in — session expired, relogin needed' };
       }
 
+      // Wait for the side nav to load — the compose button may not be immediately visible
+      // after navigation. Wait up to 15s for it to appear.
+      this.logger.log(`X fallback: waiting for compose button on home page...`);
       // Click the compose button in the side nav.
       // X uses [data-testid="SideNav_NewTweet_Button"] for the compose button.
       const composeButton = page
@@ -448,12 +451,21 @@ export class XPoster extends BasePoster {
         .or(page.getByRole('button', { name: 'Post' }).first())
         .or(page.locator('a[href="/compose/post"]').first());
 
-      const composeVisible = await composeButton.isVisible().catch(() => false);
+      // Wait for the button to be visible (not just check once)
+      let composeVisible = await composeButton.isVisible().catch(() => false);
       if (!composeVisible) {
-        this.logger.warn(`X fallback: compose button not found on home page`);
+        // Try waiting for it to appear
+        await composeButton.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
+        composeVisible = await composeButton.isVisible().catch(() => false);
+      }
+      if (!composeVisible) {
+        // Log page state for debugging
+        const bodyText = await page.textContent('body').catch(() => '');
+        this.logger.warn(`X fallback: compose button not found on home page. Body text (first 200): "${bodyText?.slice(0, 200)}"`);
         return null;
       }
 
+      this.logger.log(`X fallback: compose button found, clicking...`);
       await composeButton.click({ force: true, timeout: 10000 });
       await this.browser.randomDelay(1500, 3000);
 
