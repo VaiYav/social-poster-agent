@@ -54,6 +54,8 @@ export interface BehaviorEngineConfig {
   commentsMaxPerSession: number;
   /** Max posts to evaluate per session (prevents infinite loops). */
   maxPosts: number;
+  /** Total wall-clock budget for the session (scroll + interactions), in seconds. */
+  durationSec: number;
 }
 
 @Injectable()
@@ -92,6 +94,9 @@ export class HumanBehaviorEngine {
     let commentsThisSession = 0;
     let postsProcessed = 0;
 
+    // Respect the overall session duration budget. Scroll + interactions must fit.
+    const sessionDeadline = Date.now() + config.durationSec * 1000;
+
     // Use batched decisions if the port supports it (1 LLM call per batch
     // instead of 1 per post). Falls back to individual calls otherwise.
     const supportsBatch = typeof this.decisionPort.decideActionsBatch === 'function';
@@ -100,7 +105,7 @@ export class HumanBehaviorEngine {
     const batchSize = supportsBatch ? HumanBehaviorEngine.BATCH_SIZE : 1;
     let urlIndex = 0;
 
-    while (urlIndex < postUrls.length && postsProcessed < config.maxPosts) {
+    while (urlIndex < postUrls.length && postsProcessed < config.maxPosts && Date.now() < sessionDeadline) {
       // Determine how many URLs to process in this batch
       const remaining = config.maxPosts - postsProcessed;
       const batchSlice = postUrls.slice(urlIndex, urlIndex + Math.min(batchSize, remaining));
@@ -110,7 +115,7 @@ export class HumanBehaviorEngine {
       const contexts: PostContext[] = [];
 
       for (const postUrl of batchSlice) {
-        if (postsProcessed >= config.maxPosts) break;
+        if (postsProcessed >= config.maxPosts || Date.now() >= sessionDeadline) break;
         try {
           const extracted = await engager.extractPostText(page, postUrl);
           contexts.push({
@@ -149,7 +154,7 @@ export class HumanBehaviorEngine {
       }
 
       // Step 3: Execute decisions sequentially (with human-like pauses)
-      for (let i = 0; i < contexts.length; i++) {
+      for (let i = 0; i < contexts.length && Date.now() < sessionDeadline; i++) {
         postsProcessed++;
         const context = contexts[i]!;
         let decision = decisions[i]!;

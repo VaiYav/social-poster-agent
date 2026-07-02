@@ -7,9 +7,10 @@
  * Source: packages/backend/src/modules/engagement/human-behavior-engine.ts
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { HumanBehaviorEngine } from '../../../src/modules/engagement/human-behavior-engine';
+import { HumanBehaviorEngine, type BehaviorEngineConfig } from '../../../src/modules/engagement/human-behavior-engine';
 import type { IEngagementDecisionPort, ActionDecision, PostContext } from '../../../src/domain/ports/engagement-decision.port';
 import type { IBrowserPort } from '../../../src/domain/ports/browser.port';
+import type { SocialNetwork } from '@prisma/client';
 import type { BaseEngager } from '../../../src/modules/engagement/engagers/base.engager';
 import {
   createMockBrowserPort,
@@ -68,14 +69,15 @@ describe('HumanBehaviorEngine', () => {
   let decisionPort: IEngagementDecisionPort;
   let engager: BaseEngager;
 
-  const config = {
-    network: 'X' as const,
+  const config: BehaviorEngineConfig = {
+    network: 'X' as SocialNetwork,
     accountId: 'account-1',
     browsingSessionId: 'session-1',
     source: 'home-feed' as const,
     likesMaxPerSession: 15,
     commentsMaxPerSession: 4,
     maxPosts: 5,
+    durationSec: 60,
   };
 
   beforeEach(() => {

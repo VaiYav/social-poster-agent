@@ -243,6 +243,7 @@ function makeDecidePerPostNode(
         likesMaxPerSession: state.likesBudget,
         commentsMaxPerSession: state.commentsBudget,
         maxPosts: state.maxPosts,
+        durationSec: state.durationSec,
       },
     );
 

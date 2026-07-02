@@ -35,6 +35,7 @@ import {
   buildEngagementGraph,
   createEngagementInitialState,
 } from './engagement.graph.js';
+import { withTimeout } from '../../infrastructure/util/with-timeout.js';
 
 @Injectable()
 export class BrowsingSessionService {
@@ -155,7 +156,13 @@ export class BrowsingSessionService {
         page,
       });
 
-      const finalState = await compiled.invoke(initialState);
+      // Hard timeout: the graph should finish within the planned duration + a small buffer.
+      // If a browser operation hangs (e.g. a stuck page), this prevents the job from running forever.
+      const finalState = await withTimeout(
+        compiled.invoke(initialState),
+        duration * 1000 + 60_000,
+        `Browsing session for ${network}`,
+      );
 
       postsViewed = finalState.postsProcessed ?? 0;
       interactionsCount = (finalState.results ?? []).filter(
