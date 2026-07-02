@@ -218,8 +218,12 @@ export class XPoster extends BasePoster {
       // Wait for the button to be enabled (not disabled)
       // DraftJS may take a moment to process the content and enable the button
       await postButton.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
-      // Check if button is disabled
+      // Check if button is disabled — X uses both `disabled` attribute AND `aria-disabled`
+      // Playwright's isDisabled() only checks the `disabled` property, not aria-disabled.
       let isDisabled = await postButton.isDisabled().catch(() => false);
+      let ariaDisabled = await postButton.getAttribute('aria-disabled').catch(() => null);
+      if (ariaDisabled === 'true') isDisabled = true;
+      this.logger.log(`X post button disabled check: isDisabled=${isDisabled}, aria-disabled=${ariaDisabled}`);
       if (isDisabled) {
         this.logger.warn(`X post button is disabled — DraftJS state not updated. Trying fill() to force React state update...`);
         // Strategy A: fill() — Playwright sets innerText via accessibility API,
@@ -232,7 +236,9 @@ export class XPoster extends BasePoster {
         await page.keyboard.press('Backspace').catch(() => {});
         await this.browser.randomDelay(500, 1000);
         isDisabled = await postButton.isDisabled().catch(() => false);
-        this.logger.log(`X after fill() + nudge — button disabled: ${isDisabled}`);
+        ariaDisabled = await postButton.getAttribute('aria-disabled').catch(() => null);
+        if (ariaDisabled === 'true') isDisabled = true;
+        this.logger.log(`X after fill() + nudge — button disabled: ${isDisabled}, aria-disabled: ${ariaDisabled}`);
       }
       if (isDisabled) {
         // Strategy B: clear and re-type with keyboard.type into focused textbox
@@ -244,7 +250,9 @@ export class XPoster extends BasePoster {
         await page.keyboard.type(content, { delay: 30 });
         await page.waitForTimeout(1000);
         isDisabled = await postButton.isDisabled().catch(() => false);
-        this.logger.log(`X after keyboard.type() retry — button disabled: ${isDisabled}`);
+        ariaDisabled = await postButton.getAttribute('aria-disabled').catch(() => null);
+        if (ariaDisabled === 'true') isDisabled = true;
+        this.logger.log(`X after keyboard.type() retry — button disabled: ${isDisabled}, aria-disabled: ${ariaDisabled}`);
       }
       if (isDisabled) {
         // Button is still disabled — DraftJS refuses to accept the content.
@@ -440,6 +448,11 @@ export class XPoster extends BasePoster {
         return { error: 'Not logged in — session expired, relogin needed' };
       }
 
+      // Wait for the React app to mount — X uses a SPA that renders after domcontentloaded.
+      // The body text starts with <style> before React mounts, so we wait for a real X element.
+      this.logger.log(`X fallback: waiting for React app to mount on home page...`);
+      await page.waitForSelector('[data-testid="primaryColumn"], [data-testid="SideNav_NewTweet_Button"], [role="navigation"]', { timeout: 20000 }).catch(() => {});
+
       // Wait for the side nav to load — the compose button may not be immediately visible
       // after navigation. Wait up to 15s for it to appear.
       this.logger.log(`X fallback: waiting for compose button on home page...`);
@@ -498,7 +511,11 @@ export class XPoster extends BasePoster {
       await postButton.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
 
       // Check if button is disabled — if so, try fill() + DraftJS nudge
+      // X uses both `disabled` attribute AND `aria-disabled` — check both
       let fbDisabled = await postButton.isDisabled().catch(() => false);
+      let fbAriaDisabled = await postButton.getAttribute('aria-disabled').catch(() => null);
+      if (fbAriaDisabled === 'true') fbDisabled = true;
+      this.logger.log(`X fallback: post button disabled check: isDisabled=${fbDisabled}, aria-disabled=${fbAriaDisabled}`);
       if (fbDisabled) {
         this.logger.warn(`X fallback: post button disabled — trying fill() + DraftJS nudge...`);
         await textbox.fill(content, { timeout: 10000 }).catch(() => {});
@@ -508,7 +525,9 @@ export class XPoster extends BasePoster {
         await page.keyboard.press('Backspace').catch(() => {});
         await this.browser.randomDelay(500, 1000);
         fbDisabled = await postButton.isDisabled().catch(() => false);
-        this.logger.log(`X fallback: after fill() + nudge — button disabled: ${fbDisabled}`);
+        fbAriaDisabled = await postButton.getAttribute('aria-disabled').catch(() => null);
+        if (fbAriaDisabled === 'true') fbDisabled = true;
+        this.logger.log(`X fallback: after fill() + nudge — button disabled: ${fbDisabled}, aria-disabled: ${fbAriaDisabled}`);
       }
       if (fbDisabled) {
         this.logger.error(`X fallback: post button disabled after fill() — DraftJS state not updated`);
