@@ -124,6 +124,7 @@ import { AutonomousRunnerService } from '../../src/modules/autonomy/autonomous-r
 import { TrendingScraperService } from '../../src/modules/trending/trending-scraper.service';
 import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service';
 import { NotificationsModule } from '../../src/infrastructure/notifications/notifications.module';
+import { TopicGenerationService } from '../../src/infrastructure/content/topic-generation.service';
 import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service';
 import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator';
 import { ThreadDepthController } from '../../src/modules/content-enhancements/thread-depth.controller';
@@ -133,6 +134,14 @@ import { AuthService } from '../../src/modules/auth/auth.service';
 import { AuthController } from '../../src/modules/auth/auth.controller';
 import { JwtAuthGuard } from '../../src/modules/auth/jwt-auth.guard';
 import { JwtService } from '@nestjs/jwt';
+
+// Orchestrator services (esbuild strips design:paramtypes; restore below)
+import { HardRulesService } from '../../src/modules/orchestrator/hard-rules.service.js';
+import { GuardrailsService } from '../../src/modules/orchestrator/guardrails.service.js';
+import { LlmDecisionService } from '../../src/modules/orchestrator/llm-decision.service.js';
+import { PostingWindowService } from '../../src/modules/orchestrator/posting-window.service.js';
+import { DecisionEngineService } from '../../src/modules/orchestrator/decision-engine.service.js';
+import { EmailReaderService } from '../../src/infrastructure/email/email-reader.service.js';
 
 import { createMockLlmPort, createMockBrowserPort, createMockPrismaService } from '../mocks/index';
 import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER, RedisModule } from '../../src/infrastructure/redis/redis.module';
@@ -321,6 +330,7 @@ function restoreAllDesignParamtypes(): void {
   // Content source
   defineParamtypes(ContentSourceService, [ContentReader]);
   defineParamtypes(ContentSourceController, [ContentSourceService]);
+  defineParamtypes(TopicGenerationService, [PrismaService, ConfigService, SchedulerRegistry, LlmService]);
 
   // Generation — 14 params: 7 required + 7 @Optional()
   defineParamtypes(GenerationService, [
@@ -396,10 +406,17 @@ function restoreAllDesignParamtypes(): void {
   ]);
   defineParamtypes(EngagementController, [EngagementService]);
 
-  // Sessions — @Inject(IBrowserPort) param is Object
-  defineParamtypes(SessionsService, [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService]);
+  // Sessions — @Inject(IBrowserPort) and @Inject(SHARED_REDIS) params are Object
+  defineParamtypes(SessionsService, [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService, Object, EmailReaderService, SchedulerRegistry]);
   defineParamtypes(WarmupService, [PrismaService, ConfigService]);
   defineParamtypes(SessionsController, [SessionsService]);
+
+  // Orchestrator (esbuild strips design:paramtypes for these new services too)
+  defineParamtypes(HardRulesService, [Object]); // @Inject(SHARED_REDIS)
+  defineParamtypes(GuardrailsService, []);
+  defineParamtypes(LlmDecisionService, [ConfigService, Object]); // @Optional() @Inject(ILlmPort)
+  defineParamtypes(PostingWindowService, [PrismaService, ConfigService, Object]); // @Inject(SHARED_REDIS)
+  defineParamtypes(DecisionEngineService, [ConfigService, Object, PostingWindowService, HardRulesService, LlmDecisionService, GuardrailsService]); // @Inject(SHARED_REDIS)
 
   // Rate limit
   defineParamtypes(RateLimitService, [ConfigService, Object]);

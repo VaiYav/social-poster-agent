@@ -1,5 +1,5 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
-import type { BrowserContext, Page } from '../../../domain/ports/browser-primitives';
+import type { BrowserContext, Page, Locator } from '../../../domain/ports/browser-primitives';
 import { IBrowserPort } from '../../../domain/ports/browser.port.js';
 import { BasePoster, type PostResult } from './base.poster.js';
 import { X_SELECTORS } from './selectors/x.selectors.js';
@@ -108,9 +108,10 @@ export class XPoster extends BasePoster {
       // - keyboard.type() sends real key events that DraftJS processes, but requires focus
       // - click({ force: true }) may not properly focus the contenteditable div
       //
-      // Strategy: click normally (no force) → keyboard.type via typeHuman → if that fails,
-      // fill() + DraftJS nudge (type a char, delete it) → if button still disabled,
-      // Control+A → Backspace → keyboard.type (full re-type via keyboard events)
+      // Best practice from twitter-mcp / x-mcp-bridge: use document.execCommand('insertText')
+      // to fire the exact input events React/DraftJS listens to. This makes the Post button
+      // genuinely enabled and causes the tweet to actually submit when clicked.
+      // Fallbacks: fill() + DraftJS nudge, then keyboard.type() (last resort).
       let textbox = page
         .locator('[data-testid="tweetTextarea_0"]')
         .first()
@@ -125,22 +126,19 @@ export class XPoster extends BasePoster {
       }
       await this.browser.randomDelay(500, 1000);
 
-      // Strategy 1: typeHuman with locator (pressSequentially per char — real key events
-      // sent directly to the element, ensuring DraftJS processes them and updates React state)
-      // Using locator is critical: page.keyboard.type() without locator may send keys to
-      // the wrong element if focus is lost, leaving DOM text without DraftJS state.
-      this.logger.log(`X typing tweet via typeHuman with locator (pressSequentially)...`);
-      await this.browser.typeHuman(page, content, textbox).catch(() => {});
+      // Strategy 1: execCommand('insertText') — fires the input events React/DraftJS needs
+      this.logger.log(`X typing tweet via execCommand insertText...`);
+      await this.setComposeText(page, textbox, content);
       await this.browser.randomDelay(500, 1000);
 
       // Verify content was entered
       let enteredText = await textbox.innerText().catch(() => '');
-      this.logger.debug(`X after typeHuman — textbox content: "${enteredText.slice(0, 50)}..."`);
+      this.logger.debug(`X after execCommand — textbox content: "${enteredText.slice(0, 50)}..."`);
 
-      // Strategy 2: if typeHuman didn't work, use fill() + DraftJS nudge
+      // Strategy 2: if execCommand didn't work, use fill() + DraftJS nudge
       // fill() sets the DOM content, then we type+delete a char to trigger DraftJS state update
       if (!enteredText || enteredText.trim().length < 10) {
-        this.logger.warn(`X typeHuman didn't enter text — trying fill() + DraftJS nudge...`);
+        this.logger.warn(`X execCommand didn't enter text — trying fill() + DraftJS nudge...`);
         await textbox.fill(content, { timeout: 10000 }).catch(() => {});
         await this.browser.randomDelay(300, 600);
         // DraftJS nudge: type a space and backspace to trigger React state update
@@ -456,6 +454,62 @@ export class XPoster extends BasePoster {
   }
 
   /**
+   * Insert text into X's DraftJS contenteditable compose box using
+   * document.execCommand('insertText'). This fires the input events React/DraftJS
+   * listens to, so the Post button becomes genuinely enabled and the tweet is
+   * actually submitted when clicked. Falls back to the legacy per-character
+   * typeHuman strategy if execCommand fails or returns false.
+   */
+  private async setComposeText(
+    page: Page,
+    textbox: Locator,
+    content: string,
+  ): Promise<void> {
+    const MAX_RETRIES = 2;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        // Focus the contenteditable div so execCommand targets the right element
+        await textbox.focus({ timeout: 5000 }).catch(() => {});
+        await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+        await this.browser.randomDelay(200, 400);
+
+        // Select any existing content and replace it via execCommand
+        const inserted = await textbox.evaluate((el: HTMLElement, value: string) => {
+          el.focus();
+          const selection = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+          // execCommand('insertText') dispatches the correct beforeinput/input events
+          // React/DraftJS need to register the content and enable the Post button.
+          const ok = document.execCommand('insertText', false, value);
+          if (!ok) return false;
+          // Trigger a final input event in case execCommand didn't fire one
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          return true;
+        }, content).catch(() => false);
+
+        if (inserted) {
+          const innerText = await textbox.innerText().catch(() => '');
+          if (innerText.trim().length >= content.trim().length * 0.8) {
+            this.logger.debug(`X setComposeText via execCommand succeeded (attempt ${attempt})`);
+            return;
+          }
+        }
+      } catch (err) {
+        this.logger.debug(`X setComposeText attempt ${attempt} failed: ${(err as Error).message}`);
+      }
+      // Pause briefly before fallback retry
+      await this.browser.randomDelay(300, 600);
+    }
+
+    // Fallback to legacy per-character typing
+    this.logger.warn(`X execCommand insertText failed — falling back to typeHuman`);
+    await this.browser.typeHuman(page, content, textbox).catch(() => {});
+  }
+
+  /**
    * Fallback posting strategy: navigate to X home page, open the compose
    * dialog via the "Post" button in the side nav, type content, and submit.
    *
@@ -480,23 +534,35 @@ export class XPoster extends BasePoster {
       // The body text starts with <style> before React mounts, so we wait for a real X element.
       // Don't use [role="navigation"] — it matches the noscript fallback <nav> element.
       this.logger.log(`X fallback: waiting for React app to mount on home page...`);
-      await page.waitForSelector('[data-testid="primaryColumn"], [data-testid="SideNav_NewTweet_Button"]', { timeout: 20000 }).catch(() => {});
+      // Give X's heavy SPA more time to hydrate; many production failures show the body
+      // still containing only <style> at the 20s mark, causing the compose button search to
+      // fail immediately and forcing the fragile /compose/post fallback.
+      await page.waitForSelector('[data-testid="primaryColumn"], [data-testid="SideNav_NewTweet_Button"]', { timeout: 45000 }).catch(() => {});
 
       // Wait for the side nav to load — the compose button may not be immediately visible
-      // after navigation. Wait up to 15s for it to appear.
+      // after navigation. Wait up to 30s for it to appear, and retry once after a short pause.
       this.logger.log(`X fallback: waiting for compose button on home page...`);
       // Click the compose button in the side nav.
       // X uses [data-testid="SideNav_NewTweet_Button"] for the compose button.
       const composeButton = page
         .locator('[data-testid="SideNav_NewTweet_Button"]')
         .first()
-        .or(page.getByRole('button', { name: 'Post' }).first())
+        .or(page.getByRole('button', { name: 'Post', exact: true }).first())
         .or(page.locator('a[href="/compose/post"]').first());
 
       // Wait for the button to be visible (not just check once)
       let composeVisible = await composeButton.isVisible().catch(() => false);
       if (!composeVisible) {
         // Try waiting for it to appear
+        await composeButton.waitFor({ state: 'visible', timeout: 30000 }).catch(() => {});
+        composeVisible = await composeButton.isVisible().catch(() => false);
+      }
+      // Retry once after a short pause — the SPA can render the nav slightly after the
+      // primary column appears, and the first waitFor can time out just before the button
+      // mounts. A second check catches this transient race.
+      if (!composeVisible) {
+        this.logger.warn(`X fallback: compose button not visible after first wait — pausing and retrying...`);
+        await this.browser.randomDelay(3000, 5000);
         await composeButton.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
         composeVisible = await composeButton.isVisible().catch(() => false);
       }
@@ -521,10 +587,10 @@ export class XPoster extends BasePoster {
       await textbox.click({ force: true, timeout: 10000 }).catch(() => {});
       await page.waitForTimeout(500);
 
-      // Type content using typeHuman with locator (pressSequentially — real key events
-      // sent directly to the element, ensuring DraftJS processes them and updates React state)
-      this.logger.log(`X fallback: typing tweet via typeHuman with locator...`);
-      await this.browser.typeHuman(page, content, textbox).catch(() => {});
+      // Type content using execCommand insertText (fires the input events React/DraftJS
+      // listens to, so the Post button genuinely enables and the tweet actually submits).
+      this.logger.log(`X fallback: typing tweet via execCommand insertText...`);
+      await this.setComposeText(page, textbox, content);
       await page.waitForTimeout(1000);
 
       await this.screenshot(page, 'after-type-fallback');
