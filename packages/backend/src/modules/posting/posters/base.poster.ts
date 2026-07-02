@@ -229,6 +229,9 @@ export abstract class BasePoster {
         if (foundInPost) {
           this.logger.log(`${this.network} content found in post text element: "${foundInPost.slice(0, 60)}..."`);
         } else {
+          // Log first 3 post text elements to see what's actually on the profile
+          const preview = postTexts.slice(0, 3).map((t) => `"${t.slice(0, 80)}"`).join(', ');
+          this.logger.warn(`${this.network} profile post text elements (first 3): ${preview}`);
           // Log first 200 chars of page text for debugging
           this.logger.warn(
             `${this.network} content NOT found on profile. Page text preview: "${(pageText ?? '').slice(0, 200)}"`,

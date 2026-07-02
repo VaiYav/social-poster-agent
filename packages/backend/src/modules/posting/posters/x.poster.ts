@@ -218,6 +218,7 @@ export class XPoster extends BasePoster {
       let humanClickFailed = false;
       try {
         await this.browser.humanClick(postButton, { timeoutMs: 15000 });
+        this.logger.log(`X humanClick on Post button succeeded`);
       } catch (clickErr) {
         this.logger.warn(`X humanClick on Post button failed: ${(clickErr as Error).message}`);
         humanClickFailed = true;
@@ -227,6 +228,11 @@ export class XPoster extends BasePoster {
       // Check if the click actually submitted (URL should change away from /compose/post)
       const urlAfterClick = page.url();
       const stillOnCompose = urlAfterClick.includes('/compose/post');
+      this.logger.log(`X after humanClick — URL: ${urlAfterClick}, stillOnCompose: ${stillOnCompose}`);
+
+      // Check if textbox is now empty (sign that the tweet was submitted)
+      const textboxContentAfterClick = await textbox.innerText().catch(() => '');
+      this.logger.log(`X textbox content after click: "${textboxContentAfterClick.slice(0, 60)}..." (len=${textboxContentAfterClick.length})`);
 
       // Fallback 1: if humanClick failed OR URL didn't change, try Cmd+Enter
       if (humanClickFailed || stillOnCompose) {
@@ -237,6 +243,7 @@ export class XPoster extends BasePoster {
         await this.browser.randomDelay(200, 400);
         await page.keyboard.press('Control+Enter').catch(() => {});
         await this.browser.randomDelay(2000, 4000);
+        this.logger.log(`X after Cmd+Enter — URL: ${page.url()}`);
       }
 
       // Fallback 2: if still on compose page, try JavaScript click (last resort)
