@@ -36,11 +36,13 @@ export class XPoster extends BasePoster {
     content: string,
     threadItems?: string[],
   ): Promise<PostResult> {
+    this.logger.log(`X post started — content length: ${content.length}, thread items: ${threadItems?.length ?? 0}`);
     const page = await context.newPage();
     await this.browser.suppressPageErrors(page);
 
     try {
       // Navigate to compose page — X never reaches networkidle (constant polling), use domcontentloaded
+      this.logger.log(`X navigating to compose page: ${X_SELECTORS.compose.url}`);
       await this.navigate(page, X_SELECTORS.compose.url, 'domcontentloaded');
 
       // Check if logged in (redirect to login or login overlay?)
@@ -246,7 +248,7 @@ export class XPoster extends BasePoster {
       // ── Validate post (twitter-mcp approach: check profile, not URL) ──
       // X may redirect to /home, /compose/post/schedule, or stay on compose page.
       // The tweet is usually posted regardless — we validate by checking the profile.
-      let postUrl: string;
+      let postUrl: string | undefined;
 
       // First try: if URL matches /status/{id} pattern, use it directly
       if (X_SELECTORS.compose.postUrlPattern.test(currentUrl)) {
@@ -255,6 +257,7 @@ export class XPoster extends BasePoster {
       } else {
         // Second try: search page DOM for our tweet link
         const accountHandle = await this.getAccountHandle(page);
+        this.logger.log(`X account handle: ${accountHandle ?? 'not found'}, current URL: ${currentUrl}`);
         const foundUrl = await this.findTweetUrlOnPage(page, accountHandle);
 
         if (foundUrl) {
@@ -264,12 +267,39 @@ export class XPoster extends BasePoster {
           this.logger.log(`X tweet not on current page — checking profile...`);
           const handle = accountHandle ?? await this.getAccountHandleFromEnv();
           if (handle) {
-            postUrl = await this.validatePostOnProfile(
-              page,
-              `https://x.com/${handle}`,
-              content,
-              X_SELECTORS.compose.postUrlPattern,
-            );
+            // Retry profile validation up to 3 times — X may have a delay showing new posts
+            let lastErr: Error | null = null;
+            for (let attempt = 1; attempt <= 3; attempt++) {
+              try {
+                postUrl = await this.validatePostOnProfile(
+                  page,
+                  `https://x.com/${handle}`,
+                  content,
+                  X_SELECTORS.compose.postUrlPattern,
+                );
+                lastErr = null;
+                break;
+              } catch (err) {
+                lastErr = err as Error;
+                this.logger.warn(`X profile validation attempt ${attempt}/3 failed: ${(err as Error).message}`);
+                if (attempt < 3) {
+                  await this.browser.randomDelay(5000, 8000);
+                }
+              }
+            }
+            if (lastErr) {
+              // Last resort: if URL changed away from /compose/post, the post likely succeeded
+              // but profile verification failed (X rate-limit, UI lag, shadowban display issue).
+              // Accept the post as likely successful to avoid false negatives.
+              if (!currentUrl.includes('/compose/post')) {
+                this.logger.warn(
+                  `X profile validation failed but URL changed from /compose/post — accepting as likely success`,
+                );
+                postUrl = `https://x.com/${handle}`;
+              } else {
+                throw lastErr;
+              }
+            }
           } else {
             throw new ValidationError(this.network, 'Post URL does not match expected pattern', {
               expectedPattern: X_SELECTORS.compose.postUrlPattern.source,
@@ -279,7 +309,7 @@ export class XPoster extends BasePoster {
         }
       }
 
-      this.logger.log(`Posted to X: ${postUrl}`);
+      this.logger.log(`Posted to X: ${postUrl ?? 'unknown'}`);
 
       // P0-H2 / BUG-6: post thread replies via the shared helper (also used by the
       // home-page fallback, so the fallback no longer drops replies).

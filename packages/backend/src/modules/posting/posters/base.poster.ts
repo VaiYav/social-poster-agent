@@ -182,21 +182,60 @@ export abstract class BasePoster {
     const contentSnippet = content.slice(0, 40).trim().replace(/^["']+|["']+$/g, '');
     const pageText = await page.innerText('body').catch(() => '');
 
-    this.logger.debug(`Profile page text length: ${pageText?.length ?? 0}, looking for: "${contentSnippet}"`);
+    this.logger.log(
+      `${this.network} validatePostOnProfile: pageText length=${pageText?.length ?? 0}, looking for snippet="${contentSnippet}"`,
+    );
 
-    if (!pageText || !pageText.includes(contentSnippet)) {
+    // Normalize unicode for comparison — X/Threads may convert smart quotes (U+2018/U+2019)
+    // to regular quotes (U+0022/U+0027), em dashes (U+2014) to hyphens (U+002D), etc.
+    const normalize = (s: string): string =>
+      s
+        .replace(/[\u2018\u2019\u201A\u201B]/g, "'") // smart single quotes → '
+        .replace(/[\u201C\u201D\u201E\u201F]/g, '"') // smart double quotes → "
+        .replace(/[\u2013\u2014]/g, '-') // en/em dashes → -
+        .replace(/\u2026/g, '...') // ellipsis → ...
+        .replace(/\u00A0/g, ' ') // non-breaking space → space
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const normalizedSnippet = normalize(contentSnippet);
+    const normalizedPageText = normalize(pageText ?? '');
+
+    if (pageText && pageText.includes(contentSnippet)) {
+      this.logger.log(`${this.network} content found on profile (exact match)`);
+    } else if (normalizedPageText && normalizedPageText.includes(normalizedSnippet)) {
+      this.logger.log(`${this.network} content found on profile (normalized match): "${normalizedSnippet}"`);
+    } else {
       // Try without quotes — X strips leading/trailing quotes
       const noQuoteSnippet = content.replace(/^["']+|["']+$/g, '').slice(0, 30).trim();
-      if (pageText && pageText.includes(noQuoteSnippet)) {
-        this.logger.log(`Content found without quotes: "${noQuoteSnippet}"`);
+      const normalizedNoQuote = normalize(noQuoteSnippet);
+      if (normalizedPageText && normalizedPageText.includes(normalizedNoQuote)) {
+        this.logger.log(`${this.network} content found without quotes (normalized): "${normalizedNoQuote}"`);
       } else {
         // Try searching in post text elements specifically (network-specific selectors)
         const postTexts = await page.locator(postContentSelector).allInnerTexts().catch(() => []);
-        this.logger.debug(`Found ${postTexts.length} post text elements on profile`);
-        const foundInPost = postTexts.find((t) => t.includes(noQuoteSnippet) || t.includes(contentSnippet));
+        this.logger.log(
+          `${this.network} validatePostOnProfile: ${postTexts.length} post text elements on profile, searching for snippet`,
+        );
+        const foundInPost = postTexts.find((t) => {
+          const nt = normalize(t);
+          return (
+            nt.includes(normalizedSnippet) ||
+            nt.includes(normalizedNoQuote) ||
+            t.includes(contentSnippet) ||
+            t.includes(noQuoteSnippet)
+          );
+        });
         if (foundInPost) {
-          this.logger.log(`Content found in post text element: "${foundInPost.slice(0, 60)}..."`);
+          this.logger.log(`${this.network} content found in post text element: "${foundInPost.slice(0, 60)}..."`);
         } else {
+          // Log first 200 chars of page text for debugging
+          this.logger.warn(
+            `${this.network} content NOT found on profile. Page text preview: "${(pageText ?? '').slice(0, 200)}"`,
+          );
+          this.logger.warn(
+            `${this.network} normalized snippet: "${normalizedSnippet}", normalized noQuote: "${normalizedNoQuote}"`,
+          );
           throw new ValidationError(this.network, 'Posted content not found on profile page', {
             expectedPattern: contentSnippet,
             actualUrl: page.url(),
