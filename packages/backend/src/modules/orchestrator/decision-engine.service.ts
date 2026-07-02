@@ -76,7 +76,7 @@ export class DecisionEngineService {
     }
 
     // Phase 3: Guardrails (validate + clamp)
-    const guarded = this.guardrails.apply(action, world);
+    let guarded = this.guardrails.apply(action, world);
 
     if (guarded !== action) {
       this.logger.warn(
@@ -84,7 +84,20 @@ export class DecisionEngineService {
       );
     }
 
-    // G6: Record action for rate tracking (soft guardrail)
+    // G6: Enforce max actions per hour (soft guardrail).
+    // Check before recording, otherwise the guardrails/LLM could choose a non-WAIT
+    // action and we would immediately exceed the hourly budget.
+    if (guarded.type !== 'WAIT') {
+      const actionsThisHour = await this.getActionsThisHour();
+      if (actionsThisHour >= this.maxActionsPerHour) {
+        this.logger.warn(
+          `Guardrail G6: hourly action budget exhausted (${actionsThisHour}/${this.maxActionsPerHour}) — overriding ${guarded.type} to WAIT`,
+        );
+        guarded = WAIT_ACTION(`Hourly action budget exhausted (${actionsThisHour}/${this.maxActionsPerHour})`, 300000, 'guardrail_override');
+      }
+    }
+
+    // Record the final action (only non-WAIT actions count toward the budget)
     if (guarded.type !== 'WAIT') {
       void this.recordAction(guarded);
     }

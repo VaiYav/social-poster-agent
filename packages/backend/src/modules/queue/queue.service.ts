@@ -15,8 +15,8 @@ export class QueueService {
 
   constructor(private readonly queueFactory: QueueFactory) {}
 
-  async enqueuePosting(postId: string, network: SocialNetwork): Promise<void> {
-    await this.queueFactory.enqueuePosting(postId, network);
+  async enqueuePosting(postId: string, network: SocialNetwork, opts?: { delay?: number }): Promise<void> {
+    await this.queueFactory.enqueuePosting(postId, network, opts);
   }
 
   async getJobCounts(network: SocialNetwork) {

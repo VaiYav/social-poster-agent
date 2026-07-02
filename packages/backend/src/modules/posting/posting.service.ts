@@ -546,7 +546,7 @@ export class PostingService {
     // Check for post-specific patterns
     const postPatterns: Record<SocialNetwork, RegExp> = {
       [SocialNetwork.X]: /\/status\/[A-Za-z0-9]+/,
-      [SocialNetwork.THREADS]: /\/@[^/]+\/post\/[A-Za-z0-9_-]+/,
+      [SocialNetwork.THREADS]: /(?:\/@[^/]+\/post\/|\/t\/)[A-Za-z0-9_-]+/,
       [SocialNetwork.FACEBOOK]: /\/(posts|permalink|photos)\/\d+/,
     };
 

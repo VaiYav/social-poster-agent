@@ -664,7 +664,8 @@ export abstract class BasePoster {
   private getVerificationUrlPattern(): RegExp {
     switch (this.network) {
       case 'THREADS':
-        return /\/@[^/]+\/post\/[A-Za-z0-9_-]+/;
+        // Threads profile URLs use /post/, public short links use /t/
+        return /(?:\/@[^/]+\/post\/|\/t\/)[A-Za-z0-9_-]+/;
       case 'FACEBOOK':
         return /\/(posts|permalink|photos)\/\d+/;
       case 'X':

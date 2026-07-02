@@ -108,7 +108,9 @@ export const X_SELECTORS = {
     } satisfies SelectorStrategy,
     // After posting, URL should match /status/{id} — X historically uses numeric IDs
     // but we accept alphanumeric too in case of format changes.
-    postUrlPattern: /\/status\/([A-Za-z0-9]+)$/,
+    // Allow optional trailing slash or query params (e.g. ?s=20) so a real permalink is
+    // not rejected just because X appended tracking parameters.
+    postUrlPattern: /\/status\/([A-Za-z0-9]+)(?:\?.*)?\/?$/,
   },
 
   // ── Engagement ─────────────────────────────────────────────────

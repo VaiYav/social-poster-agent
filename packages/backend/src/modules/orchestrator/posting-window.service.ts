@@ -14,6 +14,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
 import { SocialNetwork } from '@prisma/client';
+import { parseBool } from '../../infrastructure/config/parse-bool.js';
 import type { PostingWindow } from './types.js';
 
 const CACHE_KEY_PREFIX = 'spa:posting-window:heatmap';
@@ -32,6 +33,7 @@ export class PostingWindowService {
   private readonly topHours: number;
   private readonly decayDays: number;
   private readonly fallbackHours: number[];
+  private readonly bypass: boolean;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -43,6 +45,7 @@ export class PostingWindowService {
     this.decayDays = Number(this.configService.get<string>('POSTING_WINDOW_DECAY_DAYS', '30'));
     const fallbackCsv = this.configService.get<string>('POSTING_WINDOW_FALLBACK_HOURS', '9,12,18,21');
     this.fallbackHours = fallbackCsv.split(',').map((h) => Number(h.trim())).filter((h) => !isNaN(h));
+    this.bypass = parseBool(this.configService.get<string>('POSTING_WINDOW_BYPASS', 'false'));
   }
 
   /**
@@ -57,7 +60,7 @@ export class PostingWindowService {
       if (totalSamples < this.minSamples) {
         // Cold start — use fallback hours
         const currentHour = new Date().getUTCHours();
-        const inWindow = this.fallbackHours.some(
+        const inWindow = this.bypass || this.fallbackHours.some(
           (h) => Math.abs(h - currentHour) <= 1, // ±1 hour tolerance
         );
         return {
@@ -72,7 +75,7 @@ export class PostingWindowService {
       const best = sorted.slice(0, this.topHours).map((h) => h.hour);
 
       const currentHour = new Date().getUTCHours();
-      const inWindow = best.some((h) => Math.abs(h - currentHour) <= 1);
+      const inWindow = this.bypass || best.some((h) => Math.abs(h - currentHour) <= 1);
 
       const confidence = totalSamples > 50 ? 'high' : 'medium';
 
@@ -81,7 +84,7 @@ export class PostingWindowService {
       this.logger.warn(`PostingWindow recommendation failed for ${network}: ${(err as Error).message}`);
       return {
         bestHours: this.fallbackHours,
-        inWindow: false,
+        inWindow: this.bypass,
         confidence: 'low',
       };
     }

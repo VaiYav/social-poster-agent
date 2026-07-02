@@ -76,7 +76,9 @@ export const THREADS_SELECTORS = {
     // Profile URL: https://www.threads.com/@username
     profileUrlPattern: /\/@[^/]+$/,
     // Post URL: https://www.threads.com/@username/post/XXXXX
-    postUrlPattern: /\/@[^/]+\/post\/[A-Za-z0-9_-]+$/,
+    // Threads also uses public short links: https://www.threads.com/t/XXXXX
+    // Allow optional trailing slash or query params so real permalinks are not rejected.
+    postUrlPattern: /(?:\/@[^/]+\/post\/|\/t\/)[A-Za-z0-9_-]+(?:\?.*)?\/?$/,
   },
 
   // ── Engagement ─────────────────────────────────────────────────

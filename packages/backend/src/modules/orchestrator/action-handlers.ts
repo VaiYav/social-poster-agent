@@ -141,10 +141,11 @@ export class PostHandler implements IActionHandler {
     const delayMin = Number(process.env.AUTONOMOUS_POSTING_DELAY_MIN_MS ?? '600000');
     const delayMax = Number(process.env.AUTONOMOUS_POSTING_DELAY_MAX_MS ?? '3600000');
     const delay = delayMin + Math.random() * (delayMax - delayMin);
+    const delayMs = Math.round(delay);
 
-    await queueService.enqueuePosting(post.id, action.network);
+    await queueService.enqueuePosting(post.id, action.network, { delay: delayMs });
 
-    return { enqueued: true, postId: post.id, delayMs: Math.round(delay) };
+    return { enqueued: true, postId: post.id, delayMs };
   }
 }
 

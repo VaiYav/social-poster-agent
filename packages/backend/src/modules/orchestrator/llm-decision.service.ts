@@ -6,12 +6,13 @@
  */
 
 import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { SocialNetwork } from '@prisma/client';
 import { ILlmPort } from '../../domain/ports/llm.port.js';
 import { ORCHESTRATOR_SYSTEM_PROMPT, buildOrchestratorUserPrompt } from './prompts/orchestrator-prompt.js';
 import type { WorldState, Action, ActionType, NetworkActionType, GenericActionType } from './types.js';
 
-const LLM_TIMEOUT_MS = 10000;
+const LLM_TIMEOUT_MS_DEFAULT = 30000;
 
 const VALID_ACTIONS: ActionType[] = [
   'GENERATE_TOPICS', 'GENERATE_POSTS', 'POST', 'BROWSE',
@@ -25,10 +26,17 @@ const NETWORK_ACTION_TYPES: ReadonlySet<string> = new Set(['POST', 'BROWSE', 'RE
 @Injectable()
 export class LlmDecisionService {
   private readonly logger = new Logger(LlmDecisionService.name);
+  private readonly llmTimeoutMs: number;
 
   constructor(
+    private readonly configService: ConfigService,
     @Optional() @Inject(ILlmPort) private readonly llm?: ILlmPort,
-  ) {}
+  ) {
+    this.llmTimeoutMs = Math.max(
+      5000,
+      Number(this.configService.get<string>('ORCHESTRATOR_LLM_TIMEOUT_MS', String(LLM_TIMEOUT_MS_DEFAULT))),
+    );
+  }
 
   async decide(world: WorldState): Promise<Action> {
     if (!this.llm) throw new Error('LLM port not available');
@@ -50,7 +58,7 @@ export class LlmDecisionService {
 
   private timeout(): Promise<never> {
     return new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('LLM timeout')), LLM_TIMEOUT_MS),
+      setTimeout(() => reject(new Error('LLM timeout')), this.llmTimeoutMs),
     );
   }
 
