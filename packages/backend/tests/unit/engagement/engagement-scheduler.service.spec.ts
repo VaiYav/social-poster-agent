@@ -260,7 +260,7 @@ describe('EngagementSchedulerService', () => {
       sessions: { X: { status: 'ACTIVE', lastCheckMs: 0, circuitBreaker: 'closed' } },
       rateLimits: { X: { dailyRemaining: 10, weeklyRemaining: 50, minIntervalMs: 0, lastPostMs: 0 } },
       engagement: {
-        lastBrowseMs: { X: Date.now() - 30 * 60 * 1000 },
+        lastBrowseMs: { X: Date.now() - 5 * 60 * 1000 }, // 5 min ago — not stuck
         uncheckedReplies: 0,
         warmupPhase: { X: 'full' },
         lastSessionStatus: { X: 'COMPLETED' },
@@ -269,5 +269,34 @@ describe('EngagementSchedulerService', () => {
     } as unknown as import('../../../src/modules/orchestrator/types').WorldState;
     await service.checkStaleAndEnqueue(world);
     expect(mockQueueFactory.enqueueEngagement).not.toHaveBeenCalled();
+  });
+
+  it('SC-012: checkStaleAndEnqueue enqueues a session that is ACTIVE but stuck past duration + buffer', async () => {
+    vi.setSystemTime(new Date('2026-06-27T12:00:00Z'));
+    // Default F1_BROWSING_SESSION_MINUTES = 10, so durationSec = 600; stuck threshold = 600 + 300 = 900s
+    service = new EngagementSchedulerService(
+      createMockConfigService({
+        ENGAGEMENT_SCHEDULER_ENABLED: 'true',
+        ENGAGEMENT_NETWORKS: 'X',
+      }),
+      mockQueueFactory,
+      mockSchedulerRegistry,
+    );
+    const world = {
+      timestamp: Date.now(),
+      utcHour: 12,
+      flowControl: { pauseAll: false, pauseEngagement: false },
+      sessions: { X: { status: 'ACTIVE', lastCheckMs: 0, circuitBreaker: 'closed' } },
+      rateLimits: { X: { dailyRemaining: 10, weeklyRemaining: 50, minIntervalMs: 0, lastPostMs: 0 } },
+      engagement: {
+        lastBrowseMs: { X: Date.now() - 20 * 60 * 1000 }, // 20 min ago > 15 min threshold
+        uncheckedReplies: 0,
+        warmupPhase: { X: 'full' },
+        lastSessionStatus: { X: 'COMPLETED' }, // previous session completed, but current is stuck
+        lastSessionInteractions: { X: 3 },
+      },
+    } as unknown as import('../../../src/modules/orchestrator/types').WorldState;
+    await service.checkStaleAndEnqueue(world);
+    expect(mockQueueFactory.enqueueEngagement).toHaveBeenCalled();
   });
 });

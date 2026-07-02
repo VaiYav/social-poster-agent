@@ -263,12 +263,20 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
       const session = world.sessions[netKey];
       const lastSessionStatus = world.engagement.lastSessionStatus[netKey] ?? 'none';
       const lastSessionInteractions = world.engagement.lastSessionInteractions[netKey] ?? 0;
+
+      // Detect sessions that are ACTIVE but have not finished within their planned duration + buffer.
+      // This typically happens when a previous container crashed or a browser hang left the row in ACTIVE.
+      const sessionAgeMs = Date.now() - lastBrowse;
+      const stuckThresholdMs = durationSec * 1000 + 5 * 60 * 1000;
+      const isStuck = session?.status === 'ACTIVE' && lastBrowse > 0 && sessionAgeMs > stuckThresholdMs;
+      const isStale = lastBrowse < fourHoursAgo || lastSessionStatus === 'FAILED' || isStuck;
+
       this.logger.debug(
-        `checkStaleAndEnqueue ${netKey}: lastBrowse=${lastBrowse}, stale=${lastBrowse < fourHoursAgo}, ` +
-          `sessionStatus=${session?.status}, lastSessionStatus=${lastSessionStatus}, lastSessionInteractions=${lastSessionInteractions}`,
+        `checkStaleAndEnqueue ${netKey}: lastBrowse=${lastBrowse}, stale=${isStale}, ` +
+          `sessionStatus=${session?.status}, lastSessionStatus=${lastSessionStatus}, lastSessionInteractions=${lastSessionInteractions}, stuck=${isStuck}`,
       );
 
-      if (lastBrowse >= fourHoursAgo && lastSessionStatus !== 'FAILED') continue; // not stale
+      if (!isStale) continue; // not stale
       if (!session || session.status !== 'ACTIVE') continue; // no active session
 
       // Dedup key — one browsing session per network per 4h window
@@ -288,8 +296,9 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
           },
           { delay: 0 }, // run immediately — it's already stale
         );
+        const reason = isStuck ? 'stuck' : 'stale';
         this.logger.log(
-          `Orchestrator: enqueued stale browsing session for ${netKey} (last browse ${Math.round((Date.now() - lastBrowse) / 1000 / 60)}min ago)`,
+          `Orchestrator: enqueued ${reason} browsing session for ${netKey} (last browse ${Math.round((Date.now() - lastBrowse) / 1000 / 60)}min ago)`,
         );
       } catch (err) {
         // Non-critical — likely a duplicate jobId (already enqueued this window)
