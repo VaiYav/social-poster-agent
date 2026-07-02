@@ -19,6 +19,7 @@ export interface DraftCounts {
   pending: number;
   approved: number;
   rejected: number;
+  approvedByNetwork: Record<string, number>;
 }
 
 export interface SessionState {

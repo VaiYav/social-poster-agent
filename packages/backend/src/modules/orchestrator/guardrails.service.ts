@@ -81,6 +81,7 @@ export class GuardrailsService {
         status: world.sessions[net]?.status,
         circuitBreaker: world.sessions[net]?.circuitBreaker,
         lastPostMs: world.rateLimits[net]?.lastPostMs ?? 0,
+        approved: world.drafts.approvedByNetwork[net] ?? 0,
       }));
       this.logger.debug(`G8 ready networks: ${JSON.stringify(readyDebug)}`);
       for (const net of networks) {
@@ -88,7 +89,8 @@ export class GuardrailsService {
         if (
           world.inPostingWindow[net] &&
           (world.rateLimits[net]?.dailyRemaining ?? 0) > 0 &&
-          world.sessions[net]?.status === 'ACTIVE'
+          world.sessions[net]?.status === 'ACTIVE' &&
+          (world.drafts.approvedByNetwork[net] ?? 0) > 0
         ) {
           const lastPostMs = world.rateLimits[net]?.lastPostMs ?? 0;
           if (lastPostMs < chosenLastPostMs) {

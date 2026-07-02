@@ -59,7 +59,7 @@ export class StateCollectorService {
       trends,
     ] = await Promise.all([
       this.collectTopicPool().catch((e) => { degraded.push('topicPool'); this.logger.warn(`topicPool degraded: ${e.message}`); return null; }),
-      this.collectDraftCounts().catch((e) => { degraded.push('drafts'); this.logger.warn(`drafts degraded: ${e.message}`); return null; }),
+      this.collectDraftCounts(networks).catch((e) => { degraded.push('drafts'); this.logger.warn(`drafts degraded: ${e.message}`); return null; }),
       this.collectQueueDepth(networks).catch((e) => { degraded.push('queueDepth'); this.logger.warn(`queueDepth degraded: ${e.message}`); return null; }),
       this.collectSessions(networks).catch((e) => { degraded.push('sessions'); this.logger.warn(`sessions degraded: ${e.message}`); return null; }),
       this.collectRateLimits(networks).catch((e) => { degraded.push('rateLimits'); this.logger.warn(`rateLimits degraded: ${e.message}`); return null; }),
@@ -81,7 +81,7 @@ export class StateCollectorService {
     return {
       timestamp: Date.now(),
       topicPool: topicPool ?? { count: 0, threshold: this.topicPoolThreshold, oldestAgeMs: 0 },
-      drafts: drafts ?? { pending: 0, approved: 0, rejected: 0 },
+      drafts: drafts ?? { pending: 0, approved: 0, rejected: 0, approvedByNetwork: {} },
       queueDepth: queueDepth ?? {},
       sessions: sessions ?? {},
       rateLimits: rateLimits ?? {},
@@ -113,13 +113,21 @@ export class StateCollectorService {
     return { count, threshold: this.topicPoolThreshold, oldestAgeMs };
   }
 
-  private async collectDraftCounts() {
-    const [pending, approved, rejected] = await Promise.all([
+  private async collectDraftCounts(networks: string[]) {
+    const [pending, approved, rejected, approvedByNetworkEntries] = await Promise.all([
       this.prisma.post.count({ where: { status: PostStatus.DRAFT } }),
       this.prisma.post.count({ where: { status: PostStatus.APPROVED } }),
       this.prisma.post.count({ where: { status: PostStatus.REJECTED } }),
+      Promise.all(
+        networks.map(async (network) => {
+          const count = await this.prisma.post.count({
+            where: { status: PostStatus.APPROVED, network: network as SocialNetwork },
+          });
+          return [network, count] as const;
+        }),
+      ),
     ]);
-    return { pending, approved, rejected };
+    return { pending, approved, rejected, approvedByNetwork: Object.fromEntries(approvedByNetworkEntries) };
   }
 
   private async collectQueueDepth(networks: string[]): Promise<Record<string, number>> {

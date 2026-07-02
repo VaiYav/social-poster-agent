@@ -12,7 +12,7 @@ function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
   return {
     timestamp: 0,
     topicPool: { count: 0, threshold: 0, oldestAgeMs: 0 },
-    drafts: { pending: 0, approved: 0, rejected: 0 },
+    drafts: { pending: 0, approved: 0, rejected: 0, approvedByNetwork: {} },
     queueDepth: {},
     sessions: {},
     rateLimits: {},
@@ -116,7 +116,7 @@ describe('GuardrailsService', () => {
 
   it('G8: WAIT + approved drafts + network in posting window → POST', () => {
     const world = makeWorld({
-      drafts: { pending: 0, approved: 5, rejected: 0 },
+      drafts: { pending: 0, approved: 5, rejected: 0, approvedByNetwork: { X: 5 } },
       sessions: {
         X: { status: SessionStatus.ACTIVE, lastCheckMs: 0, circuitBreaker: 'closed' },
       },
@@ -133,7 +133,7 @@ describe('GuardrailsService', () => {
 
   it('G8: rotates to the network with the oldest lastPostMs', () => {
     const world = makeWorld({
-      drafts: { pending: 0, approved: 5, rejected: 0 },
+      drafts: { pending: 0, approved: 5, rejected: 0, approvedByNetwork: { X: 3, THREADS: 2 } },
       sessions: {
         X: { status: SessionStatus.ACTIVE, lastCheckMs: 0, circuitBreaker: 'closed' },
         THREADS: { status: SessionStatus.ACTIVE, lastCheckMs: 0, circuitBreaker: 'closed' },

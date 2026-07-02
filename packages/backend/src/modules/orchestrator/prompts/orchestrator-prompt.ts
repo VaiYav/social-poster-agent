@@ -29,8 +29,8 @@ Rules:
 - Never choose an action for a disabled network
 - Never choose POST if dailyRemaining === 0
 - Prefer GENERATE_TOPICS if topicPool.count < threshold
-- Prefer GENERATE_POSTS if approved drafts === 0 and topicPool sufficient
-- Prefer POST if approved drafts > 0 AND inPostingWindow === true
+- Prefer GENERATE_POSTS if total approved drafts === 0 and topicPool sufficient
+- Prefer POST only for a network that has approvedByNetwork[network] > 0 AND inPostingWindow[network] === true
 - Prefer BROWSE if lastBrowse > 4h ago AND session active
 - Prefer CHECK_REPLIES if uncheckedReplies > 0
 - Prefer REFRESH_TRENDS if trends.lastRefresh > 2h ago
@@ -62,7 +62,7 @@ export function buildOrchestratorUserPrompt(world: WorldState): string {
   const lines: string[] = [
     `Current state (UTC ${hour}:${String(minute).padStart(2, '0')}, ${dayName}):`,
     `- Topic pool: ${world.topicPool.count}/${world.topicPool.threshold} (oldest: ${topicAgeHours}h)`,
-    `- Approved drafts: ${world.drafts.approved}`,
+    `- Approved drafts: ${world.drafts.approved} (X=${world.drafts.approvedByNetwork['X'] ?? 0}, THREADS=${world.drafts.approvedByNetwork['THREADS'] ?? 0})`,
     `- Queue depth: X=${world.queueDepth['X'] ?? 0}, THREADS=${world.queueDepth['THREADS'] ?? 0}`,
   ];
 
