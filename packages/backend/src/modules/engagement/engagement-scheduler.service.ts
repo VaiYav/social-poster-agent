@@ -238,11 +238,21 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
    *   - Not in night mode (01:00-07:00 UTC) — let the account rest
    */
   async checkStaleAndEnqueue(world: WorldState): Promise<void> {
-    if (!this.enabled || this.networks.length === 0) return;
-    if (world.flowControl.pauseAll || world.flowControl.pauseEngagement) return;
+    this.logger.debug(`checkStaleAndEnqueue called: enabled=${this.enabled}, networks=${this.networks.join(',')}, utcHour=${world.utcHour}`);
+    if (!this.enabled || this.networks.length === 0) {
+      this.logger.warn('checkStaleAndEnqueue: scheduler disabled or no networks configured');
+      return;
+    }
+    if (world.flowControl.pauseAll || world.flowControl.pauseEngagement) {
+      this.logger.warn(`checkStaleAndEnqueue paused: pauseAll=${world.flowControl.pauseAll}, pauseEngagement=${world.flowControl.pauseEngagement}`);
+      return;
+    }
 
     // Night mode — skip engagement to let accounts rest
-    if (world.utcHour >= 1 && world.utcHour < 7) return;
+    if (world.utcHour >= 1 && world.utcHour < 7) {
+      this.logger.debug(`checkStaleAndEnqueue: night mode (utcHour=${world.utcHour})`);
+      return;
+    }
 
     const fourHoursAgo = Date.now() - 4 * 60 * 60 * 1000;
     const durationSec = this.configService.get<number>('F1_BROWSING_SESSION_MINUTES', 10) * 60;
@@ -251,6 +261,7 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
       const netKey = network as string;
       const lastBrowse = world.engagement.lastBrowseMs[netKey] ?? 0;
       const session = world.sessions[netKey];
+      this.logger.debug(`checkStaleAndEnqueue ${netKey}: lastBrowse=${lastBrowse}, stale=${lastBrowse < fourHoursAgo}, sessionStatus=${session?.status}, dailyRemaining=${world.rateLimits[netKey]?.dailyRemaining}`);
 
       if (lastBrowse >= fourHoursAgo) continue; // not stale
       if (!session || session.status !== 'ACTIVE') continue; // no active session
@@ -272,12 +283,12 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
           },
           { delay: 0 }, // run immediately — it's already stale
         );
-        this.logger.debug(
+        this.logger.log(
           `Orchestrator: enqueued stale browsing session for ${netKey} (last browse ${Math.round((Date.now() - lastBrowse) / 1000 / 60)}min ago)`,
         );
       } catch (err) {
         // Non-critical — likely a duplicate jobId (already enqueued this window)
-        this.logger.debug(
+        this.logger.warn(
           `Orchestrator: skipping browsing session for ${netKey}: ${(err as Error).message}`,
         );
       }

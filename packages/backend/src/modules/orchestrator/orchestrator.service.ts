@@ -281,7 +281,11 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
    * Fire-and-forget: errors are logged but never propagate to the graph loop.
    */
   private onEngagementCheck(world: WorldState): void {
-    if (!this.engagementScheduler) return;
+    if (!this.engagementScheduler) {
+      this.logger.warn('Engagement check skipped: EngagementSchedulerService not injected');
+      return;
+    }
+    this.logger.debug('Engagement check running');
     void this.engagementScheduler.checkStaleAndEnqueue(world).catch((err) => {
       this.logger.warn(`Engagement check failed: ${(err as Error).message}`);
     });
