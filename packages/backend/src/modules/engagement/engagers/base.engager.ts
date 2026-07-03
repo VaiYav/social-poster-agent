@@ -487,7 +487,7 @@ export abstract class BaseEngager extends BasePoster {
   protected async doExtractPostText(
     page: Page,
     postUrl: string,
-    textSelector: SelectorStrategy,
+    textSelector: SelectorStrategy | SelectorStrategy[],
     mediaSelector?: SelectorStrategy,
   ): Promise<{ text: string; hasMedia: boolean; authorHandle?: string }> {
     // Ensure we're on the post page
@@ -495,14 +495,23 @@ export abstract class BaseEngager extends BasePoster {
       await this.navigate(page, postUrl, 'domcontentloaded');
     }
 
+    // Try each selector and keep the longest text found. This handles networks
+    // like Threads where the post text can live in several candidate elements and
+    // simpler selectors may match the username or action bar instead.
+    const selectors = Array.isArray(textSelector) ? textSelector : [textSelector];
     let text = '';
-    try {
-      const resolution = await this.tryResolve(page, textSelector, 3000);
-      if (resolution) {
-        text = await resolution.locator.textContent({ timeout: 3000 }).catch(() => '') ?? '';
+    for (const selector of selectors) {
+      try {
+        const resolution = await this.tryResolve(page, selector, 3000);
+        if (resolution) {
+          const candidate = (await resolution.locator.textContent({ timeout: 3000 }).catch(() => '')) ?? '';
+          if (candidate.trim().length > text.length) {
+            text = candidate.trim();
+          }
+        }
+      } catch {
+        // Text extraction is best-effort
       }
-    } catch {
-      // Text extraction is best-effort
     }
 
     // Check for media
@@ -515,7 +524,7 @@ export abstract class BaseEngager extends BasePoster {
     // Extract author handle from URL (best-effort)
     const authorHandle = this.extractHandleFromUrl(postUrl);
 
-    return { text: text.trim(), hasMedia, authorHandle };
+    return { text, hasMedia, authorHandle };
   }
 
   /**

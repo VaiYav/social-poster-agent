@@ -151,7 +151,19 @@ export class ThreadsEngager extends BaseEngager {
    * Extract the visible text content of a Threads post.
    */
   async extractPostText(page: Page, postUrl: string): Promise<{ text: string; hasMedia: boolean; authorHandle?: string }> {
-    return this.doExtractPostText(page, postUrl, THREADS_SELECTORS.profile.postText, {
+    // Threads renders post text in different places depending on the page layout
+    // (permalink vs modal vs feed). Try several candidate selectors and keep the
+    // longest non-empty match to avoid capturing just the username or action bar.
+    const textSelectors = [
+      THREADS_SELECTORS.profile.postText,
+      {
+        css: ['div[role="article"]:first-of-type div[dir="auto"]', 'article:first-of-type div[dir="auto"]'],
+      } satisfies SelectorStrategy,
+      {
+        css: ['div[role="article"]:first-of-type span', 'article:first-of-type span'],
+      } satisfies SelectorStrategy,
+    ];
+    return this.doExtractPostText(page, postUrl, textSelectors, {
       css: ['div[role="article"] img', 'video'],
     });
   }
