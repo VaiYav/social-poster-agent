@@ -139,7 +139,11 @@ export abstract class BaseEngager extends BasePoster {
     // Give the feed a moment to render after the first article appears
     await page.waitForTimeout(2000);
 
-    while (Date.now() < endTime) {
+    // Cap collected URLs to avoid memory pressure and overly long post-processing
+    // on feeds that expose thousands of links (e.g. X Explore / Threads search).
+    const maxPostUrls = 50;
+
+    while (Date.now() < endTime && postUrls.length < maxPostUrls) {
       // Each iteration should be quick: scroll + collect links + pause. If any
       // Playwright call hangs (unresponsive page after a browser/protocol issue),
       // a per-iteration timeout lets the loop exit before the whole session times out.
