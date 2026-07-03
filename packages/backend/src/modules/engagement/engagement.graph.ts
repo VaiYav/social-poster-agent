@@ -211,7 +211,7 @@ function makeScrollFeedNode(engager: BaseEngager) {
     // extracting + deciding + interacting with posts.
     const sessionDeadlineMs = state.sessionStartMs + state.durationSec * 1000;
     const remainingScrollSec = Math.max(0, Math.floor((sessionDeadlineMs - Date.now()) / 1000));
-    const scrollSec = Math.min(remainingScrollSec, Math.max(60, Math.floor(state.durationSec / 3)));
+    const scrollSec = Math.min(remainingScrollSec, Math.max(30, Math.floor(state.durationSec / 3)));
 
     // Use the source URL selected by pick_source (hashtag, competitor, explore, etc.).
     // If empty, fall back to the default home feed. If the selected source returns
