@@ -11,6 +11,7 @@ import type {
 import { mkdirSync, existsSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseBool } from '../config/parse-bool.js';
+import { withTimeout } from '../util/with-timeout.js';
 
 /**
  * Browser factory — creates Camoufox (stealth Firefox fork) browser contexts.
@@ -677,8 +678,36 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     // Move the cursor to the center of the viewport so the wheel event is delivered
     // to the main scrollable area (X/Threads use custom scrollable divs, not body).
     const viewport = (page.viewportSize?.() as { width: number; height: number } | undefined) ?? { width: 1280, height: 720 };
-    await page.mouse.move(viewport.width / 2, viewport.height / 2);
-    await page.mouse.wheel(0, scrollY);
+    try {
+      // Guard mouse operations with a short timeout. If the browser/page becomes
+      // unresponsive (e.g. after a Camoufox/Playwright crash), mouse.wheel can hang
+      // indefinitely and block the whole browsing session.
+      await withTimeout(
+        (async () => {
+          await page.mouse.move(viewport.width / 2, viewport.height / 2);
+          await page.mouse.wheel(0, scrollY);
+        })(),
+        15000,
+        'scrollPage mouse wheel',
+      );
+    } catch (err) {
+      this.logger.warn(`scrollPage mouse wheel timed out, falling back to JS scroll: ${(err as Error).message}`);
+      // Fallback: try to scroll via evaluate. Works for body scroll; for custom
+      // scrollable divs it may be a no-op, but it unblocks the loop.
+      await page
+        .evaluate((y) => {
+          window.scrollBy(0, y);
+          // Try common custom scrollable containers as well
+          const scrollables = Array.from(document.querySelectorAll('[data-testid="primaryColumn"], [role="main"], main, [data-pagelet="root"], .scrollable'));
+          for (const el of scrollables) {
+            if (el.scrollHeight > el.clientHeight) {
+              el.scrollBy(0, y);
+              break;
+            }
+          }
+        }, scrollY)
+        .catch(() => {});
+    }
     // Wait for scroll to settle and new content to load
     await this.randomDelay(800, 2000);
   }
