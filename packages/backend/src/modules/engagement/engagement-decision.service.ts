@@ -53,6 +53,15 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
 
       const decision = parseDecisionResponse(response.content);
 
+      // If the LLM is non-committal about a non-engaging action, use the probabilistic
+      // fallback so the session doesn't end up with zero interactions. The LLM still
+      // gets to skip confidently when a post is clearly irrelevant.
+      const nonEngagingActions = ['scroll', 'read', 'skip'];
+      if (nonEngagingActions.includes(decision.action) && decision.confidence < 0.6) {
+        this.logger.debug(`LLM was non-committal (${decision.action}, confidence ${decision.confidence}) — using fallback decision`);
+        return this.fallbackDecision(context);
+      }
+
       // Budget enforcement — even if LLM says "like" / "comment" / "repost" / "quote", respect the budget
       if (decision.action === 'like' && context.likesThisSession >= context.likesMaxPerSession) {
         this.logger.debug(`LLM said 'like' but budget exhausted — downgrading to 'read'`);

@@ -65,23 +65,38 @@ describe('EngagementDecisionService', () => {
     expect(decision.confidence).toBe(0.8);
   });
 
-  it('ED-002: falls back to scroll when LLM returns invalid JSON', async () => {
+  it('ED-002: falls back to probabilistic decision when LLM returns invalid JSON', async () => {
     mockLlm = createMockLlm([{ content: 'not json at all', model: 'mock' }]);
     service = new EngagementDecisionService(mockLlm);
 
     const decision = await service.decideAction(createPostContext());
-    expect(decision.action).toBe('scroll');
+    // Non-committal parsed default (scroll, confidence 0.3) triggers the fallback
+    expect(['scroll', 'read', 'like', 'comment']).toContain(decision.action);
     expect(decision.confidence).toBeLessThan(0.5);
   });
 
-  it('ED-003: falls back to scroll when LLM returns invalid action', async () => {
+  it('ED-003: falls back to probabilistic decision when LLM returns invalid action', async () => {
     mockLlm = createMockLlm([
       { content: '{"action":"invalid_action","reason":"test","confidence":0.5}', model: 'mock' },
     ]);
     service = new EngagementDecisionService(mockLlm);
 
     const decision = await service.decideAction(createPostContext());
-    expect(decision.action).toBe('scroll');
+    // Invalid action parses as non-committal scroll (confidence 0.3) -> fallback
+    expect(['scroll', 'read', 'like', 'comment']).toContain(decision.action);
+    expect(decision.confidence).toBeLessThan(0.5);
+  });
+
+  it('ED-003a: uses probabilistic fallback when LLM is non-committal about scroll', async () => {
+    mockLlm = createMockLlm([
+      { content: '{"action":"scroll","reason":"meh","confidence":0.3}', model: 'mock' },
+    ]);
+    service = new EngagementDecisionService(mockLlm);
+
+    const decision = await service.decideAction(createPostContext());
+    // Low-confidence non-engagement triggers the fallback distribution
+    expect(['scroll', 'read', 'like', 'comment', 'repost', 'quote']).toContain(decision.action);
+    expect(decision.confidence).toBeLessThan(0.5);
   });
 
   it('ED-004: downgrades like to read when like budget exhausted', async () => {
@@ -274,8 +289,8 @@ describe('EngagementDecisionService', () => {
       generate: vi.fn().mockRejectedValue(new Error('API down')),
       generateChat: vi.fn()
         .mockRejectedValueOnce(new Error('API down')) // batch call fails
-        .mockResolvedValueOnce({ content: '{"action":"scroll","reason":"fallback","confidence":0.4}', model: 'mock' }) // individual call 1
-        .mockResolvedValueOnce({ content: '{"action":"scroll","reason":"fallback","confidence":0.4}', model: 'mock' }), // individual call 2
+        .mockResolvedValueOnce({ content: '{"action":"scroll","reason":"fallback","confidence":0.7}', model: 'mock' }) // individual call 1: confident scroll, stays scroll
+        .mockResolvedValueOnce({ content: '{"action":"scroll","reason":"fallback","confidence":0.7}', model: 'mock' }), // individual call 2: confident scroll, stays scroll
       getPromptVersion: vi.fn(),
     } as unknown as ILlmPort;
     service = new EngagementDecisionService(mockLlm);
