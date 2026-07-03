@@ -190,11 +190,14 @@ function makeScrollFeedNode(engager: BaseEngager) {
     }
     // For now, use the engager's scrollFeed (navigates to home feed).
     // TODO: support targeted source URLs (hashtag, competitor) via scrollUrl()
-    // Respect the overall session budget: scroll can only consume time left in the session.
+    // Respect the overall session budget: scroll can only consume time left in the session,
+    // and we cap it at 1/3 of the total duration so the remaining 2/3 is available for
+    // extracting + deciding + interacting with posts.
     const sessionDeadlineMs = state.sessionStartMs + state.durationSec * 1000;
     const remainingScrollSec = Math.max(0, Math.floor((sessionDeadlineMs - Date.now()) / 1000));
-    const postUrls = await engager.scrollFeed(state.page as Page, remainingScrollSec);
-    logger.debug(`scroll_feed: collected ${postUrls.length} posts for ${state.network} (remaining ${remainingScrollSec}s)`);
+    const scrollSec = Math.min(remainingScrollSec, Math.max(60, Math.floor(state.durationSec / 3)));
+    const postUrls = await engager.scrollFeed(state.page as Page, scrollSec);
+    logger.debug(`scroll_feed: collected ${postUrls.length} posts for ${state.network} (scroll budget ${scrollSec}s)`);
 
     return { postUrls };
   };
