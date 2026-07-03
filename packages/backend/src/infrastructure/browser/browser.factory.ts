@@ -187,6 +187,27 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     // The Camoufox binary is downloaded via `npx camoufox-js fetch` (postinstall).
     const browser = (await Camoufox(launchOpts)) as unknown as Browser;
 
+    // When the browser process crashes (e.g. Camoufox/Playwright uncaughtError bug),
+    // mark all pooled contexts as closed so the next acquire creates a fresh browser
+    // instead of reusing dead contexts.
+    if (typeof browser.on === 'function') {
+      browser.on('disconnected', () => {
+        this.logger.warn('Camoufox browser disconnected (process likely crashed)');
+        for (const [, entries] of this.idleContexts) {
+          for (const entry of entries) {
+            this.closedContexts.add(entry.context);
+          }
+        }
+        for (const [, contexts] of this.inUseContexts) {
+          for (const ctx of contexts.keys()) {
+            this.closedContexts.add(ctx);
+          }
+        }
+        this.browser = null;
+        this.browserLaunchPromise = null;
+      });
+    }
+
     this.logger.log(
       `Camoufox launched (headless=${this.headless}, os=${this.targetOs}, humanize=${this.humanize}, geoip=${this.geoip}, proxy=${!!this.proxyUrl})`,
     );
@@ -862,6 +883,43 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     const sweepIntervalMs = Math.min(this.contextIdleTtlMs, 60000);
     this.idleSweepInterval = setInterval(() => this.sweepIdleContexts(), sweepIntervalMs);
     this.idleSweepInterval.unref?.();
+    this.verifyCamoufoxPatch();
+  }
+
+  /**
+   * Runtime check that the Camoufox/Playwright uncaughtError patch is present.
+   * If the patch is missing, browsing sessions will crash with
+   * "Target page, context or browser has been closed" when X/Threads feeds throw
+   * uncaught JS errors. Logs the result so production issues can be diagnosed.
+   */
+  private verifyCamoufoxPatch(): void {
+    try {
+      const fs = require('fs') as typeof import('fs');
+      const path = require('path') as typeof import('path');
+      let pwDir: string | undefined;
+      try {
+        pwDir = path.dirname(require.resolve('playwright-core/package.json'));
+      } catch {
+        this.logger.warn('Camoufox patch check: playwright-core not resolvable');
+        return;
+      }
+      const coreBundle = path.join(pwDir, 'lib', 'coreBundle.js');
+      if (!fs.existsSync(coreBundle)) {
+        this.logger.warn(`Camoufox patch check: coreBundle.js not found at ${coreBundle}`);
+        return;
+      }
+      const src = fs.readFileSync(coreBundle, 'utf8');
+      const patched = src.includes('params2.location ?? { url:');
+      if (patched) {
+        this.logger.log('Camoufox patch verified: coreBundle.js is patched for uncaughtError crash');
+      } else {
+        this.logger.error(
+          'Camoufox patch MISSING: coreBundle.js is not patched. Browsing sessions will likely crash with "Target page, context or browser has been closed" on X/Threads feeds.',
+        );
+      }
+    } catch (err) {
+      this.logger.warn(`Camoufox patch check failed: ${(err as Error).message}`);
+    }
   }
 
   async onModuleDestroy(): Promise<void> {
