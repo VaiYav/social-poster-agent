@@ -134,6 +134,13 @@ export class HumanBehaviorEngine {
 
       for (const postUrl of batchSlice) {
         if (postsProcessed >= config.maxPosts || Date.now() >= sessionDeadline) break;
+        // Check if the page is still alive before each extraction. X.com renderer
+        // process can crash during navigation between posts, and continuing to
+        // interact with a crashed page just produces more failures.
+        if (page.isClosed?.()) {
+          this.logger.warn(`Page closed during batch processing — aborting session`);
+          throw new Error('Page was closed during post extraction');
+        }
         try {
           const extracted = await withTimeout(
             engager.extractPostText(page, postUrl),
@@ -215,6 +222,12 @@ export class HumanBehaviorEngine {
 
       // Step 3: Execute decisions sequentially (with human-like pauses)
       for (let i = 0; i < contexts.length && Date.now() < sessionDeadline; i++) {
+        // Check page health before each execution — the page may have crashed
+        // during extraction or LLM decision wait.
+        if (page.isClosed?.()) {
+          this.logger.warn(`Page closed before execution — aborting session`);
+          throw new Error('Page was closed before action execution');
+        }
         postsProcessed++;
         const context = contexts[i]!;
         let decision = decisions[i]!;

@@ -145,7 +145,9 @@ export abstract class BaseEngager extends BasePoster {
 
     // Cap collected URLs to avoid memory pressure and overly long post-processing
     // on feeds that expose thousands of links (e.g. X Explore / Threads search).
-    const maxPostUrls = 50;
+    // 30 is enough for a typical 8-min session (maxPosts=30, but not all will be
+    // processed — extraction + LLM + execution takes ~15-30s per post).
+    const maxPostUrls = 30;
 
     while (Date.now() < endTime && postUrls.length < maxPostUrls) {
       // Each iteration should be quick: scroll + collect links + pause. If any
