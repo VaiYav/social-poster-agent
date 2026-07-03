@@ -200,6 +200,22 @@ export class HumanBehaviorEngine {
           decision = { action: 'read', reason: 'Quote budget exhausted mid-batch', confidence: 0.8 };
         }
 
+        // First-interaction quota: if the session has been entirely non-engaging
+        // so far, convert a 'read'/'scroll'/'skip' decision into a like on a solid post
+        // so the session doesn't finish with zero interactions. This is especially
+        // important for feeds where the LLM is too conservative (e.g. Threads home feed).
+        const totalInteractions = likesThisSession + commentsThisSession + repostsThisSession + quotesThisSession;
+        const nonEngagingActions: ActionDecision['action'][] = ['scroll', 'read', 'skip'];
+        if (
+          nonEngagingActions.includes(decision.action) &&
+          totalInteractions === 0 &&
+          postsProcessed > 5 &&
+          context.postText.length > 10 &&
+          likesThisSession < config.likesMaxPerSession
+        ) {
+          decision = { action: 'like', reason: 'First-interaction quota: solid post gets a like', confidence: 0.6 };
+        }
+
         // Generate comment text if the LLM decided 'comment' but didn't provide text
         if (decision.action === 'comment' && !decision.commentText) {
           try {
