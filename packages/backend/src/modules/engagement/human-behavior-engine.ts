@@ -239,6 +239,13 @@ export class HumanBehaviorEngine {
           error: `Execution timed out: ${(err as Error).message}`,
         }));
 
+        // If the browser context/page died during this interaction, subsequent
+        // interactions will fail too. Abort the whole session so the queue can
+        // retry with a fresh context instead of recording dozens of failed likes/comments.
+        if (!result.success && this.isFatalBrowserError(result.error)) {
+          throw new Error(result.error);
+        }
+
         if (result.success) {
           if (decision.action === 'like') likesThisSession++;
           if (decision.action === 'comment') commentsThisSession++;
@@ -747,6 +754,25 @@ export class HumanBehaviorEngine {
         // Standard between-posts pause
         await this.browser.randomDelay(3000, 8000);
     }
+  }
+
+  /**
+   * Detect errors that mean the browser/page/context is dead. Continuing to
+   * interact after these errors just produces more failed records, so the
+   * caller should abort the browsing session and let the queue retry.
+   */
+  private isFatalBrowserError(error?: string): boolean {
+    if (!error) return false;
+    const fatalPatterns = [
+      'Target page, context or browser has been closed',
+      'Browser has been closed',
+      'Context has been closed',
+      'Page has been closed',
+      'Protocol error',
+      'Target closed',
+      'Connection closed',
+    ];
+    return fatalPatterns.some((pattern) => error.includes(pattern));
   }
 
   private async markInteractionFailed(interactionId: string, error: string): Promise<void> {
