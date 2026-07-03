@@ -674,6 +674,10 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
    */
   async scrollPage(page: Page, direction: ScrollDirection, amountPx = 600): Promise<void> {
     const scrollY = direction === 'down' ? amountPx : -amountPx;
+    // Move the cursor to the center of the viewport so the wheel event is delivered
+    // to the main scrollable area (X/Threads use custom scrollable divs, not body).
+    const viewport = (page.viewportSize?.() as { width: number; height: number } | undefined) ?? { width: 1280, height: 720 };
+    await page.mouse.move(viewport.width / 2, viewport.height / 2);
     await page.mouse.wheel(0, scrollY);
     // Wait for scroll to settle and new content to load
     await this.randomDelay(800, 2000);
