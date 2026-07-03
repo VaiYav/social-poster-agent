@@ -20,7 +20,7 @@ export class ThreadsEngager extends BaseEngager {
 
   async like(page: Page, postUrl: string): Promise<EngagementResult> {
     try {
-      await this.navigate(page, postUrl);
+      await this.navigate(page, postUrl, 'domcontentloaded');
 
       const screenshotPath = await this.screenshot(page, 'before-like');
       const { performed, alreadyLiked } = await this.performLike(
@@ -44,7 +44,7 @@ export class ThreadsEngager extends BaseEngager {
 
   async comment(page: Page, postUrl: string, text: string): Promise<EngagementResult> {
     try {
-      await this.navigate(page, postUrl);
+      await this.navigate(page, postUrl, 'domcontentloaded');
 
       const screenshotPath = await this.screenshot(page, 'before-comment');
       await this.performComment(
@@ -69,7 +69,7 @@ export class ThreadsEngager extends BaseEngager {
         ? handleOrUrl
         : `https://www.threads.com/@${handleOrUrl.replace('@', '')}`;
 
-      await this.navigate(page, profileUrl);
+      await this.navigate(page, profileUrl, 'domcontentloaded');
 
       const screenshotPath = await this.screenshot(page, 'before-like');
       const followed = await this.performFollow(page, THREADS_SELECTORS.engagement.follow);
@@ -88,7 +88,7 @@ export class ThreadsEngager extends BaseEngager {
 
   async repost(page: Page, postUrl: string): Promise<EngagementResult> {
     try {
-      await this.navigate(page, postUrl);
+      await this.navigate(page, postUrl, 'domcontentloaded');
       const screenshotPath = await this.screenshot(page, 'before-repost');
       const { performed, alreadyReposted } = await this.performRepost(
         page,
@@ -110,7 +110,7 @@ export class ThreadsEngager extends BaseEngager {
 
   async quote(page: Page, postUrl: string, text: string): Promise<EngagementResult> {
     try {
-      await this.navigate(page, postUrl);
+      await this.navigate(page, postUrl, 'domcontentloaded');
       const screenshotPath = await this.screenshot(page, 'before-quote');
       await this.performQuote(
         page,
@@ -131,7 +131,7 @@ export class ThreadsEngager extends BaseEngager {
    * Scroll the Threads feed and collect post URLs.
    */
   async scrollFeed(page: Page, durationSec: number): Promise<string[]> {
-    await this.navigate(page, THREADS_SELECTORS.feed.url);
+    await this.navigate(page, THREADS_SELECTORS.feed.url, 'domcontentloaded');
     return this.doScrollFeed(page, durationSec, THREADS_SELECTORS.feed.postLink);
   }
 
@@ -139,7 +139,7 @@ export class ThreadsEngager extends BaseEngager {
    * Scroll an arbitrary Threads URL (hashtag, competitor profile, search).
    */
   async scrollUrl(page: Page, url: string, durationSec: number): Promise<string[]> {
-    await this.navigate(page, url);
+    await this.navigate(page, url, 'domcontentloaded');
     return this.doScrollFeed(page, durationSec, THREADS_SELECTORS.feed.postLink);
   }
 
