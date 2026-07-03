@@ -168,7 +168,10 @@ export abstract class BasePoster {
     // Wait for post elements to load — network-specific selectors
     const postContentSelector = this.getProfilePostContentSelector();
     await page.waitForSelector(postContentSelector, { timeout: 15000 }).catch(() => {});
-    await page.waitForTimeout(3000);
+    // Wait for the post to appear on the profile. X.com can take 5-10 seconds to
+    // render a new post after submission, and 3s was too short — causing false
+    // "Posted content not found on profile page" failures.
+    await page.waitForTimeout(5000);
 
     // Take screenshot of profile for debugging
     await this.screenshot(page, 'after-validate');
