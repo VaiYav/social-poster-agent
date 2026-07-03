@@ -46,6 +46,12 @@ export class BrowsingSessionService {
   private readonly repostsMaxPerSession: number;
   private readonly quotesMaxPerSession: number;
   private readonly maxPostsPerSession: number;
+  // Global concurrency limiter — only one browsing session can run at a time
+  // across ALL networks. Two concurrent Camoufox contexts (e.g. X + THREADS)
+  // cause renderer process crashes due to memory pressure in constrained
+  // containers. This mutex serializes sessions so the browser process only
+  // has one active page/renderer at a time.
+  private static sessionMutex: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -101,11 +107,23 @@ export class BrowsingSessionService {
     const duration = durationSec ?? this.defaultDurationSec;
     const engager = this.getEngager(network);
 
+    // Acquire the global session mutex — only one browsing session runs at a time
+    // across all networks. Two concurrent Camoufox contexts (X + THREADS) cause
+    // renderer process crashes due to memory pressure. The mutex serializes sessions;
+    // the queue will retry the waiting job after the current one finishes.
+    let releaseMutex!: () => void;
+    const previousMutex = BrowsingSessionService.sessionMutex;
+    BrowsingSessionService.sessionMutex = new Promise<void>((resolve) => {
+      releaseMutex = resolve;
+    });
+    await previousMutex;
+
     // Get or create session. Deferred: engagement must not force an inline form login in the
     // job hot-path (same reasoning as posting.service.ts) — recovery happens out-of-band via the
     // orchestrator's RECOVER_SESSION action, which has its own cooldown/circuit-breaker guards.
     const session = await this.sessionsService.getOrCreateSession(network, { deferFormLogin: true });
     if (!session) {
+      releaseMutex();
       throw new Error(`No active session for ${network} — auto-login failed`);
     }
 
@@ -315,6 +333,8 @@ export class BrowsingSessionService {
       if (context) {
         this.browser.releaseContext(network, context);
       }
+      // Release the global session mutex so the next network's session can start.
+      releaseMutex();
     }
   }
 
