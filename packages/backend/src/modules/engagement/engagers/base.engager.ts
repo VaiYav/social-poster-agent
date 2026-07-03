@@ -517,39 +517,39 @@ export abstract class BaseEngager extends BasePoster {
       await this.navigate(page, postUrl, 'domcontentloaded');
     }
 
-    // Try each selector and keep the longest text found. This handles networks
-    // like Threads where the post text can live in several candidate elements and
-    // simpler selectors may match the username or action bar instead.
-    const selectors = Array.isArray(textSelector) ? textSelector : [textSelector];
+    // Fast path: social networks often expose the post text in the meta description.
+    // Threads/X use this for link previews and it is usually cleaner than scraping
+    // dynamic DOM elements. This is also much faster than resolving multiple DOM
+    // selectors under the 15s extraction timeout.
     let text = '';
-    for (const selector of selectors) {
-      try {
-        const resolution = await this.tryResolve(page, selector, 3000);
-        if (resolution) {
-          const candidate = (await resolution.locator.textContent({ timeout: 3000 }).catch(() => '')) ?? '';
-          if (candidate.trim().length > text.length) {
-            text = candidate.trim();
-          }
-        }
-      } catch {
-        // Text extraction is best-effort
+    try {
+      const metaDescription = await page
+        .locator('meta[name="description"]')
+        .getAttribute('content', { timeout: 2000 })
+        .catch(() => null);
+      if (metaDescription && metaDescription.trim().length > 10) {
+        text = metaDescription.trim();
       }
+    } catch {
+      // ignore
     }
 
-    // Fallback: social networks often expose the post text in the meta description.
-    // Threads/X use this for link previews and it is usually cleaner than scraping
-    // dynamic DOM elements.
+    // Only fall back to DOM scraping if the meta description is missing or short.
+    // Keep timeouts tight so the extraction rarely hits the 15s outer limit.
     if (text.length < 20) {
-      try {
-        const metaDescription = await page
-          .locator('meta[name="description"]')
-          .getAttribute('content', { timeout: 2000 })
-          .catch(() => null);
-        if (metaDescription && metaDescription.trim().length > text.length) {
-          text = metaDescription.trim();
+      const selectors = Array.isArray(textSelector) ? textSelector : [textSelector];
+      for (const selector of selectors) {
+        try {
+          const resolution = await this.tryResolve(page, selector, 2000);
+          if (resolution) {
+            const candidate = (await resolution.locator.textContent({ timeout: 2000 }).catch(() => '')) ?? '';
+            if (candidate.trim().length > text.length) {
+              text = candidate.trim();
+            }
+          }
+        } catch {
+          // Text extraction is best-effort
         }
-      } catch {
-        // ignore
       }
     }
 
