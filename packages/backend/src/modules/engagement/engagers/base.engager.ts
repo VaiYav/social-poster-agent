@@ -239,7 +239,7 @@ export abstract class BaseEngager extends BasePoster {
     }
 
     // Find the like button
-    const likeResolution = await this.resolve(page, likeSelector, 'like button');
+    let likeResolution = await this.resolve(page, likeSelector, 'like button');
     await this.browser.scrollToElement(page, likeResolution.locator);
     await this.browser.waitForStable(likeResolution.locator, { timeoutMs: 5000 });
 
@@ -250,13 +250,33 @@ export abstract class BaseEngager extends BasePoster {
       return { performed: false, alreadyLiked: true };
     }
 
-    await this.humanClick(likeResolution.locator);
-    await this.browser.randomDelay(1000, 3000);
+    // Some buttons (Threads) re-render or miss the first click; retry up to 2 times.
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      await this.humanClick(likeResolution.locator);
+      await this.browser.randomDelay(2000, 4000);
 
-    // Verify like was applied: either the unlike selector appears, or the same button is now pressed.
-    const verifiedUnlike = await this.tryResolve(page, unlikeSelector, 3000);
-    const nowPressed = verifiedUnlike !== null || (await this.isAriaPressed(likeResolution.locator));
-    return { performed: nowPressed, alreadyLiked: false };
+      // Re-query the unlike state from the page (not the stale locator) so we catch re-rendered buttons.
+      const verifiedUnlike = await this.tryResolve(page, unlikeSelector, 3000);
+      if (verifiedUnlike) {
+        return { performed: true, alreadyLiked: false };
+      }
+
+      // If the original locator is still valid, check aria-pressed.
+      const nowPressed = await this.isAriaPressed(likeResolution.locator);
+      if (nowPressed) {
+        return { performed: true, alreadyLiked: false };
+      }
+
+      // Re-resolve the like button in case the DOM re-rendered and the old locator is stale.
+      const freshLike = await this.tryResolve(page, likeSelector, 2000);
+      if (!freshLike) {
+        break;
+      }
+      likeResolution = freshLike;
+      this.logger.debug(`Like attempt ${attempt} did not change state — retrying`);
+    }
+
+    return { performed: false, alreadyLiked: false };
   }
 
   /**
