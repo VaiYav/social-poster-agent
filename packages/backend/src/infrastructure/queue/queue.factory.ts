@@ -29,6 +29,8 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
   private readonly postingRetryDelayMs: number;
   private readonly queuePrefix: string;
   private readonly concurrency: number;
+  /** Long lock duration for engagement workers so browsing sessions (15+ min) don't stall. */
+  private readonly engagementLockDurationMs: number;
 
   // Queue instances per network
   private readonly queues = new Map<string, Queue>();
@@ -60,6 +62,11 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
     this.queuePrefix = this.configService.get<string>('BULLMQ_QUEUE_PREFIX', 'spa');
     // Concurrency must be >= 1 (0 would stall the queue), so clamp the parsed value.
     this.concurrency = Math.max(1, this.parseIntEnv('BULLMQ_CONCURRENCY_PER_QUEUE', 1));
+    // Engagement jobs include browsing sessions that can run for 15+ minutes. BullMQ's default
+    // lockDuration (30s) marks them as stalled before they finish. Use the configured session
+    // length plus a 5-minute buffer for startup, interactions, and the hard timeout buffer.
+    const browsingSessionMinutes = this.parseIntEnv('F1_BROWSING_SESSION_MINUTES', 15);
+    this.engagementLockDurationMs = Math.max(5 * 60 * 1000, (browsingSessionMinutes + 5) * 60 * 1000);
   }
 
   /**
@@ -299,6 +306,7 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
     worker = new Worker(queueName, handler, {
       ...this.getConnectionOpts(),
       concurrency: this.concurrency,
+      lockDuration: action === 'engagement' ? this.engagementLockDurationMs : undefined,
     });
 
     // Attempts are configured per-action at enqueue time (enqueuePosting uses
