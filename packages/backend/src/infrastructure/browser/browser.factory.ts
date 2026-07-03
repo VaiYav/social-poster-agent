@@ -693,9 +693,10 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     } catch (err) {
       this.logger.warn(`scrollPage mouse wheel timed out, falling back to JS scroll: ${(err as Error).message}`);
       // Fallback: try to scroll via evaluate. Works for body scroll; for custom
-      // scrollable divs it may be a no-op, but it unblocks the loop.
-      await page
-        .evaluate((y) => {
+      // scrollable divs it may be a no-op, but it unblocks the loop. Guard with a
+      // short timeout so a fully unresponsive page doesn't hang here either.
+      await withTimeout(
+        page.evaluate((y) => {
           window.scrollBy(0, y);
           // Try common custom scrollable containers as well
           const scrollables = Array.from(document.querySelectorAll('[data-testid="primaryColumn"], [role="main"], main, [data-pagelet="root"], .scrollable'));
@@ -705,8 +706,10 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
               break;
             }
           }
-        }, scrollY)
-        .catch(() => {});
+        }, scrollY),
+        10000,
+        'scrollPage JS fallback',
+      ).catch(() => {});
     }
     // Wait for scroll to settle and new content to load
     await this.randomDelay(800, 2000);

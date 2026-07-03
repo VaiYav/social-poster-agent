@@ -9,6 +9,7 @@ import type { Page } from '../../../domain/ports/browser-primitives';
 import type { SocialNetwork } from '@spa/shared';
 import type { IBrowserPort } from '../../../domain/ports/browser.port.js';
 import { BasePoster, type EngagementResult } from '../../posting/posters/base.poster.js';
+import { withTimeout } from '../../../infrastructure/util/with-timeout.js';
 import type { SelectorStrategy } from '../../posting/posters/selector-strategy.js';
 
 /**
@@ -139,55 +140,66 @@ export abstract class BaseEngager extends BasePoster {
     await page.waitForTimeout(2000);
 
     while (Date.now() < endTime) {
-      // Varied scroll (random amplitude, occasionally up) — more human-like
-      await this.variedScroll(page);
-      // P7: no per-scroll screenshot — it wrote a fullPage PNG every 2-5s for the
-      // whole session (unbounded disk leak). Phase screenshots remain (debug-gated).
-
-      // Collect post links — try multiple strategies for resilience.
-      // 1. Use the provided postLinkSelector (CSS-based)
-      // 2. Fallback: directly query all a[href*="/status/"] or a[href*="/post/"]
+      // Each iteration should be quick: scroll + collect links + pause. If any
+      // Playwright call hangs (unresponsive page after a browser/protocol issue),
+      // a per-iteration timeout lets the loop exit before the whole session times out.
       try {
-        // Strategy 1: Use the selector strategy
-        const resolution = await this.tryResolve(page, postLinkSelector, 2000);
-        if (resolution) {
-          const links = await page.locator(resolution.selector).all();
-          for (const link of links) {
-            const href = await link.getAttribute('href').catch(() => null);
-            if (href && !postUrls.includes(href)) {
-              postUrls.push(href.startsWith('http') ? href : this.resolveAbsoluteUrl(href));
-            }
-          }
-        }
+        await withTimeout(
+          (async () => {
+            // Varied scroll (random amplitude, occasionally up) — more human-like
+            await this.variedScroll(page);
 
-        // Strategy 2: Direct CSS query for post links (broader — catches
-        // links that might not match the selector strategy's first() check)
-        if (postUrls.length === 0) {
-          const cssSelectors = postLinkSelector.css ?? [];
-          // Also try network-specific post URL patterns
-          const allPatterns = [
-            ...cssSelectors,
-            'a[href*="/status/"]',
-            'a[href*="/post/"]',
-            'a[href*="/posts/"]',
-          ];
-          for (const css of allPatterns) {
-            const links = await page.locator(css).all();
-            for (const link of links) {
-              const href = await link.getAttribute('href').catch(() => null);
-              if (href && !postUrls.includes(href)) {
-                postUrls.push(href.startsWith('http') ? href : this.resolveAbsoluteUrl(href));
+            // Collect post links — try multiple strategies for resilience.
+            // 1. Use the provided postLinkSelector (CSS-based)
+            // 2. Fallback: directly query all a[href*="/status/"] or a[href*="/post/"]
+            try {
+              // Strategy 1: Use the selector strategy
+              const resolution = await this.tryResolve(page, postLinkSelector, 2000);
+              if (resolution) {
+                const links = await page.locator(resolution.selector).all();
+                for (const link of links) {
+                  const href = await link.getAttribute('href').catch(() => null);
+                  if (href && !postUrls.includes(href)) {
+                    postUrls.push(href.startsWith('http') ? href : this.resolveAbsoluteUrl(href));
+                  }
+                }
               }
-            }
-            if (postUrls.length > 0) break; // Found posts — no need to try more patterns
-          }
-        }
-      } catch {
-        // Continue scrolling even if link collection fails
-      }
 
-      // Random pause to simulate human reading
-      await this.browser.randomDelay(2000, 5000);
+              // Strategy 2: Direct CSS query for post links (broader — catches
+              // links that might not match the selector strategy's first() check)
+              if (postUrls.length === 0) {
+                const cssSelectors = postLinkSelector.css ?? [];
+                // Also try network-specific post URL patterns
+                const allPatterns = [
+                  ...cssSelectors,
+                  'a[href*="/status/"]',
+                  'a[href*="/post/"]',
+                  'a[href*="/posts/"]',
+                ];
+                for (const css of allPatterns) {
+                  const links = await page.locator(css).all();
+                  for (const link of links) {
+                    const href = await link.getAttribute('href').catch(() => null);
+                    if (href && !postUrls.includes(href)) {
+                      postUrls.push(href.startsWith('http') ? href : this.resolveAbsoluteUrl(href));
+                    }
+                  }
+                  if (postUrls.length > 0) break; // Found posts — no need to try more patterns
+                }
+              }
+            } catch {
+              // Continue scrolling even if link collection fails
+            }
+
+            // Random pause to simulate human reading
+            await this.browser.randomDelay(2000, 5000);
+          })(),
+          30000,
+          'doScrollFeed iteration',
+        );
+      } catch (err) {
+        this.logger.warn(`doScrollFeed iteration timed out, continuing: ${(err as Error).message}`);
+      }
     }
 
     this.logger.log(`Scroll feed complete — collected ${postUrls.length} post URLs in ${durationSec}s`);
