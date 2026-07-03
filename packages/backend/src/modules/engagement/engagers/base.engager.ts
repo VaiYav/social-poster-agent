@@ -252,7 +252,14 @@ export abstract class BaseEngager extends BasePoster {
 
     // Some buttons (Threads) re-render or miss the first click; retry up to 2 times.
     for (let attempt = 1; attempt <= 2; attempt++) {
-      await this.humanClick(likeResolution.locator);
+      try {
+        await this.humanClick(likeResolution.locator);
+      } catch {
+        // Normal + force click failed (e.g. Camoufox humanize blocked). Try a direct JS click
+        // as last resort — some Threads buttons only respond to dispatched DOM events.
+        this.logger.debug(`Click failed on attempt ${attempt}, falling back to JS click`);
+        await likeResolution.locator.evaluate((el: HTMLElement) => el.click()).catch(() => {});
+      }
       await this.browser.randomDelay(2000, 4000);
 
       // Re-query the unlike state from the page (not the stale locator) so we catch re-rendered buttons.
@@ -267,13 +274,26 @@ export abstract class BaseEngager extends BasePoster {
         return { performed: true, alreadyLiked: false };
       }
 
-      // Re-resolve the like button in case the DOM re-rendered and the old locator is stale.
+      // Re-resolve the like button in case the DOM re-rendered. If it disappeared
+      // entirely or is now pressed, count the like as performed.
       const freshLike = await this.tryResolve(page, likeSelector, 2000);
       if (!freshLike) {
-        break;
+        return { performed: true, alreadyLiked: false };
+      }
+      const freshPressed = await this.isAriaPressed(freshLike.locator);
+      if (freshPressed) {
+        return { performed: true, alreadyLiked: false };
       }
       likeResolution = freshLike;
       this.logger.debug(`Like attempt ${attempt} did not change state — retrying`);
+    }
+
+    // Log a DOM snippet for debugging before giving up.
+    try {
+      const body = await page.locator('body').textContent({ timeout: 2000 }).catch(() => '');
+      this.logger.debug(`Like failed on ${page.url()}; body snippet: ${body?.slice(0, 200) ?? ''}`);
+    } catch {
+      // ignore
     }
 
     return { performed: false, alreadyLiked: false };

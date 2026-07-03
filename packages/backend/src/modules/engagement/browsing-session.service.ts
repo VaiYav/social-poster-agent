@@ -220,7 +220,23 @@ export class BrowsingSessionService {
 
       return { sessionId: browsingSession.id, postsViewed, interactionsCount };
     } catch (err) {
-      this.logger.error(`Browsing session failed for ${network}: ${(err as Error).message}`);
+      const errorMessage = (err as Error).message;
+      this.logger.error(`Browsing session failed for ${network}: ${errorMessage}`);
+
+      // Fatal browser errors leave the context in a broken state. If we return it to
+      // the pool, the next session will reuse it and fail immediately with the same error.
+      // Close the context so releaseContext() discards it instead of reusing it.
+      if (
+        errorMessage.includes('Target page, context or browser has been closed') ||
+        errorMessage.includes('browserContext.storageState') ||
+        errorMessage.includes('page.goto: Target page, context or browser has been closed') ||
+        errorMessage.includes('page.waitForTimeout: Target page, context or browser has been closed')
+      ) {
+        this.logger.warn(`Fatal browser error for ${network} — closing context instead of returning to pool`);
+        if (context) {
+          await context.close().catch(() => {});
+        }
+      }
 
       await this.prisma.browsingSession.update({
         where: { id: browsingSession.id },

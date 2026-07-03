@@ -87,6 +87,11 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
   private readonly contextIdleTtlMs: number;
   private orphanGraceMs: number;
   private idleSweepInterval: ReturnType<typeof setInterval> | null = null;
+  // MEM: Camoufox/Firefox does not fully reclaim native memory after context.close()
+  // (jemalloc fragmentation, JIT/NSS caches). Restart the browser after this lifetime
+  // when no sessions are in use, so the next session starts with a fresh process.
+  private readonly browserMaxLifetimeMs: number;
+  private browserLaunchTime: number = 0;
 
   constructor(private readonly configService: ConfigService) {
     this.headless = parseBool(this.configService.get<string>('CAMOUFOX_HEADLESS', 'true'));
@@ -126,6 +131,8 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     // infrequently, so the persistent Firefox process is closed when idle >15 min
     // and re-opened on demand (cookies/fingerprint persist on disk via user_data_dir).
     this.persistentContextIdleTtlMs = Math.max(60000, this.configService.get<number>('PERSISTENT_CONTEXT_IDLE_TTL_MS', 15 * 60 * 1000));
+    // MEM: Camoufox/Firefox native memory fragmentation — restart browser after 30 min default
+    this.browserMaxLifetimeMs = Math.max(60000, this.configService.get<number>('BROWSER_MAX_LIFETIME_MS', 30 * 60 * 1000));
     // Persistent browser profiles directory — stores fingerprint + cookies per network
     // Facebook requires this to avoid "suspicious login" challenges on every run
     this.profileDir = this.configService.get<string>('CAMOUFOX_PROFILE_DIR', '/tmp/spa-profiles');
@@ -209,6 +216,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
       });
     }
 
+    this.browserLaunchTime = Date.now();
     this.logger.log(
       `Camoufox launched (headless=${this.headless}, os=${this.targetOs}, humanize=${this.humanize}, geoip=${this.geoip}, proxy=${!!this.proxyUrl})`,
     );
@@ -895,6 +903,21 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
           waiter.resolve();
         }
       }
+    }
+
+    // MEM: restart the browser periodically to reclaim Camoufox native memory that is
+    // not freed after context.close() (jemalloc fragmentation, JIT/NSS caches). Only
+    // restart when no contexts are in use; the disconnected event will mark idle contexts
+    // as closed so they are discarded on next acquire.
+    const anyInUse = Array.from(this.inUseContexts.values()).some((contexts) => contexts.size > 0);
+    if (this.browser && !anyInUse && now - this.browserLaunchTime > this.browserMaxLifetimeMs) {
+      this.logger.log(
+        `Browser lifetime exceeded ${Math.round(this.browserMaxLifetimeMs / 1000)}s — restarting to reclaim memory`,
+      );
+      const browserToClose = this.browser;
+      this.browser = null;
+      this.browserLaunchPromise = null;
+      void browserToClose.close().catch(() => {});
     }
 
     // MEM: close idle persistent (Facebook) contexts — the FB persistent context

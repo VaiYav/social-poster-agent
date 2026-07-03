@@ -93,10 +93,15 @@ export const THREADS_SELECTORS = {
       ],
     } satisfies SelectorStrategy,
     unlike: {
+      // Threads may label the liked state as "Liked" or "Unlike" depending on UI variant
       role: { role: 'button', name: 'Liked' },
       css: [
         'div[role="button"]:has(svg[aria-label="Liked"])',
+        'div[role="button"]:has(svg[aria-label="Unlike"])',
         'button:has(svg[aria-label="Liked"])',
+        'button:has(svg[aria-label="Unlike"])',
+        'svg[aria-label="Liked"]',
+        'svg[aria-label="Unlike"]',
       ],
     } satisfies SelectorStrategy,
     reply: {
