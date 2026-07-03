@@ -165,6 +165,7 @@ export abstract class BaseEngager extends BasePoster {
                   const href = await link.getAttribute('href').catch(() => null);
                   if (href && !postUrls.includes(href)) {
                     postUrls.push(href.startsWith('http') ? href : this.resolveAbsoluteUrl(href));
+                    if (postUrls.length >= maxPostUrls) return;
                   }
                 }
               }
@@ -186,6 +187,7 @@ export abstract class BaseEngager extends BasePoster {
                     const href = await link.getAttribute('href').catch(() => null);
                     if (href && !postUrls.includes(href)) {
                       postUrls.push(href.startsWith('http') ? href : this.resolveAbsoluteUrl(href));
+                      if (postUrls.length >= maxPostUrls) return;
                     }
                   }
                   if (postUrls.length > 0) break; // Found posts — no need to try more patterns
