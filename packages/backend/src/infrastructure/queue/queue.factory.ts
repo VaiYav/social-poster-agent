@@ -306,7 +306,7 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
     worker = new Worker(queueName, handler, {
       ...this.getConnectionOpts(),
       concurrency: this.concurrency,
-      lockDuration: action === 'engagement' ? this.engagementLockDurationMs : undefined,
+      ...(action === 'engagement' ? { lockDuration: this.engagementLockDurationMs } : {}),
     });
 
     // Attempts are configured per-action at enqueue time (enqueuePosting uses
