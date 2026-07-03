@@ -389,10 +389,19 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
    * queue.add() silently no-ops. This clears the completed set for a network.
    */
   async clearCompletedJobs(network: string, action: 'posting' | 'engagement' = 'posting'): Promise<number> {
+    return this.clearCompletedAndFailedJobs(network, action);
+  }
+
+  /**
+   * Remove completed AND failed jobs from a queue so BullMQ will accept new jobs with the same jobId.
+   * This is needed for engagement stale-check jobs whose jobId is fixed per 4h window: once a session
+   * completes or fails, the stale-check must be able to enqueue a fresh session with the same jobId.
+   */
+  async clearCompletedAndFailedJobs(network: string, action: 'posting' | 'engagement' = 'posting'): Promise<number> {
     const queue = this.getQueue(network, action);
-    const completed = await queue.getCompleted();
+    const [completed, failed] = await Promise.all([queue.getCompleted(), queue.getFailed()]);
     let cleared = 0;
-    for (const job of completed) {
+    for (const job of [...completed, ...failed]) {
       if (job.id) {
         await job.remove().catch(() => {});
         cleared++;

@@ -20,6 +20,7 @@ function createMockConfigService(overrides: Record<string, unknown> = {}): Confi
 const mockQueueFactory = {
   enqueuePosting: vi.fn().mockResolvedValue(undefined),
   enqueueEngagement: vi.fn().mockResolvedValue(undefined),
+  clearCompletedAndFailedJobs: vi.fn().mockResolvedValue(0),
 } as unknown as QueueFactory;
 
 const mockBrowsingSessionService = {

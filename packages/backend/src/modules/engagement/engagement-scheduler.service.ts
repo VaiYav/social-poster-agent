@@ -279,11 +279,15 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
       if (!isStale) continue; // not stale
       if (!session || session.status !== 'ACTIVE') continue; // no active session
 
-      // Dedup key — one browsing session per network per 4h window
+      // Dedup key — one browsing session per network per 4h window.
+      // Because the jobId is fixed per window, a completed/failed session from the same
+      // window blocks new enqueues via BullMQ dedup. Clear stale completed/failed
+      // engagement jobs before adding the fresh one.
       const windowStart = new Date(fourHoursAgo).toISOString().slice(0, 13); // YYYY-MM-DDTHH
       const jobId = `browsing-stale-${netKey}-${windowStart}`;
 
       try {
+        await this.queueFactory.clearCompletedAndFailedJobs(netKey, 'engagement');
         await this.queueFactory.enqueueEngagement(
           jobId,
           netKey,
