@@ -158,6 +158,31 @@ export class BrowsingSessionService {
 
       await this.browser.suppressPageErrors(page);
 
+      // Pre-session health check: verify the page/browser is responsive before
+      // committing to a full engagement graph run. A simple evaluate call catches
+      // dead browsers/contexts early — without this, the first navigation inside
+      // the graph fails after a long timeout and wastes session time.
+      try {
+        await withTimeout(
+          page.evaluate(() => 1),
+          10_000,
+          `Pre-session health check ${network}`,
+        );
+      } catch (err) {
+        const errMsg = (err as Error).message;
+        this.logger.warn(`Pre-session health check failed for ${network}: ${errMsg}`);
+        if (
+          errMsg.includes('Target page, context or browser has been closed') ||
+          errMsg.includes('Browser has been closed') ||
+          errMsg.includes('Context has been closed') ||
+          errMsg.includes('Page has been closed') ||
+          errMsg.includes('Connection closed')
+        ) {
+          throw new Error(`Pre-session health check failed: ${errMsg}`);
+        }
+        // Non-fatal (e.g. timeout) — continue, the graph will handle it
+      }
+
       // Build and invoke the EngagementGraph (LangGraph)
       const graph = buildEngagementGraph(engager, {
         targetingService: this.targetingService,

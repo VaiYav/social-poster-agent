@@ -157,7 +157,14 @@ export class HumanBehaviorEngine {
             quotesMaxPerSession: config.quotesMaxPerSession ?? 0,
           });
         } catch (err) {
-          this.logger.debug(`Failed to extract post context for ${postUrl}: ${(err as Error).message.slice(0, 80)}`);
+          const errMsg = (err as Error).message;
+          // Fatal browser errors during extraction mean the page/context is dead.
+          // Continuing to the next post will just produce more failures — abort the session.
+          if (this.isFatalBrowserError(errMsg)) {
+            this.logger.warn(`Fatal browser error during extraction for ${postUrl} — aborting session`);
+            throw err;
+          }
+          this.logger.debug(`Failed to extract post context for ${postUrl}: ${errMsg.slice(0, 80)}`);
           // Can't extract — just scroll past (no result recorded, matching original behavior)
           await this.browser.randomDelay(1000, 3000);
           postsProcessed++;

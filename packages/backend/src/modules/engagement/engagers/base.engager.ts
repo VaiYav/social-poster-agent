@@ -136,8 +136,12 @@ export abstract class BaseEngager extends BasePoster {
       this.logger.debug(`Feed content detected — starting scroll`);
     }
 
-    // Give the feed a moment to render after the first article appears
-    await page.waitForTimeout(2000);
+    // Give the feed a moment to render after the first article appears.
+    // Use setTimeout (via randomDelay) instead of page.waitForTimeout — the latter
+    // is a Playwright call that throws "Target page, context or browser has been
+    // closed" if the browser dies during the wait, whereas setTimeout is pure JS
+    // and won't throw a browser error.
+    await this.browser.randomDelay(1500, 2500);
 
     // Cap collected URLs to avoid memory pressure and overly long post-processing
     // on feeds that expose thousands of links (e.g. X Explore / Threads search).
