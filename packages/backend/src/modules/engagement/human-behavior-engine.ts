@@ -30,6 +30,7 @@ import {
 } from '../../domain/ports/engagement-decision.port.js';
 import type { BaseEngager } from './engagers/base.engager.js';
 import { calculateDwellTimeMs, calculateThreadReadTimeMs } from './dwell-time-calculator.js';
+import { withTimeout } from '../../infrastructure/util/with-timeout.js';
 
 /**
  * Result of a single post interaction within a browsing session.
@@ -91,6 +92,10 @@ export class HumanBehaviorEngine {
   /** Batch size for batched LLM decisions. 5 posts per LLM call. */
   private static readonly BATCH_SIZE = 5;
 
+  /** Per-post hard timeout so a single stuck navigation/click cannot hang the whole session. */
+  private static readonly EXTRACT_TIMEOUT_MS = 15_000;
+  private static readonly EXECUTE_TIMEOUT_MS = 60_000;
+
   async processPosts(
     page: Page,
     postUrls: string[],
@@ -129,7 +134,11 @@ export class HumanBehaviorEngine {
       for (const postUrl of batchSlice) {
         if (postsProcessed >= config.maxPosts || Date.now() >= sessionDeadline) break;
         try {
-          const extracted = await engager.extractPostText(page, postUrl);
+          const extracted = await withTimeout(
+            engager.extractPostText(page, postUrl),
+            HumanBehaviorEngine.EXTRACT_TIMEOUT_MS,
+            `Extract post text for ${postUrl}`,
+          );
           contexts.push({
             network: config.network,
             postUrl,
@@ -209,17 +218,26 @@ export class HumanBehaviorEngine {
           }
         }
 
-        const result = await this.executeDecision(
-          page,
-          engager,
+        const result = await withTimeout(
+          this.executeDecision(
+            page,
+            engager,
+            decision,
+            context,
+            config,
+            likesThisSession,
+            commentsThisSession,
+            repostsThisSession,
+            quotesThisSession,
+          ),
+          HumanBehaviorEngine.EXECUTE_TIMEOUT_MS,
+          `Execute ${decision.action} for ${context.postUrl}`,
+        ).catch((err) => ({
+          postUrl: context.postUrl,
           decision,
-          context,
-          config,
-          likesThisSession,
-          commentsThisSession,
-          repostsThisSession,
-          quotesThisSession,
-        );
+          success: false,
+          error: `Execution timed out: ${(err as Error).message}`,
+        }));
 
         if (result.success) {
           if (decision.action === 'like') likesThisSession++;
