@@ -429,4 +429,18 @@ describe('HumanBehaviorEngine', () => {
     expect(decisionPort.generateComment).toHaveBeenCalled();
     expect(engager.comment).toHaveBeenCalledWith(page, 'url1', 'Test comment in brand voice.');
   });
+
+  it('HB-021: sessionStartMs enforces a shared total budget across scroll + processing', async () => {
+    // Set the session start far in the past so the deadline is already exceeded.
+    // Without sessionStartMs, the loop would get a fresh 60s budget and process all posts.
+    const page = createMockPage();
+    const results = await engine.processPosts(page, ['url1', 'url2', 'url3'], engager, {
+      ...config,
+      maxPosts: 3,
+      sessionStartMs: Date.now() - 120_000, // 2 min ago with a 60s duration -> already expired
+    });
+
+    expect(results.length).toBe(0);
+    expect(decisionPort.decideAction).not.toHaveBeenCalled();
+  });
 });

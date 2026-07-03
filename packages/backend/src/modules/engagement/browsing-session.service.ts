@@ -156,11 +156,12 @@ export class BrowsingSessionService {
         page,
       });
 
-      // Hard timeout: the graph should finish within the planned duration + a small buffer.
+      // Hard timeout: the graph should finish within the planned duration + a buffer.
       // If a browser operation hangs (e.g. a stuck page), this prevents the job from running forever.
+      // Buffer is generous because scroll + interactions must share the full duration budget.
       const finalState = await withTimeout(
         compiled.invoke(initialState),
-        duration * 1000 + 60_000,
+        duration * 1000 + 180_000,
         `Browsing session for ${network}`,
       );
 

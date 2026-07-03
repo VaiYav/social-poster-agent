@@ -56,6 +56,10 @@ export interface BehaviorEngineConfig {
   maxPosts: number;
   /** Total wall-clock budget for the session (scroll + interactions), in seconds. */
   durationSec: number;
+  /** Optional absolute start timestamp of the session. When provided, the deadline is
+   * sessionStartMs + durationSec * 1000, ensuring scroll + interactions share the
+   * same total budget instead of each getting a fresh durationSec slice. */
+  sessionStartMs?: number;
 }
 
 @Injectable()
@@ -95,7 +99,9 @@ export class HumanBehaviorEngine {
     let postsProcessed = 0;
 
     // Respect the overall session duration budget. Scroll + interactions must fit.
-    const sessionDeadline = Date.now() + config.durationSec * 1000;
+    const sessionDeadline = config.sessionStartMs
+      ? config.sessionStartMs + config.durationSec * 1000
+      : Date.now() + config.durationSec * 1000;
 
     // Use batched decisions if the port supports it (1 LLM call per batch
     // instead of 1 per post). Falls back to individual calls otherwise.

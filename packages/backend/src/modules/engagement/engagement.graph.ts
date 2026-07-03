@@ -54,6 +54,7 @@ export const EngagementState = Annotation.Root({
   accountId: Annotation<string>,
   browsingSessionId: Annotation<string>,
   durationSec: Annotation<number>,
+  sessionStartMs: Annotation<number>,
   maxPosts: Annotation<number>,
   likesMaxPerSession: Annotation<number>,
   commentsMaxPerSession: Annotation<number>,
@@ -189,8 +190,11 @@ function makeScrollFeedNode(engager: BaseEngager) {
     }
     // For now, use the engager's scrollFeed (navigates to home feed).
     // TODO: support targeted source URLs (hashtag, competitor) via scrollUrl()
-    const postUrls = await engager.scrollFeed(state.page as Page, state.durationSec);
-    logger.debug(`scroll_feed: collected ${postUrls.length} posts for ${state.network}`);
+    // Respect the overall session budget: scroll can only consume time left in the session.
+    const sessionDeadlineMs = state.sessionStartMs + state.durationSec * 1000;
+    const remainingScrollSec = Math.max(0, Math.floor((sessionDeadlineMs - Date.now()) / 1000));
+    const postUrls = await engager.scrollFeed(state.page as Page, remainingScrollSec);
+    logger.debug(`scroll_feed: collected ${postUrls.length} posts for ${state.network} (remaining ${remainingScrollSec}s)`);
 
     return { postUrls };
   };
@@ -244,6 +248,7 @@ function makeDecidePerPostNode(
         commentsMaxPerSession: state.commentsBudget,
         maxPosts: state.maxPosts,
         durationSec: state.durationSec,
+        sessionStartMs: state.sessionStartMs,
       },
     );
 
@@ -344,6 +349,7 @@ export function createEngagementInitialState(opts: {
     accountId: opts.accountId,
     browsingSessionId: opts.browsingSessionId,
     durationSec: opts.durationSec,
+    sessionStartMs: Date.now(),
     maxPosts: opts.maxPosts,
     likesMaxPerSession: opts.likesMaxPerSession,
     commentsMaxPerSession: opts.commentsMaxPerSession,
