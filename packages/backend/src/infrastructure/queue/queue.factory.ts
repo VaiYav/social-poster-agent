@@ -178,6 +178,27 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
    */
   async enqueuePosting(postId: string, network: string, opts?: { priority?: number; delay?: number }): Promise<void> {
     const queue = this.getQueue(network, 'posting');
+
+    // Check if a job with this jobId already exists in a terminal state (completed/failed).
+    // BullMQ's queue.add() with jobId silently returns the existing job without re-enqueuing
+    // if it already exists — even if it's completed/failed. This causes posts to get stuck
+    // in APPROVED forever because the orchestrator keeps "enqueuing" but the worker never
+    // picks up the job. Remove the old job so the new add() actually creates a fresh one.
+    try {
+      const existingJob = await queue.getJob(postId);
+      if (existingJob) {
+        const state = await existingJob.getState();
+        if (state === 'completed' || state === 'failed') {
+          this.logger.warn(
+            `Removing existing ${state} posting job for ${postId} → re-enqueuing fresh job`,
+          );
+          await existingJob.remove();
+        }
+      }
+    } catch {
+      // Non-fatal — if we can't check, just try to add anyway
+    }
+
     await queue.add(
       'post',
       { postId, network },
