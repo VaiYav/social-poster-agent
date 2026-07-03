@@ -536,6 +536,23 @@ export abstract class BaseEngager extends BasePoster {
       }
     }
 
+    // Fallback: social networks often expose the post text in the meta description.
+    // Threads/X use this for link previews and it is usually cleaner than scraping
+    // dynamic DOM elements.
+    if (text.length < 20) {
+      try {
+        const metaDescription = await page
+          .locator('meta[name="description"]')
+          .getAttribute('content', { timeout: 2000 })
+          .catch(() => null);
+        if (metaDescription && metaDescription.trim().length > text.length) {
+          text = metaDescription.trim();
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     // Check for media
     let hasMedia = false;
     if (mediaSelector) {
