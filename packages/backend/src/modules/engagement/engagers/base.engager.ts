@@ -350,11 +350,16 @@ export abstract class BaseEngager extends BasePoster {
     await this.humanClick(submit.locator);
     await this.browser.randomDelay(3000, 8000);
 
-    // Best-effort verification: wait for the input to disappear (dialog closed).
-    // If the dialog is still open after a reasonable time, the submission may have failed.
-    const stillOpen = await this.tryResolve(page, commentInputSelector, 3000);
-    if (stillOpen) {
-      this.logger.warn('Comment input still visible after submit — comment may not have been posted');
+    // Best-effort verification: wait for the dialog to close.
+    // Check for div[role="dialog"] — if it's gone, the comment was posted successfully.
+    // Don't check for the textarea/contenteditable directly because it may persist
+    // on the page outside the dialog (e.g. a compose box in the sidebar).
+    const dialogStillOpen = await page
+      .locator('div[role="dialog"]')
+      .isVisible({ timeout: 3000 })
+      .catch(() => false);
+    if (dialogStillOpen) {
+      this.logger.warn('Comment dialog still visible after submit — comment may not have been posted');
     }
   }
 
@@ -427,10 +432,13 @@ export abstract class BaseEngager extends BasePoster {
     await this.humanClick(submit.locator);
     await this.browser.randomDelay(3000, 8000);
 
-    // Best-effort verification: wait for the input to disappear.
-    const stillOpen = await this.tryResolve(page, quoteInputSelector, 3000);
-    if (stillOpen) {
-      this.logger.warn('Quote composer still visible after submit — quote may not have been posted');
+    // Best-effort verification: wait for the dialog to close.
+    const dialogStillOpen = await page
+      .locator('div[role="dialog"]')
+      .isVisible({ timeout: 3000 })
+      .catch(() => false);
+    if (dialogStillOpen) {
+      this.logger.warn('Quote dialog still visible after submit — quote may not have been posted');
     }
   }
 
