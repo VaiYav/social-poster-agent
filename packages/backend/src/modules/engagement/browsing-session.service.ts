@@ -176,6 +176,24 @@ export class BrowsingSessionService {
 
       await this.browser.suppressPageErrors(page);
 
+      // Block heavy resources (images, video, fonts) to reduce memory pressure
+      // and prevent renderer process crashes. Engagement sessions only need the
+      // text content of posts — images/videos are not needed for liking or
+      // commenting. X.com pages with many media-heavy tweets crash the Firefox
+      // renderer under memory pressure in constrained containers.
+      try {
+        await page.route('**/*', (route) => {
+          const type = route.request().resourceType();
+          if (type === 'image' || type === 'media' || type === 'font') {
+            void route.abort();
+          } else {
+            void route.continue();
+          }
+        });
+      } catch {
+        // route() can fail if the page/context is already closed — non-fatal
+      }
+
       // Pre-session health check: verify the page/browser is responsive before
       // committing to a full engagement graph run. A simple evaluate call catches
       // dead browsers/contexts early — without this, the first navigation inside
