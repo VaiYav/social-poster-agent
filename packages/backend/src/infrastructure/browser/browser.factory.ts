@@ -416,6 +416,15 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
           continue;
         }
 
+        // If the browser process this context belongs to has already disconnected
+        // (e.g. after a crash or the lifetime sweep), don't reuse it. The close
+        // event listener may not have fired yet, so this is a synchronous guard.
+        if (typeof entry.context.browser === 'function' && !entry.context.browser()?.isConnected()) {
+          this.closedContexts.add(entry.context);
+          this.logger.debug(`Context pool: discarded idle context for ${network} because browser disconnected`);
+          continue;
+        }
+
         if (storageState) {
           try {
             const parsed = JSON.parse(storageState) as { cookies?: Parameters<BrowserContext['addCookies']>[0] };
