@@ -273,10 +273,12 @@ export class ReconcileHandler implements IActionHandler {
     if (!healthMonitor) throw new Error('HealthMonitorService not available');
 
     const result = await healthMonitor.runReconciliation();
+    const reaped = await healthMonitor.reapStuckBrowsingSessions();
     return {
       requeued: result.requeued,
       skipped: result.skipped,
       deduplicated: result.deduplicated,
+      reapedBrowsingSessions: reaped.reaped,
     };
   }
 }

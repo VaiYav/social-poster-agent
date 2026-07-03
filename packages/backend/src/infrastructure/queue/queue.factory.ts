@@ -63,10 +63,11 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
     // Concurrency must be >= 1 (0 would stall the queue), so clamp the parsed value.
     this.concurrency = Math.max(1, this.parseIntEnv('BULLMQ_CONCURRENCY_PER_QUEUE', 1));
     // Engagement jobs include browsing sessions that can run for 15+ minutes. BullMQ's default
-    // lockDuration (30s) marks them as stalled before they finish. Use the configured session
-    // length plus a 5-minute buffer for startup, interactions, and the hard timeout buffer.
-    const browsingSessionMinutes = this.parseIntEnv('F1_BROWSING_SESSION_MINUTES', 15);
-    this.engagementLockDurationMs = Math.max(5 * 60 * 1000, (browsingSessionMinutes + 5) * 60 * 1000);
+    // lockDuration (30s) marks them as stalled before they finish. The worker auto-renews the
+    // lock while it is alive, so we only need a short lock duration to recover from a crashed
+    // or event-loop-blocked worker. Using a 5-minute lock (instead of session+5 min) allows
+    // BullMQ to requeue a stuck browsing session within minutes instead of ~20 min.
+    this.engagementLockDurationMs = 5 * 60 * 1000;
   }
 
   /**

@@ -64,6 +64,7 @@ export interface HealthState {
   bans: number;
   dlqDepth: number;
   stuckPosting: number;
+  stuckBrowsingSessions: number;
   orphanedPosts: number;
   killSwitch: boolean;
 }

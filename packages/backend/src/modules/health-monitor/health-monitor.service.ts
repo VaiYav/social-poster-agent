@@ -7,7 +7,7 @@ import { SseService } from '../../infrastructure/sse/sse.service';
 import { DiscordNotificationService } from '../../infrastructure/notifications/discord-notification.service';
 import { QueueService } from '../queue/queue.service';
 import { QueueFactory } from '../../infrastructure/queue/queue.factory';
-import { SessionStatus, PostStatus, SocialNetwork } from '@prisma/client';
+import { SessionStatus, PostStatus, SocialNetwork, BrowsingSessionStatus } from '@prisma/client';
 import { parseBool } from '../../infrastructure/config/parse-bool';
 import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 
@@ -91,6 +91,13 @@ export class HealthMonitorService implements OnModuleInit {
       `Health monitor cron: ${cronExpr} (ban threshold: ${this.banThreshold}), ` +
         `reconciliation cron: ${reconExpr}`,
     );
+
+    // On startup, reap any browsing sessions that were left ACTIVE after a previous
+    // container crash or browser hang. This unblocks the engagement scheduler, which
+    // otherwise refuses to start a new session while one is still marked ACTIVE.
+    this.reapStuckBrowsingSessions().catch((err) => {
+      this.logger.warn(`Startup reaper for browsing sessions failed: ${(err as Error).message}`);
+    });
   }
 
   /**
@@ -261,6 +268,55 @@ export class HealthMonitorService implements OnModuleInit {
       this.logger.log(`Reaper: ${reaped} stuck POSTING reaped, ${skipped} skipped (in-flight)`);
     }
     return { reaped, skipped };
+  }
+
+  /**
+   * Reap browsing sessions that are stuck ACTIVE after a crash or browser hang.
+   *
+   * A browsing session in ACTIVE should finish within its planned duration plus the hard
+   * timeout buffer. If it remains ACTIVE past that, the worker/container that owned it is
+   * gone and the row is orphaned. Leaving it ACTIVE blocks the engagement scheduler,
+   * which sees `lastSessionStatus === ACTIVE` and refuses to enqueue a new session.
+   *
+   * Uses startedAt (not endedAt) because stuck sessions have no endedAt. The grace is the
+   * session duration + hard-timeout buffer + a small safety margin so a just-started
+   * session is never reaped.
+   */
+  async reapStuckBrowsingSessions(): Promise<{ reaped: number }> {
+    const browsingMinutes = Number(this.configService.get<number>('F1_BROWSING_SESSION_MINUTES', 15));
+    const graceMs = browsingMinutes * 60 * 1000 + 180_000 + 5 * 60 * 1000;
+    const cutoff = new Date(Date.now() - graceMs);
+
+    const stuck = await this.prisma.browsingSession.findMany({
+      where: { status: BrowsingSessionStatus.ACTIVE, startedAt: { lt: cutoff } },
+      take: 500, // safety cap
+    });
+
+    if (stuck.length === 0) return { reaped: 0 };
+
+    let reaped = 0;
+    for (const session of stuck) {
+      try {
+        await this.prisma.browsingSession.update({
+          where: { id: session.id },
+          data: {
+            status: BrowsingSessionStatus.FAILED,
+            endedAt: new Date(),
+            errorMessage: `Reaped: stuck ACTIVE for >${Math.round((Date.now() - session.startedAt.getTime()) / 1000 / 60)}min (session duration ${browsingMinutes}min + buffer)`,
+          },
+        });
+        reaped++;
+      } catch (updateErr) {
+        this.logger.warn(
+          `Reaper: failed to mark browsing session ${session.id} FAILED: ${(updateErr as Error).message}`,
+        );
+      }
+    }
+
+    this.logger.warn(
+      `Reaper: ${reaped} stuck ACTIVE browsing session(s) reaped to FAILED (cutoff ${cutoff.toISOString()})`,
+    );
+    return { reaped };
   }
 
   /**

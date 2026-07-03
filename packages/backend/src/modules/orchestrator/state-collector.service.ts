@@ -12,7 +12,7 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
-import { SessionStatus, PostStatus, SocialNetwork } from '@prisma/client';
+import { SessionStatus, PostStatus, SocialNetwork, BrowsingSessionStatus } from '@prisma/client';
 import { RateLimitService } from '../rate-limit/rate-limit.service.js';
 import { FlowControlService } from '../flow-control/flow-control.service.js';
 import { QueueFactory } from '../../infrastructure/queue/queue.factory.js';
@@ -92,7 +92,7 @@ export class StateCollectorService {
       inPostingWindow: {},
       performance: performance ?? {},
       engagement: engagement ?? { lastBrowseMs: {}, uncheckedReplies: 0, warmupPhase: {}, lastSessionStatus: {}, lastSessionInteractions: {} },
-      health: health ?? { bans: 0, dlqDepth: 0, stuckPosting: 0, orphanedPosts: 0, killSwitch: false },
+      health: health ?? { bans: 0, dlqDepth: 0, stuckPosting: 0, stuckBrowsingSessions: 0, orphanedPosts: 0, killSwitch: false },
       flowControl: flowControl ?? { pauseAll: false, pauseGeneration: false, pausePosting: false, pauseEngagement: false, pauseReplies: false },
       trends: trends ?? { lastRefreshMs: 0, count: 0 },
       _degraded: degraded,
@@ -334,12 +334,18 @@ export class StateCollectorService {
   }
 
   private async collectHealth(networks: string[]): Promise<HealthState> {
-    // Run stuck-post count, ban detection (parallel per network), and DLQ depth in parallel
+    // Run stuck-post count, stuck browsing session count, ban detection, and DLQ depth in parallel
     const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000);
+    const browsingMinutes = Number(this.configService.get('F1_BROWSING_SESSION_MINUTES', 15));
+    const browsingStuckGraceMs = browsingMinutes * 60 * 1000 + 180_000 + 5 * 60 * 1000;
+    const browsingStuckCutoff = new Date(Date.now() - browsingStuckGraceMs);
 
-    const [stuckPosting, banResults, dlqResults] = await Promise.all([
+    const [stuckPosting, stuckBrowsingSessions, banResults, dlqResults] = await Promise.all([
       this.prisma.post.count({
         where: { status: PostStatus.POSTING, postedAt: { lt: tenMinAgo } },
+      }).catch(() => 0),
+      this.prisma.browsingSession.count({
+        where: { status: BrowsingSessionStatus.ACTIVE, startedAt: { lt: browsingStuckCutoff } },
       }).catch(() => 0),
 
       // Ban detection — parallel per network
@@ -379,6 +385,7 @@ export class StateCollectorService {
       bans,
       dlqDepth,
       stuckPosting,
+      stuckBrowsingSessions,
       orphanedPosts: 0, // Computed by health monitor, not critical for orchestrator
       killSwitch: false, // Set from flowControl below
     };

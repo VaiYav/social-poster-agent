@@ -101,6 +101,15 @@ export class HardRulesService {
       };
     }
 
+    // H8b: Stuck browsing sessions → RECONCILE
+    if (world.health.stuckBrowsingSessions > 0) {
+      return {
+        type: 'RECONCILE',
+        reason: `${world.health.stuckBrowsingSessions} browsing session(s) stuck ACTIVE`,
+        source: 'hard_rule',
+      };
+    }
+
     // H9: Bans detected → WAIT
     if (world.health.bans > 0) {
       return WAIT_ACTION(`${world.health.bans} ban(s) detected`, 300000);
