@@ -201,9 +201,18 @@ export class BrowsingSessionService {
         });
       }
 
-      // Save updated session state
-      const updatedState = await this.browser.saveStorageState(context);
-      await this.sessionsService.updateStorageState(session.id, updatedState);
+      // Save updated session state — best effort, don't let a closed context block
+      // the session completion record. If the browser crashed, there is no state to save.
+      try {
+        const updatedState = await withTimeout(
+          this.browser.saveStorageState(context),
+          10_000,
+          `saveStorageState ${network}`,
+        );
+        await this.sessionsService.updateStorageState(session.id, updatedState);
+      } catch (saveErr) {
+        this.logger.warn(`Failed to save storage state for ${network}: ${(saveErr as Error).message}`);
+      }
 
       // Update browsing session record
       await this.prisma.browsingSession.update({
@@ -247,7 +256,7 @@ export class BrowsingSessionService {
       ) {
         this.logger.warn(`Fatal browser error for ${network} — closing context instead of returning to pool`);
         if (context) {
-          await context.close().catch(() => {});
+          await withTimeout(context.close(), 10_000, `context.close ${network}`).catch(() => {});
         }
       }
 
@@ -275,7 +284,7 @@ export class BrowsingSessionService {
       // context to the pool as-is and does not close pages itself, so a
       // page left open here leaks for the lifetime of the pooled context.
       if (page) {
-        await page.close().catch(() => {});
+        await withTimeout(page.close(), 10_000, `page.close ${network}`).catch(() => {});
       }
       // Sprint K: Release context back to pool for reuse
       if (context) {
