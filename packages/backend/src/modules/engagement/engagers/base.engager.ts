@@ -520,21 +520,34 @@ export abstract class BaseEngager extends BasePoster {
     // Fast path: social networks often expose the post text in the meta description.
     // Threads/X use this for link previews and it is usually cleaner than scraping
     // dynamic DOM elements. This is also much faster than resolving multiple DOM
-    // selectors under the 15s extraction timeout.
+    // selectors under the 15s extraction timeout. We discard generic placeholder
+    // descriptions (e.g. "Threads", "Login • Instagram") and fall back to the DOM.
+    const genericMetaPatterns = [
+      /^Threads\b/i,
+      /^Instagram\b/i,
+      /Login\s*[•·]\s*Instagram/i,
+      /Profile\s*[•·]\s*Threads/i,
+      /^See this post on/i,
+      /^Check out this post on/i,
+      /^View .* profile/i,
+      /^.*\bThreads\b.*\bInstagram\b.*$/i,
+    ];
+    const isGenericMeta = (value: string) => genericMetaPatterns.some((p) => p.test(value.trim()));
+
     let text = '';
     try {
       const metaDescription = await page
         .locator('meta[name="description"]')
         .getAttribute('content', { timeout: 2000 })
         .catch(() => null);
-      if (metaDescription && metaDescription.trim().length > 10) {
+      if (metaDescription && metaDescription.trim().length > 10 && !isGenericMeta(metaDescription)) {
         text = metaDescription.trim();
       }
     } catch {
       // ignore
     }
 
-    // Only fall back to DOM scraping if the meta description is missing or short.
+    // Only fall back to DOM scraping if the meta description is missing, short, or generic.
     // Keep timeouts tight so the extraction rarely hits the 15s outer limit.
     if (text.length < 20) {
       const selectors = Array.isArray(textSelector) ? textSelector : [textSelector];
