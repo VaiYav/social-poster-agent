@@ -94,6 +94,7 @@ export class HumanBehaviorEngine {
 
   /** Per-post hard timeout so a single stuck navigation/click cannot hang the whole session. */
   private static readonly EXTRACT_TIMEOUT_MS = 15_000;
+  private static readonly DECISION_TIMEOUT_MS = 30_000;
   private static readonly EXECUTE_TIMEOUT_MS = 60_000;
 
   async processPosts(
@@ -165,17 +166,44 @@ export class HumanBehaviorEngine {
 
       if (contexts.length === 0) continue;
 
-      // Step 2: Get decisions (batched or individual)
+      // Step 2: Get decisions (batched or individual) with a hard timeout so an LLM
+      // provider that never responds cannot hang the whole browsing session. If batch
+      // fails, fall back to individual calls; if those also fail, use safe read decisions.
       let decisions: ActionDecision[];
-      if (supportsBatch && contexts.length > 1) {
-        try {
-          decisions = await this.decisionPort.decideActionsBatch!(contexts);
-        } catch (err) {
-          this.logger.warn(`Batch decision failed, falling back to individual: ${(err as Error).message.slice(0, 80)}`);
-          decisions = await Promise.all(contexts.map((ctx) => this.decisionPort.decideAction(ctx)));
+      try {
+        if (supportsBatch && contexts.length > 1) {
+          decisions = await withTimeout(
+            this.decisionPort.decideActionsBatch!(contexts),
+            HumanBehaviorEngine.DECISION_TIMEOUT_MS,
+            'Batch LLM decision',
+          );
+        } else {
+          decisions = await withTimeout(
+            Promise.all(contexts.map((ctx) => this.decisionPort.decideAction(ctx))),
+            HumanBehaviorEngine.DECISION_TIMEOUT_MS,
+            'Individual LLM decisions',
+          );
         }
-      } else {
-        decisions = await Promise.all(contexts.map((ctx) => this.decisionPort.decideAction(ctx)));
+      } catch (err) {
+        const errorMessage = (err as Error).message.slice(0, 80);
+        if (supportsBatch && contexts.length > 1) {
+          this.logger.warn(`Batch decision failed/timed out, falling back to individual: ${errorMessage}`);
+          try {
+            decisions = await withTimeout(
+              Promise.all(contexts.map((ctx) => this.decisionPort.decideAction(ctx))),
+              HumanBehaviorEngine.DECISION_TIMEOUT_MS,
+              'Individual LLM decisions',
+            );
+          } catch (err2) {
+            this.logger.warn(
+              `Individual decision also failed/timed out, using fallback decisions: ${(err2 as Error).message.slice(0, 80)}`,
+            );
+            decisions = contexts.map((ctx) => this.fallbackDecision(ctx));
+          }
+        } else {
+          this.logger.warn(`Decision call failed/timed out, using fallback decisions: ${errorMessage}`);
+          decisions = contexts.map((ctx) => this.fallbackDecision(ctx));
+        }
       }
 
       // Step 3: Execute decisions sequentially (with human-like pauses)
@@ -789,6 +817,14 @@ export class HumanBehaviorEngine {
       'Connection closed',
     ];
     return fatalPatterns.some((pattern) => error.includes(pattern));
+  }
+
+  /**
+   * Safe fallback decision when the LLM decision port times out or fails.
+   * Keeps the session moving without interacting, so it never blocks on a provider.
+   */
+  private fallbackDecision(_context: PostContext): ActionDecision {
+    return { action: 'read', reason: 'LLM decision fallback (timeout/error)', confidence: 0.5 };
   }
 
   private async markInteractionFailed(interactionId: string, error: string): Promise<void> {

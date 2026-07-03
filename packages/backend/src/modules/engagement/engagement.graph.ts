@@ -28,6 +28,7 @@ import type { BaseEngager } from './engagers/base.engager.js';
 import type { TargetingService } from './targeting.service.js';
 import type { WarmupService, WarmupStatus } from '../sessions/warmup.service.js';
 import type { HumanBehaviorEngine } from './human-behavior-engine.js';
+import { withTimeout } from '../../infrastructure/util/with-timeout.js';
 
 const logger = new Logger('EngagementGraph');
 
@@ -221,16 +222,51 @@ function makeScrollFeedNode(engager: BaseEngager) {
     let postUrls: string[] = [];
     let sourceLabel = state.sourceLabel?.trim() || 'home-feed';
 
-    if (sourceUrl) {
-      postUrls = await engager.scrollUrl(state.page as Page, sourceUrl, scrollSec);
-      if (postUrls.length === 0) {
-        logger.warn(`scroll_feed: source ${sourceUrl} returned 0 posts for ${state.network} — falling back to home feed`);
-        sourceUrl = '';
-        sourceLabel = 'home-feed';
-        postUrls = await engager.scrollFeed(state.page as Page, scrollSec);
+    // The first navigation/scroll is a common hang point if the page/context is dead.
+    // Cap the whole scroll step at scroll budget + 60s so the graph cannot block here.
+    const scrollTimeoutMs = Math.max(scrollSec * 1000 + 60_000, 120_000);
+
+    try {
+      if (sourceUrl) {
+        postUrls = await withTimeout(
+          engager.scrollUrl(state.page as Page, sourceUrl, scrollSec),
+          scrollTimeoutMs,
+          `scroll_feed ${sourceUrl}`,
+        );
+        if (postUrls.length === 0) {
+          logger.warn(`scroll_feed: source ${sourceUrl} returned 0 posts for ${state.network} — falling back to home feed`);
+          sourceUrl = '';
+          sourceLabel = 'home-feed';
+          postUrls = await withTimeout(
+            engager.scrollFeed(state.page as Page, scrollSec),
+            scrollTimeoutMs,
+            `scroll_feed home fallback`,
+          );
+        }
+      } else {
+        postUrls = await withTimeout(
+          engager.scrollFeed(state.page as Page, scrollSec),
+          scrollTimeoutMs,
+          `scroll_feed home`,
+        );
       }
-    } else {
-      postUrls = await engager.scrollFeed(state.page as Page, scrollSec);
+    } catch (err) {
+      const errorMessage = (err as Error).message;
+      // Fatal browser errors must abort the session so the broken context is discarded.
+      // Other scroll failures (e.g. timeout, navigation blocked) are non-fatal — we just
+      // return an empty post list and let the session continue/short-circuit.
+      if (
+        errorMessage.includes('Target page, context or browser has been closed') ||
+        errorMessage.includes('Connection closed') ||
+        errorMessage.includes('Browser has been closed') ||
+        errorMessage.includes('Browser crashed') ||
+        errorMessage.includes('Context has been closed') ||
+        errorMessage.includes('Page has been closed')
+      ) {
+        throw err;
+      }
+      logger.warn(`scroll_feed failed for ${state.network}: ${errorMessage}`);
+      postUrls = [];
     }
     logger.debug(`scroll_feed: collected ${postUrls.length} posts for ${state.network} (scroll budget ${scrollSec}s, source: ${sourceLabel})`);
 
