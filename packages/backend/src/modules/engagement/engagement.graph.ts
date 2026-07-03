@@ -214,14 +214,27 @@ function makeScrollFeedNode(engager: BaseEngager) {
     const scrollSec = Math.min(remainingScrollSec, Math.max(60, Math.floor(state.durationSec / 3)));
 
     // Use the source URL selected by pick_source (hashtag, competitor, explore, etc.).
-    // If empty, fall back to the default home feed.
-    const sourceUrl = state.sourceUrl?.trim();
-    const postUrls = sourceUrl
-      ? await engager.scrollUrl(state.page as Page, sourceUrl, scrollSec)
-      : await engager.scrollFeed(state.page as Page, scrollSec);
-    logger.debug(`scroll_feed: collected ${postUrls.length} posts for ${state.network} (scroll budget ${scrollSec}s, source: ${sourceUrl || 'home-feed'})`);
+    // If empty, fall back to the default home feed. If the selected source returns
+    // zero posts (e.g., X search is blocked or the page requires a login wall), also
+    // fall back to the home feed so the session doesn't do nothing.
+    let sourceUrl = state.sourceUrl?.trim();
+    let postUrls: string[] = [];
+    let sourceLabel = state.sourceLabel?.trim() || 'home-feed';
 
-    return { postUrls };
+    if (sourceUrl) {
+      postUrls = await engager.scrollUrl(state.page as Page, sourceUrl, scrollSec);
+      if (postUrls.length === 0) {
+        logger.warn(`scroll_feed: source ${sourceUrl} returned 0 posts for ${state.network} — falling back to home feed`);
+        sourceUrl = '';
+        sourceLabel = 'home-feed';
+        postUrls = await engager.scrollFeed(state.page as Page, scrollSec);
+      }
+    } else {
+      postUrls = await engager.scrollFeed(state.page as Page, scrollSec);
+    }
+    logger.debug(`scroll_feed: collected ${postUrls.length} posts for ${state.network} (scroll budget ${scrollSec}s, source: ${sourceLabel})`);
+
+    return { postUrls, source: sourceUrl ? undefined : 'home-feed', sourceUrl, sourceLabel };
   };
 }
 

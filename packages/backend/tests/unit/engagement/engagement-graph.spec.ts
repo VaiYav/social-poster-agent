@@ -401,6 +401,45 @@ describe('EngagementGraph', () => {
     await expect(compiled.invoke(initialState)).rejects.toThrow('Browser crashed');
   });
 
+  it('EG-013: scroll_feed falls back to home feed when source returns empty', async () => {
+    targetingService = createMockTargetingService();
+    (targetingService.pickSource as ReturnType<typeof vi.fn>).mockReturnValue({
+      source: 'hashtag' as const,
+      url: 'https://x.com/search?q=%23astrology',
+      label: 'Hashtag #astrology',
+    });
+    engager = createMockEngager();
+    (engager.scrollUrl as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    const graph = buildEngagementGraph(engager, {
+      targetingService,
+      warmupService,
+      humanBehaviorEngine,
+    });
+    const compiled = graph.compile();
+    const initialState = createEngagementInitialState({
+      network: SocialNetwork.X,
+      accountId: 'acc-1',
+      browsingSessionId: 'sess-1',
+      durationSec: 30,
+      maxPosts: 5,
+      likesMaxPerSession: 15,
+      commentsMaxPerSession: 4,
+      page: {} as never,
+    });
+
+    const finalState = await compiled.invoke(initialState);
+
+    expect(engager.scrollUrl).toHaveBeenCalledWith(
+      expect.anything(),
+      'https://x.com/search?q=%23astrology',
+      expect.any(Number),
+    );
+    expect(engager.scrollFeed).toHaveBeenCalled();
+    expect(finalState.sourceLabel).toBe('home-feed');
+    expect(finalState.postUrls).toEqual(['url1', 'url2', 'url3']);
+  });
+
   it('EG-011: graph works without warmupService (undefined)', async () => {
     const graph = buildEngagementGraph(engager, {
       targetingService,
