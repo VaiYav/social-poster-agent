@@ -43,6 +43,8 @@ export class BrowsingSessionService {
   private readonly defaultDurationSec: number;
   private readonly likesMaxPerSession: number;
   private readonly commentsMaxPerSession: number;
+  private readonly repostsMaxPerSession: number;
+  private readonly quotesMaxPerSession: number;
   private readonly maxPostsPerSession: number;
 
   constructor(
@@ -67,6 +69,12 @@ export class BrowsingSessionService {
     );
     this.commentsMaxPerSession = Number(
       this.configService.get<string>('F1_COMMENTS_MAX_PER_DAY', '4'),
+    );
+    this.repostsMaxPerSession = Number(
+      this.configService.get<string>('F1_REPOSTS_MAX_PER_DAY', '5'),
+    );
+    this.quotesMaxPerSession = Number(
+      this.configService.get<string>('F1_QUOTES_MAX_PER_DAY', '2'),
     );
     this.maxPostsPerSession = Number(
       this.configService.get<string>('F1_MAX_POSTS_PER_SESSION', '30'),
@@ -153,6 +161,8 @@ export class BrowsingSessionService {
         maxPosts: this.maxPostsPerSession,
         likesMaxPerSession: this.likesMaxPerSession,
         commentsMaxPerSession: this.commentsMaxPerSession,
+        repostsMaxPerSession: this.repostsMaxPerSession,
+        quotesMaxPerSession: this.quotesMaxPerSession,
         page,
       });
 

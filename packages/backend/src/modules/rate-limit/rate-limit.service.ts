@@ -82,12 +82,16 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
       comment: intDaily('comment', 20),
       follow: intDaily('follow', 15),
       reply: intDaily('reply', 20),
+      repost: intDaily('repost', 10),
+      quote: intDaily('quote', 5),
     };
     this.interactionWeeklyLimits = {
       like: intWeekly('like', 300),
       comment: intWeekly('comment', 100),
       follow: intWeekly('follow', 75),
       reply: intWeekly('reply', 100),
+      repost: intWeekly('repost', 50),
+      quote: intWeekly('quote', 25),
     };
     this.interactionMinIntervalMs =
       Number(this.configService.get<string>('RATE_LIMIT_INTERACTION_MIN_DELAY_MS')) || 0;

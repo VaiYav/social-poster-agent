@@ -11,6 +11,7 @@ import { WarmupModule } from '../sessions/warmup.module.js';
 import { RateLimitModule } from '../rate-limit/rate-limit.module.js';
 import { QueueModule } from '../queue/queue.module.js';
 import { PrismaModule } from '../../infrastructure/prisma/prisma.module.js';
+import { FlowControlModule } from '../flow-control/flow-control.module.js';
 import { EngagementService } from './engagement.service.js';
 import { BrowsingSessionService } from './browsing-session.service.js';
 import { EngagementController } from './engagement.controller.js';
@@ -35,6 +36,7 @@ import { IBrowsingSessionPort } from '../orchestrator/ports.js';
     RateLimitModule,
     QueueModule,
     PrismaModule,
+    FlowControlModule,
   ],
   providers: [
     EngagementService,

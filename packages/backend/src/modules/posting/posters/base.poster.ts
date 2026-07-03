@@ -32,11 +32,15 @@ export interface PostResult {
   threadReplyResults?: Array<{ index: number; success: boolean; error?: string }>;
 }
 
-/** Result of an engagement operation (like, comment, follow). */
+/** Result of an engagement operation (like, comment, follow, repost, quote). */
 export interface EngagementResult {
   success: boolean;
   error?: string;
   screenshotPath?: string;
+  /** True if the action was skipped because it was already done (e.g., already liked). */
+  alreadyLiked?: boolean;
+  /** True if the action was skipped because it was already reposted. */
+  alreadyReposted?: boolean;
 }
 
 /** Abstract base class for all network posters. */

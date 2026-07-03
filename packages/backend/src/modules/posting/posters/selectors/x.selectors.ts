@@ -135,6 +135,42 @@ export const X_SELECTORS = {
       role: { role: 'button', name: 'Repost' },
       css: ['button[data-testid="retweet"]', 'div[role="button"][data-testid="retweet"]'],
     } satisfies SelectorStrategy,
+    // Items in the repost menu (Repost / Quote). These are menu items, not buttons.
+    repostMenuRepost: {
+      role: { role: 'menuitem', name: 'Repost' },
+      text: { text: 'Repost', exact: false },
+      css: [
+        '[role="menuitem"]:has-text("Repost")',
+        '[data-testid="retweetConfirm"]',
+        'div[role="button"]:has-text("Repost")',
+      ],
+    } satisfies SelectorStrategy,
+    repostMenuQuote: {
+      role: { role: 'menuitem', name: 'Quote' },
+      text: { text: 'Quote', exact: false },
+      css: [
+        '[role="menuitem"]:has-text("Quote")',
+        '[data-testid="quoteTweet"]',
+        'div[role="button"]:has-text("Quote")',
+      ],
+    } satisfies SelectorStrategy,
+    // Quote dialog textarea (same composer as reply/compose)
+    quoteTextarea: {
+      testId: 'tweetTextarea_0',
+      css: ['div[contenteditable="true"]'],
+    } satisfies SelectorStrategy,
+    // Quote dialog submit button (usually labeled "Post")
+    quoteSubmit: {
+      testId: 'tweetButton',
+      role: { role: 'button', name: 'Post' },
+      text: { text: 'Post', exact: false },
+      css: [
+        'button[data-testid="tweetButton"]',
+        'div[role="button"][data-testid="tweetButton"]',
+        'button:has-text("Post")',
+        'div[role="button"]:has-text("Post")',
+      ],
+    } satisfies SelectorStrategy,
     follow: {
       // X follow button: data-testid ends with "-follow" (e.g., "userFollow")
       // The old placementTracking testId was a wrapper, not the button itself.
@@ -155,11 +191,19 @@ export const X_SELECTORS = {
       testId: 'tweetTextarea_0',
       css: ['div[contenteditable="true"]'],
     } satisfies SelectorStrategy,
-    // Reply dialog submit button
+    // Reply dialog submit button. X labels it either "Reply" or "Post" depending on context.
     replySubmit: {
       testId: 'tweetButton',
       role: { role: 'button', name: 'Reply' },
-      css: ['button[data-testid="tweetButton"]'],
+      text: { text: 'Post', exact: false },
+      css: [
+        'button[data-testid="tweetButton"]',
+        'div[role="button"][data-testid="tweetButton"]',
+        'button:has-text("Reply")',
+        'div[role="button"]:has-text("Reply")',
+        'button:has-text("Post")',
+        'div[role="button"]:has-text("Post")',
+      ],
     } satisfies SelectorStrategy,
   },
 

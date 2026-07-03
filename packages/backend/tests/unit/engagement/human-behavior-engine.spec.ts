@@ -30,6 +30,7 @@ function createMockDecisionPort(decision: Partial<ActionDecision> = {}): IEngage
       ...decision,
     } as ActionDecision),
     generateComment: vi.fn().mockResolvedValue('Test comment in brand voice.'),
+    generateQuoteText: vi.fn().mockResolvedValue('Test quote text in brand voice.'),
   };
 }
 
@@ -41,7 +42,10 @@ function createMockEngager(overrides: Partial<BaseEngager> = {}): BaseEngager {
     comment: vi.fn().mockResolvedValue({ success: true }),
     follow: vi.fn().mockResolvedValue({ success: true }),
     reply: vi.fn().mockResolvedValue({ success: true }),
+    repost: vi.fn().mockResolvedValue({ success: true }),
+    quote: vi.fn().mockResolvedValue({ success: true }),
     scrollFeed: vi.fn().mockResolvedValue([]),
+    scrollUrl: vi.fn().mockResolvedValue([]),
     extractPostText: vi.fn().mockResolvedValue({
       text: 'Mars in Aries brings energy today.',
       hasMedia: false,
@@ -442,5 +446,64 @@ describe('HumanBehaviorEngine', () => {
 
     expect(results.length).toBe(0);
     expect(decisionPort.decideAction).not.toHaveBeenCalled();
+  });
+
+  it('HB-022: executes repost action when LLM decides repost', async () => {
+    decisionPort = createMockDecisionPort({ action: 'repost', reason: 'worth sharing', confidence: 0.9 });
+    engine = new HumanBehaviorEngine(
+      mockPrisma as never, browser, createMockSseService() as never,
+      createMockRateLimitService() as never, decisionPort,
+    );
+
+    const page = createMockPage();
+    const results = await engine.processPosts(page, ['url1'], engager, {
+      ...config,
+      repostsMaxPerSession: 1,
+    });
+
+    expect(engager.repost).toHaveBeenCalledWith(page, 'url1');
+    expect(results[0]!.success).toBe(true);
+    expect(results[0]!.interactionId).toBe('interaction-1');
+  });
+
+  it('HB-023: executes quote action when LLM decides quote', async () => {
+    decisionPort = createMockDecisionPort({
+      action: 'quote', reason: 'sharp take', confidence: 0.8,
+      quoteText: 'My sharp take on this.',
+    });
+    engine = new HumanBehaviorEngine(
+      mockPrisma as never, browser, createMockSseService() as never,
+      createMockRateLimitService() as never, decisionPort,
+    );
+
+    const page = createMockPage();
+    const results = await engine.processPosts(page, ['url1'], engager, {
+      ...config,
+      quotesMaxPerSession: 1,
+    });
+
+    expect(engager.quote).toHaveBeenCalledWith(page, 'url1', 'My sharp take on this.');
+    expect(results[0]!.success).toBe(true);
+  });
+
+  it('HB-024: enforces repost and quote budget mid-batch', async () => {
+    decisionPort = createMockDecisionPort({ action: 'repost', reason: 'worth sharing', confidence: 0.9 });
+    engine = new HumanBehaviorEngine(
+      mockPrisma as never, browser, createMockSseService() as never,
+      createMockRateLimitService() as never, decisionPort,
+    );
+
+    const page = createMockPage();
+    const results = await engine.processPosts(page, ['url1', 'url2'], engager, {
+      ...config,
+      maxPosts: 2,
+      repostsMaxPerSession: 1,
+      quotesMaxPerSession: 0,
+    });
+
+    // First repost succeeds, second is downgraded to read
+    expect(engager.repost).toHaveBeenCalledTimes(1);
+    expect(results[0]!.decision.action).toBe('repost');
+    expect(results[1]!.decision.action).toBe('read');
   });
 });

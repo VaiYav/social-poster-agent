@@ -114,6 +114,36 @@ export const THREADS_SELECTORS = {
         'div[role="button"]:has(svg[aria-label*="repost"])',
       ],
     } satisfies SelectorStrategy,
+    // Items in the Threads repost menu. Threads sometimes calls it "Repost" or "Quote".
+    repostMenuRepost: {
+      role: { role: 'menuitem', name: 'Repost' },
+      text: { text: 'Repost', exact: false },
+      css: [
+        '[role="menuitem"]:has-text("Repost")',
+        'div[role="button"]:has-text("Repost")',
+      ],
+    } satisfies SelectorStrategy,
+    repostMenuQuote: {
+      role: { role: 'menuitem', name: 'Quote' },
+      text: { text: 'Quote', exact: false },
+      css: [
+        '[role="menuitem"]:has-text("Quote")',
+        'div[role="button"]:has-text("Quote")',
+      ],
+    } satisfies SelectorStrategy,
+    quoteTextarea: {
+      css: ['div[role="dialog"] div[contenteditable="true"]', 'div[contenteditable="true"]'],
+    } satisfies SelectorStrategy,
+    quoteSubmit: {
+      role: { role: 'button', name: 'Post' },
+      text: { text: 'Post', exact: false },
+      css: [
+        'div[role="dialog"] button:has-text("Post")',
+        'div[role="dialog"] div[role="button"]:has-text("Post")',
+        'button:has-text("Post")',
+        'div[role="button"]:has-text("Post")',
+      ],
+    } satisfies SelectorStrategy,
     follow: {
       role: { role: 'button', name: 'Follow' },
       text: { text: 'Follow', exact: true },

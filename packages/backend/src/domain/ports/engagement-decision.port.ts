@@ -19,6 +19,8 @@ export type EngagementAction =
   | 'read' // dwell on the post (simulate reading) then scroll
   | 'like' // like the post
   | 'comment' // write and post a comment
+  | 'repost' // repost / retweet without adding text
+  | 'quote' // repost / retweet with added commentary
   | 'open-thread' // open the comments thread to read replies
   | 'visit-profile' // navigate to the post author's profile
   | 'back' // go back (e.g. after visiting a profile)
@@ -48,6 +50,14 @@ export interface PostContext {
   likesMaxPerSession: number;
   /** Max comments allowed this session (from config / warmup phase). */
   commentsMaxPerSession: number;
+  /** How many reposts already performed this session. */
+  repostsThisSession?: number;
+  /** Max reposts allowed this session. */
+  repostsMaxPerSession?: number;
+  /** How many quotes already performed this session. */
+  quotesThisSession?: number;
+  /** Max quotes allowed this session. */
+  quotesMaxPerSession?: number;
 }
 
 /**
@@ -71,6 +81,8 @@ export interface ActionDecision {
   reason: string;
   /** For 'comment' action — the generated comment text. */
   commentText?: string;
+  /** For 'quote' action — the generated quote text. */
+  quoteText?: string;
   /** Confidence 0-1 (how sure the LLM is about the action). */
   confidence: number;
 }
@@ -109,4 +121,10 @@ export interface IEngagementDecisionPort {
    * Uses the local LlmService with brand-voice.md guidelines.
    */
   generateComment(context: PostContext): Promise<string>;
+
+  /**
+   * Generate contextual quote text (commentary for a quote-post/repost) in brand voice.
+   * Uses the local LlmService with brand-voice.md guidelines.
+   */
+  generateQuoteText(context: PostContext): Promise<string>;
 }

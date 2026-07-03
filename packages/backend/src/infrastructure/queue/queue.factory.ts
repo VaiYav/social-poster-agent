@@ -197,7 +197,7 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
   async enqueueEngagement(
     interactionId: string,
     network: string,
-    action: 'like' | 'comment' | 'follow' | 'reply' | 'browsing-session',
+    action: 'like' | 'comment' | 'follow' | 'reply' | 'repost' | 'quote' | 'browsing-session',
     payload: Record<string, unknown>,
     opts?: { delay?: number },
   ): Promise<void> {

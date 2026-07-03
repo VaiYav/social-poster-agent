@@ -7,6 +7,7 @@ import { SessionsService } from '../sessions/sessions.service.js';
 import { IBrowserPort } from '../../domain/ports/browser.port.js';
 import { SseService } from '../../infrastructure/sse/sse.service.js';
 import { RateLimitService } from '../rate-limit/rate-limit.service.js';
+import { FlowControlService } from '../flow-control/flow-control.service.js';
 import {
   InteractionStatus,
   InteractionType,
@@ -29,6 +30,7 @@ export class EngagementService {
     @Inject(IBrowserPort) private readonly browser: IBrowserPort,
     private readonly sseService: SseService,
     private readonly rateLimitService: RateLimitService,
+    private readonly flowControlService: FlowControlService,
     private readonly xEngager: XEngager,
     private readonly threadsEngager: ThreadsEngager,
     private readonly facebookEngager: FacebookEngager,
@@ -95,6 +97,39 @@ export class EngagementService {
   }
 
   /**
+   * Repost a post on the given network.
+   */
+  async repost(
+    network: SocialNetwork,
+    postUrl: string,
+  ): Promise<EngagementResult & { interactionId: string }> {
+    return this.performInteraction(
+      network,
+      InteractionType.REPOST,
+      postUrl,
+      undefined,
+      (engager, page) => engager.repost(page, postUrl),
+    );
+  }
+
+  /**
+   * Quote a post on the given network.
+   */
+  async quote(
+    network: SocialNetwork,
+    postUrl: string,
+    text: string,
+  ): Promise<EngagementResult & { interactionId: string }> {
+    return this.performInteraction(
+      network,
+      InteractionType.QUOTE,
+      postUrl,
+      text,
+      (engager, page) => engager.quote(page, postUrl, text),
+    );
+  }
+
+  /**
    * Core method for performing a single engagement interaction.
    * Creates an Interaction record, performs the action, updates the record.
    */
@@ -106,6 +141,17 @@ export class EngagementService {
     action: (engager: BaseEngager, page: import('playwright-core').Page) => Promise<EngagementResult>,
     targetHandle?: string,
   ): Promise<EngagementResult & { interactionId: string }> {
+    // ADR-006: respect flow control — direct API actions should also pause when
+    // engagement is paused, so an operator can stop all engagement without restarting.
+    if (await this.flowControlService.isPaused('engagement')) {
+      this.logger.warn(`Engagement flow paused — skipping ${type} on ${network}`);
+      return {
+        success: false,
+        error: 'Engagement flow paused',
+        interactionId: '',
+      };
+    }
+
     // Rate limit check
     const rateKey = `${network as string}-${type.toLowerCase()}`;
     const rateCheck = await this.rateLimitService.checkRateLimit(rateKey);
@@ -165,8 +211,8 @@ export class EngagementService {
       // Save updated session state
       const updatedState = await this.browser.saveStorageState(context);
       await this.sessionsService.updateStorageState(session.id, updatedState);
-      await page.close();
-      await context.close();
+      await page.close().catch(() => {});
+      await context.close().catch(() => {});
 
       // Update interaction record
       await this.prisma.interaction.update({
@@ -179,7 +225,9 @@ export class EngagementService {
         },
       });
 
-      if (result.success) {
+      // Only count rate limit when we actually performed the action, not when we
+      // skipped because it was already done (e.g., already liked).
+      if (result.success && !result.alreadyLiked && !result.alreadyReposted) {
         await this.rateLimitService.recordPost(rateKey);
       }
 

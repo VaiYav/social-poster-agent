@@ -29,6 +29,17 @@ const replySchema = z.object({
   text: z.string().min(1).max(500),
 });
 
+const repostSchema = z.object({
+  network: z.enum(['X', 'THREADS', 'FACEBOOK']),
+  postUrl: z.string().url(),
+});
+
+const quoteSchema = z.object({
+  network: z.enum(['X', 'THREADS', 'FACEBOOK']),
+  postUrl: z.string().url(),
+  text: z.string().min(1).max(500),
+});
+
 const browsingSessionSchema = z.object({
   network: z.enum(['X', 'THREADS', 'FACEBOOK']),
   durationSec: z.number().min(60).max(3600).optional(),
@@ -85,6 +96,31 @@ export class EngagementController {
       throw new BadRequestException(parsed.error.message);
     }
     return this.engagementService.reply(
+      parsed.data.network as SocialNetwork,
+      parsed.data.postUrl,
+      parsed.data.text,
+    );
+  }
+
+  @Post('repost')
+  async repost(@Body() body: unknown) {
+    const parsed = repostSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.message);
+    }
+    return this.engagementService.repost(
+      parsed.data.network as SocialNetwork,
+      parsed.data.postUrl,
+    );
+  }
+
+  @Post('quote')
+  async quote(@Body() body: unknown) {
+    const parsed = quoteSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.message);
+    }
+    return this.engagementService.quote(
       parsed.data.network as SocialNetwork,
       parsed.data.postUrl,
       parsed.data.text,

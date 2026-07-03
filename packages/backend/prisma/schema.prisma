@@ -61,6 +61,8 @@ enum InteractionType {
   FOLLOW
   UNFOLLOW
   REPLY
+  REPOST
+  QUOTE
   SCROLL_VIEW
 }
 

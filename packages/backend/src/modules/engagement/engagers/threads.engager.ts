@@ -7,6 +7,7 @@ import { IBrowserPort } from '../../../domain/ports/browser.port.js';
 import { BaseEngager } from './base.engager.js';
 import type { EngagementResult } from '../../posting/posters/base.poster.js';
 import { THREADS_SELECTORS } from '../../posting/posters/selectors/threads.selectors.js';
+import type { SelectorStrategy } from '../../posting/posters/selector-strategy.js';
 
 @Injectable()
 export class ThreadsEngager extends BaseEngager {
@@ -22,13 +23,19 @@ export class ThreadsEngager extends BaseEngager {
       await this.navigate(page, postUrl);
 
       const screenshotPath = await this.screenshot(page, 'before-like');
-      await this.performLike(
+      const { performed, alreadyLiked } = await this.performLike(
         page,
         THREADS_SELECTORS.engagement.like,
         THREADS_SELECTORS.engagement.unlike,
       );
 
       await this.screenshot(page, 'after-like');
+      if (alreadyLiked) {
+        return { success: true, screenshotPath };
+      }
+      if (!performed) {
+        return { success: false, error: 'Like button found but state did not change', screenshotPath };
+      }
       return { success: true, screenshotPath };
     } catch (err) {
       return { success: false, error: (err as Error).message };
@@ -79,12 +86,65 @@ export class ThreadsEngager extends BaseEngager {
     return this.comment(page, postUrl, text);
   }
 
+  async repost(page: Page, postUrl: string): Promise<EngagementResult> {
+    try {
+      await this.navigate(page, postUrl);
+      const screenshotPath = await this.screenshot(page, 'before-repost');
+      const { performed, alreadyReposted } = await this.performRepost(
+        page,
+        THREADS_SELECTORS.engagement.repost,
+        THREADS_SELECTORS.engagement.repostMenuRepost,
+      );
+      await this.screenshot(page, 'after-repost');
+      if (alreadyReposted) {
+        return { success: true, screenshotPath, alreadyReposted: true };
+      }
+      if (!performed) {
+        return { success: false, error: 'Repost menu did not confirm', screenshotPath };
+      }
+      return { success: true, screenshotPath };
+    } catch (err) {
+      return { success: false, error: (err as Error).message };
+    }
+  }
+
+  async quote(page: Page, postUrl: string, text: string): Promise<EngagementResult> {
+    try {
+      await this.navigate(page, postUrl);
+      const screenshotPath = await this.screenshot(page, 'before-quote');
+      await this.performQuote(
+        page,
+        THREADS_SELECTORS.engagement.repost,
+        THREADS_SELECTORS.engagement.repostMenuQuote,
+        THREADS_SELECTORS.engagement.quoteTextarea,
+        THREADS_SELECTORS.engagement.quoteSubmit,
+        text,
+      );
+      await this.screenshot(page, 'after-quote');
+      return { success: true, screenshotPath };
+    } catch (err) {
+      return { success: false, error: (err as Error).message };
+    }
+  }
+
   /**
    * Scroll the Threads feed and collect post URLs.
    */
   async scrollFeed(page: Page, durationSec: number): Promise<string[]> {
     await this.navigate(page, THREADS_SELECTORS.feed.url);
     return this.doScrollFeed(page, durationSec, THREADS_SELECTORS.feed.postLink);
+  }
+
+  /**
+   * Scroll an arbitrary Threads URL (hashtag, competitor profile, search).
+   */
+  async scrollUrl(page: Page, url: string, durationSec: number): Promise<string[]> {
+    await this.navigate(page, url);
+    return this.doScrollFeed(page, durationSec, THREADS_SELECTORS.feed.postLink);
+  }
+
+  protected getPostLinkSelector(): SelectorStrategy {
+    return THREADS_SELECTORS.feed.postLink;
   }
 
   /**

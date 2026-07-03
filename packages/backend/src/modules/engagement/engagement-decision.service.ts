@@ -18,8 +18,10 @@ import {
 import {
   ENGAGEMENT_DECISION_SYSTEM_PROMPT,
   ENGAGEMENT_COMMENT_SYSTEM_PROMPT,
+  ENGAGEMENT_QUOTE_SYSTEM_PROMPT,
   buildDecisionUserPrompt,
   buildCommentUserPrompt,
+  buildQuoteUserPrompt,
   parseDecisionResponse,
   buildBatchDecisionUserPrompt,
   parseBatchDecisionResponse,
@@ -51,7 +53,7 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
 
       const decision = parseDecisionResponse(response.content);
 
-      // Budget enforcement — even if LLM says "like", respect the budget
+      // Budget enforcement — even if LLM says "like" / "comment" / "repost" / "quote", respect the budget
       if (decision.action === 'like' && context.likesThisSession >= context.likesMaxPerSession) {
         this.logger.debug(`LLM said 'like' but budget exhausted — downgrading to 'read'`);
         return { action: 'read', reason: 'Like budget exhausted', confidence: 0.8 };
@@ -60,10 +62,25 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
         this.logger.debug(`LLM said 'comment' but budget exhausted — downgrading to 'read'`);
         return { action: 'read', reason: 'Comment budget exhausted', confidence: 0.8 };
       }
+      const repostsMax = context.repostsMaxPerSession ?? 0;
+      if (decision.action === 'repost' && (context.repostsThisSession ?? 0) >= repostsMax) {
+        this.logger.debug(`LLM said 'repost' but budget exhausted — downgrading to 'read'`);
+        return { action: 'read', reason: 'Repost budget exhausted', confidence: 0.8 };
+      }
+      const quotesMax = context.quotesMaxPerSession ?? 0;
+      if (decision.action === 'quote' && (context.quotesThisSession ?? 0) >= quotesMax) {
+        this.logger.debug(`LLM said 'quote' but budget exhausted — downgrading to 'read'`);
+        return { action: 'read', reason: 'Quote budget exhausted', confidence: 0.8 };
+      }
 
       // If LLM decided 'comment' but didn't provide commentText, generate it
       if (decision.action === 'comment' && !decision.commentText) {
         decision.commentText = await this.generateComment(context);
+      }
+
+      // If LLM decided 'quote' but didn't provide quoteText, generate it
+      if (decision.action === 'quote' && !decision.quoteText) {
+        decision.quoteText = await this.generateQuoteText(context);
       }
 
       this.logger.debug(
@@ -116,6 +133,14 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
           this.logger.debug(`Batch: LLM said 'comment' but budget exhausted — downgrading to 'read'`);
           return { action: 'read' as const, reason: 'Comment budget exhausted', confidence: 0.8 };
         }
+        if (decision.action === 'repost' && (ctx.repostsThisSession ?? 0) >= (ctx.repostsMaxPerSession ?? 0)) {
+          this.logger.debug(`Batch: LLM said 'repost' but budget exhausted — downgrading to 'read'`);
+          return { action: 'read' as const, reason: 'Repost budget exhausted', confidence: 0.8 };
+        }
+        if (decision.action === 'quote' && (ctx.quotesThisSession ?? 0) >= (ctx.quotesMaxPerSession ?? 0)) {
+          this.logger.debug(`Batch: LLM said 'quote' but budget exhausted — downgrading to 'read'`);
+          return { action: 'read' as const, reason: 'Quote budget exhausted', confidence: 0.8 };
+        }
 
         return decision;
       });
@@ -159,6 +184,37 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
   }
 
   /**
+   * Generate a contextual quote text for a post in brand voice.
+   * Falls back to a safe generic quote if LLM is unavailable.
+   */
+  async generateQuoteText(context: PostContext): Promise<string> {
+    if (!this.llm) {
+      return this.fallbackQuote();
+    }
+
+    try {
+      const userPrompt = buildQuoteUserPrompt(context);
+      const response = await this.llm.generateChat(
+        ENGAGEMENT_QUOTE_SYSTEM_PROMPT,
+        userPrompt,
+        { temperature: 0.7, maxTokens: 100 },
+      );
+
+      const quote = response.content.trim();
+
+      if (this.isForbiddenComment(quote)) {
+        this.logger.warn(`LLM generated forbidden quote, using fallback: "${quote.slice(0, 80)}"`);
+        return this.fallbackQuote();
+      }
+
+      return quote;
+    } catch (err) {
+      this.logger.warn(`LLM quote generation failed, using fallback: ${(err as Error).message.slice(0, 100)}`);
+      return this.fallbackQuote();
+    }
+  }
+
+  /**
    * Probabilistic fallback decision (when LLM is unavailable).
    * Uses the same distribution as the original Math.random() approach
    * but with budget awareness.
@@ -166,19 +222,29 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
   private fallbackDecision(context: PostContext): ActionDecision {
     const likesBudgetRemaining = context.likesMaxPerSession - context.likesThisSession;
     const commentsBudgetRemaining = context.commentsMaxPerSession - context.commentsThisSession;
+    const repostsBudgetRemaining = (context.repostsMaxPerSession ?? 0) - (context.repostsThisSession ?? 0);
+    const quotesBudgetRemaining = (context.quotesMaxPerSession ?? 0) - (context.quotesThisSession ?? 0);
 
     const random = Math.random();
-    // Budget-adjusted probabilities
+    // Budget-adjusted probabilities (reposts and quotes are much rarer than likes/comments)
     const likeProb = likesBudgetRemaining > 0 ? 0.3 : 0;
     const commentProb = commentsBudgetRemaining > 0 ? 0.05 : 0;
+    const repostProb = repostsBudgetRemaining > 0 ? 0.02 : 0;
+    const quoteProb = quotesBudgetRemaining > 0 ? 0.01 : 0;
 
-    if (random < commentProb) {
+    if (random < quoteProb) {
+      return { action: 'quote', reason: 'Fallback: random quote', confidence: 0.4 };
+    }
+    if (random < quoteProb + repostProb) {
+      return { action: 'repost', reason: 'Fallback: random repost', confidence: 0.4 };
+    }
+    if (random < quoteProb + repostProb + commentProb) {
       return { action: 'comment', reason: 'Fallback: random comment', confidence: 0.4 };
     }
-    if (random < commentProb + likeProb) {
+    if (random < quoteProb + repostProb + commentProb + likeProb) {
       return { action: 'like', reason: 'Fallback: random like', confidence: 0.4 };
     }
-    if (random < commentProb + likeProb + 0.15) {
+    if (random < quoteProb + repostProb + commentProb + likeProb + 0.15) {
       return { action: 'read', reason: 'Fallback: dwell and read', confidence: 0.4 };
     }
     return { action: 'scroll', reason: 'Fallback: continue scrolling', confidence: 0.4 };
@@ -190,6 +256,13 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
   private fallbackComment(): string {
     // Minimal, non-generic — acknowledge the limitation
     return 'This is a really interesting take.';
+  }
+
+  /**
+   * Safe fallback quote text (only used when LLM is unavailable).
+   */
+  private fallbackQuote(): string {
+    return 'This is a sharp take — worth sharing.';
   }
 
   /**

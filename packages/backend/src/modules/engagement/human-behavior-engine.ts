@@ -3,7 +3,7 @@
 // Replaces the Math.random() loop in BrowsingSessionService with a
 // context-aware decision engine that:
 //   1. Extracts post text + metadata for each discovered post
-//   2. Asks the LLM what action to take (scroll/read/like/comment/open-thread/...)
+//   2. Asks the LLM what action to take (scroll/read/like/comment/repost/quote/open-thread/...)
 //   3. Executes the action with human-like timing (dwell, hover, varied scroll)
 //   4. Records interactions in the database
 //   5. Respects engagement budgets and warmup phase gating
@@ -52,6 +52,10 @@ export interface BehaviorEngineConfig {
   source: EngagementSource;
   likesMaxPerSession: number;
   commentsMaxPerSession: number;
+  /** Max reposts per session. Defaults to 0 if not set. */
+  repostsMaxPerSession?: number;
+  /** Max quotes per session. Defaults to 0 if not set. */
+  quotesMaxPerSession?: number;
   /** Max posts to evaluate per session (prevents infinite loops). */
   maxPosts: number;
   /** Total wall-clock budget for the session (scroll + interactions), in seconds. */
@@ -96,6 +100,8 @@ export class HumanBehaviorEngine {
     const results: PostInteractionResult[] = [];
     let likesThisSession = 0;
     let commentsThisSession = 0;
+    let repostsThisSession = 0;
+    let quotesThisSession = 0;
     let postsProcessed = 0;
 
     // Respect the overall session duration budget. Scroll + interactions must fit.
@@ -133,8 +139,12 @@ export class HumanBehaviorEngine {
             source: config.source,
             likesThisSession,
             commentsThisSession,
+            repostsThisSession,
+            quotesThisSession,
             likesMaxPerSession: config.likesMaxPerSession,
             commentsMaxPerSession: config.commentsMaxPerSession,
+            repostsMaxPerSession: config.repostsMaxPerSession ?? 0,
+            quotesMaxPerSession: config.quotesMaxPerSession ?? 0,
           });
         } catch (err) {
           this.logger.debug(`Failed to extract post context for ${postUrl}: ${(err as Error).message.slice(0, 80)}`);
@@ -165,7 +175,7 @@ export class HumanBehaviorEngine {
         const context = contexts[i]!;
         let decision = decisions[i]!;
 
-        // Runtime budget enforcement — the LLM may have decided "like" for
+        // Runtime budget enforcement — the LLM may have decided an action for
         // multiple posts in a batch, but the budget only allows a few.
         // Downgrade to 'read' if the budget was exhausted by earlier posts in this batch.
         if (decision.action === 'like' && likesThisSession >= config.likesMaxPerSession) {
@@ -173,6 +183,12 @@ export class HumanBehaviorEngine {
         }
         if (decision.action === 'comment' && commentsThisSession >= config.commentsMaxPerSession) {
           decision = { action: 'read', reason: 'Comment budget exhausted mid-batch', confidence: 0.8 };
+        }
+        if (decision.action === 'repost' && repostsThisSession >= (config.repostsMaxPerSession ?? 0)) {
+          decision = { action: 'read', reason: 'Repost budget exhausted mid-batch', confidence: 0.8 };
+        }
+        if (decision.action === 'quote' && quotesThisSession >= (config.quotesMaxPerSession ?? 0)) {
+          decision = { action: 'read', reason: 'Quote budget exhausted mid-batch', confidence: 0.8 };
         }
 
         // Generate comment text if the LLM decided 'comment' but didn't provide text
@@ -184,6 +200,15 @@ export class HumanBehaviorEngine {
           }
         }
 
+        // Generate quote text if the LLM decided 'quote' but didn't provide text
+        if (decision.action === 'quote' && !decision.quoteText) {
+          try {
+            decision.quoteText = await this.decisionPort.generateQuoteText(context);
+          } catch {
+            // generateQuoteText has its own fallback
+          }
+        }
+
         const result = await this.executeDecision(
           page,
           engager,
@@ -192,11 +217,15 @@ export class HumanBehaviorEngine {
           config,
           likesThisSession,
           commentsThisSession,
+          repostsThisSession,
+          quotesThisSession,
         );
 
         if (result.success) {
           if (decision.action === 'like') likesThisSession++;
           if (decision.action === 'comment') commentsThisSession++;
+          if (decision.action === 'repost') repostsThisSession++;
+          if (decision.action === 'quote') quotesThisSession++;
         }
 
         results.push(result);
@@ -220,6 +249,8 @@ export class HumanBehaviorEngine {
     config: BehaviorEngineConfig,
     _likesThisSession: number,
     _commentsThisSession: number,
+    _repostsThisSession: number,
+    _quotesThisSession: number,
   ): Promise<PostInteractionResult> {
     const baseResult: PostInteractionResult = {
       postUrl: context.postUrl,
@@ -248,6 +279,12 @@ export class HumanBehaviorEngine {
 
       case 'comment':
         return this.executeComment(page, engager, decision, context, config);
+
+      case 'repost':
+        return this.executeRepost(page, engager, context, config);
+
+      case 'quote':
+        return this.executeQuote(page, engager, decision, context, config);
 
       case 'open-thread':
         return this.executeOpenThread(page, engager, context, config);
@@ -310,8 +347,10 @@ export class HumanBehaviorEngine {
         },
       });
 
-      if (result.success) {
+      if (result.success && !result.alreadyLiked) {
         await this.rateLimitService.recordPost(rateKey);
+        await this.publishInteractionEvent('interaction_completed', interaction.id, context, 'like');
+      } else if (result.success) {
         await this.publishInteractionEvent('interaction_completed', interaction.id, context, 'like');
       } else {
         await this.publishInteractionEvent('interaction_failed', interaction.id, context, 'like', result.error);
@@ -396,6 +435,157 @@ export class HumanBehaviorEngine {
       if (result.success) {
         await this.rateLimitService.recordPost(rateKey);
         await this.publishInteractionEvent('interaction_completed', interaction.id, context, 'comment');
+      }
+
+      return {
+        postUrl: context.postUrl,
+        decision,
+        interactionId: interaction.id,
+        success: result.success,
+        error: result.error,
+      };
+    } catch (err) {
+      await this.markInteractionFailed(interaction.id, (err as Error).message);
+      return {
+        postUrl: context.postUrl,
+        decision,
+        interactionId: interaction.id,
+        success: false,
+        error: (err as Error).message,
+      };
+    }
+  }
+
+  /**
+   * Execute a repost action with full tracking.
+   */
+  private async executeRepost(
+    page: Page,
+    engager: BaseEngager,
+    context: PostContext,
+    config: BehaviorEngineConfig,
+  ): Promise<PostInteractionResult> {
+    // Rate limit check
+    const rateKey = `${context.network as string}-repost`;
+    const rateCheck = await this.rateLimitService.checkRateLimit(rateKey);
+    if (!rateCheck.allowed) {
+      return {
+        postUrl: context.postUrl,
+        decision: { action: 'repost', reason: 'Rate limited', confidence: 0 },
+        success: false,
+        error: `Rate limited: ${rateCheck.reason}`,
+      };
+    }
+
+    const interaction = await this.prisma.interaction.create({
+      data: {
+        accountId: config.accountId,
+        type: InteractionType.REPOST,
+        status: InteractionStatus.IN_PROGRESS,
+        targetUrl: context.postUrl,
+        browsingSessionId: config.browsingSessionId,
+      },
+    });
+
+    try {
+      const result = await engager.repost(page, context.postUrl);
+
+      await this.prisma.interaction.update({
+        where: { id: interaction.id },
+        data: {
+          status: result.success ? InteractionStatus.COMPLETED : InteractionStatus.FAILED,
+          errorMessage: result.error,
+          screenshotPath: result.screenshotPath,
+          completedAt: new Date(),
+        },
+      });
+
+      if (result.success && !result.alreadyReposted) {
+        await this.rateLimitService.recordPost(rateKey);
+        await this.publishInteractionEvent('interaction_completed', interaction.id, context, 'repost');
+      } else if (result.success) {
+        await this.publishInteractionEvent('interaction_completed', interaction.id, context, 'repost');
+      } else {
+        await this.publishInteractionEvent('interaction_failed', interaction.id, context, 'repost', result.error);
+      }
+
+      return {
+        postUrl: context.postUrl,
+        decision: { action: 'repost', reason: 'Reposted', confidence: 1 },
+        interactionId: interaction.id,
+        success: result.success,
+        error: result.error,
+      };
+    } catch (err) {
+      await this.markInteractionFailed(interaction.id, (err as Error).message);
+      return {
+        postUrl: context.postUrl,
+        decision: { action: 'repost', reason: 'Failed', confidence: 0 },
+        interactionId: interaction.id,
+        success: false,
+        error: (err as Error).message,
+      };
+    }
+  }
+
+  /**
+   * Execute a quote action with full tracking.
+   */
+  private async executeQuote(
+    page: Page,
+    engager: BaseEngager,
+    decision: ActionDecision,
+    context: PostContext,
+    config: BehaviorEngineConfig,
+  ): Promise<PostInteractionResult> {
+    const quoteText = decision.quoteText ?? await this.decisionPort.generateQuoteText(context);
+    if (!quoteText) {
+      return {
+        postUrl: context.postUrl,
+        decision,
+        success: false,
+        error: 'No quote text generated',
+      };
+    }
+
+    const rateKey = `${context.network as string}-quote`;
+    const rateCheck = await this.rateLimitService.checkRateLimit(rateKey);
+    if (!rateCheck.allowed) {
+      return {
+        postUrl: context.postUrl,
+        decision,
+        success: false,
+        error: `Rate limited: ${rateCheck.reason}`,
+      };
+    }
+
+    const interaction = await this.prisma.interaction.create({
+      data: {
+        accountId: config.accountId,
+        type: InteractionType.QUOTE,
+        status: InteractionStatus.IN_PROGRESS,
+        targetUrl: context.postUrl,
+        content: quoteText,
+        browsingSessionId: config.browsingSessionId,
+      },
+    });
+
+    try {
+      const result = await engager.quote(page, context.postUrl, quoteText);
+
+      await this.prisma.interaction.update({
+        where: { id: interaction.id },
+        data: {
+          status: result.success ? InteractionStatus.COMPLETED : InteractionStatus.FAILED,
+          errorMessage: result.error,
+          screenshotPath: result.screenshotPath,
+          completedAt: new Date(),
+        },
+      });
+
+      if (result.success) {
+        await this.rateLimitService.recordPost(rateKey);
+        await this.publishInteractionEvent('interaction_completed', interaction.id, context, 'quote');
       }
 
       return {
@@ -517,6 +707,14 @@ export class HumanBehaviorEngine {
         break;
       case 'comment':
         // Longer pause after commenting (reflects real user behavior)
+        await this.browser.randomDelay(5000, 15000);
+        break;
+      case 'repost':
+        // Pause after reposting
+        await this.browser.randomDelay(3000, 8000);
+        break;
+      case 'quote':
+        // Longer pause after quote-posting
         await this.browser.randomDelay(5000, 15000);
         break;
       case 'open-thread':

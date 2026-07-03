@@ -58,12 +58,16 @@ export const EngagementState = Annotation.Root({
   maxPosts: Annotation<number>,
   likesMaxPerSession: Annotation<number>,
   commentsMaxPerSession: Annotation<number>,
+  repostsMaxPerSession: Annotation<number>,
+  quotesMaxPerSession: Annotation<number>,
   // Warmup — set by check_warmup node
   warmupStatus: Annotation<WarmupStatus | null>,
   warmupPhase: Annotation<string>,
   // Budget — adjusted by check_warmup based on warmup phase
   likesBudget: Annotation<number>,
   commentsBudget: Annotation<number>,
+  repostsBudget: Annotation<number>,
+  quotesBudget: Annotation<number>,
   // Targeting — set by pick_source node
   source: Annotation<EngagementSource>,
   sourceUrl: Annotation<string>,
@@ -77,6 +81,8 @@ export const EngagementState = Annotation.Root({
   }),
   likesThisSession: Annotation<number>,
   commentsThisSession: Annotation<number>,
+  repostsThisSession: Annotation<number>,
+  quotesThisSession: Annotation<number>,
   postsProcessed: Annotation<number>,
   // Error tracking
   error: Annotation<string | null>,
@@ -121,19 +127,27 @@ function makeCheckWarmupNode(warmupService?: WarmupService) {
       // Adjust budgets based on warmup phase
       let likesBudget = state.likesMaxPerSession;
       let commentsBudget = state.commentsMaxPerSession;
+      let repostsBudget = state.repostsMaxPerSession;
+      let quotesBudget = state.quotesMaxPerSession;
 
       switch (phase) {
         case 'browse-only':
           likesBudget = 0;
           commentsBudget = 0;
+          repostsBudget = 0;
+          quotesBudget = 0;
           break;
         case 'light':
           likesBudget = Math.min(likesBudget, warmupStatus.maxInteractionsPerDay);
           commentsBudget = 0;
+          repostsBudget = 0;
+          quotesBudget = 0;
           break;
         case 'moderate':
           likesBudget = Math.min(likesBudget, warmupStatus.maxInteractionsPerDay);
           commentsBudget = Math.min(commentsBudget, 1);
+          repostsBudget = 0;
+          quotesBudget = 0;
           break;
         case 'full':
           // No reduction
@@ -145,6 +159,8 @@ function makeCheckWarmupNode(warmupService?: WarmupService) {
         warmupPhase: phase,
         likesBudget,
         commentsBudget,
+        repostsBudget,
+        quotesBudget,
       };
     }
 
@@ -154,6 +170,8 @@ function makeCheckWarmupNode(warmupService?: WarmupService) {
       warmupPhase: 'none',
       likesBudget: state.likesMaxPerSession,
       commentsBudget: state.commentsMaxPerSession,
+      repostsBudget: state.repostsMaxPerSession,
+      quotesBudget: state.quotesMaxPerSession,
     };
   };
 }
@@ -188,16 +206,20 @@ function makeScrollFeedNode(engager: BaseEngager) {
     if (!state.page) {
       return { error: 'No page available for scroll_feed', postUrls: [] };
     }
-    // For now, use the engager's scrollFeed (navigates to home feed).
-    // TODO: support targeted source URLs (hashtag, competitor) via scrollUrl()
     // Respect the overall session budget: scroll can only consume time left in the session,
     // and we cap it at 1/3 of the total duration so the remaining 2/3 is available for
     // extracting + deciding + interacting with posts.
     const sessionDeadlineMs = state.sessionStartMs + state.durationSec * 1000;
     const remainingScrollSec = Math.max(0, Math.floor((sessionDeadlineMs - Date.now()) / 1000));
     const scrollSec = Math.min(remainingScrollSec, Math.max(60, Math.floor(state.durationSec / 3)));
-    const postUrls = await engager.scrollFeed(state.page as Page, scrollSec);
-    logger.debug(`scroll_feed: collected ${postUrls.length} posts for ${state.network} (scroll budget ${scrollSec}s)`);
+
+    // Use the source URL selected by pick_source (hashtag, competitor, explore, etc.).
+    // If empty, fall back to the default home feed.
+    const sourceUrl = state.sourceUrl?.trim();
+    const postUrls = sourceUrl
+      ? await engager.scrollUrl(state.page as Page, sourceUrl, scrollSec)
+      : await engager.scrollFeed(state.page as Page, scrollSec);
+    logger.debug(`scroll_feed: collected ${postUrls.length} posts for ${state.network} (scroll budget ${scrollSec}s, source: ${sourceUrl || 'home-feed'})`);
 
     return { postUrls };
   };
@@ -249,6 +271,8 @@ function makeDecidePerPostNode(
         source: state.source,
         likesMaxPerSession: state.likesBudget,
         commentsMaxPerSession: state.commentsBudget,
+        repostsMaxPerSession: state.repostsBudget,
+        quotesMaxPerSession: state.quotesBudget,
         maxPosts: state.maxPosts,
         durationSec: state.durationSec,
         sessionStartMs: state.sessionStartMs,
@@ -257,6 +281,8 @@ function makeDecidePerPostNode(
 
     const likesThisSession = results.filter((r) => r.decision.action === 'like' && r.success).length;
     const commentsThisSession = results.filter((r) => r.decision.action === 'comment' && r.success).length;
+    const repostsThisSession = results.filter((r) => r.decision.action === 'repost' && r.success).length;
+    const quotesThisSession = results.filter((r) => r.decision.action === 'quote' && r.success).length;
 
     // Convert to graph state format
     const graphResults: PostInteractionResult[] = results.map((r) => ({
@@ -271,6 +297,8 @@ function makeDecidePerPostNode(
       results: graphResults,
       likesThisSession,
       commentsThisSession,
+      repostsThisSession,
+      quotesThisSession,
       postsProcessed: results.length,
     };
   };
@@ -285,10 +313,13 @@ function recordNode(state: EngagementStateType): Partial<EngagementStateType> {
   const successCount = state.results.filter((r) => r.success).length;
   const likeCount = state.results.filter((r) => r.action === 'like' && r.success).length;
   const commentCount = state.results.filter((r) => r.action === 'comment' && r.success).length;
+  const repostCount = state.results.filter((r) => r.action === 'repost' && r.success).length;
+  const quoteCount = state.results.filter((r) => r.action === 'quote' && r.success).length;
 
   logger.log(
     `record: ${state.results.length} posts processed, ${successCount} successful, ` +
-      `${likeCount} likes, ${commentCount} comments (warmup: ${state.warmupPhase})`,
+      `${likeCount} likes, ${commentCount} comments, ${repostCount} reposts, ${quoteCount} quotes ` +
+      `(warmup: ${state.warmupPhase})`,
   );
 
   return {};
@@ -345,6 +376,8 @@ export function createEngagementInitialState(opts: {
   maxPosts: number;
   likesMaxPerSession: number;
   commentsMaxPerSession: number;
+  repostsMaxPerSession: number;
+  quotesMaxPerSession: number;
   page: Page | null;
 }): EngagementStateWithPageType {
   return {
@@ -356,10 +389,14 @@ export function createEngagementInitialState(opts: {
     maxPosts: opts.maxPosts,
     likesMaxPerSession: opts.likesMaxPerSession,
     commentsMaxPerSession: opts.commentsMaxPerSession,
+    repostsMaxPerSession: opts.repostsMaxPerSession,
+    quotesMaxPerSession: opts.quotesMaxPerSession,
     warmupStatus: null,
     warmupPhase: 'none',
     likesBudget: opts.likesMaxPerSession,
     commentsBudget: opts.commentsMaxPerSession,
+    repostsBudget: opts.repostsMaxPerSession,
+    quotesBudget: opts.quotesMaxPerSession,
     source: 'home-feed',
     sourceUrl: '',
     sourceLabel: '',
@@ -367,6 +404,8 @@ export function createEngagementInitialState(opts: {
     results: [],
     likesThisSession: 0,
     commentsThisSession: 0,
+    repostsThisSession: 0,
+    quotesThisSession: 0,
     postsProcessed: 0,
     error: null,
     page: opts.page,

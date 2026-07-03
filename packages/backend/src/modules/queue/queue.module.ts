@@ -139,6 +139,73 @@ export class QueueModule implements OnModuleInit {
                 `RepliesMonitorService unavailable or reply job ${job.id} malformed — skipped`,
               );
             }
+          } else if (
+            action === 'like' ||
+            action === 'comment' ||
+            action === 'follow' ||
+            action === 'repost' ||
+            action === 'quote'
+          ) {
+            // Individual engagement actions. Lazily resolve EngagementService to avoid
+            // a static import cycle with EngagementModule.
+            const { EngagementService } = await import(
+              '../engagement/engagement.service.js'
+            );
+            let engagementService: InstanceType<typeof EngagementService> | undefined;
+            try {
+              engagementService = this.moduleRef.get(EngagementService, { strict: false });
+            } catch {
+              engagementService = undefined;
+            }
+            if (!engagementService) {
+              this.logger.warn(
+                `EngagementService unavailable — ${action} job ${job.id} skipped`,
+              );
+              return;
+            }
+            switch (action) {
+              case 'like': {
+                if (job.data?.postUrl) {
+                  await engagementService.like(jobNetwork as SocialNetwork, job.data.postUrl as string);
+                }
+                break;
+              }
+              case 'comment': {
+                if (job.data?.postUrl && job.data?.text) {
+                  await engagementService.comment(
+                    jobNetwork as SocialNetwork,
+                    job.data.postUrl as string,
+                    job.data.text as string,
+                  );
+                }
+                break;
+              }
+              case 'follow': {
+                if (job.data?.handleOrUrl) {
+                  await engagementService.follow(
+                    jobNetwork as SocialNetwork,
+                    job.data.handleOrUrl as string,
+                  );
+                }
+                break;
+              }
+              case 'repost': {
+                if (job.data?.postUrl) {
+                  await engagementService.repost(jobNetwork as SocialNetwork, job.data.postUrl as string);
+                }
+                break;
+              }
+              case 'quote': {
+                if (job.data?.postUrl && job.data?.text) {
+                  await engagementService.quote(
+                    jobNetwork as SocialNetwork,
+                    job.data.postUrl as string,
+                    job.data.text as string,
+                  );
+                }
+                break;
+              }
+            }
           }
         },
         'engagement',

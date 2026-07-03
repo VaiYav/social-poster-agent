@@ -57,6 +57,33 @@ export abstract class BaseEngager extends BasePoster {
   abstract scrollFeed(page: Page, durationSec: number): Promise<string[]>;
 
   /**
+   * Repost a post at the given URL without adding commentary.
+   * Navigates to the post, opens the repost menu, and confirms "Repost".
+   */
+  abstract repost(page: Page, postUrl: string): Promise<EngagementResult>;
+
+  /**
+   * Quote a post at the given URL, adding commentary.
+   * Navigates to the post, opens the repost menu, selects "Quote", types text, submits.
+   */
+  abstract quote(page: Page, postUrl: string, text: string): Promise<EngagementResult>;
+
+  /**
+   * Scroll an arbitrary URL (hashtag, competitor profile, explore) for a given duration.
+   * Default implementation navigates to the URL and scrolls using the same feed strategy.
+   * Concrete engagers can override for network-specific URL handling.
+   */
+  async scrollUrl(page: Page, url: string, durationSec: number): Promise<string[]> {
+    await this.navigate(page, url);
+    return this.doScrollFeed(page, durationSec, this.getPostLinkSelector());
+  }
+
+  /**
+   * Get the network-specific post link selector used by scrollFeed/scrollUrl.
+   */
+  protected abstract getPostLinkSelector(): SelectorStrategy;
+
+  /**
    * Extract the visible text content of a post (for LLM decision-making).
    * Each engager implements this using its network's post text selector.
    */
@@ -181,37 +208,57 @@ export abstract class BaseEngager extends BasePoster {
 
   /**
    * Like a post using the given like/unlike selector strategies.
-   * Checks if already liked (unlike button visible) and skips if so.
-   *
-   * @returns true if like was performed, false if already liked or skipped
+   * Checks if already liked (unlike button visible or aria-pressed=true) and skips if so.
    */
   protected async performLike(
     page: Page,
     likeSelector: SelectorStrategy,
     unlikeSelector: SelectorStrategy,
-  ): Promise<boolean> {
-    // Check if already liked
+  ): Promise<{ performed: boolean; alreadyLiked: boolean }> {
+    // Check if already liked via the "unlike" selector (e.g., X data-testid="unlike")
     const unlikeResolution = await this.tryResolve(page, unlikeSelector, 2000);
     if (unlikeResolution) {
-      this.logger.debug('Post already liked — skipping');
-      return false;
+      this.logger.debug('Post already liked (unlike selector visible) — skipping');
+      return { performed: false, alreadyLiked: true };
     }
 
-    // Find and click the like button
+    // Find the like button
     const likeResolution = await this.resolve(page, likeSelector, 'like button');
     await this.browser.scrollToElement(page, likeResolution.locator);
     await this.browser.waitForStable(likeResolution.locator, { timeoutMs: 5000 });
+
+    // Additional check: some networks (X, Threads) toggle the same button and set aria-pressed.
+    const wasPressed = await this.isAriaPressed(likeResolution.locator);
+    if (wasPressed) {
+      this.logger.debug('Post already liked (aria-pressed=true) — skipping');
+      return { performed: false, alreadyLiked: true };
+    }
+
     await this.humanClick(likeResolution.locator);
     await this.browser.randomDelay(1000, 3000);
 
-    // Verify like was applied (unlike button should now be visible)
-    const verified = await this.tryResolve(page, unlikeSelector, 3000);
-    return verified !== null;
+    // Verify like was applied: either the unlike selector appears, or the same button is now pressed.
+    const verifiedUnlike = await this.tryResolve(page, unlikeSelector, 3000);
+    const nowPressed = verifiedUnlike !== null || (await this.isAriaPressed(likeResolution.locator));
+    return { performed: nowPressed, alreadyLiked: false };
+  }
+
+  /**
+   * Check if a locator has aria-pressed="true" or aria-checked="true".
+   */
+  protected async isAriaPressed(locator: import('playwright-core').Locator): Promise<boolean> {
+    try {
+      const pressed = await locator.getAttribute('aria-pressed', { timeout: 1000 }).catch(() => null);
+      const checked = await locator.getAttribute('aria-checked', { timeout: 1000 }).catch(() => null);
+      return pressed === 'true' || checked === 'true';
+    } catch {
+      return false;
+    }
   }
 
   /**
    * Comment on a post using the given comment selectors.
-   * Clicks comment button, types text in the dialog, submits.
+   * Clicks comment button, types text in the dialog, submits, and verifies the dialog closes.
    */
   protected async performComment(
     page: Page,
@@ -224,20 +271,105 @@ export abstract class BaseEngager extends BasePoster {
     const commentBtn = await this.resolve(page, commentButtonSelector, 'comment button');
     await this.browser.scrollToElement(page, commentBtn.locator);
     await this.humanClick(commentBtn.locator);
-    await this.browser.randomDelay(2000, 5000);
 
-    // Find comment input
-    const input = await this.resolve(page, commentInputSelector, 'comment input');
+    // Wait for the dialog/input to appear before trying to type. Some networks (Threads)
+    // mount the dialog asynchronously and the 200ms visibility check in resolveSelector
+    // can fire before the element is rendered.
+    const input = await this.resolve(page, commentInputSelector, 'comment input', 10000);
+    await this.browser.randomDelay(500, 1500);
     await this.humanClick(input.locator);
-    await this.browser.randomDelay(1000, 3000);
+    await this.browser.randomDelay(500, 1500);
     await this.humanType(input.locator, text);
     await this.browser.randomDelay(1000, 2000);
 
     // Submit comment
-    const submit = await this.resolve(page, commentSubmitSelector, 'comment submit button');
+    const submit = await this.resolve(page, commentSubmitSelector, 'comment submit button', 10000);
     await this.browser.waitForStable(submit.locator, { timeoutMs: 5000 });
     await this.humanClick(submit.locator);
     await this.browser.randomDelay(3000, 8000);
+
+    // Best-effort verification: wait for the input to disappear (dialog closed).
+    // If the dialog is still open after a reasonable time, the submission may have failed.
+    const stillOpen = await this.tryResolve(page, commentInputSelector, 3000);
+    if (stillOpen) {
+      this.logger.warn('Comment input still visible after submit — comment may not have been posted');
+    }
+  }
+
+  /**
+   * Repost a post using the given repost menu selectors.
+   * Clicks the repost button, selects "Repost" from the menu, and verifies the menu closes.
+   */
+  protected async performRepost(
+    page: Page,
+    repostButtonSelector: SelectorStrategy,
+    repostMenuItemSelector: SelectorStrategy,
+  ): Promise<{ performed: boolean; alreadyReposted: boolean }> {
+    // Check if the post is already reposted by looking for an "unrepost" signal.
+    // Some networks show the repost button as pressed/activated when already reposted.
+    const repostBtn = await this.resolve(page, repostButtonSelector, 'repost button');
+    const wasPressed = await this.isAriaPressed(repostBtn.locator);
+    if (wasPressed) {
+      this.logger.debug('Post already reposted (aria-pressed=true) — skipping');
+      return { performed: false, alreadyReposted: true };
+    }
+
+    await this.browser.scrollToElement(page, repostBtn.locator);
+    await this.browser.waitForStable(repostBtn.locator, { timeoutMs: 5000 });
+    await this.humanClick(repostBtn.locator);
+    await this.browser.randomDelay(500, 1500);
+
+    // Select "Repost" from the menu
+    const repostItem = await this.resolve(page, repostMenuItemSelector, 'repost menu item', 10000);
+    await this.humanClick(repostItem.locator);
+    await this.browser.randomDelay(2000, 5000);
+
+    // Best-effort verification: menu should close and the button should be pressed.
+    const nowPressed = await this.isAriaPressed(repostBtn.locator);
+    return { performed: nowPressed, alreadyReposted: false };
+  }
+
+  /**
+   * Quote a post using the given repost menu and quote composer selectors.
+   * Clicks the repost button, selects "Quote", types text, submits, and verifies the dialog closes.
+   */
+  protected async performQuote(
+    page: Page,
+    repostButtonSelector: SelectorStrategy,
+    quoteMenuItemSelector: SelectorStrategy,
+    quoteInputSelector: SelectorStrategy,
+    quoteSubmitSelector: SelectorStrategy,
+    text: string,
+  ): Promise<void> {
+    const repostBtn = await this.resolve(page, repostButtonSelector, 'repost button');
+    await this.browser.scrollToElement(page, repostBtn.locator);
+    await this.humanClick(repostBtn.locator);
+    await this.browser.randomDelay(500, 1500);
+
+    // Select "Quote" from the menu
+    const quoteItem = await this.resolve(page, quoteMenuItemSelector, 'quote menu item', 10000);
+    await this.humanClick(quoteItem.locator);
+    await this.browser.randomDelay(1000, 3000);
+
+    // Wait for the quote composer to appear
+    const input = await this.resolve(page, quoteInputSelector, 'quote input', 10000);
+    await this.browser.randomDelay(500, 1500);
+    await this.humanClick(input.locator);
+    await this.browser.randomDelay(500, 1500);
+    await this.humanType(input.locator, text);
+    await this.browser.randomDelay(1000, 2000);
+
+    // Submit quote
+    const submit = await this.resolve(page, quoteSubmitSelector, 'quote submit button', 10000);
+    await this.browser.waitForStable(submit.locator, { timeoutMs: 5000 });
+    await this.humanClick(submit.locator);
+    await this.browser.randomDelay(3000, 8000);
+
+    // Best-effort verification: wait for the input to disappear.
+    const stillOpen = await this.tryResolve(page, quoteInputSelector, 3000);
+    if (stillOpen) {
+      this.logger.warn('Quote composer still visible after submit — quote may not have been posted');
+    }
   }
 
   /**

@@ -294,11 +294,17 @@ export class StateCollectorService {
               const lastSession = await this.prisma.browsingSession.findFirst({
                 where: { accountId: account.id },
                 orderBy: { startedAt: 'desc' },
-                select: { startedAt: true, status: true, interactionsCount: true },
+                select: { startedAt: true, endedAt: true, status: true, interactionsCount: true },
               });
+              // Use endedAt when available (completed/failed session), otherwise startedAt for active sessions.
+              // This prevents stuck ACTIVE sessions from being considered "fresh" forever.
+              const lastBrowseMs =
+                lastSession?.endedAt?.getTime() ??
+                lastSession?.startedAt?.getTime() ??
+                0;
               return [
                 network,
-                lastSession?.startedAt?.getTime() ?? 0,
+                lastBrowseMs,
                 account.warmupEnabled ? 'warmup' : 'full',
                 lastSession?.status ?? 'none',
                 lastSession?.interactionsCount ?? 0,

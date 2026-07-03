@@ -9,6 +9,7 @@ import { IBrowserPort } from '../../../domain/ports/browser.port.js';
 import { BaseEngager } from './base.engager.js';
 import type { EngagementResult } from '../../posting/posters/base.poster.js';
 import { FACEBOOK_SELECTORS } from '../../posting/posters/selectors/facebook.selectors.js';
+import type { SelectorStrategy } from '../../posting/posters/selector-strategy.js';
 
 @Injectable()
 export class FacebookEngager extends BaseEngager {
@@ -29,13 +30,19 @@ export class FacebookEngager extends BaseEngager {
       await this.navigate(page, postUrl);
 
       const screenshotPath = await this.screenshot(page, 'before-like');
-      await this.performLike(
+      const { performed, alreadyLiked } = await this.performLike(
         page,
         FACEBOOK_SELECTORS.engagement.like,
         FACEBOOK_SELECTORS.engagement.unlike,
       );
 
       await this.screenshot(page, 'after-like');
+      if (alreadyLiked) {
+        return { success: true, screenshotPath };
+      }
+      if (!performed) {
+        return { success: false, error: 'Like button found but state did not change', screenshotPath };
+      }
       return { success: true, screenshotPath };
     } catch (err) {
       return { success: false, error: (err as Error).message };
@@ -121,6 +128,15 @@ export class FacebookEngager extends BaseEngager {
     }
   }
 
+  // Facebook does not have native repost/quote semantics like X/Threads, so these are stubs.
+  async repost(_page: Page, _postUrl: string): Promise<EngagementResult> {
+    return { success: false, error: 'Repost is not supported on Facebook' };
+  }
+
+  async quote(_page: Page, _postUrl: string, _text: string): Promise<EngagementResult> {
+    return { success: false, error: 'Quote is not supported on Facebook' };
+  }
+
   /**
    * Scroll the Facebook page feed and collect post URLs.
    */
@@ -130,6 +146,18 @@ export class FacebookEngager extends BaseEngager {
     }
     await this.navigate(page, FACEBOOK_SELECTORS.feed.url(this.pageSlug));
     return this.doScrollFeed(page, durationSec, FACEBOOK_SELECTORS.feed.postLink);
+  }
+
+  /**
+   * Scroll an arbitrary Facebook URL (hashtag, competitor profile, page).
+   */
+  async scrollUrl(page: Page, url: string, durationSec: number): Promise<string[]> {
+    await this.navigate(page, url);
+    return this.doScrollFeed(page, durationSec, FACEBOOK_SELECTORS.feed.postLink);
+  }
+
+  protected getPostLinkSelector(): SelectorStrategy {
+    return FACEBOOK_SELECTORS.feed.postLink;
   }
 
   /**

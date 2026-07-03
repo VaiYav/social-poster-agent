@@ -63,12 +63,15 @@ function createMockHumanBehaviorEngine(): HumanBehaviorEngine {
 function createMockEngager(): BaseEngager {
   return {
     scrollFeed: vi.fn().mockResolvedValue(['url1', 'url2', 'url3']),
+    scrollUrl: vi.fn().mockResolvedValue(['url1', 'url2', 'url3']),
     extractPostText: vi.fn(),
     openCommentsThread: vi.fn(),
     navigateBack: vi.fn(),
     visitProfile: vi.fn(),
     like: vi.fn(),
     comment: vi.fn(),
+    repost: vi.fn(),
+    quote: vi.fn(),
   } as unknown as BaseEngager;
 }
 
@@ -108,6 +111,8 @@ describe('EngagementGraph', () => {
       maxPosts: 10,
       likesMaxPerSession: 15,
       commentsMaxPerSession: 4,
+      repostsMaxPerSession: 0,
+      quotesMaxPerSession: 0,
       page: null,
     });
     expect(state.network).toBe(SocialNetwork.X);
@@ -117,6 +122,8 @@ describe('EngagementGraph', () => {
     expect(state.maxPosts).toBe(10);
     expect(state.likesMaxPerSession).toBe(15);
     expect(state.commentsMaxPerSession).toBe(4);
+    expect(state.repostsMaxPerSession).toBe(0);
+    expect(state.quotesMaxPerSession).toBe(0);
     expect(state.warmupPhase).toBe('none');
     expect(state.results).toEqual([]);
     expect(state.page).toBeNull();
@@ -139,6 +146,8 @@ describe('EngagementGraph', () => {
       maxPosts: 5,
       likesMaxPerSession: 15,
       commentsMaxPerSession: 4,
+      repostsMaxPerSession: 0,
+      quotesMaxPerSession: 0,
       page: {} as never, // mock page
     });
 
@@ -150,8 +159,8 @@ describe('EngagementGraph', () => {
     // pick_source was called
     expect(targetingService.pickSource).toHaveBeenCalledWith(SocialNetwork.X);
 
-    // scroll_feed was called
-    expect(engager.scrollFeed).toHaveBeenCalled();
+    // scroll_feed was called (via scrollUrl because the mock targeting service returns a URL)
+    expect(engager.scrollUrl).toHaveBeenCalled();
 
     // decide_per_post was called (via humanBehaviorEngine.processPosts)
     expect(humanBehaviorEngine.processPosts).toHaveBeenCalled();
@@ -360,11 +369,16 @@ describe('EngagementGraph', () => {
 
     expect(finalState.sourceLabel).toBe('Hashtag #astrology');
     expect(finalState.sourceUrl).toBe('https://x.com/search?q=%23astrology');
+    expect(engager.scrollUrl).toHaveBeenCalledWith(
+      expect.anything(),
+      'https://x.com/search?q=%23astrology',
+      expect.any(Number),
+    );
   });
 
   it('EG-010: graph handles scroll_feed failure gracefully', async () => {
     engager = createMockEngager();
-    (engager.scrollFeed as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Browser crashed'));
+    (engager.scrollUrl as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Browser crashed'));
 
     const graph = buildEngagementGraph(engager, {
       targetingService,

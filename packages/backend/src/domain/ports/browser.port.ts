@@ -26,6 +26,10 @@ export type ScreenshotPhase =
   | 'after-like'
   | 'before-comment'
   | 'after-comment'
+  | 'before-repost'
+  | 'after-repost'
+  | 'before-quote'
+  | 'after-quote'
   | 'during-scroll'
   | 'button-disabled-abort';
 
