@@ -143,6 +143,19 @@ export class BrowsingSessionService {
         : undefined;
       context = await this.browser.acquireContext(network, storageState);
       page = await context.newPage();
+
+      // Detect renderer/page crashes so we can close the context early. If the
+      // renderer dies, the next Playwright call will fail with "Target page,
+      // context or browser has been closed"; closing the context now lets the
+      // BrowsingSessionService catch a fatal error and discard it instead of
+      // reusing it.
+      if (typeof page.on === 'function') {
+        page.on('crash', () => {
+          this.logger.warn(`Page crashed during ${network} browsing session — closing context`);
+          void context?.close().catch(() => {});
+        });
+      }
+
       await this.browser.suppressPageErrors(page);
 
       // Build and invoke the EngagementGraph (LangGraph)

@@ -131,8 +131,8 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     // infrequently, so the persistent Firefox process is closed when idle >15 min
     // and re-opened on demand (cookies/fingerprint persist on disk via user_data_dir).
     this.persistentContextIdleTtlMs = Math.max(60000, this.configService.get<number>('PERSISTENT_CONTEXT_IDLE_TTL_MS', 15 * 60 * 1000));
-    // MEM: Camoufox/Firefox native memory fragmentation — restart browser after 30 min default
-    this.browserMaxLifetimeMs = Math.max(60000, this.configService.get<number>('BROWSER_MAX_LIFETIME_MS', 30 * 60 * 1000));
+    // MEM: Camoufox/Firefox native memory fragmentation — restart browser after 15 min default
+    this.browserMaxLifetimeMs = Math.max(60000, this.configService.get<number>('BROWSER_MAX_LIFETIME_MS', 15 * 60 * 1000));
     // Persistent browser profiles directory — stores fingerprint + cookies per network
     // Facebook requires this to avoid "suspicious login" challenges on every run
     this.profileDir = this.configService.get<string>('CAMOUFOX_PROFILE_DIR', '/tmp/spa-profiles');
