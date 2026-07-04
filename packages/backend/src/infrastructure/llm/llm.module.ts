@@ -9,6 +9,6 @@ import { PromptRegistryModule } from './prompt-registry.module.js';
     LlmService,
     { provide: ILlmPort, useExisting: LlmService },
   ],
-  exports: [LlmService, ILlmPort],
+  exports: [LlmService, ILlmPort, PromptRegistryModule],
 })
 export class LlmModule {}

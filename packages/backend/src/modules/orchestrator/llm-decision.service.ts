@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { SocialNetwork } from '@prisma/client';
 import { ILlmPort } from '../../domain/ports/llm.port.js';
 import { LangfuseService } from '../../infrastructure/langfuse/langfuse.service.js';
+import { PromptRegistry } from '../../infrastructure/llm/prompt-registry.js';
 import { ORCHESTRATOR_SYSTEM_PROMPT, buildOrchestratorUserPrompt } from './prompts/orchestrator-prompt.js';
 import type { WorldState, Action, ActionType, NetworkActionType, GenericActionType } from './types.js';
 
@@ -33,6 +34,7 @@ export class LlmDecisionService {
     private readonly configService: ConfigService,
     @Optional() @Inject(ILlmPort) private readonly llm?: ILlmPort,
     @Optional() private readonly langfuse?: LangfuseService,
+    @Optional() private readonly promptRegistry?: PromptRegistry,
   ) {
     this.llmTimeoutMs = Math.max(
       5000,
@@ -45,20 +47,27 @@ export class LlmDecisionService {
 
     const userPrompt = buildOrchestratorUserPrompt(world);
 
+    // Fetch system prompt from Langfuse Prompt Management (falls back to local constant)
+    const systemPrompt = this.promptRegistry
+      ? await this.promptRegistry.getCompiledText('orchestrator-system', {}, ORCHESTRATOR_SYSTEM_PROMPT)
+      : ORCHESTRATOR_SYSTEM_PROMPT;
+
     // Langfuse tracing: each orchestrator decision gets its own trace.
     // tags enable filtering orchestrator decisions from generation traces.
+    // promptNames links this trace to the Langfuse Prompt Management prompt used.
     const handler = this.langfuse?.createHandler({
       tags: ['orchestrator', 'decision'],
       traceMetadata: {
         utcHour: world.utcHour,
         utcDayOfWeek: world.utcDayOfWeek,
         degraded: world._degraded,
+        promptNames: 'orchestrator-system',
       },
     });
     const callbacks = handler ? [handler] : undefined;
 
     const result = await Promise.race([
-      this.llm.generateChat(ORCHESTRATOR_SYSTEM_PROMPT, userPrompt, {
+      this.llm.generateChat(systemPrompt, userPrompt, {
         temperature: 0.3,
         maxTokens: 200,
         callbacks,

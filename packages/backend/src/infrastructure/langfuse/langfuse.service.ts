@@ -1,5 +1,6 @@
 import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { CallbackHandler } from '@langfuse/langchain';
+import { LangfuseClient, type ChatPromptClient, type TextPromptClient } from '@langfuse/client';
 import { shutdownLangfuse } from '../../langfuse-instrumentation.js';
 
 /**
@@ -42,6 +43,23 @@ export class LangfuseService implements OnModuleDestroy {
   /** Whether Langfuse tracing is enabled (LANGFUSE_PUBLIC_KEY is set). */
   readonly isEnabled: boolean = !!process.env.LANGFUSE_PUBLIC_KEY;
 
+  /** Langfuse client for prompt management (null when disabled). */
+  private readonly client: LangfuseClient | null = null;
+
+  constructor() {
+    if (this.isEnabled) {
+      try {
+        this.client = new LangfuseClient({
+          publicKey: process.env.LANGFUSE_PUBLIC_KEY!,
+          secretKey: process.env.LANGFUSE_SECRET_KEY!,
+          baseUrl: process.env.LANGFUSE_BASE_URL || 'https://cloud.langfuse.com',
+        });
+      } catch (err) {
+        this.logger.warn(`Failed to init LangfuseClient — prompt management disabled: ${(err as Error).message}`);
+      }
+    }
+  }
+
   /**
    * Create a Langfuse CallbackHandler for a LangChain/LangGraph invocation.
    * Returns undefined when Langfuse is disabled — callers should filter out
@@ -67,6 +85,35 @@ export class LangfuseService implements OnModuleDestroy {
       this.logger.warn(
         `Failed to create Langfuse handler — tracing disabled for this call: ${(err as Error).message}`,
       );
+      return undefined;
+    }
+  }
+
+  /**
+   * Fetch a chat prompt from Langfuse Prompt Management.
+   * Returns undefined when Langfuse is disabled or the prompt is not found.
+   * The caller should fall back to a local prompt template.
+   */
+  async getChatPrompt(name: string): Promise<ChatPromptClient | undefined> {
+    if (!this.client) return undefined;
+    try {
+      return await this.client.prompt.get(name, { type: 'chat', label: 'production', cacheTtlSeconds: 300 });
+    } catch (err) {
+      this.logger.debug(`Failed to fetch chat prompt "${name}" from Langfuse — using fallback: ${(err as Error).message}`);
+      return undefined;
+    }
+  }
+
+  /**
+   * Fetch a text prompt from Langfuse Prompt Management.
+   * Returns undefined when Langfuse is disabled or the prompt is not found.
+   */
+  async getTextPrompt(name: string): Promise<TextPromptClient | undefined> {
+    if (!this.client) return undefined;
+    try {
+      return await this.client.prompt.get(name, { type: 'text', label: 'production', cacheTtlSeconds: 300 });
+    } catch (err) {
+      this.logger.debug(`Failed to fetch text prompt "${name}" from Langfuse — using fallback: ${(err as Error).message}`);
       return undefined;
     }
   }

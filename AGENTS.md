@@ -24,6 +24,39 @@ Langfuse tracing activates automatically when `LANGFUSE_PUBLIC_KEY` is set — n
 
 `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL` — all optional, validated in `env.validation.ts`. Default base URL in `.env.example` is `https://us.cloud.langfuse.com` (US cloud).
 
+### Prompt Management (Langfuse Prompt Management)
+
+All production prompts are stored in Langfuse Prompt Management and can be edited in the Langfuse UI without redeploying. The `PromptRegistry` (`infrastructure/llm/prompt-registry.ts`) fetches from Langfuse first (5-min cache, production label), falls back to local `PromptTemplate` files (`prompts/v0.4.0/`), then to inline fallbacks passed by graph nodes.
+
+**7 prompts in Langfuse:**
+- `research-extract` (chat) — fact extraction from topic + outline
+- `hook-generation` (chat) — 3-5 scroll-stopping hooks per topic
+- `draft-post` (chat) — full post draft per network (X/Threads/Facebook)
+- `critique-post` (text) — editor critique with quality score
+- `refine-post` (text) — rewrite based on critique
+- `orchestrator-system` (text) — orchestrator action selection system prompt
+- `post-quality-judge` (chat) — LLM-as-a-Judge quality evaluation
+
+**Migration script:** `packages/backend/scripts/migrate-prompts-to-langfuse.ts` — one-time script that creates all prompts in Langfuse. Run with: `npx tsx --env-file=../../.env scripts/migrate-prompts-to-langfuse.ts`. Re-running creates new versions (Langfuse supports versioning + labels).
+
+**Variable syntax:** Langfuse uses `{{double-brace}}` syntax. Local fallbacks use `{single-brace}` syntax (interpolated by the `interpolate()` helper in `prompt-registry.ts`). Graph nodes pre-compute all variables (including conditional content like `performanceGuidance`, `baitInstruction`) and pass them as strings.
+
+**Prompt-to-trace linking:** `GenerationService` adds `promptNames` to `traceMetadata` so traces can be filtered by which prompts were used. `LlmDecisionService` adds `promptNames: 'orchestrator-system'`.
+
+### LLM-as-a-Judge (Stage 2)
+
+The `post-quality-judge` prompt evaluates each generated post on 4 criteria (0.0-1.0 each):
+- `anti_ai_tone` — does it sound human or like ChatGPT?
+- `hook_strength` — does the first line stop scrolling?
+- `factual_accuracy` — are the astrology facts correct?
+- `character_limit` — does it fit the platform's limit?
+
+**Graph integration:** The judge node (`makeJudgeNode`) runs AFTER refine and BEFORE visual_concept in the generation graph. It's non-blocking — if the judge LLM call fails, the post proceeds with `judgeScores: undefined`.
+
+**Score storage:** Judge scores are stored in `NetworkResult.judgeScores` → `GeneratedPost.judgeScores` → `Post.llmMetadata.judgeScores` (as JSON). This enables quality tracking over time and A/B comparison of prompt versions.
+
+**Judge calibration:** To calibrate the judge against human decisions, compare `judgeScores.anti_ai_tone` with operator approve/reject decisions over time. Posts with `anti_ai_tone < 0.5` that were approved by operators indicate the judge is too strict; posts with `anti_ai_tone > 0.8` that were rejected indicate it's too lenient. Adjust the judge prompt in Langfuse UI and track the correlation.
+
 ## Orchestrator module (`packages/backend/src/modules/orchestrator/`)
 
 ### Direct `process.env` reads (by design)

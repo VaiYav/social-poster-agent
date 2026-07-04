@@ -14,6 +14,7 @@ import { TrendingService } from '../trending/trending.service.js';
 import { TrendingScraperService } from '../trending/trending-scraper.service.js';
 import { LangfuseService, type LangfuseHandlerOptions } from '../../infrastructure/langfuse/langfuse.service.js';
 import { withLlmCallbacks } from '../../infrastructure/llm/llm.service.js';
+import { PromptRegistry } from '../../infrastructure/llm/prompt-registry.js';
 import { getEnabledNetworks } from '../../domain/enabled-networks.js';
 import {
   SocialNetwork,
@@ -94,6 +95,7 @@ export class GenerationService {
     @Optional() private readonly threadDepthController?: ThreadDepthController,
     @Optional() private readonly abGenerator?: ABVariantGenerator,
     @Optional() private readonly langfuse?: LangfuseService,
+    @Optional() private readonly promptRegistry?: PromptRegistry,
   ) {
     // Read POSTING_LANGUAGES from env — comma-separated ISO 639-1 codes.
     // Default: en only (backward compatible). Round-robin rotation across topics.
@@ -123,7 +125,7 @@ export class GenerationService {
           error: event.error ?? undefined,
         });
       };
-      const graphBuilder = buildGenerationGraph(this.llm, progressPublisher, this.hookBank, this.visualService, this.abGenerator);
+      const graphBuilder = buildGenerationGraph(this.llm, progressPublisher, this.hookBank, this.visualService, this.abGenerator, this.promptRegistry);
       this.compiledGraph = graphBuilder.compile({ checkpointer: this.checkpointSaver });
       this.logger.log('LangGraph workflow compiled with Redis checkpoint saver + SSE progress (§10.3 parallel graph)');
     }
@@ -655,6 +657,7 @@ export class GenerationService {
 
     // Langfuse tracing: sessionId=runId groups all LLM calls across topics
     // in the same run. tags + traceMetadata enable filtering in the Langfuse UI.
+    // promptNames links this trace to the Langfuse Prompt Management prompts used.
     const finalState = await this.tracedGraphInvoke(
       config,
       {
@@ -665,6 +668,7 @@ export class GenerationService {
           runId,
           language,
           networks: activeNetworks.join(','),
+          promptNames: 'research-extract,hook-generation,draft-post,critique-post,refine-post',
         },
       },
       initialState,
@@ -721,6 +725,7 @@ export class GenerationService {
           angleType: genPost.angle.split('—')[0]?.trim(),
           simhash: candidateHash, // B5: store hash for future dedup
           qualityScore: genPost.qualityScore, // Sprint Q: LLM quality score (1-10)
+          judgeScores: genPost.judgeScores ?? null, // Stage 2: LLM-as-a-Judge scores
           visualConcept: genPost.visualConcept ?? null, // P3: image concept for poster
           abVariants: genPost.abVariants ?? null, // P7: A/B emoji/hashtag variants
         } as Prisma.InputJsonValue,

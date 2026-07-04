@@ -10,6 +10,7 @@ import { classifyHookTechnique, type HookTechnique } from '../content-enhancemen
 import type { VisualConcept, VisualConceptService } from '../content-enhancements/visual-concept.service.js';
 import type { ABVariantPair, ABVariantGenerator } from '../content-enhancements/ab-variant.generator.js';
 import { pickContentStyle, getStylePromptGuidance, CONTENT_STYLES_BY_ID, type ContentStyle } from '../content-enhancements/content-style.rotation.js';
+import type { PromptRegistry, CompiledChatPrompt } from '../../infrastructure/llm/prompt-registry.js';
 
 const logger = new Logger('GenerationGraph');
 
@@ -93,11 +94,25 @@ interface NetworkResult {
   critique: string;
   refined: string;
   qualityScore?: number; // 1-10 LLM quality score from critique node
+  /** Stage 2: LLM-as-a-Judge scores (anti-AI tone, hook strength, factual accuracy, char limit). */
+  judgeScores?: JudgeScores;
   /** P3: Visual concept for image attachment — null when disabled or failed. */
   visualConcept?: VisualConcept | null;
   /** P7: A/B emoji/hashtag variants — null when disabled or failed. */
   abVariants?: ABVariantPair | null;
   error?: string | null;
+}
+
+/** Stage 2: LLM-as-a-Judge evaluation result (0.0-1.0 per criterion). */
+export interface JudgeScores {
+  anti_ai_tone: number;
+  anti_ai_tone_reason: string;
+  hook_strength: number;
+  hook_strength_reason: string;
+  factual_accuracy: number;
+  factual_accuracy_reason: string;
+  character_limit: number;
+  character_limit_reason: string;
 }
 
 /** Output of the full graph — one entry per target network. */
@@ -108,6 +123,8 @@ export interface GeneratedPost {
   angle: string;
   model: string;
   qualityScore?: number; // 1-10 LLM quality score (used by auto-approve gate)
+  /** Stage 2: LLM-as-a-Judge scores — stored in llmMetadata for quality tracking. */
+  judgeScores?: JudgeScores;
   /** P1: Hook technique tag — stored in Post.llmMetadata for performance tracking. */
   hookTechnique?: HookTechnique;
   /** Content style used (anti-AI-detection rotation) — stored in llmMetadata. */
@@ -274,6 +291,7 @@ const NETWORK_PERSONA: Record<SocialNetwork, string> = {
 async function researchExtractNode(
   state: GenerationStateType,
   llm: ILlmPort,
+  promptRegistry?: PromptRegistry,
 ): Promise<Partial<GenerationStateType>> {
   // If facts already provided (from CAP run or article frontmatter), use them
   if (state.topic.facts.length > 0) {
@@ -285,7 +303,15 @@ async function researchExtractNode(
     ? state.topic.outline.map((o) => `- ${o.heading}${o.entities.length > 0 ? ` (entities: ${o.entities.join(', ')})` : ''}`).join('\n')
     : 'No outline available.';
 
-  const systemPrompt = `You're the person at the party who actually knows astrology — not the vague "Mercury retrograde means communication issues" kind, but the "Mercury was at 24° Gemini when it stationed retrograde and that's conjunct your natal Mercury so yes it's personal" kind.
+  const variables = {
+    topic: state.topic.topic,
+    keywords: state.topic.keywords.join(', '),
+    category: state.topic.category ?? 'general',
+    outline: outlineStr,
+  };
+
+  const fallback: CompiledChatPrompt = {
+    systemPrompt: `You're the person at the party who actually knows astrology — not the vague "Mercury retrograde means communication issues" kind, but the "Mercury was at 24° Gemini when it stationed retrograde and that's conjunct your natal Mercury so yes it's personal" kind.
 
 Extract 5-8 facts about the topic that would make someone stop scrolling and actually read.
 
@@ -306,15 +332,19 @@ GOOD facts (specific, surprising, human):
 - "Your Moon sign changes every 2.5 days. That's why two people born on the same day can have completely different emotional wiring."
 - "The Babylonians invented the zodiac 2,500 years ago, but they used 18 signs, not 12. The 12-sign system came later from the Greeks."
 
-Return ONLY the facts, one per line, numbered 1-8. No preamble.`;
-
-  const userPrompt = `Topic: ${state.topic.topic}
-Keywords: ${state.topic.keywords.join(', ')}
-Category: ${state.topic.category ?? 'general'}
+Return ONLY the facts, one per line, numbered 1-8. No preamble.`,
+    userPrompt: `Topic: {topic}
+Keywords: {keywords}
+Category: {category}
 Outline:
-${outlineStr}
+{outline}
 
-Key facts:`;
+Key facts:`,
+  };
+
+  const { systemPrompt, userPrompt } = promptRegistry
+    ? await promptRegistry.getCompiledChat('research-extract', variables, fallback)
+    : fallback;
 
   try {
     const response = await llm.generateChat(systemPrompt, userPrompt, { temperature: 0.7 });
@@ -355,6 +385,7 @@ async function hookGenerationNode(
   state: GenerationStateType,
   llm: ILlmPort,
   hookBank?: HookPerformanceBank,
+  promptRegistry?: PromptRegistry,
 ): Promise<Partial<GenerationStateType>> {
   // Check cache first — avoids re-calling LLM for identical topics across runs.
   // Cache is keyed by topic + keywords + facts (the deterministic inputs).
@@ -388,11 +419,20 @@ async function hookGenerationNode(
     }
   }
 
-  const systemPrompt = `You are a real person who knows astrology deeply and is about to post about it. You're not a "social media writer." You're someone with opinions, experiences, and a phone.
+  const variables = {
+    brandVoice: state.brandVoice,
+    topic: state.topic.topic,
+    performanceGuidance,
+    facts: state.facts.join(', '),
+    keywords: state.topic.keywords.join(', '),
+  };
 
-BRAND VOICE: ${state.brandVoice}
+  const fallback: CompiledChatPrompt = {
+    systemPrompt: `You are a real person who knows astrology deeply and is about to post about it. You're not a "social media writer." You're someone with opinions, experiences, and a phone.
 
-Write 3-5 hooks (opening lines) for posts about "${state.topic.topic}".
+BRAND VOICE: {brandVoice}
+
+Write 3-5 hooks (opening lines) for posts about "{topic}".
 
 THE HOOK IS THE FIRST THING SOMEONE SEES WHILE SCROLLING AT 11PM.
 It needs to make them stop. Not because it's "engaging" but because it's specific, weird, or uncomfortably relatable.
@@ -428,13 +468,17 @@ BAD hooks (these sound like AI):
 - "Did you know that Saturn takes 29.5 years to orbit the Sun?"
 - "Let's explore what Mercury retrograde really means for you"
 
-Return ONLY the hooks, one per line, numbered 1-5. No quotes, no preamble.${performanceGuidance}`;
+Return ONLY the hooks, one per line, numbered 1-5. No quotes, no preamble.{performanceGuidance}`,
+    userPrompt: `Topic: {topic}
+Key facts: {facts}
+Keywords: {keywords}
 
-  const userPrompt = `Topic: ${state.topic.topic}
-Key facts: ${state.facts.join(', ')}
-Keywords: ${state.topic.keywords.join(', ')}
+Hooks:`,
+  };
 
-Hooks:`;
+  const { systemPrompt, userPrompt } = promptRegistry
+    ? await promptRegistry.getCompiledChat('hook-generation', variables, fallback)
+    : fallback;
 
   let response;
   try {
@@ -502,7 +546,7 @@ function anglePerNetworkNode(state: GenerationStateType): Partial<GenerationStat
  * Create a draft generation node for a specific network.
  * Each network gets its own node so LangGraph can run them in parallel.
  */
-function makeDraftNode(network: SocialNetwork) {
+function makeDraftNode(network: SocialNetwork, promptRegistry?: PromptRegistry) {
   return async function draftNode(
     state: GenerationStateType,
     llm: ILlmPort,
@@ -537,18 +581,42 @@ function makeDraftNode(network: SocialNetwork) {
     // P2: Per-Network Persona + content style — concatenate the shared brand voice
     // with the network-specific persona and the rotating content style so each
     // post looks visually and tonally different (anti-AI-detection).
-    const systemPrompt = `You are a real person. Not a brand. Not a content creator. Not "an AI assistant." A real, flawed, opinionated human who happens to know astrology really well and is posting on their personal account.
+    const outlineStr = state.topic.outline
+      ? `Outline:\n${state.topic.outline.map((o: { heading: string }) => `- ${o.heading}`).join('\n')}`
+      : '';
+
+    const variables = {
+      brandVoice: state.brandVoice,
+      persona,
+      styleGuidance,
+      network,
+      charLimit: String(charLimit),
+      langName,
+      langInstruction,
+      topic: state.topic.topic,
+      hook: netResult.hook,
+      angle: netResult.angle,
+      styleName: style.name,
+      styleDescription: style.description,
+      facts: state.facts.join('\n- '),
+      keywords: state.topic.keywords.join(', '),
+      tone,
+      outline: outlineStr,
+    };
+
+    const fallback: CompiledChatPrompt = {
+      systemPrompt: `You are a real person. Not a brand. Not a content creator. Not "an AI assistant." A real, flawed, opinionated human who happens to know astrology really well and is posting on their personal account.
 
 You're not writing "content." You're writing the way you'd text a friend at 11pm about something that's been on your mind. Or the way you'd tweet a thought that hit you in the shower.
 
-BRAND VOICE: ${state.brandVoice}
+BRAND VOICE: {brandVoice}
 
-${persona}
-${styleGuidance}
+{persona}
+{styleGuidance}
 
-Write a ${network} post using the hook and angle provided. Stay within ${charLimit} characters.
+Write a {network} post using the hook and angle provided. Stay within {charLimit} characters.
 
-LANGUAGE: Write this post in ${langName}.${langInstruction}
+LANGUAGE: Write this post in {langName}.{langInstruction}
 - Russian and Ukrainian are DIFFERENT languages. Do not mix them. Do not use Russian words in Ukrainian posts or vice versa.
 - Use natural, native-speaker phrasing — not translated-sounding text. Use slang, colloquialisms, and informal expressions natural to that language.
 - Do NOT use hashtags — they are deprioritized by all major platforms. Pure text only.
@@ -614,21 +682,25 @@ Do NOT include any URLs, links, or hashtags. Hashtags are deprioritized by X/Thr
 Never use fear-mongering, absolute predictions, or medical/financial advice.
 Never ask for likes, comments, shares, tags, or follows.
 
-Return ONLY the post text. No preamble, no explanation, no "Here's your post:"`;
-
-    const userPrompt = `Topic: ${state.topic.topic}
-Hook: ${netResult.hook}
-Angle: ${netResult.angle}
-Content style: ${style.name} — ${style.description}
-Key facts: ${state.facts.join('\n- ')}
-Keywords: ${state.topic.keywords.join(', ')}
-Tone: ${tone}
-Character limit: ${charLimit}
+Return ONLY the post text. No preamble, no explanation, no "Here's your post:"`,
+      userPrompt: `Topic: {topic}
+Hook: {hook}
+Angle: {angle}
+Content style: {styleName} — {styleDescription}
+Key facts: {facts}
+Keywords: {keywords}
+Tone: {tone}
+Character limit: {charLimit}
 Do NOT include any URLs or links in the post.
 
-${state.topic.outline ? `Outline:\n${state.topic.outline.map((o: { heading: string }) => `- ${o.heading}`).join('\n')}` : ''}
+{outline}
 
-Post text (in "${style.name}" style):`;
+Post text (in "{styleName}" style):`,
+    };
+
+    const { systemPrompt, userPrompt } = promptRegistry
+      ? await promptRegistry.getCompiledChat('draft-post', variables, fallback)
+      : fallback;
 
     try {
       const response = await llm.generateChat(systemPrompt, userPrompt, { temperature: 0.7 });
@@ -661,7 +733,7 @@ Post text (in "${style.name}" style):`;
 /**
  * Create a critique node for a specific network.
  */
-function makeCritiqueNode(network: SocialNetwork) {
+function makeCritiqueNode(network: SocialNetwork, promptRegistry?: PromptRegistry) {
   return async function critiqueNode(
     state: GenerationStateType,
     llm: ILlmPort,
@@ -680,10 +752,19 @@ function makeCritiqueNode(network: SocialNetwork) {
     // critique call so it's free (no extra tokens) and deterministic.
     const baitInstruction = buildBaitRewriteInstruction(netResult.draft);
 
-    const critiquePrompt = `Critique this ${network} post as if you're a picky editor who hates AI-sounding content.
+    const critiqueVariables = {
+      network,
+      charLimit: String(charLimit),
+      draftLength: String(netResult.draft.length),
+      angle: netResult.angle,
+      draft: netResult.draft,
+      baitInstruction: baitInstruction ? `\n${baitInstruction}\n` : '',
+    };
+
+    const critiqueFallback = `Critique this {network} post as if you're a picky editor who hates AI-sounding content.
 
 Check these things:
-1. Is it within ${charLimit} characters? (current: ${netResult.draft.length})
+1. Is it within {charLimit} characters? (current: {draftLength})
 2. HUMAN CHECK — the most important: Does this sound like a real person wrote it at 11pm, or does it sound like ChatGPT? Look for:
    - "Sterile certainty" (no doubt, no vulnerability, no personal mess) = AI
    - Generic "experiences" instead of specific memories = AI
@@ -695,21 +776,25 @@ Check these things:
 4. No fear-mongering or absolute predictions?
 5. Does the first line grab you, or is it generic?
 6. No hashtags? (hashtags are deprioritized by algorithms and look spammy — posts should be pure text)
-7. Does it match the angle: "${netResult.angle}"?
+7. Does it match the angle: "{angle}"?
 8. No engagement bait (asking for likes/comments/shares/tags/follows)?
 9. Does it have OPINION and PERSONALITY, or is it bland and "informative"?
 10. Does it have at least ONE concrete specific detail (a time, a place, a body sensation, an object)?
 
 Draft:
-"${netResult.draft}"
+"{draft}"
 
-${baitInstruction ? `\n${baitInstruction}\n` : ''}
+{baitInstruction}
 Be honest. If it sounds like AI, say so. If it's bland, say so. If it has no personal voice, say so. If it's good, say "GOOD — no changes needed."
 
 Then on a NEW line, output a quality score:
 SCORE: <number 1-10>
 
 Where 10 = "I'd share this on my personal account and people would think I wrote it"; 7 = good enough to post; 5 = needs work; 3 = sounds like AI; 1 = unusable.`;
+
+    const critiquePrompt = promptRegistry
+      ? await promptRegistry.getCompiledText('critique-post', critiqueVariables, critiqueFallback)
+      : critiqueFallback;
 
     try {
       const response = await llm.generateChat('', critiquePrompt, { temperature: 0.3 });
@@ -758,7 +843,7 @@ Where 10 = "I'd share this on my personal account and people would think I wrote
 /**
  * Create a refine node for a specific network.
  */
-function makeRefineNode(network: SocialNetwork) {
+function makeRefineNode(network: SocialNetwork, promptRegistry?: PromptRegistry) {
   return async function refineNode(
     state: GenerationStateType,
     llm: ILlmPort,
@@ -789,15 +874,23 @@ function makeRefineNode(network: SocialNetwork) {
 
     const charLimit = NETWORK_LIMITS[network];
 
-    const refinePrompt = `Rewrite this ${network} post based on the critique. Make it sound MORE HUMAN and LESS like AI.
+    const refineVariables = {
+      network,
+      draft: netResult.draft,
+      critique: netResult.critique,
+      baitInstruction: hasBait ? `\n${baitInstruction}\n` : '',
+      charLimit: String(charLimit),
+    };
+
+    const refineFallback = `Rewrite this {network} post based on the critique. Make it sound MORE HUMAN and LESS like AI.
 
 Draft:
-"${netResult.draft}"
+"{draft}"
 
 Critique:
-${netResult.critique}
-${hasBait ? `\n${baitInstruction}\n` : ''}
-Character limit: ${charLimit}
+{critique}
+{baitInstruction}
+Character limit: {charLimit}
 
 ANTI-AI RULES:
 - Kill any of these words if they appear: delve, realm, journey, uncover, navigate, explore, discover, unlock, tapestry, embrace, vibrant, resonate.
@@ -807,6 +900,10 @@ ANTI-AI RULES:
 - Use contractions. Use sentence fragments. Let sentences be uneven in length.
 
 Return ONLY the refined post text. No preamble.`;
+
+    const refinePrompt = promptRegistry
+      ? await promptRegistry.getCompiledText('refine-post', refineVariables, refineFallback)
+      : refineFallback;
 
     try {
       const response = await llm.generateChat('', refinePrompt, { temperature: 0.5 });
@@ -941,6 +1038,121 @@ function makeABVariantNode(network: SocialNetwork) {
 }
 
 /**
+ * Create a judge node for a specific network.
+ *
+ * Stage 2: LLM-as-a-Judge — evaluates the refined post on 4 criteria
+ * (anti-AI tone, hook strength, factual accuracy, character limit).
+ * Scores are stored in NetworkResult.judgeScores and propagated to
+ * Post.llmMetadata.judgeScores by save_to_db.
+ *
+ * The judge runs AFTER refine and BEFORE visual_concept. It's non-blocking —
+ * if the judge LLM call fails, the post proceeds with undefined judgeScores.
+ */
+function makeJudgeNode(network: SocialNetwork, promptRegistry?: PromptRegistry) {
+  return async function judgeNode(
+    state: GenerationStateType,
+    llm: ILlmPort,
+  ): Promise<Partial<GenerationStateType>> {
+    const netResult = state.results[network];
+    if (!netResult) return {};
+
+    // Skip if previous step failed
+    if (netResult.error) return {};
+
+    const content = netResult.refined || netResult.draft;
+    if (!content) return {};
+
+    const charLimit = NETWORK_LIMITS[network];
+
+    const variables = {
+      postText: content,
+      network,
+      charLimit: String(charLimit),
+    };
+
+    const judgeFallback = `You are a strict editor who evaluates social media posts for quality. You hate AI-sounding content and have very high standards.
+
+Evaluate the post on 4 criteria. For each, output a score from 0.0 to 1.0 and a one-sentence reason.
+
+1. anti_ai_tone (0.0-1.0): Does this sound like a real person wrote it at 11pm, or like ChatGPT?
+   - 1.0 = unmistakably human, raw, specific, opinionated
+   - 0.5 = neutral, could go either way
+   - 0.0 = obviously AI (banned words, "sterile certainty", hook->explanation->CTA structure, neat conclusions)
+   Banned words that instantly drop the score: delve, realm, journey, uncover, navigate, explore, discover, unlock, tapestry, embrace, vibrant, resonate, empowering, transformative, powerful, profound, deeply, "in today's fast-paced world"
+
+2. hook_strength (0.0-1.0): Does the first line make you stop scrolling?
+   - 1.0 = specific, provocative, or uncomfortably relatable
+   - 0.5 = decent but generic
+   - 0.0 = boring, vague, or starts with "Did you know"
+
+3. factual_accuracy (0.0-1.0): Are the astrology/astronomy facts correct?
+   - 1.0 = verifiable, specific, correct
+   - 0.5 = mostly correct but vague
+   - 0.0 = fabricated, wrong, or too vague to verify
+
+4. character_limit (0.0-1.0): Does it fit within the platform's character limit?
+   - 1.0 = within limit
+   - 0.0 = exceeds limit
+
+Respond as JSON only:
+{"anti_ai_tone": 0.0, "anti_ai_tone_reason": "...", "hook_strength": 0.0, "hook_strength_reason": "...", "factual_accuracy": 0.0, "factual_accuracy_reason": "...", "character_limit": 0.0, "character_limit_reason": "..."}`;
+
+    try {
+      const systemPrompt = promptRegistry
+        ? await promptRegistry.getCompiledChat('post-quality-judge', variables, {
+            systemPrompt: judgeFallback,
+            userPrompt: `Post text:\n"{postText}"\n\nPlatform: {network}\nCharacter limit: {charLimit}\n\nEvaluate this post:`,
+          })
+        : { systemPrompt: judgeFallback, userPrompt: `Post text:\n"${content}"\n\nPlatform: ${network}\nCharacter limit: ${charLimit}\n\nEvaluate this post:` };
+
+      const response = await llm.generateChat(systemPrompt.systemPrompt, systemPrompt.userPrompt, {
+        temperature: 0.2,
+        maxTokens: 300,
+      });
+
+      // Parse JSON from response (tolerate markdown code fences)
+      const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        logger.warn(`judge_${network}: no JSON in response`);
+        return {};
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]) as Partial<JudgeScores>;
+      const judgeScores: JudgeScores = {
+        anti_ai_tone: clamp01(parsed.anti_ai_tone),
+        anti_ai_tone_reason: String(parsed.anti_ai_tone_reason ?? ''),
+        hook_strength: clamp01(parsed.hook_strength),
+        hook_strength_reason: String(parsed.hook_strength_reason ?? ''),
+        factual_accuracy: clamp01(parsed.factual_accuracy),
+        factual_accuracy_reason: String(parsed.factual_accuracy_reason ?? ''),
+        character_limit: clamp01(parsed.character_limit),
+        character_limit_reason: String(parsed.character_limit_reason ?? ''),
+      };
+
+      logger.debug(
+        `judge_${network}: anti_ai=${judgeScores.anti_ai_tone} hook=${judgeScores.hook_strength} factual=${judgeScores.factual_accuracy} chars=${judgeScores.character_limit}`,
+      );
+
+      return {
+        results: {
+          [network]: { ...netResult, judgeScores },
+        },
+      };
+    } catch (err) {
+      // Non-blocking — post proceeds without judge scores
+      logger.warn(`judge_${network} failed (non-blocking): ${(err as Error).message}`);
+      return {};
+    }
+  };
+}
+
+/** Clamp a value to [0, 1] range. */
+function clamp01(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0;
+}
+
+/**
  * Node 7: save_to_db — collect all refined posts into final output.
  * (Actual DB save happens in GenerationService — this node just formats the output.)
  */
@@ -968,6 +1180,7 @@ function saveToDbNode(state: GenerationStateType): Partial<GenerationStateType> 
       angle: netResult.angle,
       model: state.model,
       qualityScore: netResult.qualityScore,
+      judgeScores: netResult.judgeScores,
       hookTechnique: netResult.hookTechnique,
       contentStyleId: netResult.contentStyleId,
       visualConcept: netResult.visualConcept ?? null,
@@ -1056,6 +1269,7 @@ export function buildGenerationGraph(
   hookBank?: HookPerformanceBank,
   visualService?: VisualConceptService,
   abGenerator?: ABVariantGenerator,
+  promptRegistry?: PromptRegistry,
 ) {
   const logger = new Logger('GenerationGraph');
 
@@ -1082,23 +1296,27 @@ export function buildGenerationGraph(
 
   const graph = new StateGraph(GenerationState)
     // Step 1: research_extract
-    .addNode('research_extract', withProgress('research_extract', (s) => researchExtractNode(s, llm)))
+    .addNode('research_extract', withProgress('research_extract', (s) => researchExtractNode(s, llm, promptRegistry)))
     // Step 2: hook_generation (3-5 variants)
-    .addNode('hook_generation', withProgress('hook_generation', (s) => hookGenerationNode(s, llm, hookBank)))
+    .addNode('hook_generation', withProgress('hook_generation', (s) => hookGenerationNode(s, llm, hookBank, promptRegistry)))
     // Step 3: angle_per_network (assign hooks + angles)
     .addNode('angle_per_network', withProgress('angle_per_network', (s) => anglePerNetworkNode(s)))
     // Step 4: parallel draft per network
-    .addNode('draft_x', withProgress('draft_x', (s) => makeDraftNode(SocialNetwork.X)(s, llm)))
-    .addNode('draft_threads', withProgress('draft_threads', (s) => makeDraftNode(SocialNetwork.THREADS)(s, llm)))
-    .addNode('draft_facebook', withProgress('draft_facebook', (s) => makeDraftNode(SocialNetwork.FACEBOOK)(s, llm)))
+    .addNode('draft_x', withProgress('draft_x', (s) => makeDraftNode(SocialNetwork.X, promptRegistry)(s, llm)))
+    .addNode('draft_threads', withProgress('draft_threads', (s) => makeDraftNode(SocialNetwork.THREADS, promptRegistry)(s, llm)))
+    .addNode('draft_facebook', withProgress('draft_facebook', (s) => makeDraftNode(SocialNetwork.FACEBOOK, promptRegistry)(s, llm)))
     // Step 5: parallel critique per network
-    .addNode('critique_x', withProgress('critique_x', (s) => makeCritiqueNode(SocialNetwork.X)(s, llm)))
-    .addNode('critique_threads', withProgress('critique_threads', (s) => makeCritiqueNode(SocialNetwork.THREADS)(s, llm)))
-    .addNode('critique_facebook', withProgress('critique_facebook', (s) => makeCritiqueNode(SocialNetwork.FACEBOOK)(s, llm)))
+    .addNode('critique_x', withProgress('critique_x', (s) => makeCritiqueNode(SocialNetwork.X, promptRegistry)(s, llm)))
+    .addNode('critique_threads', withProgress('critique_threads', (s) => makeCritiqueNode(SocialNetwork.THREADS, promptRegistry)(s, llm)))
+    .addNode('critique_facebook', withProgress('critique_facebook', (s) => makeCritiqueNode(SocialNetwork.FACEBOOK, promptRegistry)(s, llm)))
     // Step 6: parallel refine per network
-    .addNode('refine_x', withProgress('refine_x', (s) => makeRefineNode(SocialNetwork.X)(s, llm)))
-    .addNode('refine_threads', withProgress('refine_threads', (s) => makeRefineNode(SocialNetwork.THREADS)(s, llm)))
-    .addNode('refine_facebook', withProgress('refine_facebook', (s) => makeRefineNode(SocialNetwork.FACEBOOK)(s, llm)))
+    .addNode('refine_x', withProgress('refine_x', (s) => makeRefineNode(SocialNetwork.X, promptRegistry)(s, llm)))
+    .addNode('refine_threads', withProgress('refine_threads', (s) => makeRefineNode(SocialNetwork.THREADS, promptRegistry)(s, llm)))
+    .addNode('refine_facebook', withProgress('refine_facebook', (s) => makeRefineNode(SocialNetwork.FACEBOOK, promptRegistry)(s, llm)))
+    // Stage 2: parallel judge per network (LLM-as-a-Judge quality evaluation)
+    .addNode('judge_x', withProgress('judge_x', (s) => makeJudgeNode(SocialNetwork.X, promptRegistry)(s, llm)))
+    .addNode('judge_threads', withProgress('judge_threads', (s) => makeJudgeNode(SocialNetwork.THREADS, promptRegistry)(s, llm)))
+    .addNode('judge_facebook', withProgress('judge_facebook', (s) => makeJudgeNode(SocialNetwork.FACEBOOK, promptRegistry)(s, llm)))
     // P3: Step 6.5: parallel visual_concept per network (no-op when disabled)
     .addNode('visual_concept_x', withProgress('visual_concept_x', (s) => makeVisualConceptNode(SocialNetwork.X)(s, visualService)))
     .addNode('visual_concept_threads', withProgress('visual_concept_threads', (s) => makeVisualConceptNode(SocialNetwork.THREADS)(s, visualService)))
@@ -1127,10 +1345,14 @@ export function buildGenerationGraph(
     .addEdge('critique_x', 'refine_x')
     .addEdge('critique_threads', 'refine_threads')
     .addEdge('critique_facebook', 'refine_facebook')
-    // P3: Refines → visual_concept (per network, parallel)
-    .addEdge('refine_x', 'visual_concept_x')
-    .addEdge('refine_threads', 'visual_concept_threads')
-    .addEdge('refine_facebook', 'visual_concept_facebook')
+    // Stage 2: Refines → judge (per network, parallel)
+    .addEdge('refine_x', 'judge_x')
+    .addEdge('refine_threads', 'judge_threads')
+    .addEdge('refine_facebook', 'judge_facebook')
+    // P3: Judge → visual_concept (per network, parallel)
+    .addEdge('judge_x', 'visual_concept_x')
+    .addEdge('judge_threads', 'visual_concept_threads')
+    .addEdge('judge_facebook', 'visual_concept_facebook')
     // P7: visual_concept → ab_variant (per network, parallel)
     .addEdge('visual_concept_x', 'ab_variant_x')
     .addEdge('visual_concept_threads', 'ab_variant_threads')

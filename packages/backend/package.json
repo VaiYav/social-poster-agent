@@ -34,6 +34,7 @@
     "@langchain/langgraph": "^0.2.0",
     "@langchain/langgraph-checkpoint": "^0.0.18",
     "@langchain/openai": "^0.4.0",
+    "@langfuse/client": "^5.9.1",
     "@langfuse/langchain": "^5.9.1",
     "@langfuse/otel": "^5.9.1",
     "@nestjs/common": "^11.0.0",
