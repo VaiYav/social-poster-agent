@@ -10,4 +10,5 @@ allowBuilds:
   esbuild: true
   msgpackr-extract: true
   prisma: true
+  protobufjs: true
   vue-demi: true
