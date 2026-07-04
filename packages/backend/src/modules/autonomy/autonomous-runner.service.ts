@@ -52,9 +52,10 @@ export class AutonomousRunnerService implements OnModuleInit {
     this.postingDelayMinMs = Number(this.configService.get<string>('AUTONOMOUS_POSTING_DELAY_MIN_MS', '600000')); // 10 min
     this.postingDelayMaxMs = Number(this.configService.get<string>('AUTONOMOUS_POSTING_DELAY_MAX_MS', '3600000')); // 1 hour
 
-    // AU4: parse + validate target networks from env (default: all three). Unknown tokens are
-    // dropped (not cast blindly) so a typo can't create a never-drained queue.
-    const networksStr = this.configService.get<string>('AUTONOMOUS_TARGET_NETWORKS', 'X,THREADS,FACEBOOK');
+    // AU4: parse + validate target networks from env (default: X,THREADS — Facebook disabled
+    // due to session instability). Unknown tokens are dropped (not cast blindly) so a typo
+    // can't create a never-drained queue.
+    const networksStr = this.configService.get<string>('AUTONOMOUS_TARGET_NETWORKS', 'X,THREADS');
     const { networks, invalid } = parseTargetNetworks(networksStr);
     if (invalid.length > 0) {
       this.logger.warn(`AUTONOMOUS_TARGET_NETWORKS: ignoring unknown network(s): ${invalid.join(', ')}`);

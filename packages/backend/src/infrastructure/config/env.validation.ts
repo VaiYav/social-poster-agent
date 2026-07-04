@@ -87,7 +87,7 @@ const envSchema = Joi.object({
   AUTONOMOUS_RUNNER_ENABLED: Joi.string().valid('true', 'false').default('false'),
   AUTONOMOUS_RUNNER_SCHEDULE: Joi.string().default('0 */4 * * *'),
   AUTONOMOUS_POSTS_PER_RUN: Joi.number().integer().min(1).max(20).default(3),
-  AUTONOMOUS_TARGET_NETWORKS: Joi.string().default('X,THREADS,FACEBOOK'),
+  AUTONOMOUS_TARGET_NETWORKS: Joi.string().default('X,THREADS'),
   ENABLED_NETWORKS: Joi.string().default('X,THREADS'),
   AUTONOMOUS_POSTING_DELAY_MIN_MS: Joi.number().integer().min(0).default(600000),
   AUTONOMOUS_POSTING_DELAY_MAX_MS: Joi.number().integer().min(1000).default(3600000),
