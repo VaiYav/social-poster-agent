@@ -365,4 +365,33 @@ describe('LlmService (MOD-05 — Infrastructure Adapters)', () => {
     expect(typeof version).toBe('string');
     expect(version.length).toBeGreaterThan(0);
   });
+
+  // ── Langfuse tracing: callbacks propagation ──
+
+  it('LF-001: generateChat() passes callbacks to model.invoke when provided in options', async () => {
+    service.onModuleInit();
+    mocks.invoke.mockResolvedValue({ content: 'traced response' });
+
+    const fakeHandler = { name: 'LangfuseCallbackHandler' } as never;
+    await service.generateChat('sys', 'usr', { callbacks: [fakeHandler] });
+
+    // model.invoke should receive { callbacks: [...] } as the second arg
+    expect(mocks.invoke).toHaveBeenCalledOnce();
+    const invokeCall = mocks.invoke.mock.calls[0]!;
+    expect(invokeCall[0]).toHaveLength(2); // system + user messages
+    expect(invokeCall[1]).toBeDefined();
+    expect((invokeCall[1] as { callbacks: unknown[] }).callbacks).toContain(fakeHandler);
+  });
+
+  it('LF-002: generateChat() passes undefined (not empty callbacks) when no callbacks set', async () => {
+    service.onModuleInit();
+    mocks.invoke.mockResolvedValue({ content: 'response' });
+
+    await service.generateChat('sys', 'usr');
+
+    expect(mocks.invoke).toHaveBeenCalledOnce();
+    const invokeCall = mocks.invoke.mock.calls[0]!;
+    // No callbacks → second arg is undefined (avoids creating empty callback config)
+    expect(invokeCall[1]).toBeUndefined();
+  });
 });

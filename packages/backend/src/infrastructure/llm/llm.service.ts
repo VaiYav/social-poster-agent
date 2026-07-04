@@ -1,9 +1,12 @@
 import { Injectable, Logger, Optional, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI } from '@langchain/openai';
+import type { BaseCallbackHandler } from '@langchain/core/callbacks/base';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import type { ILlmPort, GenerateOptions, LlmResponse } from '../../domain/ports/llm.port.js';
 import { PromptRegistry } from './prompt-registry.js';
+import { LangfuseService } from '../langfuse/langfuse.service.js';
 
 /**
  * Provider definition — each provider is tried in order until one succeeds.
@@ -40,6 +43,34 @@ interface CircuitBreakerState {
 interface CacheEntry {
   response: LlmResponse;
   expiresAt: number;
+}
+
+/**
+ * AsyncLocalStorage for ambient Langfuse callback propagation.
+ *
+ * Generation runs invoke the LangGraph workflow which calls llm.generateChat()
+ * many times across parallel per-network branches. Rather than threading
+ * callback handlers through every graph node function signature, we store
+ * them in ALS at the graph.invoke() boundary (GenerationService) and read
+ * them here. This is async-safe: concurrent generation runs (up to 3 topics
+ * per batch) each get their own ALS context.
+ *
+ * Callers can also pass callbacks explicitly via GenerateOptions.callbacks —
+ * those are merged with the ALS callbacks (deduped by reference).
+ */
+const callbackStorage = new AsyncLocalStorage<BaseCallbackHandler[]>();
+
+/**
+ * Run a function with ambient Langfuse callbacks in AsyncLocalStorage.
+ * All llm.generateChat()/generate() calls within `fn` (including those deep
+ * inside LangGraph nodes) will automatically attach these callbacks to their
+ * model.invoke() calls, nesting the LLM observations under the graph trace.
+ *
+ * Exported so GenerationService can wrap graph.invoke() without threading
+ * callbacks through every node function signature.
+ */
+export function withLlmCallbacks<T>(callbacks: BaseCallbackHandler[], fn: () => Promise<T>): Promise<T> {
+  return callbackStorage.run(callbacks, fn);
 }
 
 /**
@@ -82,6 +113,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
   constructor(
     private readonly configService: ConfigService,
     @Optional() private readonly promptRegistry?: PromptRegistry,
+    @Optional() private readonly langfuse?: LangfuseService,
   ) {
     this.cbThreshold = this.configService.get<number>('LLM_CB_THRESHOLD', 3);
     this.cbCooldownMs = this.configService.get<number>('LLM_CB_COOLDOWN_MS', 60_000);
@@ -466,7 +498,17 @@ export class LlmService implements ILlmPort, OnModuleInit {
             ]
           : [{ role: 'user' as const, content: userPrompt }];
 
-        const response = await model.invoke(messages);
+        // Langfuse tracing: merge callbacks from GenerateOptions (explicit)
+        // and AsyncLocalStorage (ambient — set by GenerationService around
+        // graph.invoke() so all LLM calls in the graph nest under one trace).
+        // Dedupe by reference; filter out undefined entries.
+        const alsCallbacks = callbackStorage.getStore() ?? [];
+        const explicitCallbacks = options?.callbacks ?? [];
+        const callbacks = [...new Set([...alsCallbacks, ...explicitCallbacks])].filter(
+          (h): h is BaseCallbackHandler => h != null,
+        );
+
+        const response = await model.invoke(messages, callbacks.length > 0 ? { callbacks } : undefined);
         const content =
           typeof response.content === 'string'
             ? response.content

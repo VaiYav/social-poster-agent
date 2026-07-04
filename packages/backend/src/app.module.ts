@@ -21,6 +21,7 @@ import { AccountsModule } from './modules/accounts/accounts.module';
 import { ContentSourceModule } from './modules/content-source/content-source.module';
 import { BrowserModule } from './infrastructure/browser/browser.module';
 import { LlmModule } from './infrastructure/llm/llm.module';
+import { LangfuseModule } from './infrastructure/langfuse/langfuse.module';
 import { PromptRegistryModule } from './infrastructure/llm/prompt-registry.module';
 import { ContentModule } from './infrastructure/content/content.module';
 import { QueueModule } from './modules/queue/queue.module';
@@ -90,6 +91,7 @@ const orchestratorImports = parseBool(process.env.ORCHESTRATOR_ENABLED) ? [Orche
     AuthModule, // JWT cookie auth for UI (admin login, JwtAuthGuard)
     BrowserModule,
     LlmModule,
+    LangfuseModule, // Langfuse LLM observability (no-op when LANGFUSE_PUBLIC_KEY not set)
     PromptRegistryModule, // Sprint P: Versioned prompt templates (audit finding)
     ContentModule,
     QueueInfraModule,

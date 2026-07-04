@@ -1,5 +1,29 @@
 # AGENTS.md — Project conventions for AI agents
 
+## Langfuse LLM observability (`packages/backend/src/infrastructure/langfuse/`)
+
+### Auto-enable (no feature flag)
+
+Langfuse tracing activates automatically when `LANGFUSE_PUBLIC_KEY` is set — no separate `LANGFUSE_ENABLED` flag. When the env var is absent/empty, `LangfuseService.isEnabled` returns false, `createHandler()` returns undefined, and no callbacks are attached (zero overhead). This is different from the feature-flag pattern used by Engagement/Replies/Orchestrator (which conditionally register entire modules). `LangfuseModule` is a `@Global()` module — always loaded, no-op when disabled.
+
+### OTel SDK initialization (import order matters)
+
+`langfuse-instrumentation.ts` is imported at the top of `main.ts` alongside `instrument.ts` (Sentry). The `NodeSDK` with `LangfuseSpanProcessor` must start before any tracing calls happen. The file exports `langfuseEnabled` and `shutdownLangfuse()` — the latter is called by `LangfuseService.onModuleDestroy()` for graceful flush on shutdown.
+
+### AsyncLocalStorage callback propagation
+
+`LlmService` uses a module-level `AsyncLocalStorage<BaseCallbackHandler[]>` (`callbackStorage`) to propagate Langfuse callbacks through the LangGraph workflow without threading them through every node function signature. `GenerationService` wraps `graph.invoke()` in `withLlmCallbacks(handler, fn)` — all `llm.generateChat()` calls inside graph nodes automatically read the ALS store and attach the callbacks to `model.invoke()`. This is async-safe for concurrent generation runs (up to 3 topics per batch). Callers can also pass callbacks explicitly via `GenerateOptions.callbacks` — those are merged with ALS callbacks (deduped by reference).
+
+### Traced components
+
+- **GenerationService** — one `CallbackHandler` per topic with `sessionId=runId`, `tags=['generation', language, ...networks]`, `traceMetadata={topic, runId, language, networks}`. Applied to all 3 `graph.invoke()` call sites (initial, resume, review-resume).
+- **LlmDecisionService** (orchestrator) — one handler per `decide()` call with `tags=['orchestrator', 'decision']`, `traceMetadata={utcHour, utcDayOfWeek, degraded}`.
+- **LlmService** — merges ALS callbacks + explicit `options.callbacks`, passes to `model.invoke(messages, { callbacks })` only when callbacks are non-empty (avoids creating empty config objects).
+
+### Env vars
+
+`LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL` — all optional, validated in `env.validation.ts`. Default base URL in `.env.example` is `https://us.cloud.langfuse.com` (US cloud).
+
 ## Orchestrator module (`packages/backend/src/modules/orchestrator/`)
 
 ### Direct `process.env` reads (by design)

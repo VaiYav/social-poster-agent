@@ -9,6 +9,7 @@ import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SocialNetwork } from '@prisma/client';
 import { ILlmPort } from '../../domain/ports/llm.port.js';
+import { LangfuseService } from '../../infrastructure/langfuse/langfuse.service.js';
 import { ORCHESTRATOR_SYSTEM_PROMPT, buildOrchestratorUserPrompt } from './prompts/orchestrator-prompt.js';
 import type { WorldState, Action, ActionType, NetworkActionType, GenericActionType } from './types.js';
 
@@ -31,6 +32,7 @@ export class LlmDecisionService {
   constructor(
     private readonly configService: ConfigService,
     @Optional() @Inject(ILlmPort) private readonly llm?: ILlmPort,
+    @Optional() private readonly langfuse?: LangfuseService,
   ) {
     this.llmTimeoutMs = Math.max(
       5000,
@@ -43,10 +45,23 @@ export class LlmDecisionService {
 
     const userPrompt = buildOrchestratorUserPrompt(world);
 
+    // Langfuse tracing: each orchestrator decision gets its own trace.
+    // tags enable filtering orchestrator decisions from generation traces.
+    const handler = this.langfuse?.createHandler({
+      tags: ['orchestrator', 'decision'],
+      traceMetadata: {
+        utcHour: world.utcHour,
+        utcDayOfWeek: world.utcDayOfWeek,
+        degraded: world._degraded,
+      },
+    });
+    const callbacks = handler ? [handler] : undefined;
+
     const result = await Promise.race([
       this.llm.generateChat(ORCHESTRATOR_SYSTEM_PROMPT, userPrompt, {
         temperature: 0.3,
         maxTokens: 200,
+        callbacks,
       }),
       this.timeout(),
     ]);

@@ -116,6 +116,15 @@ const envSchema = Joi.object({
   // ── Monitoring ──
   SENTRY_DSN: Joi.string().allow('').default(''),
 
+  // ── Langfuse (LLM observability — tracing, prompt management, evaluation) ──
+  // Auto-enable: tracing activates when LANGFUSE_PUBLIC_KEY is set.
+  // When absent/empty, Langfuse is a no-op (zero overhead, no network calls).
+  // Get keys from Langfuse UI → Settings → API Keys.
+  LANGFUSE_PUBLIC_KEY: Joi.string().allow('').default(''),
+  LANGFUSE_SECRET_KEY: Joi.string().allow('').default(''),
+  // Base URL: 🇪🇺 EU: https://cloud.langfuse.com | 🇺🇸 US: https://us.cloud.langfuse.com | self-hosted URL
+  LANGFUSE_BASE_URL: Joi.string().allow('').default(''),
+
   // ── Security ──
   // P0-H3: AES-256-GCM key for encrypting storageState at rest (64 hex chars = 32 bytes)
   // Generate with: openssl rand -hex 32

@@ -184,6 +184,20 @@ const NETWORK_LIMITS: Record<SocialNetwork, number> = {
   [SocialNetwork.FACEBOOK]: 500, // §11.3: marketing ≤500
 };
 
+/**
+ * Strip hashtags from post content — LLMs often ignore "no hashtags" instructions.
+ * Removes #word patterns and cleans up extra whitespace.
+ * Preserves emoji, punctuation, and normal text.
+ */
+function stripHashtags(text: string): string {
+  return text
+    .replace(/#[\w\u0400-\u04FF\u0500-\u052F]+/g, '') // remove hashtags (Latin + Cyrillic)
+    .replace(/\s{2,}/g, ' ') // collapse multiple spaces
+    .replace(/^\s+|\s+$/g, '') // trim
+    .replace(/\s+([.!?,;:])/g, '$1') // fix space before punctuation
+    .trim();
+}
+
 // ── Multilingual support ───────────────────────────────────────────────────
 // Language names and per-language instructions for the generation prompt.
 // Russian and Ukrainian are explicitly distinguished to prevent the LLM from
@@ -944,7 +958,7 @@ function saveToDbNode(state: GenerationStateType): Partial<GenerationStateType> 
       continue;
     }
 
-    const content = netResult.refined || netResult.draft;
+    const content = stripHashtags(netResult.refined || netResult.draft);
     if (!content) continue;
 
     posts.push({

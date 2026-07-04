@@ -2,12 +2,21 @@
 // Implementation: LlmService (OpenAI/Anthropic via LangChain).
 // Unit tests can inject a mock LLM without API calls.
 
+import type { BaseCallbackHandler } from '@langchain/core/callbacks/base';
+
 export const ILlmPort = Symbol('ILlmPort');
 
 export interface GenerateOptions {
   systemPrompt?: string;
   temperature?: number;
   maxTokens?: number;
+  /**
+   * LangChain callback handlers to attach to the LLM invocation.
+   * Used for Langfuse tracing — pass a CallbackHandler to capture the call
+   * as a nested observation under an existing trace.
+   * Handlers with undefined entries are filtered out by the implementation.
+   */
+  callbacks?: BaseCallbackHandler[];
 }
 
 export interface LlmResponse {
