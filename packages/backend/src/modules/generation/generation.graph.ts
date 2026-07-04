@@ -205,9 +205,9 @@ const LANGUAGE_INSTRUCTIONS: Record<string, string> = {
 };
 
 const NETWORK_TONE: Record<SocialNetwork, string> = {
-  [SocialNetwork.X]: 'Punchy, hook-first, confident. One idea per post. Can be sarcastic, bold, or deadpan. 1-2 hashtags max. No filler.',
-  [SocialNetwork.THREADS]: 'Narrative, storytelling, personal. Like texting a friend about something you noticed. Can be vulnerable, funny, or reflective. 2-3 hashtags.',
-  [SocialNetwork.FACEBOOK]: 'Conversational, community-oriented. Relatable, warm, but not corny. End with a genuine question (not engagement bait). 3-4 hashtags.',
+  [SocialNetwork.X]: 'Punchy, hook-first, confident. One idea per post. Can be sarcastic, bold, or deadpan. NO hashtags — X algorithm deprioritizes them and 3+ triggers spam filters. No filler.',
+  [SocialNetwork.THREADS]: 'Narrative, storytelling, personal. Like texting a friend about something you noticed. Can be vulnerable, funny, or reflective. NO hashtags — Threads doesn\'t use hashtags for discovery.',
+  [SocialNetwork.FACEBOOK]: 'Conversational, community-oriented. Relatable, warm, but not corny. End with a genuine question (not engagement bait). NO hashtags — Facebook algorithm treats them as spam signals.',
 };
 
 const NETWORK_ANGLE: Record<SocialNetwork, string> = {
@@ -514,7 +514,7 @@ Write a ${network} post using the hook and angle provided. Stay within ${charLim
 LANGUAGE: Write this post in ${langName}.${langInstruction}
 - Russian and Ukrainian are DIFFERENT languages. Do not mix them. Do not use Russian words in Ukrainian posts or vice versa.
 - Use natural, native-speaker phrasing — not translated-sounding text.
-- Hashtags should be in the same language as the post.
+- Do NOT use hashtags — they are deprioritized by all major platforms. Pure text only.
 
 ANTI-AI RULES — CRITICAL (read these twice):
 - NEVER use these words: delve, realm, journey, uncover, navigate, explore, discover, unlock, tapestry, embrace, vibrant, resonate, "in today's fast-paced world."
@@ -529,7 +529,7 @@ ANTI-AI RULES — CRITICAL (read these twice):
 
 TONE: Match the content style specified above. If it says sarcastic, be sarcastic. If serious, be serious. If playful, be playful. Do NOT default to "warm and informative" every time — that's the AI default and it's boring.
 
-Include 1-2 relevant hashtags. Do NOT include any URLs or links — posts with links get lower engagement and don't rank on social platforms.
+Do NOT include any URLs, links, or hashtags. Hashtags are deprioritized by X/Threads/Facebook algorithms and 3+ triggers spam filters. Posts should be pure text only.
 Never use fear-mongering, absolute predictions, or medical/financial advice.
 Never ask for likes, comments, shares, tags, or follows.
 
@@ -607,7 +607,7 @@ Check these things:
 3. Does it use any banned AI words? (delve, realm, journey, uncover, navigate, explore, discover, unlock, tapestry, embrace, vibrant, resonate)
 4. No fear-mongering or absolute predictions?
 5. Does the first line grab you, or is it generic?
-6. Has 1-2 relevant hashtags?
+6. No hashtags? (hashtags are deprioritized by algorithms and look spammy — posts should be pure text)
 7. Does it match the angle: "${netResult.angle}"?
 8. No engagement bait (asking for likes/comments/shares/tags/follows)?
 9. Does it have OPINION and PERSONALITY, or is it bland and "informative"?

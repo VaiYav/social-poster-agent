@@ -56,7 +56,9 @@
 - ❌ **Generic horoscope clichés** — "Today is a good day for new beginnings"
 - ❌ **Spammy CTAs** — "CLICK HERE!!! Sign up NOW!!!"
 - ❌ **Too many emojis** — 🔮✨🌙💫⭐🌟⚡ (max 2 per post)
-- ❌ **Hashtag spam** — max 3-4 hashtags, релевантных
+- ❌ **Hashtags** — НЕ используй хэштеги в постах. Алгоритмы X, Threads и Facebook
+  деприоритизируют посты с хэштегами, а 3+ хэштега триггерят spam-фильтры.
+  Посты должны быть чистым текстом (emoji допустимы, хэштеги — нет).
 - ❌ **Medical/financial advice** — никогда
 - ❌ **Negative comparisons** с конкурентами напрямую
 
@@ -68,7 +70,7 @@
 - **Punchy, hook-first** — первая строка = хук, вторая = insight
 - **280 chars** — каждый символ на счету
 - **Треды** — когда нужно больше контекста: hook tweet → deep dive → CTA
-- **Hashtags** — 1-2 max, в конце или встроенные
+- **Hashtags** — НЕ используй. X algorithm: 0 weight on hashtags, 3+ triggers spam filter
 - **Tone** — confident, slightly bold, conversation-starter
 
 **Пример X post:**
@@ -84,7 +86,7 @@ Get the full picture: my-zodiac-ai.com 🔮
 - **Narrative, storytelling** — больше места (500 chars), развёрнутая мысль
 - **Треды** — для educational deep-dives
 - **Tone** — warmer, more personal, like a knowledgeable friend
-- **Hashtags** — 2-3, органично вплетённые
+- **Hashtags** — НЕ используй. Threads не использует хэштеги для discovery
 
 **Пример Threads post:**
 ```
@@ -93,15 +95,13 @@ Did you know your Moon sign reveals your emotional world?
 While everyone talks about Sun signs, your Moon placement shows how you process feelings, what you need to feel safe, and how you nurture others.
 
 AI reads your Moon sign in context of all 10 planets. That's the difference. ✨
-
-#astrology #moonsign #birthchart
 ```
 
 ### Facebook (бизнес-страница)
 - **Conversational, community-oriented** — вопрос в конце для engagement
 - **≤500 chars** — достаточно развёрнутый, но не essay
 - **Tone** — friendly, inviting, discussion-starter
-- **Hashtags** — 3-4, в конце
+- **Hashtags** — НЕ используй. Facebook algorithm treats hashtags as spam signals
 - **CTA** — мягкий, "Read more at..." или "What's your sign?"
 
 **Пример FB post:**
@@ -111,8 +111,6 @@ Mercury enters Gemini on June 26 — and conversations get faster, ideas flow qu
 Gemini Mercury loves learning something new every day. What are you curious about right now?
 
 Read your personalized transit forecast: my-zodiac-ai.com 🌙
-
-#mercuryingemini #astrology #transits #zodiac
 ```
 
 ---
@@ -131,22 +129,21 @@ Read your personalized transit forecast: my-zodiac-ai.com 🌙
 
 ---
 
-## Hashtag Strategy
+## Hashtag Policy (2025-2026)
 
-### Primary (всегда 1-2)
-- `#astrology` `#zodiac` `#horoscope` `#birthchart` `#astrotwitter`
+**Хэштеги НЕ используются в постах.** Исследования 2025-2026 подтверждают:
 
-### Secondary (по теме)
-- `#moonsign` `#mercuryretrograde` `#compatibility` `#cosmicweather`
-- `#aiastrology` `#personalityblueprint` `#wellness`
+- **X (Twitter)**: Hashtags have ZERO weight in For You ranking. 3+ hashtags triggers
+  spam filters and actively reduces reach. Recommendation: 0 hashtags.
+- **Threads**: Hashtags are not a discovery mechanism. Threads allows only 1 topic tag
+  per post, but it doesn't drive reach.
+- **Facebook**: Algorithm treats hashtags as spam signals, especially 3+.
+- **Instagram**: Hashtags are now classification tools, not reach drivers. But we don't
+  post to Instagram directly.
 
-### Brand
-- `#myzodiacai` (не на каждый пост — 1-2 раза в неделю)
-
-### Rules
-- Max 4 hashtags на пост
-- Не повторять один набор на двух постах подряд
-- X: 1-2 hashtags; Threads: 2-3; FB: 3-4
+Посты должны быть чистым текстом (emoji допустимы, хэштеги — нет).
+Хэштеги используются ТОЛЬКО в engagement browsing sessions для поиска контента
+на разных языках (через TargetingService), но НЕ в самих постах.
 
 ---
 

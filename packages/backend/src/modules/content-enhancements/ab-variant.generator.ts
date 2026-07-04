@@ -122,18 +122,19 @@ Generate TWO variants of a post for A/B testing:
 
 VARIANT A — "Clean/Minimal":
   - 0-1 emoji (use sparingly, only if it adds meaning)
-  - 1 hashtag
+  - NO hashtags (algorithms deprioritize them)
   - Professional, understated
 
 VARIANT B — "Expressive/Rich":
   - 2-3 emojis (cosmic/astrology themed: ✨🌙🔮⭐💫🌟)
-  - 2-3 hashtags
+  - NO hashtags (algorithms deprioritize them)
   - Warmer, more visually engaging
 
 Both variants must:
   - Stay under ${charLimit} characters
   - Preserve the core message and CTA
   - NOT ask for likes/comments/shares (engagement bait)
+  - NOT include hashtags, URLs, or links
   - Be distinct in style (not just emoji count)
 
 Return ONLY the two variants in this format:
@@ -190,25 +191,21 @@ Generate A/B variants:`;
   }
 
   /**
-   * Heuristic fallback — adjusts emoji/hashtag count without LLM.
-   * Variant A: strips extra emojis/hashtags (keeps max 1 each)
-   * Variant B: adds 1-2 cosmic emojis + 1 hashtag from the content
+   * Heuristic fallback — adjusts emoji count without LLM.
+   * Variant A: strips all emojis/hashtags (clean text only)
+   * Variant B: adds 1-2 cosmic emojis, strips hashtags
    */
   private heuristicVariants(content: string): ABVariantPair {
-    // Variant A: strip to minimal
+    // Variant A: strip to minimal — no emojis, no hashtags
     const variantA = content
-      .replace(/(\s*[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}✨🌙🔮⭐💫🌟]+\s*)/gu, ' ')
-      .replace(/(\s*#[a-zA-Z0-9_]+\s*)/g, (match, _p1, offset, full) => {
-        // Keep only the first hashtag
-        const before = full.slice(0, offset);
-        return before.includes('#') ? '' : match;
-      })
+      .replace(/(\s*#[a-zA-Z0-9_]+\s*)/g, ' ') // remove all hashtags
+      .replace(/(\s*[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}✨🌙🔮⭐💫🌟]+\s*)/gu, ' ') // remove all emojis
       .replace(/\s+/g, ' ')
       .trim();
 
-    // Variant B: add cosmic emojis if missing
+    // Variant B: add cosmic emojis if missing, strip hashtags
     const cosmicEmojis = [' ✨', ' 🌙', ' 🔮'];
-    let variantB = content;
+    let variantB = content.replace(/(\s*#[a-zA-Z0-9_]+\s*)/g, ' ').replace(/\s+/g, ' ').trim();
     if (countEmojis(variantB) < 2) {
       // Add 1-2 emojis at natural break points (end of sentences)
       const sentences = variantB.split(/(?<=[.!?])\s/);
