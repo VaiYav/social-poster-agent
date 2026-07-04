@@ -495,6 +495,7 @@ export class GenerationService {
             facts: [],
             category: 'evergreen',
             publishedAt: new Date(),
+            language: 'en',
           };
 
           const posts = await this.generatePostsForTopic(recycledTopic, targetNetworks, brandVoice, run.id, false);
@@ -579,6 +580,7 @@ export class GenerationService {
         facts: [],
         category: 'evergreen',
         publishedAt: new Date(),
+        language: 'en',
       };
       const posts = await this.generatePostsForTopic(recycledTopic, targetNetworks, brandVoice, run.id, false);
       for (const post of posts) {
@@ -1002,6 +1004,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
         facts: [],
         category: 'trending',
         publishedAt: t.scrapedAt ?? new Date(),
+        language: 'en',
       };
     });
   }

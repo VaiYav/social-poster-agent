@@ -75,6 +75,7 @@ export class ContentReader {
           // B5: category + freshness for topic prioritization
           category: parsed.outline[0]?.heading ?? 'general',
           publishedAt: fileStat.mtime,
+          language: 'en',
         });
       } catch (err) {
         this.logger.debug(`Skipping ${dir}: ${(err as Error).message}`);
@@ -119,6 +120,7 @@ export class ContentReader {
           // B5: category + freshness for topic prioritization
           category: parsed.tags[0] ?? 'general',
           publishedAt: parsed.date ? new Date(parsed.date) : undefined,
+          language: 'en',
         });
       } catch (err) {
         this.logger.debug(`Skipping ${file}: ${(err as Error).message}`);
@@ -170,6 +172,7 @@ export class ContentReader {
             facts: [],
             category: cluster.status === 'new' ? 'trending' : 'general',
             publishedAt: fileStat.mtime,
+            language: 'en',
           });
         }
       } catch (err) {
@@ -231,6 +234,7 @@ export class ContentReader {
           facts: [],
           category: 'fresh',
           publishedAt: fileStat.mtime,
+          language: 'en',
         });
       } catch (err) {
         this.logger.debug(`Skipping ${dir}: ${(err as Error).message}`);

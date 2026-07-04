@@ -32,6 +32,7 @@ export class DbContentReader {
         facts: (r.facts as string[]) ?? [],
         category: r.category ?? 'general',
         publishedAt: r.createdAt,
+        language: 'en',
       }));
 
       this.logger.log(`DB content reader: ${topics.length} topics from DB`);
