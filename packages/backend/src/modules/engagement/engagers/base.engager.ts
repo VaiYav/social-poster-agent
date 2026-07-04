@@ -343,12 +343,38 @@ export abstract class BaseEngager extends BasePoster {
     await this.browser.randomDelay(500, 1500);
     await this.humanClick(input.locator);
     await this.browser.randomDelay(500, 1500);
-    await this.humanType(input.locator, text);
+
+    // Type the comment text. Threads (and X) use React-based contenteditable divs where
+    // pressSequentially/fill may not trigger React onChange — the Post button stays
+    // disabled and the comment is never submitted. Use the same multi-strategy approach
+    // as the X poster: execCommand('insertText') → keyboard.type() fallback.
+    await this.typeIntoContenteditable(page, input.locator, text);
     await this.browser.randomDelay(1000, 2000);
 
-    // Submit comment
+    // Submit comment — check if button is disabled first (text may not have registered)
     const submit = await this.resolve(page, commentSubmitSelector, 'comment submit button', 10000);
     await this.browser.waitForStable(submit.locator, { timeoutMs: 5000 });
+
+    // Check if submit button is disabled — if so, retry text entry with keyboard.type()
+    const isDisabled = await this.isSubmitDisabled(submit.locator);
+    if (isDisabled) {
+      this.logger.warn('Comment submit button is disabled — text may not have registered. Retrying with keyboard.type()...');
+      // Clear and re-type using keyboard.type() (last resort for React contenteditable)
+      await input.locator.click({ force: true }).catch(() => {});
+      await page.keyboard.press('Control+a').catch(() => {});
+      await page.keyboard.press('Delete').catch(() => {});
+      await this.browser.randomDelay(200, 500);
+      await page.keyboard.type(text, { delay: 30 });
+      await this.browser.randomDelay(1000, 2000);
+
+      // Re-check if button is now enabled
+      const stillDisabled = await this.isSubmitDisabled(submit.locator);
+      if (stillDisabled) {
+        this.logger.warn('Comment submit button still disabled after keyboard.type() retry — aborting comment');
+        throw new Error('Comment submit button is disabled — text not registered in contenteditable');
+      }
+    }
+
     await this.humanClick(submit.locator);
     await this.browser.randomDelay(3000, 8000);
 
@@ -362,6 +388,67 @@ export abstract class BaseEngager extends BasePoster {
       .catch(() => false);
     if (dialogStillOpen) {
       this.logger.warn('Comment dialog still visible after submit — comment may not have been posted');
+    }
+  }
+
+  /**
+   * Type text into a React-based contenteditable div (Threads, X).
+   * Uses execCommand('insertText') first (fires the input events React needs),
+   * then falls back to keyboard.type() if execCommand fails.
+   */
+  protected async typeIntoContenteditable(page: Page, locator: import('playwright-core').Locator, text: string): Promise<void> {
+    // Strategy 1: execCommand('insertText') — fires the input events React/DraftJS need
+    try {
+      await locator.focus({ timeout: 5000 });
+    } catch {
+      await locator.click({ force: true, timeout: 5000 }).catch(() => {});
+    }
+    await this.browser.randomDelay(300, 800);
+
+    const inserted = await page.evaluate((value: string) => {
+      const el = document.activeElement as HTMLElement | null;
+      if (el && el.isContentEditable) {
+        // Focus ensures execCommand targets the right element
+        el.focus();
+        // Clear any existing content first
+        const sel = window.getSelection();
+        if (sel) {
+          sel.selectAllChildren(el);
+          sel.deleteFromDocument();
+        }
+        return document.execCommand('insertText', false, value);
+      }
+      return false;
+    }, text);
+
+    if (inserted) {
+      this.logger.debug('Comment text entered via execCommand insertText');
+      return;
+    }
+
+    // Strategy 2: keyboard.type() — sends real key events that React processes
+    this.logger.warn('execCommand insertText failed for comment — falling back to keyboard.type()');
+    try {
+      await locator.click({ force: true }).catch(() => {});
+      await page.keyboard.type(text, { delay: 30 });
+    } catch {
+      // Strategy 3: last resort — pressSequentially
+      this.logger.warn('keyboard.type() failed for comment — falling back to pressSequentially');
+      await locator.pressSequentially(text, { delay: 50, timeout: 15000 }).catch(() => {});
+    }
+  }
+
+  /**
+   * Check if a submit button is disabled (aria-disabled or disabled attribute).
+   */
+  protected async isSubmitDisabled(locator: import('playwright-core').Locator): Promise<boolean> {
+    try {
+      const disabled = await locator.getAttribute('aria-disabled');
+      const isDisabledAttr = await locator.isEnabled();
+      // aria-disabled="true" or disabled attribute means the button won't fire
+      return disabled === 'true' || !isDisabledAttr;
+    } catch {
+      return false;
     }
   }
 
@@ -425,12 +512,30 @@ export abstract class BaseEngager extends BasePoster {
     await this.browser.randomDelay(500, 1500);
     await this.humanClick(input.locator);
     await this.browser.randomDelay(500, 1500);
-    await this.humanType(input.locator, text);
+
+    // Type quote text using the same contenteditable strategy as comments
+    await this.typeIntoContenteditable(page, input.locator, text);
     await this.browser.randomDelay(1000, 2000);
 
-    // Submit quote
+    // Submit quote — check if button is disabled first
     const submit = await this.resolve(page, quoteSubmitSelector, 'quote submit button', 10000);
     await this.browser.waitForStable(submit.locator, { timeoutMs: 5000 });
+
+    const isDisabled = await this.isSubmitDisabled(submit.locator);
+    if (isDisabled) {
+      this.logger.warn('Quote submit button is disabled — retrying with keyboard.type()...');
+      await input.locator.click({ force: true }).catch(() => {});
+      await page.keyboard.press('Control+a').catch(() => {});
+      await page.keyboard.press('Delete').catch(() => {});
+      await this.browser.randomDelay(200, 500);
+      await page.keyboard.type(text, { delay: 30 });
+      await this.browser.randomDelay(1000, 2000);
+      const stillDisabled = await this.isSubmitDisabled(submit.locator);
+      if (stillDisabled) {
+        throw new Error('Quote submit button is disabled — text not registered in contenteditable');
+      }
+    }
+
     await this.humanClick(submit.locator);
     await this.browser.randomDelay(3000, 8000);
 

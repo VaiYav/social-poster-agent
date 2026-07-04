@@ -4,7 +4,6 @@ import type { ContentTopic } from '@spa/shared';
 import { SocialNetwork } from '@prisma/client';
 import { Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { resolveCtaUrl } from '../content-enhancements/source-url.util.js';
 import { buildBaitRewriteInstruction } from '../content-enhancements/engagement-bait.detector.js';
 import type { HookPerformanceBank } from '../content-enhancements/hook-performance-bank.js';
 import { classifyHookTechnique, type HookTechnique } from '../content-enhancements/hook-performance-bank.js';
@@ -458,10 +457,9 @@ function makeDraftNode(network: SocialNetwork) {
     const tone = NETWORK_TONE[network];
     const persona = NETWORK_PERSONA[network];
 
-    // P10: Source Attribution — link to the specific source article when available.
-    // Falls back to the site base URL when the source is not a blog article
-    // (briefs, topic-queues, trending have no canonical blog URL).
-    const ctaUrl = resolveCtaUrl(state.topic.path);
+    // P10: Source Attribution disabled — links in posts reduce engagement and
+    // don't rank on social platforms. Posts should be pure text + hashtags only.
+    // (Keeping the import and resolveCtaUrl call removed to avoid unused warnings.)
 
     // Content style rotation — pick style for this network if not already assigned
     // (assigned in anglePerNetworkNode, but re-pick here as fallback)
@@ -499,7 +497,7 @@ ANTI-AI RULES — CRITICAL (read these twice):
 
 TONE: Match the content style specified above. If it says sarcastic, be sarcastic. If serious, be serious. If playful, be playful. Do NOT default to "warm and informative" every time — that's the AI default and it's boring.
 
-Include 1-2 relevant hashtags. End with a soft CTA to ${ctaUrl} when appropriate.
+Include 1-2 relevant hashtags. Do NOT include any URLs or links — posts with links get lower engagement and don't rank on social platforms.
 Never use fear-mongering, absolute predictions, or medical/financial advice.
 Never ask for likes, comments, shares, tags, or follows.
 
@@ -513,7 +511,7 @@ Key facts: ${state.facts.join('\n- ')}
 Keywords: ${state.topic.keywords.join(', ')}
 Tone: ${tone}
 Character limit: ${charLimit}
-CTA URL (use this exact URL when including a CTA): ${ctaUrl}
+Do NOT include any URLs or links in the post.
 
 ${state.topic.outline ? `Outline:\n${state.topic.outline.map((o: { heading: string }) => `- ${o.heading}`).join('\n')}` : ''}
 

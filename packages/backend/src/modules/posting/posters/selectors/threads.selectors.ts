@@ -137,7 +137,7 @@ export const THREADS_SELECTORS = {
       ],
     } satisfies SelectorStrategy,
     quoteTextarea: {
-      css: ['div[role="dialog"] div[contenteditable="true"]', 'div[contenteditable="true"]'],
+      css: ['div[role="dialog"] div[contenteditable="true"]', 'div[role="dialog"] [contenteditable="true"]'],
     } satisfies SelectorStrategy,
     quoteSubmit: {
       role: { role: 'button', name: 'Post' },
@@ -154,10 +154,11 @@ export const THREADS_SELECTORS = {
       text: { text: 'Follow', exact: true },
       css: ['div[role="button"]:has-text("Follow")', 'button:has-text("Follow")'],
     } satisfies SelectorStrategy,
-    // Reply dialog textarea
+    // Reply dialog textarea — must be inside the dialog to avoid matching
+    // the compose box in the sidebar/header
     replyTextarea: {
       role: { role: 'textbox' },
-      css: ['div[role="dialog"] div[contenteditable="true"]', 'div[contenteditable="true"]'],
+      css: ['div[role="dialog"] div[contenteditable="true"]', 'div[role="dialog"] [contenteditable="true"]'],
     } satisfies SelectorStrategy,
     // Reply dialog submit button
     replySubmit: {
