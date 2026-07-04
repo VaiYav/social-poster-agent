@@ -16,9 +16,9 @@ Langfuse tracing activates automatically when `LANGFUSE_PUBLIC_KEY` is set — n
 
 ### Traced components
 
-- **GenerationService** — one `CallbackHandler` per topic with `sessionId=runId`, `tags=['generation', language, ...networks]`, `traceMetadata={topic, runId, language, networks}`. Applied to all 3 `graph.invoke()` call sites (initial, resume, review-resume).
+- **GenerationService** — one `CallbackHandler` per topic with `sessionId=runId`, `tags=['generation', language, ...networks]`, `traceMetadata={topic, runId, language, networks}`. Applied to all 3 `graph.invoke()` call sites (initial, resume, review-resume) via the `tracedGraphInvoke()` helper that centralises callback wiring.
 - **LlmDecisionService** (orchestrator) — one handler per `decide()` call with `tags=['orchestrator', 'decision']`, `traceMetadata={utcHour, utcDayOfWeek, degraded}`.
-- **LlmService** — merges ALS callbacks + explicit `options.callbacks`, passes to `model.invoke(messages, { callbacks })` only when callbacks are non-empty (avoids creating empty config objects).
+- **LlmService** — merges ALS callbacks + explicit `options.callbacks`, passes to `model.invoke(messages, { callbacks })` only when callbacks are non-empty (avoids creating empty config objects). Does NOT inject `LangfuseService` — it receives callbacks via `GenerateOptions.callbacks` and ALS only.
 
 ### Env vars
 

@@ -72,19 +72,6 @@ export class LangfuseService implements OnModuleDestroy {
   }
 
   /**
-   * Flush all queued events to Langfuse. Blocks until the queue is drained
-   * or the flush timeout expires. Useful in short-lived CLI scripts.
-   * In the long-running NestJS app, background batching handles this —
-   * call only on shutdown.
-   */
-  async flush(): Promise<void> {
-    if (!this.isEnabled) return;
-    // The CallbackHandler doesn't expose a standalone flush method in v5;
-    // flushing is handled by the OTel SDK shutdown. Use shutdownLangfuse()
-    // for full flush + shutdown, or rely on background batching.
-  }
-
-  /**
    * Graceful shutdown — flushes all queued traces before the module is
    * destroyed. Called by NestJS on SIGTERM/SIGINT via shutdown hooks.
    */

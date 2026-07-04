@@ -1,12 +1,11 @@
 import { Injectable, Logger, Optional, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI } from '@langchain/openai';
-import type { BaseCallbackHandler } from '@langchain/core/callbacks/base';
+import type { BaseCallbackHandler } from '../../domain/ports/llm-primitives.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import type { ILlmPort, GenerateOptions, LlmResponse } from '../../domain/ports/llm.port.js';
 import { PromptRegistry } from './prompt-registry.js';
-import { LangfuseService } from '../langfuse/langfuse.service.js';
 
 /**
  * Provider definition — each provider is tried in order until one succeeds.
@@ -113,7 +112,6 @@ export class LlmService implements ILlmPort, OnModuleInit {
   constructor(
     private readonly configService: ConfigService,
     @Optional() private readonly promptRegistry?: PromptRegistry,
-    @Optional() private readonly langfuse?: LangfuseService,
   ) {
     this.cbThreshold = this.configService.get<number>('LLM_CB_THRESHOLD', 3);
     this.cbCooldownMs = this.configService.get<number>('LLM_CB_COOLDOWN_MS', 60_000);

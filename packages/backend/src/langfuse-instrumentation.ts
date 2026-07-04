@@ -23,7 +23,7 @@ import { Logger } from '@nestjs/common';
 const logger = new Logger('LangfuseInstrumentation');
 
 /** Whether Langfuse tracing is enabled (LANGFUSE_PUBLIC_KEY is set). */
-export const langfuseEnabled = !!process.env.LANGFUSE_PUBLIC_KEY;
+const langfuseEnabled = !!process.env.LANGFUSE_PUBLIC_KEY;
 
 /** The OTel SDK instance — exported for graceful shutdown in main.ts. */
 let langfuseSdk: NodeSDK | undefined;

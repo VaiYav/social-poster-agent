@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ILlmPort } from '../../domain/ports/llm.port.js';
+import type { BaseCallbackHandler } from '../../domain/ports/llm-primitives.js';
 import { ContentSourceService } from '../content-source/content-source.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { PostsService } from '../posts/posts.service';
@@ -11,7 +12,7 @@ import { RedisCheckpointSaver } from '../../infrastructure/checkpoint/redis-chec
 import { SseService } from '../../infrastructure/sse/sse.service.js';
 import { TrendingService } from '../trending/trending.service.js';
 import { TrendingScraperService } from '../trending/trending-scraper.service.js';
-import { LangfuseService } from '../../infrastructure/langfuse/langfuse.service.js';
+import { LangfuseService, type LangfuseHandlerOptions } from '../../infrastructure/langfuse/langfuse.service.js';
 import { withLlmCallbacks } from '../../infrastructure/llm/llm.service.js';
 import { getEnabledNetworks } from '../../domain/enabled-networks.js';
 import {
@@ -54,6 +55,17 @@ import { ABVariantGenerator } from '../content-enhancements/ab-variant.generator
  *
  * Saves drafts as Post (status=DRAFT). Operator reviews in UI before posting.
  */
+
+/**
+ * Config object passed to `graph.invoke()`. Includes `callbacks` in the type
+ * so we can attach Langfuse handlers without `as` casts.
+ */
+interface GraphInvokeConfig {
+  configurable: { thread_id: string };
+  recursionLimit: number;
+  callbacks?: BaseCallbackHandler[];
+}
+
 @Injectable()
 export class GenerationService {
   private readonly logger = new Logger(GenerationService.name);
@@ -116,6 +128,32 @@ export class GenerationService {
       this.logger.log('LangGraph workflow compiled with Redis checkpoint saver + SSE progress (§10.3 parallel graph)');
     }
     return this.compiledGraph;
+  }
+
+  /**
+   * Invoke the LangGraph workflow with Langfuse tracing attached.
+   *
+   * Centralises the callback wiring that was previously duplicated across 3
+   * call sites: create a CallbackHandler from the given options, attach it
+   * to the config, and wrap the invoke in AsyncLocalStorage so all
+   * llm.generateChat() calls inside graph nodes nest under the trace.
+   *
+   * When Langfuse is disabled (no LANGFUSE_PUBLIC_KEY), this is a plain
+   * graph.invoke() with zero overhead.
+   */
+  private async tracedGraphInvoke(
+    config: GraphInvokeConfig,
+    handlerOpts: LangfuseHandlerOptions,
+    input: Parameters<ReturnType<ReturnType<typeof buildGenerationGraph>['compile']>['invoke']>[0],
+  ): Promise<Record<string, unknown>> {
+    const handler = this.langfuse?.createHandler(handlerOpts);
+    const callbacks = handler ? [handler] : [];
+    if (callbacks.length > 0) {
+      config.callbacks = callbacks;
+    }
+    return withLlmCallbacks(callbacks, () =>
+      this.getGraph().invoke(input as never, config as never),
+    ) as Promise<Record<string, unknown>>;
   }
 
   /**
@@ -606,7 +644,7 @@ export class GenerationService {
 
     // Invoke the LangGraph workflow with checkpoint
     // thread_id = runId:topic enables resume after crash (B6 mitigation)
-    const config = {
+    const config: GraphInvokeConfig = {
       configurable: { thread_id: `${runId}:${topic.topic}` },
       recursionLimit: 40, // P3+P7 added 6 more nodes (visual_concept + ab_variant per network)
     };
@@ -615,31 +653,21 @@ export class GenerationService {
       `Invoking LangGraph for "${topic.topic}" → ${activeNetworks.join(', ')} (thread: ${config.configurable.thread_id})`,
     );
 
-    // Langfuse tracing: create a CallbackHandler for this generation run.
-    // sessionId = runId groups all LLM calls across topics in the same run.
-    // tags + traceMetadata enable filtering by language, topic, and networks
-    // in the Langfuse UI. The handler is passed to graph.invoke() via config
-    // AND set in AsyncLocalStorage so all llm.generateChat() calls inside
-    // graph nodes automatically nest under this trace.
-    const langfuseHandler = this.langfuse?.createHandler({
-      sessionId: runId,
-      tags: ['generation', language, ...activeNetworks.map((n) => n.toLowerCase())],
-      traceMetadata: {
-        topic: topic.topic,
-        runId,
-        language,
-        networks: activeNetworks.join(','),
+    // Langfuse tracing: sessionId=runId groups all LLM calls across topics
+    // in the same run. tags + traceMetadata enable filtering in the Langfuse UI.
+    const finalState = await this.tracedGraphInvoke(
+      config,
+      {
+        sessionId: runId,
+        tags: ['generation', language, ...activeNetworks.map((n) => n.toLowerCase())],
+        traceMetadata: {
+          topic: topic.topic,
+          runId,
+          language,
+          networks: activeNetworks.join(','),
+        },
       },
-    });
-    const traceCallbacks = langfuseHandler ? [langfuseHandler] : [];
-    if (config && traceCallbacks.length > 0) {
-      // LangGraph supports callbacks in the config — these fire on graph
-      // node entry/exit, creating span observations for each node.
-      (config as { callbacks?: unknown[] }).callbacks = traceCallbacks;
-    }
-
-    const finalState = await withLlmCallbacks(traceCallbacks, () =>
-      this.getGraph().invoke(initialState, config),
+      initialState,
     );
     const generatedPosts = (finalState as { posts?: GeneratedPost[] }).posts ?? [];
     // P4: Extract facts from final state for thread depth planning
@@ -1225,23 +1253,20 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
           if (controller.signal.aborted) break;
           try {
             // Same thread_id as original — LangGraph will resume from checkpoint
-            const config = {
+            const config: GraphInvokeConfig = {
               configurable: { thread_id: `${runId}:${topic.topic}` },
               recursionLimit: 25,
             };
             const initialState = createInitialState(topic, targetNetworks, brandVoice);
             // Langfuse tracing for resume — same sessionId as original run
-            const resumeHandler = this.langfuse?.createHandler({
-              sessionId: runId,
-              tags: ['generation', 'resume'],
-              traceMetadata: { topic: topic.topic, runId, mode: 'resume' },
-            });
-            const resumeCallbacks = resumeHandler ? [resumeHandler] : [];
-            if (resumeCallbacks.length > 0) {
-              (config as { callbacks?: unknown[] }).callbacks = resumeCallbacks;
-            }
-            const finalState = await withLlmCallbacks(resumeCallbacks, () =>
-              this.getGraph().invoke(initialState, config),
+            const finalState = await this.tracedGraphInvoke(
+              config,
+              {
+                sessionId: runId,
+                tags: ['generation', 'resume'],
+                traceMetadata: { topic: topic.topic, runId, mode: 'resume' },
+              },
+              initialState,
             );
             const generatedPosts = (finalState as { posts?: GeneratedPost[] }).posts ?? [];
 
@@ -1324,7 +1349,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
     approved: boolean,
     edits?: Record<string, string>,
   ): Promise<{ runId: string; topic: string; status: string }> {
-    const config = {
+    const config: GraphInvokeConfig = {
       configurable: { thread_id: `${runId}:${topic}` },
       recursionLimit: 25,
     };
@@ -1333,17 +1358,14 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
     // The interrupt() call in human_review node will return this value.
     const resumePayload = { approved, edits };
     // Langfuse tracing for review resume — same sessionId as original run
-    const reviewHandler = this.langfuse?.createHandler({
-      sessionId: runId,
-      tags: ['generation', 'review-resume'],
-      traceMetadata: { topic, runId, mode: 'review-resume', approved },
-    });
-    const reviewCallbacks = reviewHandler ? [reviewHandler] : [];
-    if (reviewCallbacks.length > 0) {
-      (config as { callbacks?: unknown[] }).callbacks = reviewCallbacks;
-    }
-    const finalState = await withLlmCallbacks(reviewCallbacks, () =>
-      this.getGraph().invoke(new Command({ resume: resumePayload }), config),
+    const finalState = await this.tracedGraphInvoke(
+      config,
+      {
+        sessionId: runId,
+        tags: ['generation', 'review-resume'],
+        traceMetadata: { topic, runId, mode: 'review-resume', approved },
+      },
+      new Command({ resume: resumePayload }),
     );
     const generatedPosts = (finalState as { posts?: GeneratedPost[] }).posts ?? [];
 
