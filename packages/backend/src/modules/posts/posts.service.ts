@@ -74,6 +74,7 @@ export class PostsService {
   async create(data: {
     accountId: string;
     network: SocialNetwork;
+    language?: string; // ISO 639-1: en, ru, uk, es, it (default: en)
     content: string;
     threadId?: string;
     threadPosition?: number;

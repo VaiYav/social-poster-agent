@@ -146,6 +146,8 @@ export const GenerationState = Annotation.Root({
   topic: Annotation<ContentTopic>,
   targetNetworks: Annotation<SocialNetwork[]>,
   brandVoice: Annotation<string>,
+  // Language for this generation run (ISO 639-1: en, ru, uk, es, it)
+  language: Annotation<string>,
   // Accumulated outputs
   facts: Annotation<string[]>,
   hooks: Annotation<string[]>, // 3-5 hook variants from hook_generation
@@ -180,6 +182,26 @@ const NETWORK_LIMITS: Record<SocialNetwork, number> = {
   [SocialNetwork.X]: 280,
   [SocialNetwork.THREADS]: 500,
   [SocialNetwork.FACEBOOK]: 500, // §11.3: marketing ≤500
+};
+
+// ── Multilingual support ───────────────────────────────────────────────────
+// Language names and per-language instructions for the generation prompt.
+// Russian and Ukrainian are explicitly distinguished to prevent the LLM from
+// mixing them (a common failure mode since they share Cyrillic alphabet).
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: 'English',
+  ru: 'Russian (русский)',
+  uk: 'Ukrainian (українська)',
+  es: 'Spanish (español)',
+  it: 'Italian (italiano)',
+};
+
+const LANGUAGE_INSTRUCTIONS: Record<string, string> = {
+  en: '',
+  ru: ' Use natural conversational Russian. Use Cyrillic script.',
+  uk: ' Use natural conversational Ukrainian — NOT Russian. Ukrainian has its own vocabulary (e.g. "дякую" not "спасибо", "так" not "да", "час" not "время"). Use Cyrillic script.',
+  es: ' Use natural conversational Spanish. Use appropriate regional Spanish (neutral/international).',
+  it: ' Use natural conversational Italian. Use standard Italian, not dialects.',
 };
 
 const NETWORK_TONE: Record<SocialNetwork, string> = {
@@ -457,6 +479,11 @@ function makeDraftNode(network: SocialNetwork) {
     const tone = NETWORK_TONE[network];
     const persona = NETWORK_PERSONA[network];
 
+    // Multilingual support — determine the language for this post
+    const lang = state.language || 'en';
+    const langName = LANGUAGE_NAMES[lang] ?? 'English';
+    const langInstruction = LANGUAGE_INSTRUCTIONS[lang] ?? '';
+
     // P10: Source Attribution disabled — links in posts reduce engagement and
     // don't rank on social platforms. Posts should be pure text + hashtags only.
     // (Keeping the import and resolveCtaUrl call removed to avoid unused warnings.)
@@ -483,6 +510,11 @@ ${persona}
 ${styleGuidance}
 
 Write a ${network} post using the hook and angle provided. Stay within ${charLimit} characters.
+
+LANGUAGE: Write this post in ${langName}.${langInstruction}
+- Russian and Ukrainian are DIFFERENT languages. Do not mix them. Do not use Russian words in Ukrainian posts or vice versa.
+- Use natural, native-speaker phrasing — not translated-sounding text.
+- Hashtags should be in the same language as the post.
 
 ANTI-AI RULES — CRITICAL (read these twice):
 - NEVER use these words: delve, realm, journey, uncover, navigate, explore, discover, unlock, tapestry, embrace, vibrant, resonate, "in today's fast-paced world."
@@ -1034,11 +1066,13 @@ export function createInitialState(
   targetNetworks: SocialNetwork[],
   brandVoice: string,
   humanReview = false,
+  language = 'en',
 ): GenerationStateType {
   return {
     topic,
     targetNetworks,
     brandVoice,
+    language,
     facts: [],
     hooks: [],
     results: {},

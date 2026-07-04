@@ -114,5 +114,7 @@ export const ContentTopicSchema = z.object({
   // B5: category diversity + freshness priority
   category: z.string().optional(),
   publishedAt: z.coerce.date().optional(),
+  // Language code (ISO 639-1): en, ru, uk, es, it — used for multilingual generation
+  language: z.string().default('en'),
 });
 export type ContentTopic = z.infer<typeof ContentTopicSchema>;

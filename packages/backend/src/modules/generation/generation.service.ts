@@ -59,6 +59,10 @@ export class GenerationService {
   private compiledGraph: ReturnType<ReturnType<typeof buildGenerationGraph>['compile']> | null = null;
   /** Active run cancellations — runId → AbortController */
   private readonly activeRuns = new Map<string, AbortController>();
+  /** Languages for multilingual post generation (ISO 639-1 codes) */
+  private readonly postingLanguages: string[];
+  /** Counter for round-robin language rotation across topics */
+  private languageRotationIndex = 0;
 
   constructor(
     @Inject(ILlmPort) private readonly llm: ILlmPort,
@@ -75,7 +79,19 @@ export class GenerationService {
     @Optional() private readonly visualService?: VisualConceptService,
     @Optional() private readonly threadDepthController?: ThreadDepthController,
     @Optional() private readonly abGenerator?: ABVariantGenerator,
-  ) {}
+  ) {
+    // Read POSTING_LANGUAGES from env — comma-separated ISO 639-1 codes.
+    // Default: en only (backward compatible). Round-robin rotation across topics.
+    const langEnv = process.env.POSTING_LANGUAGES?.trim() || 'en';
+    this.postingLanguages = langEnv
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    if (this.postingLanguages.length === 0) this.postingLanguages.push('en');
+    if (this.postingLanguages.length > 1) {
+      this.logger.log(`Multilingual generation enabled: ${this.postingLanguages.join(', ')}`);
+    }
+  }
 
   /**
    * Lazy-compile the graph with the checkpoint saver and SSE progress publisher.
@@ -219,9 +235,15 @@ export class GenerationService {
       for (let i = 0; i < prioritizedTopics.length; i += MAX_CONCURRENCY) {
         const batch = prioritizedTopics.slice(i, i + MAX_CONCURRENCY);
         const results = await Promise.allSettled(
-          batch.map((topic) =>
-            this.generatePostsForTopic(topic, targetNetworks, brandVoice, run.id, multiStage, humanReview),
-          ),
+          batch.map((topic) => {
+            // Round-robin language rotation — each topic gets a different language
+            const language = this.postingLanguages[
+              this.languageRotationIndex % this.postingLanguages.length
+            ]!;
+            this.languageRotationIndex++;
+            this.logger.debug(`Generating topic "${topic.topic.slice(0, 40)}" in ${language}`);
+            return this.generatePostsForTopic(topic, targetNetworks, brandVoice, run.id, multiStage, humanReview, language);
+          }),
         );
 
         for (const result of results) {
@@ -552,6 +574,7 @@ export class GenerationService {
     runId: string,
     multiStage = false,
     humanReview = false,
+    language = 'en',
   ): Promise<{ id: string }[]> {
     // Check which networks have active accounts
     const activeNetworks: SocialNetwork[] = [];
@@ -576,7 +599,7 @@ export class GenerationService {
     }
 
     // Build initial state — graph will fan out to all active networks
-    const initialState = createInitialState(topic, activeNetworks, brandVoice, humanReview);
+    const initialState = createInitialState(topic, activeNetworks, brandVoice, humanReview, language);
 
     // Invoke the LangGraph workflow with checkpoint
     // thread_id = runId:topic enables resume after crash (B6 mitigation)
@@ -624,6 +647,7 @@ export class GenerationService {
       const post = await this.postsService.create({
         accountId: account.id,
         network: genPost.network,
+        language,
         content: genPost.content,
         generationRunId: runId,
         simhash: candidateHash, // Sprint L: dedicated field for fast dedup

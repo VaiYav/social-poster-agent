@@ -42,7 +42,17 @@ export class TargetingService {
 
   constructor(private readonly configService: ConfigService) {
     this.hashtags = this.parseList(
-      this.configService.get<string>('ENGAGEMENT_HASHTAGS', '#astrology,#horoscope,#zodiac,#astrologytips,#moonsign'),
+      // Multilingual hashtags — covers English, Russian, Ukrainian, Spanish, Italian markets.
+      // Mixed feed: each browsing session picks a random hashtag, so the agent engages
+      // with posts in different languages and replies in the same language as the post.
+      this.configService.get<string>(
+        'ENGAGEMENT_HASHTAGS',
+        '#astrology,#horoscope,#zodiac,#astrologytips,#moonsign,' + // English
+        '#астрология,#гороскоп,#зодиак,#лунавзнаке,' +             // Russian
+        '#астрологія,#гороскоп,#зодіак,#місяцьвзнаку,' +           // Ukrainian
+        '#astrologia,#horoscopo,#zodiaco,#lunaensigno,' +          // Spanish
+        '#astrologia,#oroscopo,#zodiaco,#lunanelsegno',            // Italian
+      ),
     );
     this.competitors = this.parseList(
       this.configService.get<string>('ENGAGEMENT_COMPETITORS', 'costarastrology,thepatternapp,sanctuaryworldco'),
