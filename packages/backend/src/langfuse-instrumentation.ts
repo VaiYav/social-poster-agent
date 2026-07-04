@@ -29,9 +29,15 @@
 //   - Sentry OTel init: @sentry/node build/esm/sdk/initOtel.js
 import { trace } from '@opentelemetry/api';
 import { LangfuseSpanProcessor } from '@langfuse/otel';
-import { Logger } from '@nestjs/common';
 
-const logger = new Logger('LangfuseInstrumentation');
+// Use console directly — @nestjs/common Logger is not yet initialised when
+// this file runs (it's imported before NestFactory.create()).
+const log = (level: 'log' | 'warn' | 'debug', msg: string): void => {
+  const prefix = '\x1b[32m[LangfuseInstrumentation]\x1b[39m';
+  if (level === 'warn') console.warn(`\x1b[33m[LangfuseInstrumentation]\x1b[39m ${msg}`);
+  else if (level === 'debug') console.debug(`${prefix} ${msg}`);
+  else console.log(`${prefix} ${msg}`);
+};
 
 /** Whether Langfuse tracing is enabled (LANGFUSE_PUBLIC_KEY is set). */
 const langfuseEnabled = !!process.env.LANGFUSE_PUBLIC_KEY;
@@ -54,13 +60,13 @@ if (langfuseEnabled) {
     if (multiProcessor?._spanProcessors && Array.isArray(multiProcessor._spanProcessors)) {
       multiProcessor._spanProcessors.push(langfuseProcessor);
       const baseUrl = process.env.LANGFUSE_BASE_URL ?? 'https://cloud.langfuse.com';
-      logger.log(`Langfuse tracing enabled — exporting to ${baseUrl}`);
+      log('log', `Langfuse tracing enabled — exporting to ${baseUrl}`);
     } else {
       // Fallback: no global provider registered (Sentry disabled or not yet init).
       // This should not happen in production (instrument.ts runs first), but we
       // handle it gracefully — the processor is created but won't receive spans
       // until a provider is available. Langfuse SDK degrades to a no-op.
-      logger.warn(
+      log('warn',
         'Langfuse: no global TracerProvider found — spans will not be exported. ' +
           'Ensure instrument.ts (Sentry) is imported before langfuse-instrumentation.ts.',
       );
@@ -68,13 +74,13 @@ if (langfuseEnabled) {
   } catch (err) {
     // SDK errors are non-fatal — the app must still boot. Langfuse SDK is
     // designed to never break the host application (errors are caught + logged).
-    logger.warn(
+    log('warn',
       `Langfuse OTel SDK failed to start — tracing disabled: ${(err as Error).message}`,
     );
     langfuseProcessor = undefined;
   }
 } else {
-  logger.debug('Langfuse tracing disabled — LANGFUSE_PUBLIC_KEY not set');
+  log('debug', 'Langfuse tracing disabled — LANGFUSE_PUBLIC_KEY not set');
 }
 
 /**
@@ -86,9 +92,9 @@ export async function shutdownLangfuse(): Promise<void> {
   if (langfuseProcessor) {
     try {
       await langfuseProcessor.shutdown();
-      logger.debug('Langfuse span processor shut down — traces flushed');
+      log('debug', 'Langfuse span processor shut down — traces flushed');
     } catch (err) {
-      logger.warn(`Langfuse shutdown error: ${(err as Error).message}`);
+      log('warn', `Langfuse shutdown error: ${(err as Error).message}`);
     }
   }
 }
