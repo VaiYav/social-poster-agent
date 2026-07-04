@@ -1,8 +1,10 @@
-import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { CallbackHandler } from '@langfuse/langchain';
 import { LangfuseClient, type ChatPromptClient, type TextPromptClient } from '@langfuse/client';
 import { shutdownLangfuse } from '../../langfuse-instrumentation.js';
 import { CircuitBreaker } from '../../domain/circuit-breaker.js';
+import { getErrorMessage } from '../common/error-utils.js';
+import { LANGFUSE_PROMPT_BREAKER } from './langfuse.tokens.js';
 
 /**
  * Minimal chat message shape for SDK fallback parameter.
@@ -59,12 +61,12 @@ export class LangfuseService implements OnModuleDestroy {
   private readonly client: LangfuseClient | null = null;
 
   /** Circuit breaker for prompt fetches — prevents cascading timeouts. */
-  private readonly promptCircuitBreaker = new CircuitBreaker('langfuse-prompts', {
-    failureThreshold: 3,
-    resetTimeoutMs: 60_000, // 1 min cooldown after 3 consecutive failures
-  });
+  private readonly promptCircuitBreaker: CircuitBreaker;
 
-  constructor() {
+  constructor(
+    @Inject(LANGFUSE_PROMPT_BREAKER) promptCircuitBreaker: CircuitBreaker,
+  ) {
+    this.promptCircuitBreaker = promptCircuitBreaker;
     if (this.isEnabled) {
       try {
         this.client = new LangfuseClient({
@@ -118,11 +120,12 @@ export class LangfuseService implements OnModuleDestroy {
    * @param fallback Optional fallback chat messages (Mustache {{var}} syntax)
    */
   async getChatPrompt(name: string, fallback?: FallbackChatMessage[]): Promise<ChatPromptClient | undefined> {
-    if (!this.client) return undefined;
+    const client = this.client;
+    if (!client) return undefined;
     if (!this.promptCircuitBreaker.canExecute()) return undefined;
     try {
       return await this.promptCircuitBreaker.execute(() =>
-        this.client!.prompt.get(name, {
+        client.prompt.get(name, {
           type: 'chat',
           label: 'production',
           cacheTtlSeconds: 300,
@@ -148,11 +151,12 @@ export class LangfuseService implements OnModuleDestroy {
    * @param fallback Optional fallback text (Mustache {{var}} syntax)
    */
   async getTextPrompt(name: string, fallback?: string): Promise<TextPromptClient | undefined> {
-    if (!this.client) return undefined;
+    const client = this.client;
+    if (!client) return undefined;
     if (!this.promptCircuitBreaker.canExecute()) return undefined;
     try {
       return await this.promptCircuitBreaker.execute(() =>
-        this.client!.prompt.get(name, {
+        client.prompt.get(name, {
           type: 'text',
           label: 'production',
           cacheTtlSeconds: 300,
@@ -174,9 +178,4 @@ export class LangfuseService implements OnModuleDestroy {
   async onModuleDestroy(): Promise<void> {
     await shutdownLangfuse();
   }
-}
-
-/** Safely extract a message from an unknown caught error. */
-function getErrorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }

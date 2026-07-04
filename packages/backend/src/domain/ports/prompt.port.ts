@@ -1,5 +1,5 @@
 // Prompt port — abstract interface for prompt management.
-// Implementation: PromptRegistry (infrastructure/llm/prompt-registry.ts).
+// Implementation: PromptRegistry (infrastructure/prompt/prompt-registry.ts).
 // Graph nodes and services depend on this port, not the concrete class,
 // enabling hexagonal architecture compliance and easy mocking in tests.
 
@@ -13,6 +13,29 @@ export interface CompiledChatPrompt {
 }
 
 export const IPromptPort = Symbol('IPromptPort');
+
+/**
+ * Optional intermediate fallback source for prompts.
+ *
+ * Implementations are injected as an array via `PROMPT_FALLBACK_PROVIDERS`.
+ * PromptRegistry tries them between the remote prompt manager (Langfuse)
+ * and the caller-provided inline fallback. This makes the fallback chain
+ * extensible (OCP) — new sources (e.g. local JSON cache, S3) can be added
+ * by binding to the token without modifying PromptRegistry.
+ */
+export interface IPromptFallbackProvider {
+  tryGetChatPrompt(
+    name: string,
+    variables: Record<string, string>,
+  ): Promise<CompiledChatPrompt | null>;
+  tryGetTextPrompt(
+    name: string,
+    variables: Record<string, string>,
+  ): Promise<string | null>;
+}
+
+/** DI token for the optional array of intermediate fallback providers. */
+export const PROMPT_FALLBACK_PROVIDERS = Symbol('PROMPT_FALLBACK_PROVIDERS');
 
 /**
  * Port for fetching and compiling prompts from a prompt management system

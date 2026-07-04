@@ -1,11 +1,9 @@
-import { Injectable, Logger, Optional } from '@nestjs/common'
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import type { ConfigService } from '@nestjs/config'
 import { LangfuseService } from '../langfuse/langfuse.service.js'
-import type { IPromptPort, CompiledChatPrompt } from '../../domain/ports/prompt.port.js'
-
-// Re-export for backward compatibility — consumers should migrate to
-// importing from domain/ports/prompt.port.js instead.
-export type { CompiledChatPrompt } from '../../domain/ports/prompt.port.js'
+import type { IPromptPort, IPromptFallbackProvider, CompiledChatPrompt } from '../../domain/ports/prompt.port.js'
+import { PROMPT_FALLBACK_PROVIDERS } from '../../domain/ports/prompt.port.js'
+import { getErrorMessage } from '../common/error-utils.js'
 
 /**
  * PromptRegistry — facade for prompt management.
@@ -13,10 +11,15 @@ export type { CompiledChatPrompt } from '../../domain/ports/prompt.port.js'
  * Implements `IPromptPort` so consumers depend on the port abstraction,
  * not the concrete class (hexagonal architecture).
  *
- * Fallback chain (2-tier):
+ * Fallback chain (extensible via PROMPT_FALLBACK_PROVIDERS):
  *   1. Langfuse Prompt Management (with SDK native `fallback` parameter —
  *      if the fetch fails, the SDK returns fallback content automatically)
- *   2. Inline fallback from the caller (when Langfuse is completely disabled)
+ *   2. Intermediate fallback providers (injected via PROMPT_FALLBACK_PROVIDERS,
+ *      tried in order — e.g. local JSON cache, S3. Empty by default.)
+ *   3. Inline fallback from the caller (when all above fail)
+ *
+ * New fallback sources can be added by binding to `PROMPT_FALLBACK_PROVIDERS`
+ * without modifying PromptRegistry (OCP).
  *
  * The inline fallback uses `{var}` syntax (for local `interpolate()`).
  * It is converted to `{{var}}` Mustache syntax before passing to the SDK,
@@ -29,12 +32,15 @@ export type { CompiledChatPrompt } from '../../domain/ports/prompt.port.js'
 export class PromptRegistry implements IPromptPort {
   private readonly logger = new Logger(PromptRegistry.name)
   private readonly currentVersion: string
+  private readonly fallbackProviders: readonly IPromptFallbackProvider[]
 
   constructor(
     private readonly configService: ConfigService,
     @Optional() private readonly langfuse?: LangfuseService,
+    @Optional() @Inject(PROMPT_FALLBACK_PROVIDERS) fallbackProviders?: IPromptFallbackProvider[],
   ) {
     this.currentVersion = this.configService.get<string>('PROMPT_VERSION', 'latest')
+    this.fallbackProviders = fallbackProviders ?? []
   }
 
   /**
@@ -58,7 +64,7 @@ export class PromptRegistry implements IPromptPort {
    * fallback content.
    *
    * When Langfuse is completely disabled (no client), falls back to
-   * `interpolate()` on the inline fallback.
+   * intermediate providers, then `interpolate()` on the inline fallback.
    *
    * @param name Prompt name in Langfuse (e.g. 'research-extract')
    * @param variables Values for {{var}} placeholders
@@ -69,16 +75,15 @@ export class PromptRegistry implements IPromptPort {
     variables: Record<string, string>,
     fallback?: CompiledChatPrompt,
   ): Promise<CompiledChatPrompt> {
-    // Convert inline fallback to SDK format (ChatMessage[] with {{var}} syntax)
-    const sdkFallback = fallback
-      ? [
-          { role: 'system', content: toMustache(fallback.systemPrompt) },
-          { role: 'user', content: toMustache(fallback.userPrompt) },
-        ]
-      : undefined
-
-    // Try Langfuse with SDK native fallback
+    // 1. Try Langfuse with SDK native fallback
     if (this.langfuse) {
+      // Convert inline fallback to SDK format (ChatMessage[] with {{var}} syntax)
+      const sdkFallback = fallback
+        ? [
+            { role: 'system', content: toMustache(fallback.systemPrompt) },
+            { role: 'user', content: toMustache(fallback.userPrompt) },
+          ]
+        : undefined
       const prompt = await this.langfuse.getChatPrompt(name, sdkFallback)
       if (prompt) {
         try {
@@ -95,7 +100,17 @@ export class PromptRegistry implements IPromptPort {
       }
     }
 
-    // Langfuse disabled or compile failed — use inline fallback with local interpolation
+    // 2. Try intermediate fallback providers (extensible via DI)
+    for (const provider of this.fallbackProviders) {
+      try {
+        const result = await provider.tryGetChatPrompt(name, variables)
+        if (result) return result
+      } catch (err) {
+        this.logger.warn(`Fallback provider failed for "${name}": ${getErrorMessage(err)}`)
+      }
+    }
+
+    // 3. Use inline fallback with local interpolation
     if (fallback) {
       return {
         systemPrompt: interpolate(fallback.systemPrompt, variables),
@@ -103,6 +118,7 @@ export class PromptRegistry implements IPromptPort {
       }
     }
 
+    this.logger.error(`Chat prompt "${name}" not found in Langfuse, fallback providers, or inline fallback`)
     throw new Error(`Prompt "${name}" not found in Langfuse or fallback`)
   }
 
@@ -121,26 +137,40 @@ export class PromptRegistry implements IPromptPort {
     variables: Record<string, string>,
     fallback?: string,
   ): Promise<string> {
-    // Convert inline fallback to SDK format ({{var}} Mustache syntax)
-    const sdkFallback = fallback ? toMustache(fallback) : undefined
-
-    // Try Langfuse with SDK native fallback
+    // 1. Try Langfuse with SDK native fallback
     if (this.langfuse) {
+      // Convert inline fallback to SDK format ({{var}} Mustache syntax)
+      const sdkFallback = fallback ? toMustache(fallback) : undefined
       const prompt = await this.langfuse.getTextPrompt(name, sdkFallback)
       if (prompt) {
         try {
-          return prompt.compile(variables) as string
+          const compiled = prompt.compile(variables)
+          if (typeof compiled !== 'string') {
+            throw new Error(`Expected string from text prompt compile, got ${typeof compiled}`)
+          }
+          return compiled
         } catch (err) {
           this.logger.warn(`Langfuse compile failed for "${name}": ${getErrorMessage(err)}`)
         }
       }
     }
 
-    // Langfuse disabled or compile failed — use inline fallback with local interpolation
+    // 2. Try intermediate fallback providers (extensible via DI)
+    for (const provider of this.fallbackProviders) {
+      try {
+        const result = await provider.tryGetTextPrompt(name, variables)
+        if (result !== null) return result
+      } catch (err) {
+        this.logger.warn(`Fallback provider failed for text prompt "${name}": ${getErrorMessage(err)}`)
+      }
+    }
+
+    // 3. Use inline fallback with local interpolation
     if (fallback) {
       return interpolate(fallback, variables)
     }
 
+    this.logger.error(`Text prompt "${name}" not found in Langfuse, fallback providers, or inline fallback`)
     throw new Error(`Text prompt "${name}" not found in Langfuse or fallback`)
   }
 }
@@ -158,11 +188,6 @@ function interpolate(template: string, variables: Record<string, string>): strin
     const val = variables[key]
     return val !== undefined ? val : match
   })
-}
-
-/** Safely extract a message from an unknown caught error. */
-function getErrorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
 }
 
 /**
@@ -186,7 +211,7 @@ function isChatMessage(msg: unknown): msg is { role: string; content: string } {
     msg !== null &&
     'role' in msg &&
     'content' in msg &&
-    typeof (msg as { role: unknown }).role === 'string' &&
-    typeof (msg as { content: unknown }).content === 'string'
+    typeof msg.role === 'string' &&
+    typeof msg.content === 'string'
   )
 }

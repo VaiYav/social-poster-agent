@@ -4,11 +4,11 @@
  * Tests the facade behavior: Langfuse-first with SDK native fallback,
  * inline fallback when Langfuse is disabled, and version tracking.
  *
- * Source: packages/backend/src/infrastructure/llm/prompt-registry.ts
+ * Source: packages/backend/src/infrastructure/prompt/prompt-registry.ts
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ConfigService } from '@nestjs/config'
-import { PromptRegistry } from '../../../src/infrastructure/llm/prompt-registry'
+import { PromptRegistry } from '../../../../src/infrastructure/prompt/prompt-registry'
 
 // ── Helpers ──
 
@@ -35,13 +35,13 @@ describe('PromptRegistry', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     configService = createMockConfigService()
-    registry = new PromptRegistry(configService)
+    registry = new PromptRegistry(configService, undefined, [])
   })
 
   describe('getCurrentVersion', () => {
     it('returns the active version from PROMPT_VERSION env var', () => {
       configService = createMockConfigService({ PROMPT_VERSION: '0.4.0' })
-      registry = new PromptRegistry(configService)
+      registry = new PromptRegistry(configService, undefined, [])
       expect(registry.getCurrentVersion()).toBe('0.4.0')
     })
 
@@ -49,7 +49,7 @@ describe('PromptRegistry', () => {
       configService = {
         get: vi.fn((_key: string, defaultValue?: unknown) => defaultValue),
       } as unknown as ConfigService
-      registry = new PromptRegistry(configService)
+      registry = new PromptRegistry(configService, undefined, [])
       expect(registry.getCurrentVersion()).toBe('latest')
     })
   })

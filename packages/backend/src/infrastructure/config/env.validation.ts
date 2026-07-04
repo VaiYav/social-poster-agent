@@ -124,6 +124,9 @@ const envSchema = Joi.object({
   LANGFUSE_SECRET_KEY: Joi.string().allow('').default(''),
   // Base URL: 🇪🇺 EU: https://cloud.langfuse.com | 🇺🇸 US: https://us.cloud.langfuse.com | self-hosted URL
   LANGFUSE_BASE_URL: Joi.string().allow('').default(''),
+  // Prompt version label for Langfuse Prompt Management. Defaults to 'latest'.
+  // Set to a specific version (e.g. 'production') to pin all prompts to that label.
+  PROMPT_VERSION: Joi.string().default('latest'),
 
   // ── Security ──
   // P0-H3: AES-256-GCM key for encrypting storageState at rest (64 hex chars = 32 bytes)

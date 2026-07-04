@@ -22,7 +22,7 @@ import { ContentSourceModule } from './modules/content-source/content-source.mod
 import { BrowserModule } from './infrastructure/browser/browser.module';
 import { LlmModule } from './infrastructure/llm/llm.module';
 import { LangfuseModule } from './infrastructure/langfuse/langfuse.module';
-import { PromptRegistryModule } from './infrastructure/llm/prompt-registry.module';
+import { PromptRegistryModule } from './infrastructure/prompt/prompt-registry.module';
 import { ContentModule } from './infrastructure/content/content.module';
 import { QueueModule } from './modules/queue/queue.module';
 import { QueueModule as QueueInfraModule } from './infrastructure/queue/queue.module';
