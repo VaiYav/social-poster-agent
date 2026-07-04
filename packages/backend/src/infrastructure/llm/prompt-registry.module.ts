@@ -1,44 +1,32 @@
-import { Module } from '@nestjs/common'
+import { Global, Module } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { PromptRegistry } from './prompt-registry'
-import { v040Prompts } from './prompts/index.js'
 import { LangfuseService } from '../langfuse/langfuse.service.js'
+import { IPromptPort } from '../../domain/ports/prompt.port.js'
 
 /**
- * PromptRegistry module — provides the versioned prompt registry.
+ * PromptRegistry module — provides the prompt management facade.
  *
- * On instantiation the v0.4.0 templates are registered under both their
- * semantic version and the 'latest' alias so callers can pin a version or
- * always get the newest.
+ * Binds `IPromptPort` so consumers depend on the port abstraction, not
+ * the concrete class (hexagonal architecture). The module is @Global so
+ * all feature modules can inject `IPromptPort` without explicit imports.
  *
- * When LangfuseService is available (LangfuseModule is @Global), the registry
- * fetches prompts from Langfuse Prompt Management first, falling back to the
- * local v0.4.0 templates.
+ * When LangfuseService is available (LangfuseModule is @Global), the
+ * registry fetches prompts from Langfuse Prompt Management with SDK native
+ * fallback. When Langfuse is disabled, it uses inline fallbacks from callers.
  */
+@Global()
 @Module({
   providers: [
     {
       provide: PromptRegistry,
       useFactory: (configService: ConfigService, langfuse?: LangfuseService): PromptRegistry => {
-        const registry = new PromptRegistry(configService, langfuse)
-        for (const tpl of v040Prompts) {
-          registry.register(tpl.version, tpl.name, {
-            systemPrompt: tpl.systemPrompt,
-            userPromptTemplate: tpl.userPromptTemplate,
-            description: tpl.description,
-          })
-          // Also register under the 'latest' alias
-          registry.register('latest', tpl.name, {
-            systemPrompt: tpl.systemPrompt,
-            userPromptTemplate: tpl.userPromptTemplate,
-            description: tpl.description,
-          })
-        }
-        return registry
+        return new PromptRegistry(configService, langfuse)
       },
       inject: [ConfigService, LangfuseService],
     },
+    { provide: IPromptPort, useExisting: PromptRegistry },
   ],
-  exports: [PromptRegistry],
+  exports: [PromptRegistry, IPromptPort],
 })
 export class PromptRegistryModule {}

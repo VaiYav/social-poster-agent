@@ -9,19 +9,32 @@
  * inline in the graph nodes (e.g. performanceGuidance, baitInstruction) is
  * pre-computed in code and passed as variables.
  */
-import { LangfuseClient } from '@langfuse/client';
+import { LangfuseClient, type ChatMessage } from '@langfuse/client';
 
 // Env vars loaded via: npx tsx --env-file=../../.env scripts/migrate-prompts-to-langfuse.ts
 
+const publicKey = process.env.LANGFUSE_PUBLIC_KEY;
+const secretKey = process.env.LANGFUSE_SECRET_KEY;
+
+if (!publicKey || !secretKey) {
+  console.error('❌ Missing required env vars: LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY');
+  console.error('Run with: npx tsx --env-file=../../.env scripts/migrate-prompts-to-langfuse.ts');
+  process.exit(1);
+}
+
 const client = new LangfuseClient({
-  publicKey: process.env.LANGFUSE_PUBLIC_KEY!,
-  secretKey: process.env.LANGFUSE_SECRET_KEY!,
+  publicKey,
+  secretKey,
   baseUrl: process.env.LANGFUSE_BASE_URL || 'https://cloud.langfuse.com',
 });
 
 // ─── Prompt definitions ──────────────────────────────────────────────────────
 
-const PROMPTS = [
+type PromptDef =
+  | { name: string; type: 'chat'; labels: string[]; prompt: ChatMessage[] }
+  | { name: string; type: 'text'; labels: string[]; prompt: string };
+
+const PROMPTS: PromptDef[] = [
   // 1. Research Extract (chat)
   {
     name: 'research-extract',
@@ -348,7 +361,13 @@ Respond with JSON only, no markdown:
         role: 'system',
         content: `You are a strict editor who evaluates social media posts for quality. You hate AI-sounding content and have very high standards.
 
-Evaluate the post on 4 criteria. For each, output a score from 0.0 to 1.0 and a one-sentence reason.
+First, ENUMERATE the specific elements you will evaluate (do this before scoring):
+1. List every factual claim in the post (numbered).
+2. Quote the first line (the hook) verbatim.
+3. List any banned AI words or phrases you find.
+4. State the post's character count and the platform's limit.
+
+Then evaluate the post on 4 criteria. For each, output a score from 0.0 to 1.0 and a one-sentence reason.
 
 1. anti_ai_tone (0.0-1.0): Does this sound like a real person wrote it at 11pm, or like ChatGPT?
    - 1.0 = unmistakably human, raw, specific, opinionated
@@ -370,7 +389,12 @@ Evaluate the post on 4 criteria. For each, output a score from 0.0 to 1.0 and a 
    - 1.0 = within limit
    - 0.0 = exceeds limit
 
-Respond as JSON only:
+Edge cases:
+- If the post is empty or only whitespace, score all criteria 0.0.
+- If there are no factual claims, score factual_accuracy 0.5 (neutral — no claims to verify).
+- If the post is truncated mid-sentence, score character_limit 0.0.
+
+Respond as JSON only (do not include your enumeration in the JSON):
 {"anti_ai_tone": 0.0, "anti_ai_tone_reason": "...", "hook_strength": 0.0, "hook_strength_reason": "...", "factual_accuracy": 0.0, "factual_accuracy_reason": "...", "character_limit": 0.0, "character_limit_reason": "..."}`,
       },
       {
@@ -398,7 +422,7 @@ async function main() {
         const created = await client.prompt.create({
           name: p.name,
           type: 'chat',
-          prompt: p.prompt as any,
+          prompt: p.prompt,
           labels: p.labels,
         });
         console.log(`  ✅ ${p.name} (chat, v${created.version})`);
@@ -406,13 +430,14 @@ async function main() {
         const created = await client.prompt.create({
           name: p.name,
           type: 'text',
-          prompt: p.prompt as string,
+          prompt: p.prompt,
           labels: p.labels,
         });
         console.log(`  ✅ ${p.name} (text, v${created.version})`);
       }
-    } catch (err: any) {
-      console.error(`  ❌ ${p.name}: ${err.message ?? err}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`  ❌ ${p.name}: ${message}`);
     }
   }
 

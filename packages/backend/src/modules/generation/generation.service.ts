@@ -14,7 +14,7 @@ import { TrendingService } from '../trending/trending.service.js';
 import { TrendingScraperService } from '../trending/trending-scraper.service.js';
 import { LangfuseService, type LangfuseHandlerOptions } from '../../infrastructure/langfuse/langfuse.service.js';
 import { withLlmCallbacks } from '../../infrastructure/llm/llm.service.js';
-import { PromptRegistry } from '../../infrastructure/llm/prompt-registry.js';
+import { IPromptPort } from '../../domain/ports/prompt.port.js';
 import { getEnabledNetworks } from '../../domain/enabled-networks.js';
 import {
   SocialNetwork,
@@ -95,7 +95,7 @@ export class GenerationService {
     @Optional() private readonly threadDepthController?: ThreadDepthController,
     @Optional() private readonly abGenerator?: ABVariantGenerator,
     @Optional() private readonly langfuse?: LangfuseService,
-    @Optional() private readonly promptRegistry?: PromptRegistry,
+    @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
   ) {
     // Read POSTING_LANGUAGES from env — comma-separated ISO 639-1 codes.
     // Default: en only (backward compatible). Round-robin rotation across topics.
@@ -125,7 +125,7 @@ export class GenerationService {
           error: event.error ?? undefined,
         });
       };
-      const graphBuilder = buildGenerationGraph(this.llm, progressPublisher, this.hookBank, this.visualService, this.abGenerator, this.promptRegistry);
+      const graphBuilder = buildGenerationGraph(this.llm, progressPublisher, this.hookBank, this.visualService, this.abGenerator, this.promptPort);
       this.compiledGraph = graphBuilder.compile({ checkpointer: this.checkpointSaver });
       this.logger.log('LangGraph workflow compiled with Redis checkpoint saver + SSE progress (§10.3 parallel graph)');
     }

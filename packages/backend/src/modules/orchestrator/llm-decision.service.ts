@@ -10,7 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { SocialNetwork } from '@prisma/client';
 import { ILlmPort } from '../../domain/ports/llm.port.js';
 import { LangfuseService } from '../../infrastructure/langfuse/langfuse.service.js';
-import { PromptRegistry } from '../../infrastructure/llm/prompt-registry.js';
+import { IPromptPort } from '../../domain/ports/prompt.port.js';
 import { ORCHESTRATOR_SYSTEM_PROMPT, buildOrchestratorUserPrompt } from './prompts/orchestrator-prompt.js';
 import type { WorldState, Action, ActionType, NetworkActionType, GenericActionType } from './types.js';
 
@@ -34,7 +34,7 @@ export class LlmDecisionService {
     private readonly configService: ConfigService,
     @Optional() @Inject(ILlmPort) private readonly llm?: ILlmPort,
     @Optional() private readonly langfuse?: LangfuseService,
-    @Optional() private readonly promptRegistry?: PromptRegistry,
+    @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
   ) {
     this.llmTimeoutMs = Math.max(
       5000,
@@ -48,8 +48,8 @@ export class LlmDecisionService {
     const userPrompt = buildOrchestratorUserPrompt(world);
 
     // Fetch system prompt from Langfuse Prompt Management (falls back to local constant)
-    const systemPrompt = this.promptRegistry
-      ? await this.promptRegistry.getCompiledText('orchestrator-system', {}, ORCHESTRATOR_SYSTEM_PROMPT)
+    const systemPrompt = this.promptPort
+      ? await this.promptPort.getCompiledText('orchestrator-system', {}, ORCHESTRATOR_SYSTEM_PROMPT)
       : ORCHESTRATOR_SYSTEM_PROMPT;
 
     // Langfuse tracing: each orchestrator decision gets its own trace.

@@ -10,7 +10,7 @@ import { classifyHookTechnique, type HookTechnique } from '../content-enhancemen
 import type { VisualConcept, VisualConceptService } from '../content-enhancements/visual-concept.service.js';
 import type { ABVariantPair, ABVariantGenerator } from '../content-enhancements/ab-variant.generator.js';
 import { pickContentStyle, getStylePromptGuidance, CONTENT_STYLES_BY_ID, type ContentStyle } from '../content-enhancements/content-style.rotation.js';
-import type { PromptRegistry, CompiledChatPrompt } from '../../infrastructure/llm/prompt-registry.js';
+import type { IPromptPort, CompiledChatPrompt } from '../../domain/ports/prompt.port.js';
 
 const logger = new Logger('GenerationGraph');
 
@@ -291,7 +291,7 @@ const NETWORK_PERSONA: Record<SocialNetwork, string> = {
 async function researchExtractNode(
   state: GenerationStateType,
   llm: ILlmPort,
-  promptRegistry?: PromptRegistry,
+  promptPort?: IPromptPort,
 ): Promise<Partial<GenerationStateType>> {
   // If facts already provided (from CAP run or article frontmatter), use them
   if (state.topic.facts.length > 0) {
@@ -342,8 +342,8 @@ Outline:
 Key facts:`,
   };
 
-  const { systemPrompt, userPrompt } = promptRegistry
-    ? await promptRegistry.getCompiledChat('research-extract', variables, fallback)
+  const { systemPrompt, userPrompt } = promptPort
+    ? await promptPort.getCompiledChat('research-extract', variables, fallback)
     : fallback;
 
   try {
@@ -385,7 +385,7 @@ async function hookGenerationNode(
   state: GenerationStateType,
   llm: ILlmPort,
   hookBank?: HookPerformanceBank,
-  promptRegistry?: PromptRegistry,
+  promptPort?: IPromptPort,
 ): Promise<Partial<GenerationStateType>> {
   // Check cache first — avoids re-calling LLM for identical topics across runs.
   // Cache is keyed by topic + keywords + facts (the deterministic inputs).
@@ -476,8 +476,8 @@ Keywords: {keywords}
 Hooks:`,
   };
 
-  const { systemPrompt, userPrompt } = promptRegistry
-    ? await promptRegistry.getCompiledChat('hook-generation', variables, fallback)
+  const { systemPrompt, userPrompt } = promptPort
+    ? await promptPort.getCompiledChat('hook-generation', variables, fallback)
     : fallback;
 
   let response;
@@ -546,7 +546,7 @@ function anglePerNetworkNode(state: GenerationStateType): Partial<GenerationStat
  * Create a draft generation node for a specific network.
  * Each network gets its own node so LangGraph can run them in parallel.
  */
-function makeDraftNode(network: SocialNetwork, promptRegistry?: PromptRegistry) {
+function makeDraftNode(network: SocialNetwork, promptPort?: IPromptPort) {
   return async function draftNode(
     state: GenerationStateType,
     llm: ILlmPort,
@@ -698,8 +698,8 @@ Do NOT include any URLs or links in the post.
 Post text (in "{styleName}" style):`,
     };
 
-    const { systemPrompt, userPrompt } = promptRegistry
-      ? await promptRegistry.getCompiledChat('draft-post', variables, fallback)
+    const { systemPrompt, userPrompt } = promptPort
+      ? await promptPort.getCompiledChat('draft-post', variables, fallback)
       : fallback;
 
     try {
@@ -733,7 +733,7 @@ Post text (in "{styleName}" style):`,
 /**
  * Create a critique node for a specific network.
  */
-function makeCritiqueNode(network: SocialNetwork, promptRegistry?: PromptRegistry) {
+function makeCritiqueNode(network: SocialNetwork, promptPort?: IPromptPort) {
   return async function critiqueNode(
     state: GenerationStateType,
     llm: ILlmPort,
@@ -792,8 +792,8 @@ SCORE: <number 1-10>
 
 Where 10 = "I'd share this on my personal account and people would think I wrote it"; 7 = good enough to post; 5 = needs work; 3 = sounds like AI; 1 = unusable.`;
 
-    const critiquePrompt = promptRegistry
-      ? await promptRegistry.getCompiledText('critique-post', critiqueVariables, critiqueFallback)
+    const critiquePrompt = promptPort
+      ? await promptPort.getCompiledText('critique-post', critiqueVariables, critiqueFallback)
       : critiqueFallback;
 
     try {
@@ -843,7 +843,7 @@ Where 10 = "I'd share this on my personal account and people would think I wrote
 /**
  * Create a refine node for a specific network.
  */
-function makeRefineNode(network: SocialNetwork, promptRegistry?: PromptRegistry) {
+function makeRefineNode(network: SocialNetwork, promptPort?: IPromptPort) {
   return async function refineNode(
     state: GenerationStateType,
     llm: ILlmPort,
@@ -901,8 +901,8 @@ ANTI-AI RULES:
 
 Return ONLY the refined post text. No preamble.`;
 
-    const refinePrompt = promptRegistry
-      ? await promptRegistry.getCompiledText('refine-post', refineVariables, refineFallback)
+    const refinePrompt = promptPort
+      ? await promptPort.getCompiledText('refine-post', refineVariables, refineFallback)
       : refineFallback;
 
     try {
@@ -1048,7 +1048,7 @@ function makeABVariantNode(network: SocialNetwork) {
  * The judge runs AFTER refine and BEFORE visual_concept. It's non-blocking —
  * if the judge LLM call fails, the post proceeds with undefined judgeScores.
  */
-function makeJudgeNode(network: SocialNetwork, promptRegistry?: PromptRegistry) {
+function makeJudgeNode(network: SocialNetwork, promptPort?: IPromptPort) {
   return async function judgeNode(
     state: GenerationStateType,
     llm: ILlmPort,
@@ -1072,7 +1072,13 @@ function makeJudgeNode(network: SocialNetwork, promptRegistry?: PromptRegistry) 
 
     const judgeFallback = `You are a strict editor who evaluates social media posts for quality. You hate AI-sounding content and have very high standards.
 
-Evaluate the post on 4 criteria. For each, output a score from 0.0 to 1.0 and a one-sentence reason.
+First, ENUMERATE the specific elements you will evaluate (do this before scoring):
+1. List every factual claim in the post (numbered).
+2. Quote the first line (the hook) verbatim.
+3. List any banned AI words or phrases you find.
+4. State the post's character count and the platform's limit.
+
+Then evaluate the post on 4 criteria. For each, output a score from 0.0 to 1.0 and a one-sentence reason.
 
 1. anti_ai_tone (0.0-1.0): Does this sound like a real person wrote it at 11pm, or like ChatGPT?
    - 1.0 = unmistakably human, raw, specific, opinionated
@@ -1094,12 +1100,17 @@ Evaluate the post on 4 criteria. For each, output a score from 0.0 to 1.0 and a 
    - 1.0 = within limit
    - 0.0 = exceeds limit
 
-Respond as JSON only:
+Edge cases:
+- If the post is empty or only whitespace, score all criteria 0.0.
+- If there are no factual claims, score factual_accuracy 0.5 (neutral — no claims to verify).
+- If the post is truncated mid-sentence, score character_limit 0.0.
+
+Respond as JSON only (do not include your enumeration in the JSON):
 {"anti_ai_tone": 0.0, "anti_ai_tone_reason": "...", "hook_strength": 0.0, "hook_strength_reason": "...", "factual_accuracy": 0.0, "factual_accuracy_reason": "...", "character_limit": 0.0, "character_limit_reason": "..."}`;
 
     try {
-      const systemPrompt = promptRegistry
-        ? await promptRegistry.getCompiledChat('post-quality-judge', variables, {
+      const systemPrompt = promptPort
+        ? await promptPort.getCompiledChat('post-quality-judge', variables, {
             systemPrompt: judgeFallback,
             userPrompt: `Post text:\n"{postText}"\n\nPlatform: {network}\nCharacter limit: {charLimit}\n\nEvaluate this post:`,
           })
@@ -1117,7 +1128,11 @@ Respond as JSON only:
         return {};
       }
 
-      const parsed = JSON.parse(jsonMatch[0]) as Partial<JudgeScores>;
+      const parsed: unknown = JSON.parse(jsonMatch[0]);
+      if (!isPartialJudgeScores(parsed)) {
+        logger.warn(`judge_${network}: invalid JSON structure in judge response`);
+        return {};
+      }
       const judgeScores: JudgeScores = {
         anti_ai_tone: clamp01(parsed.anti_ai_tone),
         anti_ai_tone_reason: String(parsed.anti_ai_tone_reason ?? ''),
@@ -1140,7 +1155,7 @@ Respond as JSON only:
       };
     } catch (err) {
       // Non-blocking — post proceeds without judge scores
-      logger.warn(`judge_${network} failed (non-blocking): ${(err as Error).message}`);
+      logger.warn(`judge_${network} failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
       return {};
     }
   };
@@ -1150,6 +1165,31 @@ Respond as JSON only:
 function clamp01(v: unknown): number {
   const n = Number(v);
   return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0;
+}
+
+/**
+ * Type guard: validate that a parsed JSON value is structurally compatible
+ * with `Partial<JudgeScores>`. Checks that score fields (if present) are
+ * numbers and reason fields (if present) are strings. Rejects non-objects
+ * and objects with wrong-typed known fields.
+ */
+function isPartialJudgeScores(value: unknown): value is Partial<JudgeScores> {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  const scoreFields = ['anti_ai_tone', 'hook_strength', 'factual_accuracy', 'character_limit'] as const;
+  const reasonFields = [
+    'anti_ai_tone_reason',
+    'hook_strength_reason',
+    'factual_accuracy_reason',
+    'character_limit_reason',
+  ] as const;
+  for (const field of scoreFields) {
+    if (field in v && typeof v[field] !== 'number') return false;
+  }
+  for (const field of reasonFields) {
+    if (field in v && typeof v[field] !== 'string') return false;
+  }
+  return true;
 }
 
 /**
@@ -1269,7 +1309,7 @@ export function buildGenerationGraph(
   hookBank?: HookPerformanceBank,
   visualService?: VisualConceptService,
   abGenerator?: ABVariantGenerator,
-  promptRegistry?: PromptRegistry,
+  promptPort?: IPromptPort,
 ) {
   const logger = new Logger('GenerationGraph');
 
@@ -1296,27 +1336,27 @@ export function buildGenerationGraph(
 
   const graph = new StateGraph(GenerationState)
     // Step 1: research_extract
-    .addNode('research_extract', withProgress('research_extract', (s) => researchExtractNode(s, llm, promptRegistry)))
+    .addNode('research_extract', withProgress('research_extract', (s) => researchExtractNode(s, llm, promptPort)))
     // Step 2: hook_generation (3-5 variants)
-    .addNode('hook_generation', withProgress('hook_generation', (s) => hookGenerationNode(s, llm, hookBank, promptRegistry)))
+    .addNode('hook_generation', withProgress('hook_generation', (s) => hookGenerationNode(s, llm, hookBank, promptPort)))
     // Step 3: angle_per_network (assign hooks + angles)
     .addNode('angle_per_network', withProgress('angle_per_network', (s) => anglePerNetworkNode(s)))
     // Step 4: parallel draft per network
-    .addNode('draft_x', withProgress('draft_x', (s) => makeDraftNode(SocialNetwork.X, promptRegistry)(s, llm)))
-    .addNode('draft_threads', withProgress('draft_threads', (s) => makeDraftNode(SocialNetwork.THREADS, promptRegistry)(s, llm)))
-    .addNode('draft_facebook', withProgress('draft_facebook', (s) => makeDraftNode(SocialNetwork.FACEBOOK, promptRegistry)(s, llm)))
+    .addNode('draft_x', withProgress('draft_x', (s) => makeDraftNode(SocialNetwork.X, promptPort)(s, llm)))
+    .addNode('draft_threads', withProgress('draft_threads', (s) => makeDraftNode(SocialNetwork.THREADS, promptPort)(s, llm)))
+    .addNode('draft_facebook', withProgress('draft_facebook', (s) => makeDraftNode(SocialNetwork.FACEBOOK, promptPort)(s, llm)))
     // Step 5: parallel critique per network
-    .addNode('critique_x', withProgress('critique_x', (s) => makeCritiqueNode(SocialNetwork.X, promptRegistry)(s, llm)))
-    .addNode('critique_threads', withProgress('critique_threads', (s) => makeCritiqueNode(SocialNetwork.THREADS, promptRegistry)(s, llm)))
-    .addNode('critique_facebook', withProgress('critique_facebook', (s) => makeCritiqueNode(SocialNetwork.FACEBOOK, promptRegistry)(s, llm)))
+    .addNode('critique_x', withProgress('critique_x', (s) => makeCritiqueNode(SocialNetwork.X, promptPort)(s, llm)))
+    .addNode('critique_threads', withProgress('critique_threads', (s) => makeCritiqueNode(SocialNetwork.THREADS, promptPort)(s, llm)))
+    .addNode('critique_facebook', withProgress('critique_facebook', (s) => makeCritiqueNode(SocialNetwork.FACEBOOK, promptPort)(s, llm)))
     // Step 6: parallel refine per network
-    .addNode('refine_x', withProgress('refine_x', (s) => makeRefineNode(SocialNetwork.X, promptRegistry)(s, llm)))
-    .addNode('refine_threads', withProgress('refine_threads', (s) => makeRefineNode(SocialNetwork.THREADS, promptRegistry)(s, llm)))
-    .addNode('refine_facebook', withProgress('refine_facebook', (s) => makeRefineNode(SocialNetwork.FACEBOOK, promptRegistry)(s, llm)))
+    .addNode('refine_x', withProgress('refine_x', (s) => makeRefineNode(SocialNetwork.X, promptPort)(s, llm)))
+    .addNode('refine_threads', withProgress('refine_threads', (s) => makeRefineNode(SocialNetwork.THREADS, promptPort)(s, llm)))
+    .addNode('refine_facebook', withProgress('refine_facebook', (s) => makeRefineNode(SocialNetwork.FACEBOOK, promptPort)(s, llm)))
     // Stage 2: parallel judge per network (LLM-as-a-Judge quality evaluation)
-    .addNode('judge_x', withProgress('judge_x', (s) => makeJudgeNode(SocialNetwork.X, promptRegistry)(s, llm)))
-    .addNode('judge_threads', withProgress('judge_threads', (s) => makeJudgeNode(SocialNetwork.THREADS, promptRegistry)(s, llm)))
-    .addNode('judge_facebook', withProgress('judge_facebook', (s) => makeJudgeNode(SocialNetwork.FACEBOOK, promptRegistry)(s, llm)))
+    .addNode('judge_x', withProgress('judge_x', (s) => makeJudgeNode(SocialNetwork.X, promptPort)(s, llm)))
+    .addNode('judge_threads', withProgress('judge_threads', (s) => makeJudgeNode(SocialNetwork.THREADS, promptPort)(s, llm)))
+    .addNode('judge_facebook', withProgress('judge_facebook', (s) => makeJudgeNode(SocialNetwork.FACEBOOK, promptPort)(s, llm)))
     // P3: Step 6.5: parallel visual_concept per network (no-op when disabled)
     .addNode('visual_concept_x', withProgress('visual_concept_x', (s) => makeVisualConceptNode(SocialNetwork.X)(s, visualService)))
     .addNode('visual_concept_threads', withProgress('visual_concept_threads', (s) => makeVisualConceptNode(SocialNetwork.THREADS)(s, visualService)))

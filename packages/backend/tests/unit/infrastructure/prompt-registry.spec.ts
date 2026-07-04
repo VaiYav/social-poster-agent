@@ -1,9 +1,8 @@
 /**
  * PromptRegistry unit tests.
  *
- * Verifies versioned template storage, 'latest' fallback, version listing,
- * current-version resolution from config, and error handling for missing
- * templates.
+ * Tests the facade behavior: Langfuse-first with SDK native fallback,
+ * inline fallback when Langfuse is disabled, and version tracking.
  *
  * Source: packages/backend/src/infrastructure/llm/prompt-registry.ts
  */
@@ -39,93 +38,6 @@ describe('PromptRegistry', () => {
     registry = new PromptRegistry(configService)
   })
 
-  describe('register & get', () => {
-    it('stores and retrieves a template by version + name', () => {
-      registry.register('0.4.0', 'research-extract', {
-        systemPrompt: 'You are a research analyst.',
-        userPromptTemplate: 'Topic: {topic}',
-        description: 'Extract facts',
-      })
-
-      const tpl = registry.get('0.4.0', 'research-extract')
-      expect(tpl.version).toBe('0.4.0')
-      expect(tpl.name).toBe('research-extract')
-      expect(tpl.systemPrompt).toBe('You are a research analyst.')
-      expect(tpl.userPromptTemplate).toBe('Topic: {topic}')
-      expect(tpl.description).toBe('Extract facts')
-    })
-
-    it('overwrites a template when re-registered with same version+name', () => {
-      registry.register('0.4.0', 'hook-generation', {
-        systemPrompt: 'v1',
-        userPromptTemplate: 'v1 template',
-      })
-      registry.register('0.4.0', 'hook-generation', {
-        systemPrompt: 'v2',
-        userPromptTemplate: 'v2 template',
-      })
-
-      const tpl = registry.get('0.4.0', 'hook-generation')
-      expect(tpl.systemPrompt).toBe('v2')
-      expect(tpl.userPromptTemplate).toBe('v2 template')
-    })
-  })
-
-  describe('latest fallback', () => {
-    it('falls back to the "latest" version when requested version is missing', () => {
-      registry.register('latest', 'draft-x', {
-        systemPrompt: 'Latest draft prompt.',
-        userPromptTemplate: 'Topic: {topic}',
-      })
-
-      const tpl = registry.get('0.9.9', 'draft-x')
-      expect(tpl.version).toBe('latest')
-      expect(tpl.systemPrompt).toBe('Latest draft prompt.')
-    })
-
-    it('prefers the exact version over the latest fallback', () => {
-      registry.register('0.4.0', 'draft-x', {
-        systemPrompt: 'Pinned v0.4.0 prompt.',
-        userPromptTemplate: 'Topic: {topic}',
-      })
-      registry.register('latest', 'draft-x', {
-        systemPrompt: 'Latest prompt.',
-        userPromptTemplate: 'Topic: {topic}',
-      })
-
-      const tpl = registry.get('0.4.0', 'draft-x')
-      expect(tpl.version).toBe('0.4.0')
-      expect(tpl.systemPrompt).toBe('Pinned v0.4.0 prompt.')
-    })
-  })
-
-  describe('listVersions', () => {
-    it('lists all registered versions', () => {
-      registry.register('0.3.0', 'research-extract', {
-        systemPrompt: 'old',
-        userPromptTemplate: 'old template',
-      })
-      registry.register('0.4.0', 'research-extract', {
-        systemPrompt: 'new',
-        userPromptTemplate: 'new template',
-      })
-      registry.register('latest', 'research-extract', {
-        systemPrompt: 'latest',
-        userPromptTemplate: 'latest template',
-      })
-
-      const versions = registry.listVersions()
-      expect(versions).toContain('0.3.0')
-      expect(versions).toContain('0.4.0')
-      expect(versions).toContain('latest')
-      expect(versions).toHaveLength(3)
-    })
-
-    it('returns an empty array when nothing is registered', () => {
-      expect(registry.listVersions()).toEqual([])
-    })
-  })
-
   describe('getCurrentVersion', () => {
     it('returns the active version from PROMPT_VERSION env var', () => {
       configService = createMockConfigService({ PROMPT_VERSION: '0.4.0' })
@@ -134,7 +46,6 @@ describe('PromptRegistry', () => {
     })
 
     it('defaults to "latest" when PROMPT_VERSION is not set', () => {
-      // ConfigService.get(key, default) returns the default for unset keys
       configService = {
         get: vi.fn((_key: string, defaultValue?: unknown) => defaultValue),
       } as unknown as ConfigService
@@ -143,44 +54,53 @@ describe('PromptRegistry', () => {
     })
   })
 
-  describe('error handling', () => {
-    it('throws when a template is not found in any version', () => {
-      expect(() => registry.get('0.4.0', 'nonexistent')).toThrow(
-        /not found/,
-      )
-    })
-
-    it('throws when no latest fallback exists for the name', () => {
-      registry.register('0.3.0', 'research-extract', {
-        systemPrompt: 'old',
-        userPromptTemplate: 'old template',
+  describe('getCompiledChat (no Langfuse — inline fallback)', () => {
+    it('interpolates {var} placeholders in the inline fallback', async () => {
+      const result = await registry.getCompiledChat('test-prompt', {
+        topic: 'Mercury retrograde',
+        network: 'X',
+      }, {
+        systemPrompt: 'You are an expert on {topic}.',
+        userPrompt: 'Write a {network} post about {topic}.',
       })
 
-      // No 'latest' registered for this name → should throw
-      expect(() => registry.get('0.9.9', 'research-extract')).toThrow(
-        /not found/,
-      )
+      expect(result.systemPrompt).toBe('You are an expert on Mercury retrograde.')
+      expect(result.userPrompt).toBe('Write a X post about Mercury retrograde.')
+    })
+
+    it('leaves unmatched placeholders intact', async () => {
+      const result = await registry.getCompiledChat('test-prompt', {
+        topic: 'Saturn return',
+      }, {
+        systemPrompt: 'You are an expert on {topic}.',
+        userPrompt: 'Write about {missingVar}.',
+      })
+
+      expect(result.systemPrompt).toBe('You are an expert on Saturn return.')
+      expect(result.userPrompt).toBe('Write about {missingVar}.')
+    })
+
+    it('throws when no fallback is provided and Langfuse is not configured', async () => {
+      await expect(
+        registry.getCompiledChat('nonexistent', {}),
+      ).rejects.toThrow(/not found/)
     })
   })
 
-  describe('multiple versions of the same prompt name', () => {
-    it('keeps separate templates per version for the same name', () => {
-      registry.register('0.3.0', 'hook-generation', {
-        systemPrompt: 'v0.3 system',
-        userPromptTemplate: 'v0.3 user',
-      })
-      registry.register('0.4.0', 'hook-generation', {
-        systemPrompt: 'v0.4 system',
-        userPromptTemplate: 'v0.4 user',
-      })
+  describe('getCompiledText (no Langfuse — inline fallback)', () => {
+    it('interpolates {var} placeholders in the inline fallback', async () => {
+      const result = await registry.getCompiledText('test-prompt', {
+        network: 'X',
+        charLimit: '280',
+      }, 'Critique this {network} post. Limit: {charLimit} chars.')
 
-      const v03 = registry.get('0.3.0', 'hook-generation')
-      const v04 = registry.get('0.4.0', 'hook-generation')
+      expect(result).toBe('Critique this X post. Limit: 280 chars.')
+    })
 
-      expect(v03.systemPrompt).toBe('v0.3 system')
-      expect(v04.systemPrompt).toBe('v0.4 system')
-      expect(v03.version).toBe('0.3.0')
-      expect(v04.version).toBe('0.4.0')
+    it('throws when no fallback is provided and Langfuse is not configured', async () => {
+      await expect(
+        registry.getCompiledText('nonexistent', {}),
+      ).rejects.toThrow(/not found/)
     })
   })
 })

@@ -2,6 +2,18 @@ import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { CallbackHandler } from '@langfuse/langchain';
 import { LangfuseClient, type ChatPromptClient, type TextPromptClient } from '@langfuse/client';
 import { shutdownLangfuse } from '../../langfuse-instrumentation.js';
+import { CircuitBreaker } from '../../domain/circuit-breaker.js';
+
+/**
+ * Minimal chat message shape for SDK fallback parameter.
+ * The SDK's `fallback` accepts `ChatMessage[]` from `@langfuse/core`,
+ * which is `{ role: string; content: string }`. We define this locally
+ * since `ChatMessage` is not re-exported by `@langfuse/client`.
+ */
+interface FallbackChatMessage {
+  role: string;
+  content: string;
+}
 
 /**
  * Options for creating a Langfuse CallbackHandler.
@@ -46,6 +58,12 @@ export class LangfuseService implements OnModuleDestroy {
   /** Langfuse client for prompt management (null when disabled). */
   private readonly client: LangfuseClient | null = null;
 
+  /** Circuit breaker for prompt fetches — prevents cascading timeouts. */
+  private readonly promptCircuitBreaker = new CircuitBreaker('langfuse-prompts', {
+    failureThreshold: 3,
+    resetTimeoutMs: 60_000, // 1 min cooldown after 3 consecutive failures
+  });
+
   constructor() {
     if (this.isEnabled) {
       try {
@@ -55,7 +73,7 @@ export class LangfuseService implements OnModuleDestroy {
           baseUrl: process.env.LANGFUSE_BASE_URL || 'https://cloud.langfuse.com',
         });
       } catch (err) {
-        this.logger.warn(`Failed to init LangfuseClient — prompt management disabled: ${(err as Error).message}`);
+        this.logger.warn(`Failed to init LangfuseClient — prompt management disabled: ${getErrorMessage(err)}`);
       }
     }
   }
@@ -83,7 +101,7 @@ export class LangfuseService implements OnModuleDestroy {
       // CallbackHandler constructor can fail if the OTel SDK didn't start
       // (e.g. network error during init). Degrade gracefully — no tracing.
       this.logger.warn(
-        `Failed to create Langfuse handler — tracing disabled for this call: ${(err as Error).message}`,
+        `Failed to create Langfuse handler — tracing disabled for this call: ${getErrorMessage(err)}`,
       );
       return undefined;
     }
@@ -91,29 +109,60 @@ export class LangfuseService implements OnModuleDestroy {
 
   /**
    * Fetch a chat prompt from Langfuse Prompt Management.
-   * Returns undefined when Langfuse is disabled or the prompt is not found.
-   * The caller should fall back to a local prompt template.
+   *
+   * Passes `fallback` to the SDK — if the fetch fails, the SDK returns a
+   * prompt client with `isFallback: true` and the fallback content.
+   * Returns undefined only when Langfuse is disabled (no client).
+   *
+   * @param name Prompt name in Langfuse
+   * @param fallback Optional fallback chat messages (Mustache {{var}} syntax)
    */
-  async getChatPrompt(name: string): Promise<ChatPromptClient | undefined> {
+  async getChatPrompt(name: string, fallback?: FallbackChatMessage[]): Promise<ChatPromptClient | undefined> {
     if (!this.client) return undefined;
+    if (!this.promptCircuitBreaker.canExecute()) return undefined;
     try {
-      return await this.client.prompt.get(name, { type: 'chat', label: 'production', cacheTtlSeconds: 300 });
+      return await this.promptCircuitBreaker.execute(() =>
+        this.client!.prompt.get(name, {
+          type: 'chat',
+          label: 'production',
+          cacheTtlSeconds: 300,
+          fetchTimeoutMs: 3000,
+          maxRetries: 1,
+          fallback,
+        }),
+      );
     } catch (err) {
-      this.logger.debug(`Failed to fetch chat prompt "${name}" from Langfuse — using fallback: ${(err as Error).message}`);
+      this.logger.warn(`Failed to fetch chat prompt "${name}" from Langfuse — using fallback: ${getErrorMessage(err)}`);
       return undefined;
     }
   }
 
   /**
    * Fetch a text prompt from Langfuse Prompt Management.
-   * Returns undefined when Langfuse is disabled or the prompt is not found.
+   *
+   * Passes `fallback` to the SDK — if the fetch fails, the SDK returns a
+   * prompt client with `isFallback: true` and the fallback content.
+   * Returns undefined only when Langfuse is disabled (no client).
+   *
+   * @param name Prompt name in Langfuse
+   * @param fallback Optional fallback text (Mustache {{var}} syntax)
    */
-  async getTextPrompt(name: string): Promise<TextPromptClient | undefined> {
+  async getTextPrompt(name: string, fallback?: string): Promise<TextPromptClient | undefined> {
     if (!this.client) return undefined;
+    if (!this.promptCircuitBreaker.canExecute()) return undefined;
     try {
-      return await this.client.prompt.get(name, { type: 'text', label: 'production', cacheTtlSeconds: 300 });
+      return await this.promptCircuitBreaker.execute(() =>
+        this.client!.prompt.get(name, {
+          type: 'text',
+          label: 'production',
+          cacheTtlSeconds: 300,
+          fetchTimeoutMs: 3000,
+          maxRetries: 1,
+          fallback,
+        }),
+      );
     } catch (err) {
-      this.logger.debug(`Failed to fetch text prompt "${name}" from Langfuse — using fallback: ${(err as Error).message}`);
+      this.logger.warn(`Failed to fetch text prompt "${name}" from Langfuse — using fallback: ${getErrorMessage(err)}`);
       return undefined;
     }
   }
@@ -125,4 +174,9 @@ export class LangfuseService implements OnModuleDestroy {
   async onModuleDestroy(): Promise<void> {
     await shutdownLangfuse();
   }
+}
+
+/** Safely extract a message from an unknown caught error. */
+function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
