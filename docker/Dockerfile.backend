@@ -92,4 +92,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 ENV NODE_ENV=production
 ENV SPA_API_PORT=3100
 
-CMD ["node", "packages/backend/dist/main.js"]
+# Run prisma migrate deploy on startup, then start the app
+CMD npx prisma migrate deploy --schema packages/backend/prisma/schema.prisma && node packages/backend/dist/main.js
