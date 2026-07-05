@@ -119,12 +119,22 @@ export interface IEngagementDecisionPort {
   /**
    * Generate a contextual comment for a post in brand voice.
    * Uses the local LlmService with brand-voice.md guidelines.
+   *
+   * @returns The generated comment text, or `null` when the LLM is unavailable
+   *          or produced a forbidden/empty response. Callers MUST downgrade the
+   *          action (e.g. comment → like → read) when `null` is returned — never
+   *          post a generic fallback string, identical robotic comments are worse
+   *          than no comment at all.
    */
-  generateComment(context: PostContext): Promise<string>;
+  generateComment(context: PostContext): Promise<string | null>;
 
   /**
    * Generate contextual quote text (commentary for a quote-post/repost) in brand voice.
    * Uses the local LlmService with brand-voice.md guidelines.
+   *
+   * @returns The generated quote text, or `null` when the LLM is unavailable
+   *          or produced a forbidden/empty response. Callers MUST downgrade the
+   *          action (e.g. quote → read) when `null` is returned.
    */
-  generateQuoteText(context: PostContext): Promise<string>;
+  generateQuoteText(context: PostContext): Promise<string | null>;
 }

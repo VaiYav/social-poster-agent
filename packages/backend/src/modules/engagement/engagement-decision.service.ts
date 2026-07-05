@@ -82,14 +82,32 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
         return { action: 'read', reason: 'Quote budget exhausted', confidence: 0.8 };
       }
 
-      // If LLM decided 'comment' but didn't provide commentText, generate it
+      // If LLM decided 'comment' but didn't provide commentText, generate it.
+      // If generation fails (returns null), downgrade to like (or read if like
+      // budget exhausted) — never post a generic fallback comment.
       if (decision.action === 'comment' && !decision.commentText) {
-        decision.commentText = await this.generateComment(context);
+        const comment = await this.generateComment(context);
+        if (comment === null) {
+          if (context.likesThisSession < context.likesMaxPerSession) {
+            this.logger.warn(`LLM comment generation failed — downgrading comment → like`);
+            return { action: 'like', reason: 'Comment generation failed, downgraded to like', confidence: 0.6 };
+          }
+          this.logger.warn(`LLM comment generation failed and like budget exhausted — downgrading comment → read`);
+          return { action: 'read', reason: 'Comment generation failed, like budget exhausted', confidence: 0.6 };
+        }
+        decision.commentText = comment;
       }
 
-      // If LLM decided 'quote' but didn't provide quoteText, generate it
+      // If LLM decided 'quote' but didn't provide quoteText, generate it.
+      // If generation fails (returns null), downgrade to read — never post a
+      // generic fallback quote.
       if (decision.action === 'quote' && !decision.quoteText) {
-        decision.quoteText = await this.generateQuoteText(context);
+        const quote = await this.generateQuoteText(context);
+        if (quote === null) {
+          this.logger.warn(`LLM quote generation failed — downgrading quote → read`);
+          return { action: 'read', reason: 'Quote generation failed, downgraded to read', confidence: 0.6 };
+        }
+        decision.quoteText = quote;
       }
 
       this.logger.debug(
@@ -162,11 +180,14 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
 
   /**
    * Generate a contextual comment for a post in brand voice.
-   * Falls back to a safe generic comment if LLM is unavailable.
+   * Returns `null` when the LLM is unavailable or fails — callers MUST downgrade
+   * the action (comment → like → read) rather than posting a generic fallback.
+   * Identical robotic comments on every post are worse than no comment at all.
    */
-  async generateComment(context: PostContext): Promise<string> {
+  async generateComment(context: PostContext): Promise<string | null> {
     if (!this.llm) {
-      return this.fallbackComment();
+      this.logger.warn('No LLM configured — generateComment returns null');
+      return null;
     }
 
     try {
@@ -179,26 +200,33 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
 
       const comment = response.content.trim();
 
+      if (!comment) {
+        this.logger.warn('LLM returned empty comment — generateComment returns null');
+        return null;
+      }
+
       // Validate comment — reject if it contains forbidden patterns
       if (this.isForbiddenComment(comment)) {
-        this.logger.warn(`LLM generated forbidden comment, using fallback: "${comment.slice(0, 80)}"`);
-        return this.fallbackComment();
+        this.logger.warn(`LLM generated forbidden comment, returning null: "${comment.slice(0, 80)}"`);
+        return null;
       }
 
       return comment;
     } catch (err) {
-      this.logger.warn(`LLM comment generation failed, using fallback: ${(err as Error).message.slice(0, 100)}`);
-      return this.fallbackComment();
+      this.logger.warn(`LLM comment generation failed, returning null: ${(err as Error).message.slice(0, 100)}`);
+      return null;
     }
   }
 
   /**
    * Generate a contextual quote text for a post in brand voice.
-   * Falls back to a safe generic quote if LLM is unavailable.
+   * Returns `null` when the LLM is unavailable or fails — callers MUST downgrade
+   * the action (quote → read) rather than posting a generic fallback.
    */
-  async generateQuoteText(context: PostContext): Promise<string> {
+  async generateQuoteText(context: PostContext): Promise<string | null> {
     if (!this.llm) {
-      return this.fallbackQuote();
+      this.logger.warn('No LLM configured — generateQuoteText returns null');
+      return null;
     }
 
     try {
@@ -211,15 +239,20 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
 
       const quote = response.content.trim();
 
+      if (!quote) {
+        this.logger.warn('LLM returned empty quote — generateQuoteText returns null');
+        return null;
+      }
+
       if (this.isForbiddenComment(quote)) {
-        this.logger.warn(`LLM generated forbidden quote, using fallback: "${quote.slice(0, 80)}"`);
-        return this.fallbackQuote();
+        this.logger.warn(`LLM generated forbidden quote, returning null: "${quote.slice(0, 80)}"`);
+        return null;
       }
 
       return quote;
     } catch (err) {
-      this.logger.warn(`LLM quote generation failed, using fallback: ${(err as Error).message.slice(0, 100)}`);
-      return this.fallbackQuote();
+      this.logger.warn(`LLM quote generation failed, returning null: ${(err as Error).message.slice(0, 100)}`);
+      return null;
     }
   }
 
@@ -227,51 +260,24 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
    * Probabilistic fallback decision (when LLM is unavailable).
    * Uses the same distribution as the original Math.random() approach
    * but with budget awareness.
+   *
+   * NOTE: 'comment' and 'quote' are intentionally excluded — they require
+   * LLM-generated text, and posting a generic hardcoded fallback on every
+   * post is worse than not commenting at all.
    */
   private fallbackDecision(context: PostContext): ActionDecision {
     const likesBudgetRemaining = context.likesMaxPerSession - context.likesThisSession;
-    const commentsBudgetRemaining = context.commentsMaxPerSession - context.commentsThisSession;
-    const repostsBudgetRemaining = (context.repostsMaxPerSession ?? 0) - (context.repostsThisSession ?? 0);
-    const quotesBudgetRemaining = (context.quotesMaxPerSession ?? 0) - (context.quotesThisSession ?? 0);
 
     const random = Math.random();
-    // Budget-adjusted probabilities (reposts and quotes are much rarer than likes/comments)
     const likeProb = likesBudgetRemaining > 0 ? 0.3 : 0;
-    const commentProb = commentsBudgetRemaining > 0 ? 0.05 : 0;
-    const repostProb = repostsBudgetRemaining > 0 ? 0.02 : 0;
-    const quoteProb = quotesBudgetRemaining > 0 ? 0.01 : 0;
 
-    if (random < quoteProb) {
-      return { action: 'quote', reason: 'Fallback: random quote', confidence: 0.4 };
-    }
-    if (random < quoteProb + repostProb) {
-      return { action: 'repost', reason: 'Fallback: random repost', confidence: 0.4 };
-    }
-    if (random < quoteProb + repostProb + commentProb) {
-      return { action: 'comment', reason: 'Fallback: random comment', confidence: 0.4 };
-    }
-    if (random < quoteProb + repostProb + commentProb + likeProb) {
+    if (random < likeProb) {
       return { action: 'like', reason: 'Fallback: random like', confidence: 0.4 };
     }
-    if (random < quoteProb + repostProb + commentProb + likeProb + 0.15) {
+    if (random < likeProb + 0.15) {
       return { action: 'read', reason: 'Fallback: dwell and read', confidence: 0.4 };
     }
     return { action: 'scroll', reason: 'Fallback: continue scrolling', confidence: 0.4 };
-  }
-
-  /**
-   * Safe fallback comment (only used when LLM is unavailable).
-   */
-  private fallbackComment(): string {
-    // Minimal, non-generic — acknowledge the limitation
-    return 'This is a really interesting take.';
-  }
-
-  /**
-   * Safe fallback quote text (only used when LLM is unavailable).
-   */
-  private fallbackQuote(): string {
-    return 'This is a sharp take — worth sharing.';
   }
 
   /**

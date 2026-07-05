@@ -70,8 +70,9 @@ describe('EngagementDecisionService', () => {
     service = new EngagementDecisionService(mockLlm);
 
     const decision = await service.decideAction(createPostContext());
-    // Non-committal parsed default (scroll, confidence 0.3) triggers the fallback
-    expect(['scroll', 'read', 'like', 'comment']).toContain(decision.action);
+    // Non-committal parsed default (scroll, confidence 0.3) triggers the fallback.
+    // Fallback no longer returns comment/quote (requires LLM text).
+    expect(['scroll', 'read', 'like']).toContain(decision.action);
     expect(decision.confidence).toBeLessThan(0.5);
   });
 
@@ -83,7 +84,7 @@ describe('EngagementDecisionService', () => {
 
     const decision = await service.decideAction(createPostContext());
     // Invalid action parses as non-committal scroll (confidence 0.3) -> fallback
-    expect(['scroll', 'read', 'like', 'comment']).toContain(decision.action);
+    expect(['scroll', 'read', 'like']).toContain(decision.action);
     expect(decision.confidence).toBeLessThan(0.5);
   });
 
@@ -94,8 +95,9 @@ describe('EngagementDecisionService', () => {
     service = new EngagementDecisionService(mockLlm);
 
     const decision = await service.decideAction(createPostContext());
-    // Low-confidence non-engagement triggers the fallback distribution
-    expect(['scroll', 'read', 'like', 'comment', 'repost', 'quote']).toContain(decision.action);
+    // Low-confidence non-engagement triggers the fallback distribution.
+    // Fallback no longer returns comment/quote/repost (requires LLM text).
+    expect(['scroll', 'read', 'like']).toContain(decision.action);
     expect(decision.confidence).toBeLessThan(0.5);
   });
 
@@ -142,8 +144,8 @@ describe('EngagementDecisionService', () => {
     service = new EngagementDecisionService(null as never);
 
     const decision = await service.decideAction(createPostContext());
-    // Fallback should return a valid action
-    expect(['scroll', 'read', 'like', 'comment']).toContain(decision.action);
+    // Fallback no longer returns comment/quote (requires LLM text)
+    expect(['scroll', 'read', 'like']).toContain(decision.action);
     expect(decision.confidence).toBeLessThan(0.5);
   });
 
@@ -156,7 +158,7 @@ describe('EngagementDecisionService', () => {
     service = new EngagementDecisionService(mockLlm);
 
     const decision = await service.decideAction(createPostContext());
-    expect(['scroll', 'read', 'like', 'comment']).toContain(decision.action);
+    expect(['scroll', 'read', 'like']).toContain(decision.action);
   });
 
   it('ED-009: handles markdown-wrapped JSON from LLM', async () => {
@@ -182,45 +184,45 @@ describe('EngagementDecisionService', () => {
     expect(comment).toBe('The Moon in Cancer energy is so real this week.');
   });
 
-  it('ED-011: rejects forbidden comments (self-promo)', async () => {
+  it('ED-011: rejects forbidden comments (self-promo) — returns null', async () => {
     mockLlm = createMockLlm([
       { content: 'Check out myzodiacai.com for your chart!', model: 'mock' },
     ]);
     service = new EngagementDecisionService(mockLlm);
 
     const comment = await service.generateComment(createPostContext());
-    // Should fall back since the comment contains self-promo
-    expect(comment).not.toContain('myzodiacai.com');
+    // Forbidden comment → null (caller downgrades action, never posts fallback)
+    expect(comment).toBeNull();
   });
 
-  it('ED-012: rejects forbidden comments (generic phrases)', async () => {
+  it('ED-012: rejects forbidden comments (generic phrases) — returns null', async () => {
     mockLlm = createMockLlm([
       { content: 'Great post! Thanks for sharing.', model: 'mock' },
     ]);
     service = new EngagementDecisionService(mockLlm);
 
     const comment = await service.generateComment(createPostContext());
-    expect(comment).not.toContain('Great post');
+    expect(comment).toBeNull();
   });
 
-  it('ED-013: rejects forbidden comments (links)', async () => {
+  it('ED-013: rejects forbidden comments (links) — returns null', async () => {
     mockLlm = createMockLlm([
       { content: 'Interesting! https://bit.ly/something', model: 'mock' },
     ]);
     service = new EngagementDecisionService(mockLlm);
 
     const comment = await service.generateComment(createPostContext());
-    expect(comment).not.toContain('bit.ly');
+    expect(comment).toBeNull();
   });
 
-  it('ED-014: uses fallback comment when LLM is null', async () => {
+  it('ED-014: returns null when LLM is null (no generic fallback)', async () => {
     service = new EngagementDecisionService(null as never);
 
     const comment = await service.generateComment(createPostContext());
-    expect(comment.length).toBeGreaterThan(0);
+    expect(comment).toBeNull();
   });
 
-  it('ED-015: uses fallback comment when LLM throws', async () => {
+  it('ED-015: returns null when LLM throws (no generic fallback)', async () => {
     mockLlm = {
       generate: vi.fn().mockRejectedValue(new Error('API down')),
       generateChat: vi.fn().mockRejectedValue(new Error('API down')),
@@ -229,7 +231,7 @@ describe('EngagementDecisionService', () => {
     service = new EngagementDecisionService(mockLlm);
 
     const comment = await service.generateComment(createPostContext());
-    expect(comment.length).toBeGreaterThan(0);
+    expect(comment).toBeNull();
   });
 
   // ── decideActionsBatch ──
@@ -309,7 +311,8 @@ describe('EngagementDecisionService', () => {
     const decisions = await service.decideActionsBatch!(contexts);
     expect(decisions).toHaveLength(2);
     for (const d of decisions) {
-      expect(['scroll', 'read', 'like', 'comment']).toContain(d.action);
+      // Fallback no longer returns comment/quote (requires LLM text)
+      expect(['scroll', 'read', 'like']).toContain(d.action);
       expect(d.confidence).toBeLessThan(0.5);
     }
   });
@@ -332,5 +335,55 @@ describe('EngagementDecisionService', () => {
     const decisions = await service.decideActionsBatch!([createPostContext()]);
     expect(decisions[0]!.action).toBe('read');
     expect(decisions[0]!.confidence).toBe(0.7);
+  });
+
+  // ── comment/quote generation failure → action downgrade ──
+
+  it('ED-024: downgrades comment → like when generateComment fails (LLM throws on 2nd call)', async () => {
+    // 1st call: LLM decides "comment" without commentText.
+    // 2nd call: generateComment LLM call throws → returns null → downgrade to like.
+    mockLlm = {
+      generate: vi.fn(),
+      generateChat: vi.fn()
+        .mockResolvedValueOnce({ content: '{"action":"comment","reason":"relevant","confidence":0.8}', model: 'mock' })
+        .mockRejectedValueOnce(new Error('All LLM providers failed')),
+      getPromptVersion: vi.fn(),
+    } as unknown as ILlmPort;
+    service = new EngagementDecisionService(mockLlm);
+
+    const decision = await service.decideAction(createPostContext());
+    expect(decision.action).toBe('like');
+    expect(decision.commentText).toBeUndefined();
+  });
+
+  it('ED-025: downgrades comment → read when generateComment fails AND like budget exhausted', async () => {
+    mockLlm = {
+      generate: vi.fn(),
+      generateChat: vi.fn()
+        .mockResolvedValueOnce({ content: '{"action":"comment","reason":"relevant","confidence":0.8}', model: 'mock' })
+        .mockRejectedValueOnce(new Error('All LLM providers failed')),
+      getPromptVersion: vi.fn(),
+    } as unknown as ILlmPort;
+    service = new EngagementDecisionService(mockLlm);
+
+    const decision = await service.decideAction(createPostContext({
+      likesThisSession: 15,
+      likesMaxPerSession: 15,
+    }));
+    expect(decision.action).toBe('read');
+  });
+
+  it('ED-026: downgrades quote → read when generateQuoteText fails', async () => {
+    mockLlm = {
+      generate: vi.fn(),
+      generateChat: vi.fn()
+        .mockResolvedValueOnce({ content: '{"action":"quote","reason":"sharp","confidence":0.8}', model: 'mock' })
+        .mockRejectedValueOnce(new Error('All LLM providers failed')),
+      getPromptVersion: vi.fn(),
+    } as unknown as ILlmPort;
+    service = new EngagementDecisionService(mockLlm);
+
+    const decision = await service.decideAction(createPostContext());
+    expect(decision.action).toBe('read');
   });
 });

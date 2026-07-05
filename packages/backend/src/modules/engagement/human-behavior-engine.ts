@@ -264,21 +264,44 @@ export class HumanBehaviorEngine {
           decision = { action: 'like', reason: 'First-interaction quota: solid post gets a like', confidence: 0.6 };
         }
 
-        // Generate comment text if the LLM decided 'comment' but didn't provide text
+        // Generate comment text if the LLM decided 'comment' but didn't provide text.
+        // If generation fails (returns null), downgrade to like (or read) — never
+        // post a generic fallback comment.
         if (decision.action === 'comment' && !decision.commentText) {
           try {
-            decision.commentText = await this.decisionPort.generateComment(context);
+            const comment = await this.decisionPort.generateComment(context);
+            if (comment === null) {
+              if (likesThisSession < config.likesMaxPerSession) {
+                this.logger.warn(`LLM comment generation failed — downgrading comment → like for ${context.postUrl}`);
+                decision = { action: 'like', reason: 'Comment generation failed, downgraded to like', confidence: 0.6 };
+              } else {
+                this.logger.warn(`LLM comment generation failed and like budget exhausted — downgrading comment → read for ${context.postUrl}`);
+                decision = { action: 'read', reason: 'Comment generation failed, like budget exhausted', confidence: 0.6 };
+              }
+            } else {
+              decision.commentText = comment;
+            }
           } catch {
-            // generateComment has its own fallback
+            this.logger.warn(`generateComment threw — downgrading comment → read for ${context.postUrl}`);
+            decision = { action: 'read', reason: 'Comment generation threw, downgraded to read', confidence: 0.6 };
           }
         }
 
-        // Generate quote text if the LLM decided 'quote' but didn't provide text
+        // Generate quote text if the LLM decided 'quote' but didn't provide text.
+        // If generation fails (returns null), downgrade to read — never post a
+        // generic fallback quote.
         if (decision.action === 'quote' && !decision.quoteText) {
           try {
-            decision.quoteText = await this.decisionPort.generateQuoteText(context);
+            const quote = await this.decisionPort.generateQuoteText(context);
+            if (quote === null) {
+              this.logger.warn(`LLM quote generation failed — downgrading quote → read for ${context.postUrl}`);
+              decision = { action: 'read', reason: 'Quote generation failed, downgraded to read', confidence: 0.6 };
+            } else {
+              decision.quoteText = quote;
+            }
           } catch {
-            // generateQuoteText has its own fallback
+            this.logger.warn(`generateQuoteText threw — downgrading quote → read for ${context.postUrl}`);
+            decision = { action: 'read', reason: 'Quote generation threw, downgraded to read', confidence: 0.6 };
           }
         }
 
