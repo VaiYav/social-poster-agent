@@ -227,6 +227,11 @@ export class ThreadsPoster extends BasePoster {
       } catch (err) {
         this.logger.debug(`Threads setComposeText attempt ${attempt} failed: ${(err as Error).message}`);
       }
+      // Page crashed/closed — no point retrying text entry on a dead page
+      if (page.isClosed?.()) {
+        this.logger.warn(`Threads setComposeText: page is closed — skipping remaining retries`);
+        break;
+      }
       await this.browser.randomDelay(300, 600);
     }
     this.logger.warn(`Threads execCommand insertText failed — textbox may be empty`);
@@ -250,7 +255,12 @@ export class ThreadsPoster extends BasePoster {
         await this.browser.randomDelay(30000, 90000);
       }
       try {
-        await this.retryWithBackoff(() => this.postReply(page, postUrl, threadItems[i]!), 2, 5000);
+        await this.retryWithBackoff(
+          () => this.postReply(page, postUrl, threadItems[i]!),
+          2,
+          5000,
+          () => page.isClosed?.() ?? false,
+        );
         replyResults.push({ index: i, success: true });
       } catch (replyErr) {
         const errMsg = (replyErr as Error).message;

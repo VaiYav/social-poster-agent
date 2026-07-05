@@ -591,12 +591,15 @@ export abstract class BasePoster {
    * @param operation - The operation to retry (should throw on failure)
    * @param maxRetries - Maximum number of retry attempts (default: 2)
    * @param baseDelayMs - Base delay between retries (default: 5000ms)
+   * @param isDead - Optional predicate; if it returns true after a failure, abort remaining retries
+   *                 (e.g. `() => page.isClosed()` — no point retrying on a crashed page)
    * @returns The result of the operation, or throws the last error
    */
   protected async retryWithBackoff<T>(
     operation: () => Promise<T>,
     maxRetries = 2,
     baseDelayMs = 5000,
+    isDead?: () => boolean,
   ): Promise<T> {
     let lastErr: unknown;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -604,6 +607,13 @@ export abstract class BasePoster {
         return await operation();
       } catch (err) {
         lastErr = err;
+        // Caller-supplied dead-state check (e.g. page crashed/closed) — abort early
+        if (isDead?.()) {
+          this.logger.warn(
+            `Retry ${attempt + 1}/${maxRetries} aborted — caller reports dead state after: ${(err as Error).message}`,
+          );
+          throw err;
+        }
         if (attempt < maxRetries) {
           const delay = baseDelayMs * Math.pow(2, attempt) * (0.75 + Math.random() * 0.5);
           this.logger.warn(

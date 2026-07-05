@@ -364,7 +364,9 @@ export class XPoster extends BasePoster {
           this.logger.log(`X tweet not on current page — checking profile...`);
           const handle = accountHandle ?? await this.getAccountHandleFromEnv();
           if (handle) {
-            // Retry profile validation up to 3 times — X may have a delay showing new posts
+            // Retry profile validation up to 3 times — X may have a delay showing new posts.
+            // Break early if the page crashed/closed — retrying on a dead page is futile
+            // and wastes 10-16s before the error propagates to the queue for a fresh retry.
             let lastErr: Error | null = null;
             for (let attempt = 1; attempt <= 3; attempt++) {
               try {
@@ -379,6 +381,11 @@ export class XPoster extends BasePoster {
               } catch (err) {
                 lastErr = err as Error;
                 this.logger.warn(`X profile validation attempt ${attempt}/3 failed: ${(err as Error).message}`);
+                // Page crashed/closed — no point retrying on a dead page
+                if (page.isClosed?.()) {
+                  this.logger.warn(`X profile validation: page is closed — skipping remaining retries`);
+                  break;
+                }
                 if (attempt < 3) {
                   await this.browser.randomDelay(5000, 8000);
                 }
@@ -439,8 +446,13 @@ export class XPoster extends BasePoster {
         await this.browser.randomDelay(30000, 90000);
       }
       try {
-        // Retry each reply with exponential backoff (2 attempts)
-        await this.retryWithBackoff(() => this.postReply(page, postUrl, threadItems[i]!), 2, 5000);
+        // Retry each reply with exponential backoff (2 attempts); abort early if page crashed
+        await this.retryWithBackoff(
+          () => this.postReply(page, postUrl, threadItems[i]!),
+          2,
+          5000,
+          () => page.isClosed?.() ?? false,
+        );
         replyResults.push({ index: i, success: true });
       } catch (replyErr) {
         const errMsg = (replyErr as Error).message;
@@ -500,6 +512,11 @@ export class XPoster extends BasePoster {
         }
       } catch (err) {
         this.logger.debug(`X setComposeText attempt ${attempt} failed: ${(err as Error).message}`);
+      }
+      // Page crashed/closed — no point retrying text entry on a dead page
+      if (page.isClosed?.()) {
+        this.logger.warn(`X setComposeText: page is closed — skipping remaining retries`);
+        break;
       }
       // Pause briefly before fallback retry
       await this.browser.randomDelay(300, 600);

@@ -104,6 +104,12 @@ export async function navigateWithRetry(
 
   await withRetry(
     async () => {
+      // Skip the goto entirely if the page already crashed/closed — avoids
+      // a guaranteed "Target page, context or browser has been closed" error
+      // and the wasted retry backoff on a dead page.
+      if (page.isClosed?.()) {
+        throw new Error('Page is closed — cannot navigate');
+      }
       await page.goto(url, { waitUntil, timeout: timeoutMs });
     },
     {
@@ -113,6 +119,10 @@ export async function navigateWithRetry(
       jitter: 0.25,
       retryable: (err) => {
         const msg = (err as Error).message ?? String(err);
+        // Don't retry on a closed page — the context is dead, caller must acquire a new page
+        if (msg.includes('Page is closed') || msg.includes('Target page, context or browser has been closed')) {
+          return false;
+        }
         // Retry on timeout and network errors
         return (
           msg.includes('Timeout') ||
