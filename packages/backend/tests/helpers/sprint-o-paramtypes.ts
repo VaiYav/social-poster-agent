@@ -21,6 +21,7 @@ export async function restoreSprintOParamtypes(
   defineFn: (target: unknown, types: unknown[]) => void,
   PrismaService: unknown,
 ): Promise<void> {
+  const { SchedulerRegistry } = await import('@nestjs/schedule');
   const CaptchaSolverService = (await import('../../src/infrastructure/captcha/captcha-solver.service.js')).CaptchaSolverService;
   const ProxyRotationService = (await import('../../src/infrastructure/proxy/proxy-rotation.service.js')).ProxyRotationService;
   const AnalyticsService = (await import('../../src/modules/analytics/analytics.service.js')).AnalyticsService;
@@ -50,7 +51,7 @@ export async function restoreSprintOParamtypes(
   defineFn(ProxyRotationService, [ConfigService]);
   defineFn(AnalyticsService, [PrismaService]);
   defineFn(AnalyticsController, [AnalyticsService]);
-  defineFn(MetricsScraperService, [PrismaService, SseService, Object]);
+  defineFn(MetricsScraperService, [PrismaService, SseService, SchedulerRegistry, Object]);
   defineFn(RecyclingService, [PrismaService, GenerationService]);
   defineFn(RecyclingController, [RecyclingService]);
   defineFn(QuoteCardService, [ConfigService]);
@@ -68,4 +69,11 @@ export async function restoreSprintOParamtypes(
   defineFn(AuthService, [PrismaService, JwtService, ConfigService]);
   defineFn(AuthController, [AuthService, ConfigService]);
   defineFn(JwtAuthGuard, [JwtService, ConfigService]);
+
+  // DbContentReader stack — TopicGenerationService was added to AppModule without a
+  // restore entry here, so `configService` resolved to undefined and EVERY full-app
+  // spec failed at boot (pre-existing drift, fixed in the quality pass).
+  const TopicGenerationService = (await import('../../src/infrastructure/content/topic-generation.service.js')).TopicGenerationService;
+  const LlmService = (await import('../../src/infrastructure/llm/llm.service.js')).LlmService;
+  defineFn(TopicGenerationService, [PrismaService, ConfigService, SchedulerRegistry, LlmService]);
 }

@@ -23,6 +23,12 @@ export type ContentStyle = {
   example: string;
   worksForShort: boolean;
   worksForLong: boolean;
+  /**
+   * Q5: Whether the humor-mechanics layer may be applied on top of this style.
+   * Serious/poetic styles (mystical_poem, ancient_wisdom, tiny_lesson) skip
+   * humor entirely — forcing jokes into them produces tonal whiplash.
+   */
+  humorCompatible: boolean;
 };
 
 export const CONTENT_STYLES: ContentStyle[] = [
@@ -41,6 +47,7 @@ export const CONTENT_STYLES: ContentStyle[] = [
     example: 'Your sun sign is the least interesting thing about your chart. Your Venus placement? That is where the tea is. \u2615',
     worksForShort: true,
     worksForLong: true,
+    humorCompatible: true,
   },
   {
     id: 'story_time',
@@ -57,6 +64,7 @@ export const CONTENT_STYLES: ContentStyle[] = [
     example: 'Last Tuesday at 3am I finally understood why I keep attracting Scorpios. It was never them — it was my 8th house Venus doing the fishing. \uD83C\uDFA3',
     worksForShort: true,
     worksForLong: true,
+    humorCompatible: true,
   },
   {
     id: 'myth_buster',
@@ -73,6 +81,7 @@ export const CONTENT_STYLES: ContentStyle[] = [
     example: 'Everyone blames Mercury retrograde for their texts going unanswered. Meanwhile Mercury was direct and you are just being left on read. \uD83D\uDC80',
     worksForShort: true,
     worksForLong: true,
+    humorCompatible: true,
   },
   {
     id: 'meme_energy',
@@ -89,6 +98,7 @@ export const CONTENT_STYLES: ContentStyle[] = [
     example: 'Me: I am so over my Saturn return.\nMy Saturn return: bestie we have 2 more years \uD83D\uDC80',
     worksForShort: true,
     worksForLong: false,
+    humorCompatible: true,
   },
   {
     id: 'mystical_poem',
@@ -105,6 +115,7 @@ export const CONTENT_STYLES: ContentStyle[] = [
     example: 'The moon does not pull the tides.\nShe whispers,\nand the ocean remembers\nwhat it forgot at dawn. \uD83C\uDF19',
     worksForShort: true,
     worksForLong: true,
+    humorCompatible: false,
   },
   {
     id: 'listicle',
@@ -120,6 +131,7 @@ export const CONTENT_STYLES: ContentStyle[] = [
     example: '3 things your moon sign knows that your sun sign will not admit:\n1. Why you cry at commercials\n2. Your actual comfort food\n3. Who you text at 2am',
     worksForShort: true,
     worksForLong: true,
+    humorCompatible: true,
   },
   {
     id: 'question_hook',
@@ -136,6 +148,7 @@ export const CONTENT_STYLES: ContentStyle[] = [
     example: 'Why do you keep dating the same sign?\n\nIt is not coincidence — it is your 7th house calling. And it will not stop until you learn the lesson. \uD83D\uDD04',
     worksForShort: true,
     worksForLong: true,
+    humorCompatible: true,
   },
   {
     id: 'cosmic_weather',
@@ -151,6 +164,7 @@ export const CONTENT_STYLES: ContentStyle[] = [
     example: 'Today cosmic forecast: \u2600\uFE0F Sun in Leo bringing main character energy, with scattered Venus-Pluto aspects causing impulse DMs. Pack an emotional umbrella. \u26C8\uFE0F',
     worksForShort: true,
     worksForLong: true,
+    humorCompatible: true,
   },
   {
     id: 'ancient_wisdom',
@@ -167,6 +181,7 @@ export const CONTENT_STYLES: ContentStyle[] = [
     example: 'The Babylonians mapped the stars 3,000 years ago. They knew what modern astrology forgot: the sky does not predict — it reflects. \uD83D\uDD29',
     worksForShort: true,
     worksForLong: true,
+    humorCompatible: false,
   },
   {
     id: 'real_talk',
@@ -183,6 +198,7 @@ export const CONTENT_STYLES: ContentStyle[] = [
     example: 'Stop blaming Mercury retrograde for your week. You made those choices. The planets just watched and took notes. \uD83D\uDCDD',
     worksForShort: true,
     worksForLong: true,
+    humorCompatible: true,
   },
   {
     id: 'plot_twist',
@@ -198,6 +214,7 @@ export const CONTENT_STYLES: ContentStyle[] = [
     example: 'I thought my Saturn return would be a spiritual awakening.\n\nIt was mostly crying in a Target parking lot at 11pm. But apparently that IS the spiritual awakening. \uD83E\uDE90',
     worksForShort: true,
     worksForLong: true,
+    humorCompatible: true,
   },
   {
     id: 'tiny_lesson',
@@ -214,6 +231,7 @@ export const CONTENT_STYLES: ContentStyle[] = [
     example: 'Your rising sign is not who you are. It is how you enter a room — literally. It is your social interface, your first impression, your "hi, nice to meet you" energy. \uD83D\uDEAA',
     worksForShort: true,
     worksForLong: true,
+    humorCompatible: false,
   },
 ];
 

@@ -125,7 +125,11 @@ export class GenerationService {
           error: event.error ?? undefined,
         });
       };
-      const graphBuilder = buildGenerationGraph(this.llm, progressPublisher, this.hookBank, this.visualService, this.abGenerator, this.promptPort);
+      // Q8: judge-gated refine loop threshold (0 disables the retry loop)
+      const rawThreshold = Number(process.env.JUDGE_REFINE_THRESHOLD ?? '0.6');
+      const graphBuilder = buildGenerationGraph(this.llm, progressPublisher, this.hookBank, this.visualService, this.abGenerator, this.promptPort, {
+        judgeRefineThreshold: Number.isFinite(rawThreshold) ? rawThreshold : 0.6,
+      });
       this.compiledGraph = graphBuilder.compile({ checkpointer: this.checkpointSaver });
       this.logger.log('LangGraph workflow compiled with Redis checkpoint saver + SSE progress (§10.3 parallel graph)');
     }
@@ -621,20 +625,29 @@ export class GenerationService {
     humanReview = false,
     language = 'en',
   ): Promise<{ id: string }[]> {
-    // Check which networks have active accounts
+    // Check which networks have active accounts.
+    // Q11 (N+1 fix): load each network's account ONCE and reuse the map in the
+    // save loop below (previously findByNetwork was re-queried per generated
+    // post); per-network checks run in parallel instead of sequentially.
+    type AccountResult = Awaited<ReturnType<AccountsService['findByNetwork']>>;
+    const accountByNetwork = new Map<SocialNetwork, AccountResult>();
     const activeNetworks: SocialNetwork[] = [];
-    for (const network of targetNetworks) {
-      const account = await this.accountsService.findByNetwork(network);
-      if (account) {
-        // Dedup — skip if we already posted about this source recently for this network
+    const networkChecks = await Promise.all(
+      targetNetworks.map(async (network) => {
+        const account = await this.accountsService.findByNetwork(network);
+        if (!account) return { network, account: null as AccountResult, recentCount: 0 };
         const recent = await this.postsService.findBySourceAndNetwork(topic.path, network);
-        if (recent.length === 0) {
-          activeNetworks.push(network);
-        } else {
-          this.logger.debug(`Skipping ${network} — already posted about ${topic.path}`);
-        }
+        return { network, account, recentCount: recent.length };
+      }),
+    );
+    for (const check of networkChecks) {
+      accountByNetwork.set(check.network, check.account);
+      if (!check.account) {
+        this.logger.warn(`No active account for ${check.network}`);
+      } else if (check.recentCount > 0) {
+        this.logger.debug(`Skipping ${check.network} — already posted about ${topic.path}`);
       } else {
-        this.logger.warn(`No active account for ${network}`);
+        activeNetworks.push(check.network);
       }
     }
 
@@ -650,7 +663,7 @@ export class GenerationService {
     // thread_id = runId:topic enables resume after crash (B6 mitigation)
     const config: GraphInvokeConfig = {
       configurable: { thread_id: `${runId}:${topic.topic}` },
-      recursionLimit: 40, // P3+P7 added 6 more nodes (visual_concept + ab_variant per network)
+      recursionLimit: 50, // P3+P7 added 6 nodes; Q8 judge-retry adds up to 2 supersteps per network
     };
 
     this.logger.debug(
@@ -703,7 +716,8 @@ export class GenerationService {
         continue;
       }
 
-      const account = await this.accountsService.findByNetwork(genPost.network);
+      // Q11: reuse the account loaded before the graph run (was an N+1 re-query)
+      const account = accountByNetwork.get(genPost.network) ?? await this.accountsService.findByNetwork(genPost.network);
       if (!account) continue;
 
       const post = await this.postsService.create({
@@ -724,6 +738,7 @@ export class GenerationService {
           hook: genPost.hook,
           hookTechnique: genPost.hookTechnique, // P1: for performance tracking
           contentStyleId: genPost.contentStyleId, // Anti-AI-detection style rotation
+          humorMechanicId: genPost.humorMechanicId ?? null, // Q5: humor mechanics rotation
           angleType: genPost.angle.split('—')[0]?.trim(),
           simhash: candidateHash, // B5: store hash for future dedup
           qualityScore: genPost.qualityScore, // Sprint Q: LLM quality score (1-10)
@@ -1263,7 +1278,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
             // Same thread_id as original — LangGraph will resume from checkpoint
             const config: GraphInvokeConfig = {
               configurable: { thread_id: `${runId}:${topic.topic}` },
-              recursionLimit: 25,
+              recursionLimit: 30, // Q8: judge-retry can add up to 2 supersteps per network
             };
             const initialState = createInitialState(topic, targetNetworks, brandVoice);
             // Langfuse tracing for resume — same sessionId as original run
@@ -1359,7 +1374,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
   ): Promise<{ runId: string; topic: string; status: string }> {
     const config: GraphInvokeConfig = {
       configurable: { thread_id: `${runId}:${topic}` },
-      recursionLimit: 25,
+      recursionLimit: 30, // Q8: judge-retry can add up to 2 supersteps per network
     };
 
     // Resume the graph by passing a Command with the resume payload.

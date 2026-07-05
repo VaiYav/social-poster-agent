@@ -445,7 +445,7 @@ function restoreAllDesignParamtypes(): void {
   defineParamtypes(ProxyRotationService, [ConfigService]);
   defineParamtypes(AnalyticsService, [PrismaService]);
   defineParamtypes(AnalyticsController, [AnalyticsService]);
-  defineParamtypes(MetricsScraperService, [PrismaService, SseService, Object]);
+  defineParamtypes(MetricsScraperService, [PrismaService, SseService, SchedulerRegistry, Object]);
   defineParamtypes(RecyclingService, [PrismaService, GenerationService]);
   defineParamtypes(RecyclingController, [RecyclingService]);
   defineParamtypes(QuoteCardService, [ConfigService]);

@@ -8,7 +8,6 @@ import { TopicGenerationService } from './topic-generation.service';
 import { IContentPort } from '../../domain/ports/content.port.js';
 import { PrismaModule } from '../prisma/prisma.module';
 import { LlmModule } from '../llm/llm.module';
-import { ScheduleModule } from '@nestjs/schedule';
 
 /**
  * ContentModule — wires the IContentPort adapter.
@@ -19,8 +18,13 @@ import { ScheduleModule } from '@nestjs/schedule';
  *
  * This makes the app fully self-contained — no sibling repo required.
  */
+// NOTE (quality pass): do NOT import the bare `ScheduleModule` here — the bare
+// class module instantiates SchedulerOrchestrator WITHOUT providing
+// SchedulerRegistry (only forRoot() provides it). In prod the global
+// ScheduleModule.forRoot() in AppModule supplies SchedulerRegistry for
+// TopicGenerationService; the bare import only broke isolated module tests.
 @Module({
-  imports: [PrismaModule, LlmModule, ScheduleModule],
+  imports: [PrismaModule, LlmModule],
   providers: [
     ContentReader,
     DbContentReader,

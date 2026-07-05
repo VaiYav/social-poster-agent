@@ -27,6 +27,9 @@
  * `Reflect.defineMetadata` so @nestjs/testing DI works as intended.
  */
 import 'reflect-metadata';
+import { TopicGenerationService } from '../../src/infrastructure/content/topic-generation.service';
+import { SchedulerRegistry } from '@nestjs/schedule';
+import { LlmService } from '../../src/infrastructure/llm/llm.service';
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { TestingModule } from '@nestjs/testing';
@@ -279,6 +282,9 @@ function restoreDesignParamtypes(): void {
     Reflect.defineMetadata('design:paramtypes', [IBrowserPort], XPoster);
   // ThreadsPoster: (IBrowserPort)
     Reflect.defineMetadata('design:paramtypes', [IBrowserPort], ThreadsPoster);
+  // Quality pass: TopicGenerationService was added to AppModule without a restore
+  // entry — esbuild-stripped paramtypes made configService undefined at boot.
+  Reflect.defineMetadata('design:paramtypes', [PrismaService, ConfigService, SchedulerRegistry, LlmService], TopicGenerationService);
 }
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────

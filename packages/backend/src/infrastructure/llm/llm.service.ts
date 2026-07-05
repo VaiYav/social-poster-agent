@@ -4,7 +4,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import type { BaseCallbackHandler } from '../../domain/ports/llm-primitives.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
-import type { ILlmPort, GenerateOptions, LlmResponse } from '../../domain/ports/llm.port.js';
+import type { ILlmPort, GenerateOptions, LlmResponse, LlmRole } from '../../domain/ports/llm.port.js';
 import { IPromptPort } from '../../domain/ports/prompt.port.js';
 
 /**
@@ -107,7 +107,21 @@ export class LlmService implements ILlmPort, OnModuleInit {
 
   // Sprint J: Prompt version — bumped when prompts change, stored in llmMetadata
   // Sprint P: Now sourced from PromptRegistry when available, falls back to static constant
-  static readonly PROMPT_VERSION = '0.4.0-sprint-j';
+  static readonly PROMPT_VERSION = '0.5.0-quality-pass';
+
+  // Q1: Per-role provider chains — parsed from LLM_ROLE_CHAINS env.
+  // Format: "draft=google,deepseek;judge=groq,ollama" (role=comma-separated provider names).
+  private roleChains = new Map<string, string[]>();
+
+  // Q2: Global concurrency cap — prevents 429 cascades on free-tier providers
+  // when parallel graph branches fan out (3 topics × 3 networks × N nodes).
+  private readonly maxConcurrent: number;
+  private inFlight = 0;
+  private readonly waiters: Array<() => void> = [];
+
+  // Q2: One retry on the SAME provider after a rate-limit (429) before failover —
+  // a 429 is a reason to wait, not to switch providers.
+  private readonly rateLimitRetryMs: number;
 
   constructor(
     private readonly configService: ConfigService,
@@ -120,10 +134,15 @@ export class LlmService implements ILlmPort, OnModuleInit {
     this.cbTerminalCooldownMs = this.configService.get<number>('LLM_CB_TERMINAL_COOLDOWN_MS', 6 * 60 * 60 * 1000);
     this.cacheTtlMs = this.configService.get<number>('LLM_CACHE_TTL_MS', 300_000); // 5 min
     this.cacheMaxSize = this.configService.get<number>('LLM_CACHE_MAX_SIZE', 100);
+    this.maxConcurrent = Number(this.configService.get<string | number>('LLM_MAX_CONCURRENT', 4)) || 4;
+    this.rateLimitRetryMs = Number(this.configService.get<string | number>('LLM_RATE_LIMIT_RETRY_MS', 2_500)) || 2_500;
   }
 
   onModuleInit(): void {
     this.providers = this.buildProviderChain();
+    this.roleChains = this.parseRoleChains(
+      this.configService.get<string>('LLM_ROLE_CHAINS', ''),
+    );
 
     if (this.providers.length === 0) {
       this.logger.warn('No LLM providers configured — LLM generation will fail');
@@ -144,7 +163,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
     return this.providers.map((p) => ({
       provider: p.name,
       model: p.model,
-      free: p.name !== 'openai',
+      free: p.name !== 'openai' && p.name !== 'anthropic',
     }));
   }
 
@@ -213,6 +232,21 @@ export class LlmService implements ILlmPort, OnModuleInit {
       });
     }
 
+    // 4.5 Anthropic — strong creative/multilingual backstop via the
+    // OpenAI-compatible endpoint. Previously advertised in .env.example but
+    // never wired into the chain (dead config — fixed in the quality pass).
+    const anthropicKey = this.configService.get<string>('ANTHROPIC_API_KEY', '');
+    if (anthropicKey) {
+      chain.push({
+        name: 'anthropic',
+        model: this.configService.get<string>('ANTHROPIC_MODEL', 'claude-haiku-4-5'),
+        apiKey: anthropicKey,
+        baseURL: 'https://api.anthropic.com/v1/',
+        temperature: defaultTemp,
+        supportsTemperature: true,
+      });
+    }
+
     // 5. OpenAI — paid overflow (may be quota-limited)
     // gpt-5-nano and other reasoning models (o1, o3, o4-mini) do NOT accept
     // `temperature` — only the default (1) is supported. We detect reasoning
@@ -272,12 +306,29 @@ export class LlmService implements ILlmPort, OnModuleInit {
   }
 
   /**
-   * Get or create a ChatOpenAI instance for a specific provider.
+   * Get or create a ChatOpenAI instance for a provider + call options combo.
+   *
+   * BUG-FIX (race condition): instances were previously cached per provider and
+   * MUTATED per call (`model.temperature = ...`). Parallel graph nodes (draft
+   * t=0.7, critique t=0.3, judge t=0.2 across 3 networks × 3 topics) clobbered
+   * each other's temperature/maxTokens between assignment and invoke().
+   * Now the cache key includes temperature + maxTokens and instances are never
+   * mutated — concurrent calls with different options get different instances.
+   *
    * For models that don't support `temperature` (OpenAI reasoning models),
-   * the parameter is omitted entirely — passing it would cause HTTP 400.
+   * both temperature and maxTokens are omitted entirely — passing them would
+   * cause HTTP 400 (see BUG-13/BUG-14 notes in git history).
    */
-  private getModelForProvider(provider: LlmProviderConfig): ChatOpenAI {
-    const key = `${provider.name}:${provider.model}`;
+  private getModelForProvider(provider: LlmProviderConfig, options?: GenerateOptions): ChatOpenAI {
+    // Effective per-call parameters (resolved BEFORE caching — immutable after)
+    const temperature = provider.supportsTemperature
+      ? (options?.temperature ?? provider.temperature)
+      : undefined;
+    const maxTokens = provider.supportsTemperature
+      ? (options?.maxTokens ?? -1)
+      : -1; // reasoning models: -1 = omit the parameter entirely
+
+    const key = `${provider.name}:${provider.model}:t${temperature ?? 'na'}:m${maxTokens}`;
     let model = this.models.get(key);
     if (!model) {
       const ctorArgs: Record<string, unknown> = {
@@ -286,14 +337,89 @@ export class LlmService implements ILlmPort, OnModuleInit {
         configuration: { baseURL: provider.baseURL },
         timeout: 30000,
         maxRetries: 0, // we handle fallback ourselves
+        maxTokens,
       };
-      if (provider.supportsTemperature) {
-        ctorArgs.temperature = provider.temperature;
+      if (temperature !== undefined) {
+        ctorArgs.temperature = temperature;
       }
       model = new ChatOpenAI(ctorArgs as ConstructorParameters<typeof ChatOpenAI>[0]);
       this.models.set(key, model);
     }
     return model;
+  }
+
+  /**
+   * Q1: Parse LLM_ROLE_CHAINS env into a role → provider-names map.
+   * Format: "draft=google,deepseek;judge=groq,ollama". Unknown roles/providers
+   * are kept as-is and simply won't match anything at ordering time.
+   */
+  private parseRoleChains(raw: string): Map<string, string[]> {
+    const map = new Map<string, string[]>();
+    if (!raw || !raw.trim()) return map;
+    for (const entry of raw.split(';')) {
+      const [role, names] = entry.split('=');
+      if (!role || !names) continue;
+      const list = names.split(',').map((n) => n.trim().toLowerCase()).filter(Boolean);
+      if (list.length > 0) map.set(role.trim().toLowerCase(), list);
+    }
+    return map;
+  }
+
+  /**
+   * Q1: Order providers for a call.
+   * - When a role chain is configured for options.role: preferred providers
+   *   first (in configured order), then the remaining chain as backstop.
+   * - Otherwise: default chain with sticky lastWorkingProvider first.
+   */
+  private orderedProviders(role?: LlmRole): LlmProviderConfig[] {
+    const roleChain = role ? this.roleChains.get(role) : undefined;
+    if (roleChain && roleChain.length > 0) {
+      const preferred: LlmProviderConfig[] = [];
+      for (const name of roleChain) {
+        const p = this.providers.find((pr) => pr.name === name);
+        if (p) preferred.push(p);
+      }
+      const rest = this.providers.filter((p) => !preferred.includes(p));
+      return [...preferred, ...rest];
+    }
+
+    if (this.lastWorkingProvider) {
+      const lastIdx = this.providers.findIndex((p) => p.name === this.lastWorkingProvider);
+      if (lastIdx >= 0) {
+        return [
+          this.providers[lastIdx]!,
+          ...this.providers.slice(0, lastIdx),
+          ...this.providers.slice(lastIdx + 1),
+        ];
+      }
+    }
+    return this.providers;
+  }
+
+  /** Q2: Detect a rate-limit (429) error — worth a retry on the SAME provider. */
+  private isRateLimitError(err: unknown): boolean {
+    const status = (err as { status?: number; statusCode?: number })?.status
+      ?? (err as { status?: number; statusCode?: number })?.statusCode;
+    if (status === 429) return true;
+    const message = (err as Error)?.message ?? '';
+    return /\b429\b|rate.?limit/i.test(message);
+  }
+
+  /** Q2: Acquire a slot in the global concurrency semaphore. */
+  private async acquireSlot(): Promise<void> {
+    if (this.inFlight < this.maxConcurrent) {
+      this.inFlight += 1;
+      return;
+    }
+    await new Promise<void>((resolve) => this.waiters.push(resolve));
+    this.inFlight += 1;
+  }
+
+  /** Q2: Release a semaphore slot and wake the next waiter. */
+  private releaseSlot(): void {
+    this.inFlight -= 1;
+    const next = this.waiters.shift();
+    if (next) next();
   }
 
   /**
@@ -427,67 +553,38 @@ export class LlmService implements ILlmPort, OnModuleInit {
       throw new Error('No LLM providers configured');
     }
 
-    // Sprint J: Check cache first
+    // Sprint J: Check cache first.
+    // Q1: creative roles (draft/hook) bypass the cache — identical prompts
+    // must still produce fresh creative output (dedup happens upstream via
+    // the hook cache and SimHash).
+    const cacheable = options?.role !== 'draft' && options?.role !== 'hook';
     const key = this.cacheKey(systemPrompt, userPrompt, options);
-    const cached = this.getFromCache(key);
-    if (cached) return cached;
-
-    // Reorder: try last working provider first
-    let ordered = this.providers;
-    if (this.lastWorkingProvider) {
-      const lastIdx = this.providers.findIndex(
-        (p) => p.name === this.lastWorkingProvider,
-      );
-      if (lastIdx >= 0) {
-        ordered = [
-          this.providers[lastIdx]!,
-          ...this.providers.slice(0, lastIdx),
-          ...this.providers.slice(lastIdx + 1),
-        ];
-      }
+    if (cacheable) {
+      const cached = this.getFromCache(key);
+      if (cached) return cached;
     }
+
+    // Q1: role-aware provider ordering (falls back to sticky default)
+    const ordered = this.orderedProviders(options?.role);
 
     const errors: string[] = [];
 
-    for (const provider of ordered) {
-      // Sprint J: Skip providers with tripped circuit breaker
-      if (!this.isProviderAvailable(provider.name)) {
-        this.logger.debug(`Skipping ${provider.name} — circuit breaker tripped`);
-        errors.push(`${provider.name}: circuit breaker open`);
-        continue;
-      }
-
-      try {
-        const model = this.getModelForProvider(provider);
-        // Only override temperature if the provider supports it.
-        // OpenAI reasoning models (gpt-5-nano, o1, o3) reject non-default
-        // temperature with HTTP 400, so we skip the override for them.
-        if (options?.temperature !== undefined && provider.supportsTemperature) {
-          model.temperature = options.temperature;
+    // Q2: global concurrency cap — hold one slot for the whole fallback walk
+    await this.acquireSlot();
+    try {
+      for (const provider of ordered) {
+        // Sprint J: Skip providers with tripped circuit breaker
+        if (!this.isProviderAvailable(provider.name)) {
+          this.logger.debug(`Skipping ${provider.name} — circuit breaker tripped`);
+          errors.push(`${provider.name}: circuit breaker open`);
+          continue;
         }
 
-        // BUG-13: forward the per-call output cap. Previously GenerateOptions.maxTokens was
-        // accepted but silently ignored (only temperature was applied), so a caller capping a
-        // JSON decision at e.g. 100 tokens actually spent far more. Always assign (no-limit is
-        // -1 in ChatOpenAI) so a prior call's cap can't leak through the cached model instance.
-        //
-        // BUG-14: LangChain @langchain/openai 0.4.x's isReasoningModel() only detects o1/o3
-        // prefixes — it does NOT recognize gpt-5-nano and other gpt-5* models as reasoning
-        // models. This means it sends `max_tokens` (the legacy parameter) instead of
-        // `max_completion_tokens`, which gpt-5 models reject with HTTP 400:
-        //   "Unsupported parameter: 'max_tokens' is not supported with this model"
-        // Our provider config already flags reasoning models via supportsTemperature=false.
-        // We reuse that flag here: for reasoning models, skip maxTokens entirely (set to -1
-        // = no limit) to avoid sending the wrong parameter name. The output cap is a
-        // nice-to-have optimization, not worth a 400 that takes down the entire provider.
-        if (provider.supportsTemperature) {
-          model.maxTokens = options?.maxTokens ?? -1;
-        } else {
-          // Reasoning model — LangChain will omit max_tokens when it's -1 (for non-reasoning
-          // detection) or use max_completion_tokens (for o1/o3). For gpt-5*, setting -1
-          // ensures the parameter is omitted entirely rather than sent with the wrong name.
-          model.maxTokens = -1;
-        }
+        // BUG-13/BUG-14 handling now lives inside getModelForProvider():
+        // temperature/maxTokens are resolved per call and baked into an
+        // immutable, cache-keyed instance (no shared-state races), and
+        // reasoning models get both parameters omitted entirely.
+        const model = this.getModelForProvider(provider, options);
 
         const messages = systemPrompt
           ? [
@@ -506,42 +603,69 @@ export class LlmService implements ILlmPort, OnModuleInit {
           (h): h is BaseCallbackHandler => h != null,
         );
 
-        const response = await model.invoke(messages, callbacks.length > 0 ? { callbacks } : undefined);
-        const content =
-          typeof response.content === 'string'
-            ? response.content
-            : JSON.stringify(response.content);
+        // Q2: up to 2 attempts on the same provider — a 429 means "wait",
+        // not "switch": failing over on rate limits cascades the whole chain
+        // down to the weakest model (Ollama) during bursts.
+        const maxAttempts = 2;
+        let lastErr: unknown;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          try {
+            const response = await model.invoke(messages, callbacks.length > 0 ? { callbacks } : undefined);
+            const content =
+              typeof response.content === 'string'
+                ? response.content
+                : JSON.stringify(response.content);
 
-        if (!content || content.trim().length === 0) {
-          throw new Error(`${provider.name} returned empty content`);
+            if (!content || content.trim().length === 0) {
+              throw new Error(`${provider.name} returned empty content`);
+            }
+
+            this.lastWorkingProvider = provider.name;
+            this.recordSuccess(provider.name);
+            this.logger.debug(`LLM success via ${provider.name}/${provider.model}`);
+
+            // Q3: Prefer REAL token usage from the provider (usage_metadata),
+            // fall back to the chars/4 estimate only when absent.
+            const usage = (response as { usage_metadata?: { input_tokens?: number; output_tokens?: number; total_tokens?: number } }).usage_metadata;
+            const usageTokens = usage?.total_tokens ?? ((usage?.input_tokens ?? 0) + (usage?.output_tokens ?? 0));
+            const tokens = usageTokens > 0
+              ? usageTokens
+              : this.estimateTokens(systemPrompt + userPrompt) + this.estimateTokens(content);
+            const llmResponse: LlmResponse = {
+              content,
+              model: `${provider.name}/${provider.model}`,
+              tokens,
+            };
+
+            // Sprint J: Cache the response (non-creative roles only)
+            if (cacheable) {
+              this.setInCache(key, llmResponse);
+            }
+
+            return llmResponse;
+          } catch (err) {
+            lastErr = err;
+            const isLastAttempt = attempt === maxAttempts - 1;
+            if (!isLastAttempt && this.isRateLimitError(err)) {
+              const waitMs = this.rateLimitRetryMs + Math.floor(Math.random() * 1_500);
+              this.logger.debug(`${provider.name} rate-limited (429) — retrying same provider in ${waitMs}ms`);
+              await new Promise((r) => setTimeout(r, waitMs));
+              continue;
+            }
+            break; // non-429 or retries exhausted → fail over
+          }
         }
 
-        this.lastWorkingProvider = provider.name;
-        this.recordSuccess(provider.name);
-        this.logger.debug(`LLM success via ${provider.name}/${provider.model}`);
-
-        // Sprint J: Token counting (estimated) + prompt version
-        const inputTokens = this.estimateTokens(systemPrompt + userPrompt);
-        const outputTokens = this.estimateTokens(content);
-        const llmResponse: LlmResponse = {
-          content,
-          model: `${provider.name}/${provider.model}`,
-          tokens: inputTokens + outputTokens,
-        };
-
-        // Sprint J: Cache the response
-        this.setInCache(key, llmResponse);
-
-        return llmResponse;
-      } catch (err) {
-        const msg = (err as Error).message;
+        const msg = (lastErr as Error)?.message ?? 'unknown error';
         errors.push(`${provider.name}: ${msg}`);
-        this.recordFailure(provider.name, this.isTerminalLlmError(err));
+        this.recordFailure(provider.name, this.isTerminalLlmError(lastErr));
         this.logger.warn(
           `LLM provider ${provider.name} failed: ${msg.slice(0, 120)}`,
         );
         // Continue to next provider
       }
+    } finally {
+      this.releaseSlot();
     }
 
     throw new Error(

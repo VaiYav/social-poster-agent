@@ -15,6 +15,9 @@
  */
 
 import 'reflect-metadata';
+import { TopicGenerationService } from '../../src/infrastructure/content/topic-generation.service';
+import { SchedulerRegistry } from '@nestjs/schedule';
+import { LlmService } from '../../src/infrastructure/llm/llm.service';
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Test } from '@nestjs/testing';
@@ -39,6 +42,8 @@ import { IBrowserPort } from '../../src/domain/ports/browser.port';
 import { IContentPort } from '../../src/domain/ports/content.port';
 import { createMockPrismaService, createMockBrowserPort, createMockContentPort } from '../mocks/index';
 import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER } from '../../src/infrastructure/redis/redis.module';
+import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service';
+import { EmailReaderService } from '../../src/infrastructure/email/email-reader.service';
 
 // ── ioredis mock (hoisted) ──
 const { redisStore, sseMessageHandlers } = vi.hoisted(() => ({
@@ -88,14 +93,20 @@ function restoreParamtypes(cls: unknown, types: unknown[]) {
 }
 
 restoreParamtypes(PostsService, [PrismaService, EventEmitter2]);
-restoreParamtypes(SessionsService, [PrismaService, AccountsService, Object, ConfigService, EncryptionService]);
+// Quality pass: SessionsService grew Discord/SHARED_REDIS/EmailReader/SchedulerRegistry
+// params — the stale 5-entry restore left `discord` undefined at boot.
+restoreParamtypes(SessionsService, [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService, Object, EmailReaderService, SchedulerRegistry]);
 restoreParamtypes(EncryptionService, [ConfigService]);
 restoreParamtypes(RateLimitService, [ConfigService]);
 restoreParamtypes(SseService, [ConfigService]);
 restoreParamtypes(AccountsService, [PrismaService, ConfigService]);
-restoreParamtypes(ContentSourceService, [ContentReader]);
+// ContentSourceService injects @Inject(IContentPort) — token decorator wins, slot is Object
+restoreParamtypes(ContentSourceService, [Object]);
 restoreParamtypes(HealthController, [PrismaService, ConfigService]);
 restoreParamtypes(EventsController, [SseService]);
+// Quality pass: TopicGenerationService was added to AppModule without a restore
+// entry — esbuild-stripped paramtypes made configService undefined at boot.
+restoreParamtypes(TopicGenerationService, [PrismaService, ConfigService, SchedulerRegistry, LlmService]);
 
 // ── Mock ConfigService ──
 function createMockConfigService(overrides: Record<string, unknown> = {}): ConfigService {
@@ -368,6 +379,10 @@ describe('Bottom-Up Integration Tests', () => {
           { provide: SHARED_REDIS, useValue: mockSharedRedis },
           { provide: SHARED_REDIS_SUBSCRIBER, useValue: mockSharedRedis },
           { provide: SHARED_REDIS_PUBLISHER, useValue: mockSharedRedis },
+          // Quality pass: new SessionsService deps (see restoreParamtypes above)
+          { provide: DiscordNotificationService, useValue: { notify: vi.fn().mockResolvedValue(undefined), notifyDlq: vi.fn().mockResolvedValue(undefined) } },
+          { provide: EmailReaderService, useValue: { isEnabled: () => false } },
+          { provide: SchedulerRegistry, useValue: { addTimeout: vi.fn(), deleteTimeout: vi.fn(), doesExist: vi.fn(() => false) } },
         ],
       }).compile();
 
@@ -539,6 +554,8 @@ describe('Bottom-Up Integration Tests', () => {
         providers: [
           ContentSourceService,
           { provide: ContentReader, useValue: mockContentPort },
+          // Quality pass: ContentSourceService now injects @Inject(IContentPort)
+          { provide: IContentPort, useValue: mockContentPort },
         ],
       })
         .overrideProvider(SHARED_REDIS)

@@ -21,6 +21,7 @@
  *   6. F2 multi-stage: scheduleMultiStagePosting with thread root
  */
 import 'reflect-metadata';
+import { TopicGenerationService } from '../../src/infrastructure/content/topic-generation.service';
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { TestingModule } from '@nestjs/testing';
@@ -180,7 +181,7 @@ function restoreAllParamtypes(): void {
 
   // Posts
   defineParamtypes(PostsService, [PrismaService, EventEmitter2]);
-  defineParamtypes(MetricsScraperService, [PrismaService, SseService, Object]);
+  defineParamtypes(MetricsScraperService, [PrismaService, SseService, SchedulerRegistry, Object]);
   defineParamtypes(PostsController, [PostsService, Object]);
 
   // Posting — @Inject(IBrowserPort) param is Object
@@ -241,6 +242,9 @@ function restoreAllParamtypes(): void {
 
   // Replies
   defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object, Object]);
+  // Quality pass: TopicGenerationService was added to AppModule without a restore
+  // entry — esbuild-stripped paramtypes made configService undefined at boot.
+  defineParamtypes(TopicGenerationService, [PrismaService, ConfigService, SchedulerRegistry, LlmService]);
 }
 
 describe('E2E: Posting flow with mocked browser', () => {

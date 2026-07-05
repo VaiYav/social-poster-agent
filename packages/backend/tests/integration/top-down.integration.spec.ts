@@ -29,6 +29,8 @@
  * Source: CONSTITUTION.md §14 (Testing) — test case IDs are inline
  */
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { TopicGenerationService } from '../../src/infrastructure/content/topic-generation.service';
+import { SchedulerRegistry } from '@nestjs/schedule';
 import { EventEmitter2, EventEmitterModule } from '@nestjs/event-emitter';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { ModuleRef } from '@nestjs/core';
@@ -83,6 +85,7 @@ vi.mock('ioredis', () => ({
       }),
       exists: vi.fn((k: string) => Promise.resolve(store.has(k) ? 1 : 0)),
       ping: vi.fn().mockResolvedValue('PONG'),
+      quit: vi.fn().mockResolvedValue('OK'),
       publish: vi.fn().mockResolvedValue(1),
       subscribe: vi.fn().mockResolvedValue('OK'),
       unsubscribe: vi.fn().mockResolvedValue('OK'),
@@ -253,6 +256,9 @@ Reflect.defineMetadata('design:paramtypes', [ConfigService, ILlmPort], ABVariant
 Reflect.defineMetadata('design:paramtypes', [ConfigService, ILlmPort], ThreadDepthController);
 Reflect.defineMetadata('design:paramtypes', [Object], ContentPillarTracker);
 Reflect.defineMetadata('design:paramtypes', [Object, PrismaService], HookPerformanceBank);
+// Quality pass: TopicGenerationService was added to AppModule without a restore
+// entry — esbuild-stripped paramtypes made configService undefined at boot.
+Reflect.defineMetadata('design:paramtypes', [PrismaService, ConfigService, SchedulerRegistry, LlmService], TopicGenerationService);
 
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -409,7 +415,11 @@ async function buildGenerationModule(opts: {
       getXTrends: () => Promise.resolve([]),
       getMergedTrending: () => Promise.resolve([]),
       getCacheStatus: () => ({ googleTrends: { cached: false, topics: 0 }, xTrends: { cached: false, topics: 0 } }),
-    });
+    })
+    // TopicGenerationService needs SchedulerRegistry (global ScheduleModule.forRoot()
+    // in prod) — irrelevant to these integration cases, so mock it out.
+    .overrideProvider(TopicGenerationService)
+    .useValue({});
 
   if (opts.contentReader) {
     builder.overrideProvider(ContentReader).useValue(opts.contentReader);

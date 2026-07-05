@@ -127,38 +127,38 @@ describe('LlmService (MOD-05 — Infrastructure Adapters)', () => {
     expect(result.model).toContain('groq');
   });
 
-  it('generateChat() applies custom temperature from options', async () => {
+  it('generateChat() bakes custom temperature into an immutable per-call instance (race fix)', async () => {
     service.onModuleInit();
     mocks.invoke.mockResolvedValue({ content: 'response' });
 
     await service.generateChat('system', 'user', { temperature: 0.2 });
 
+    // Quality pass: temperature is no longer mutated on a shared instance —
+    // a dedicated instance is constructed with the requested temperature.
     const ctorArgs = mocks.ChatOpenAIMock.mock.calls[0]![0];
-    // Model is created with default temp, then temperature is set before invoke
-    expect(ctorArgs.temperature).toBe(0.7);
+    expect(ctorArgs.temperature).toBe(0.2);
   });
 
-  it('BUG-13: generateChat() forwards maxTokens to the model before invoke', async () => {
+  it('BUG-13: generateChat() forwards maxTokens into the per-call instance', async () => {
     service.onModuleInit();
     mocks.invoke.mockResolvedValue({ content: 'short' });
 
     await service.generateChat('system', 'user', { maxTokens: 100 });
 
-    // The cached model the service used is the ctor mock's first return value.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const modelInstance = mocks.ChatOpenAIMock.mock.results[0]!.value as any;
-    expect(modelInstance.maxTokens).toBe(100);
+    // Quality pass: maxTokens is part of the constructor args / cache key now
+    // (previously it was mutated on a shared instance — a concurrency race).
+    const ctorArgs = mocks.ChatOpenAIMock.mock.calls[0]![0];
+    expect(ctorArgs.maxTokens).toBe(100);
   });
 
-  it('BUG-13: generateChat() resets maxTokens to no-limit (-1) when not provided (no leak)', async () => {
+  it('BUG-13: generateChat() defaults maxTokens to no-limit (-1) when not provided (no leak)', async () => {
     service.onModuleInit();
     mocks.invoke.mockResolvedValue({ content: 'x' });
 
     await service.generateChat('system', 'user');
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const modelInstance = mocks.ChatOpenAIMock.mock.results[0]!.value as any;
-    expect(modelInstance.maxTokens).toBe(-1);
+    const ctorArgs = mocks.ChatOpenAIMock.mock.calls[0]![0];
+    expect(ctorArgs.maxTokens).toBe(-1);
   });
 
   it('generateChat() handles string response content', async () => {
@@ -184,9 +184,11 @@ describe('LlmService (MOD-05 — Infrastructure Adapters)', () => {
 
   it('generateChat() falls back to next provider when first fails', async () => {
     service.onModuleInit();
-    // First call (Groq) fails, second call (OpenAI) succeeds
+    // First call (Groq) fails with a NON-rate-limit error → immediate failover.
+    // (A 429/rate-limit error would now retry the SAME provider once first —
+    // covered in tests/unit/llm/llm-service-routing.spec.ts LS-003.)
     mocks.invoke
-      .mockRejectedValueOnce(new Error('Groq rate limit'))
+      .mockRejectedValueOnce(new Error('Groq exploded'))
       .mockResolvedValueOnce({ content: 'OpenAI response' });
 
     const result = await service.generateChat('sys', 'usr');

@@ -22,6 +22,7 @@
  * injectable/controller/module class so @nestjs/testing DI works with the FULL AppModule.
  */
 import 'reflect-metadata';
+import { TopicGenerationService } from '../../src/infrastructure/content/topic-generation.service';
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SseEventListener } from '../../src/events/listeners/sse-event.listener';
@@ -359,7 +360,7 @@ function restoreAllDesignParamtypes(): void {
 
   // Posts
   defineParamtypes(PostsService, [PrismaService, EventEmitter2]);
-  defineParamtypes(MetricsScraperService, [PrismaService, SseService, Object]);
+  defineParamtypes(MetricsScraperService, [PrismaService, SseService, SchedulerRegistry, Object]);
   defineParamtypes(PostsController, [PostsService, Object]);
 
   // Posting — @Inject(IBrowserPort) param is Object
@@ -430,6 +431,9 @@ function restoreAllDesignParamtypes(): void {
   defineParamtypes(RecyclingController, [RecyclingService]);
   defineParamtypes(QuoteCardService, [ConfigService]);
   defineParamtypes(QuoteCardController, [QuoteCardService]);
+  // Quality pass: TopicGenerationService was added to AppModule without a restore
+  // entry — esbuild-stripped paramtypes made configService undefined at boot.
+  defineParamtypes(TopicGenerationService, [PrismaService, ConfigService, SchedulerRegistry, LlmService]);
 }
 
 // ── Mock helpers ─────────────────────────────────────────────────────────────

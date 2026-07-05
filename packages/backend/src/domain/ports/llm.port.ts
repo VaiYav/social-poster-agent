@@ -6,10 +6,23 @@ import type { BaseCallbackHandler } from './llm-primitives';
 
 export const ILlmPort = Symbol('ILlmPort');
 
+/**
+ * Role of an LLM call — enables per-role provider routing (LLM_ROLE_CHAINS).
+ * Creative roles (draft/hook) can be routed to stronger models while
+ * analytical roles (critique/judge) stay on the cheapest chain.
+ */
+export type LlmRole = 'draft' | 'hook' | 'critique' | 'judge' | 'facts' | 'utility';
+
 export interface GenerateOptions {
   systemPrompt?: string;
   temperature?: number;
   maxTokens?: number;
+  /**
+   * Call role for provider routing and cache policy.
+   * Creative roles ('draft', 'hook') bypass the response cache — identical
+   * prompts should still produce fresh creative output.
+   */
+  role?: LlmRole;
   /**
    * LangChain callback handlers to attach to the LLM invocation.
    * Used for Langfuse tracing — pass a CallbackHandler to capture the call

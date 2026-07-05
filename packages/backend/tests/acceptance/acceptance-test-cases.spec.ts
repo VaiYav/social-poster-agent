@@ -22,6 +22,7 @@
  * FULL AppModule.
  */
 import 'reflect-metadata';
+import { TopicGenerationService } from '../../src/infrastructure/content/topic-generation.service';
 import http from 'node:http';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SseEventListener } from '../../src/events/listeners/sse-event.listener';
@@ -345,7 +346,7 @@ function restoreAllDesignParamtypes(): void {
 
   // Posts
   defineParamtypes(PostsService, [PrismaService, EventEmitter2]);
-  defineParamtypes(MetricsScraperService, [PrismaService, SseService, Object]);
+  defineParamtypes(MetricsScraperService, [PrismaService, SseService, SchedulerRegistry, Object]);
   defineParamtypes(PostsController, [PostsService, Object]);
 
   // Posting — @Inject(IBrowserPort) param is Object
@@ -430,6 +431,9 @@ class CorrelationTestController {
   }
 }
 defineParamtypes(CorrelationTestController, [ClsService]);
+// Quality pass: TopicGenerationService was added to AppModule without a restore
+// entry — esbuild-stripped paramtypes made configService undefined at boot.
+defineParamtypes(TopicGenerationService, [PrismaService, ConfigService, SchedulerRegistry, LlmService]);
 
 // ── Mock helpers ─────────────────────────────────────────────────────────────
 
@@ -1024,9 +1028,9 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
       expect(postData.content).toBeTruthy();
 
       // Verify LLM was called for graph nodes:
-      // hook_generation, draft_generation, self_critique, refine = 4 calls
-      // (research_extract does not call LLM)
-      expect(llmPort.generateChat).toHaveBeenCalledTimes(4);
+      // hook_generation, draft, critique, refine, judge (Stage 2) = 5 calls
+      // (research_extract does not call LLM — facts come from the topic)
+      expect(llmPort.generateChat).toHaveBeenCalledTimes(5);
 
       // Verify llmMetadata is populated with model + promptVersion
       expect(postData.llmMetadata).toBeDefined();

@@ -1,9 +1,13 @@
 /**
- * P7: Emoji/Hashtag A/B Variant Generator.
+ * P7: Emoji A/B Variant Generator.
  *
  * Generates two variants of each post for A/B testing:
- *   - Variant A: minimal emoji (0-1), 1 hashtag — "clean" style
- *   - Variant B: rich emoji (2-3), 2-3 hashtags — "expressive" style
+ *   - Variant A: minimal emoji (0-1) — "clean" style
+ *   - Variant B: rich emoji (2-3) — "expressive" style
+ *
+ * NOTE: hashtags are BANNED by brand policy (algorithms deprioritize them) —
+ * variants differ by emoji/tone only. hashtagCount is kept as a telemetry
+ * field to catch policy violations, not as a variant dimension.
  *
  * The posting pipeline posts variant A first, then variant B after a delay
  * (or to a different account). Engagement metrics are compared to learn
@@ -116,7 +120,7 @@ export class ABVariantGenerator {
     const charLimit = NETWORK_LIMITS[network]!;
 
     const systemPrompt = `You are a social media copywriter for My Zodiac AI, an AI-powered astrology platform.
-Brand voice: mystical-but-grounded, accessible, empowering.
+Brand voice: mystical-but-grounded, accessible, human. Never use AI-cliché words (delve, unlock, discover, empowering, transformative).
 
 Generate TWO variants of a post for A/B testing:
 
@@ -132,7 +136,7 @@ VARIANT B — "Expressive/Rich":
 
 Both variants must:
   - Stay under ${charLimit} characters
-  - Preserve the core message and CTA
+  - Preserve the core message, voice, and any joke — do NOT sanitize the personality out
   - NOT ask for likes/comments/shares (engagement bait)
   - NOT include hashtags, URLs, or links
   - Be distinct in style (not just emoji count)
