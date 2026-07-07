@@ -63,6 +63,21 @@ const envSchema = Joi.object({
   DEEPSEEK_MODEL: Joi.string().default('deepseek-chat'),
   CEREBRAS_API_KEY: Joi.string().allow('').default(''),
   CEREBRAS_MODEL: Joi.string().default('gpt-oss-120b'),
+  // New free-tier providers (added 2026-07-07)
+  SAMBANOVA_API_KEY: Joi.string().allow('').default(''),
+  SAMBANOVA_MODEL: Joi.string().default('Meta-Llama-3.3-70B-Instruct'),
+  GITHUB_TOKEN: Joi.string().allow('').default(''),
+  GITHUB_MODEL: Joi.string().default('meta-llama/Llama-3.3-70B-Instruct'),
+  XAI_API_KEY: Joi.string().allow('').default(''),
+  XAI_MODEL: Joi.string().default('grok-4.1-fast'),
+  MISTRAL_API_KEY: Joi.string().allow('').default(''),
+  MISTRAL_MODEL: Joi.string().default('mistral-small-latest'),
+  HF_TOKEN: Joi.string().allow('').default(''),
+  HF_MODEL: Joi.string().default('meta-llama/Llama-3.3-70B-Instruct'),
+  TOGETHER_API_KEY: Joi.string().allow('').default(''),
+  TOGETHER_MODEL: Joi.string().default('meta-llama/Llama-3.3-70B-Instruct-Turbo-Free'),
+  COHERE_API_KEY: Joi.string().allow('').default(''),
+  COHERE_MODEL: Joi.string().default('command-r7b'),
 
   // ── Database ──
   DATABASE_URL: Joi.string().default('postgresql://spa:spa@localhost:5433/social_poster'),

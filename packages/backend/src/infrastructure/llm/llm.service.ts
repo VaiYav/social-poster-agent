@@ -290,7 +290,112 @@ export class LlmService implements ILlmPort, OnModuleInit {
       });
     }
 
-    // 8. Ollama — local, last resort (no API key needed)
+    // 8. SambaNova — FREE 20M tokens/day, no credit card, OpenAI-compatible
+    // Best free-tier quota available (200x Groq's 100K TPD). Llama 3.3 70B, DeepSeek, Qwen.
+    // Signup: cloud.sambanova.ai → email → API Keys → Create
+    const sambanovaKey = this.configService.get<string>('SAMBANOVA_API_KEY', '');
+    if (sambanovaKey) {
+      chain.push({
+        name: 'sambanova',
+        model: this.configService.get<string>('SAMBANOVA_MODEL', 'Meta-Llama-3.3-70B-Instruct'),
+        apiKey: sambanovaKey,
+        baseURL: 'https://api.sambanova.ai/v1',
+        temperature: defaultTemp,
+        supportsTemperature: true,
+      });
+    }
+
+    // 9. GitHub Models — FREE 150 RPD, no credit card, OpenAI-compatible
+    // Access to GPT-5, Llama, DeepSeek, Mistral via one key. Needs GitHub PAT with models:read.
+    // Signup: github.com/settings/tokens → fine-grained PAT → models:read scope
+    const githubToken = this.configService.get<string>('GITHUB_TOKEN', '');
+    if (githubToken) {
+      chain.push({
+        name: 'github',
+        model: this.configService.get<string>('GITHUB_MODEL', 'meta-llama/Llama-3.3-70B-Instruct'),
+        apiKey: githubToken,
+        baseURL: 'https://models.inference.ai.azure.com',
+        temperature: defaultTemp,
+        supportsTemperature: true,
+      });
+    }
+
+    // 10. xAI Grok — $25 free credits on signup, no credit card, OpenAI-compatible
+    // $25 = ~50M input tokens on grok-4.1-fast. Credits expire in 30 days.
+    // Signup: console.x.ai → email → $25 auto-applied
+    const xaiKey = this.configService.get<string>('XAI_API_KEY', '');
+    if (xaiKey) {
+      chain.push({
+        name: 'xai',
+        model: this.configService.get<string>('XAI_MODEL', 'grok-4.1-fast'),
+        apiKey: xaiKey,
+        baseURL: 'https://api.x.ai/v1',
+        temperature: defaultTemp,
+        supportsTemperature: true,
+      });
+    }
+
+    // 11. Mistral AI — Free mode, no credit card, OpenAI-compatible
+    // Free mode with limited usage. EU-hosted, strong multilingual (good for uk/es/it).
+    // Signup: console.mistral.ai → API Keys → Create
+    const mistralKey = this.configService.get<string>('MISTRAL_API_KEY', '');
+    if (mistralKey) {
+      chain.push({
+        name: 'mistral',
+        model: this.configService.get<string>('MISTRAL_MODEL', 'mistral-small-latest'),
+        apiKey: mistralKey,
+        baseURL: 'https://api.mistral.ai/v1',
+        temperature: defaultTemp,
+        supportsTemperature: true,
+      });
+    }
+
+    // 12. Hugging Face Inference Providers — $0.10/mo free, auto-failover, OpenAI-compatible
+    // Routes to 15+ inference partners automatically. PRO ($9/mo) → $2/mo credits.
+    // Signup: huggingface.co/settings/tokens → fine-grained token → Make calls to Inference Providers
+    const hfToken = this.configService.get<string>('HF_TOKEN', '');
+    if (hfToken) {
+      chain.push({
+        name: 'huggingface',
+        model: this.configService.get<string>('HF_MODEL', 'meta-llama/Llama-3.3-70B-Instruct'),
+        apiKey: hfToken,
+        baseURL: 'https://router.huggingface.co/v1',
+        temperature: defaultTemp,
+        supportsTemperature: true,
+      });
+    }
+
+    // 13. Together AI — $25 free credits, no credit card, OpenAI-compatible
+    // 68 free models including Llama 3.3 70B free variant. Credits don't expire.
+    // Signup: api.together.ai → Settings → API Keys → Create
+    const togetherKey = this.configService.get<string>('TOGETHER_API_KEY', '');
+    if (togetherKey) {
+      chain.push({
+        name: 'together',
+        model: this.configService.get<string>('TOGETHER_MODEL', 'meta-llama/Llama-3.3-70B-Instruct-Turbo-Free'),
+        apiKey: togetherKey,
+        baseURL: 'https://api.together.ai/v1',
+        temperature: defaultTemp,
+        supportsTemperature: true,
+      });
+    }
+
+    // 14. Cohere — Trial key: 1000 calls/mo, 20 RPM, no credit card
+    // Not for production use (TOS). Good for prototyping. Command A, R+, R7B.
+    // Signup: cohere.com → Dashboard → API Keys → Trial key
+    const cohereKey = this.configService.get<string>('COHERE_API_KEY', '');
+    if (cohereKey) {
+      chain.push({
+        name: 'cohere',
+        model: this.configService.get<string>('COHERE_MODEL', 'command-r7b'),
+        apiKey: cohereKey,
+        baseURL: 'https://api.cohere.ai/v1',
+        temperature: defaultTemp,
+        supportsTemperature: true,
+      });
+    }
+
+    // 15. Ollama — local, last resort (no API key needed)
     const ollamaUrl = this.configService.get<string>('OLLAMA_URL', 'http://localhost:11434');
     const ollamaModel = this.configService.get<string>('OLLAMA_DEFAULT_MODEL', 'gemma4');
     chain.push({
