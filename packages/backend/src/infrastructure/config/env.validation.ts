@@ -89,6 +89,7 @@ const envSchema = Joi.object({
   AUTONOMOUS_POSTS_PER_RUN: Joi.number().integer().min(1).max(20).default(3),
   AUTONOMOUS_TARGET_NETWORKS: Joi.string().default('X,THREADS'),
   ENABLED_NETWORKS: Joi.string().default('X,THREADS'),
+  DEDUP_SINCE_DAYS: Joi.number().integer().min(1).max(90).default(14),
   AUTONOMOUS_POSTING_DELAY_MIN_MS: Joi.number().integer().min(0).default(600000),
   AUTONOMOUS_POSTING_DELAY_MAX_MS: Joi.number().integer().min(1000).default(3600000),
   AUTO_APPROVE_MIN_SCORE: Joi.number().integer().min(1).max(10).default(7),

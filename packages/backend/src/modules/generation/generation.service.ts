@@ -636,7 +636,11 @@ export class GenerationService {
       targetNetworks.map(async (network) => {
         const account = await this.accountsService.findByNetwork(network);
         if (!account) return { network, account: null as AccountResult, recentCount: 0 };
-        const recent = await this.postsService.findBySourceAndNetwork(topic.path, network);
+        const recent = await this.postsService.findBySourceAndNetwork(
+          topic.path,
+          network,
+          Number(process.env.DEDUP_SINCE_DAYS ?? '14') || 14,
+        );
         return { network, account, recentCount: recent.length };
       }),
     );
