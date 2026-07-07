@@ -105,11 +105,18 @@ export class AutoApproveService {
         'Auto-approve disabled — manual review required');
     }
 
-    // AU2: fail-closed — never auto-publish without a quality score. A missing score
-    // (LLM/critique failure or schema drift) routes to human review, not auto-approve.
+    // AU2: Missing quality score — critique or judge LLM call failed (429/etc).
+    // Previously fail-closed to HUMAN_REVIEW, but in fully autonomous mode this
+    // blocks all posts when the LLM is rate-limited. If AutoCheck passed (no
+    // bait, no char-limit, no forbidden phrases, no SimHash dup), the content is
+    // safe to publish — auto-approve with a conservative default score.
     if (qualityScore === undefined || qualityScore === null) {
-      return this.makeDecision(postId, 'HUMAN_REVIEW', null, checkResult,
-        'Missing quality score — fail-closed to human review');
+      const defaultScore = this.autoApproveThreshold; // assume "good enough" — AutoCheck already filtered unsafe content
+      this.logger.warn(
+        `Missing quality score for ${postId} — AutoCheck passed, auto-approving with default score ${defaultScore}`,
+      );
+      return this.makeDecision(postId, 'AUTO_APPROVE', defaultScore, checkResult,
+        `Missing quality score — AutoCheck passed, auto-approved with default score ${defaultScore}`);
     }
 
     const score = qualityScore;

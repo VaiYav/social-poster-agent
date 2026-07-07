@@ -218,16 +218,16 @@ describe('SimHash (B5 — Dedup)', () => {
     expect(isDuplicateAgainstCorpus(candidate, [nearHash])).toBe(true);
   });
 
-  it('DC-006: hamming distance > 5 is NOT a duplicate (boundary: 6 bits)', () => {
+  it('DC-006: hamming distance > 8 is NOT a duplicate (boundary: 9 bits)', () => {
     const candidate = 'Venus in Libra brings harmony to relationships today';
     const candidateHash = simhash(candidate);
-    // Flip 6 lowest bits → hamming distance exactly 6 (> default threshold 5)
-    const farHash = (BigInt('0x' + candidateHash) ^ 0b111111n).toString(16).padStart(16, '0');
-    expect(hammingDistance(candidateHash, farHash)).toBe(6);
+    // Flip 9 lowest bits → hamming distance exactly 9 (> default threshold 8)
+    const farHash = (BigInt('0x' + candidateHash) ^ 0b111111111n).toString(16).padStart(16, '0');
+    expect(hammingDistance(candidateHash, farHash)).toBe(9);
     expect(isDuplicateAgainstCorpus(candidate, [farHash])).toBe(false);
   });
 
-  it('DC-007: isNearDuplicate returns true for distance ≤ 5 (non-identical texts)', () => {
+  it('DC-007: isNearDuplicate returns true for distance ≤ 8 (non-identical texts)', () => {
     // Two texts differing by a single word — verify they are near-duplicates
     // by checking the resulting hamming distance is within threshold.
     const t1 = 'The full moon in Aries brings energy and initiative today';
@@ -236,8 +236,8 @@ describe('SimHash (B5 — Dedup)', () => {
     const h2 = simhash(t2);
     const dist = hammingDistance(h1, h2);
     // If naturally within threshold, assert true; otherwise force a within-threshold
-    // hash to exercise the ≤ 5 branch of isNearDuplicate via isDuplicateAgainstCorpus.
-    if (dist <= 5) {
+    // hash to exercise the ≤ 8 branch of isNearDuplicate via isDuplicateAgainstCorpus.
+    if (dist <= 8) {
       expect(isNearDuplicate(t1, t2)).toBe(true);
     } else {
       // Construct a hash 2 bits away from t1's hash and confirm dedup logic

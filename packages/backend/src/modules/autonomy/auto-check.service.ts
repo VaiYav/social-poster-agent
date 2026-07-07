@@ -108,7 +108,7 @@ export class AutoCheckService {
     checks.push({
       name: 'simhash_dedup',
       passed: !isDup,
-      reason: isDup ? 'Near-duplicate of existing content (SimHash distance ≤ 5)' : undefined,
+      reason: isDup ? 'Near-duplicate of existing content (SimHash distance ≤ 8)' : undefined,
     });
 
     const passed = checks.every((c) => c.passed);

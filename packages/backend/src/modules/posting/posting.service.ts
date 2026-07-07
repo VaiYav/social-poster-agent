@@ -230,13 +230,37 @@ export class PostingService {
               msg.includes('ECONNREFUSED') ||
               msg.includes('ETIMEDOUT') ||
               msg.includes('Timeout') ||
-              msg.includes('Navigation failed')
+              msg.includes('Navigation failed') ||
+              // Browser/context crash — Camoufox pages close unexpectedly under load.
+              // Retry with a fresh context (onRetry re-acquires below).
+              msg.includes('Target page, context or browser has been closed') ||
+              msg.includes('Page is closed') ||
+              msg.includes('browserContext.storageState') ||
+              msg.includes('Target page, context or browser')
             );
           },
-          onRetry: (attempt, delayMs, err) => {
+          onRetry: async (attempt, delayMs, err) => {
             this.logger.warn(
               `Posting retry ${attempt} for ${postId} after ${(err as Error).message} — waiting ${delayMs}ms`,
             );
+            // Browser crash recovery: release the dead context and acquire a fresh one.
+            // The old context's pages are closed — reusing it would fail immediately.
+            const errMsg = (err as Error).message ?? '';
+            const isBrowserCrash =
+              errMsg.includes('Target page, context or browser has been closed') ||
+              errMsg.includes('Page is closed') ||
+              errMsg.includes('browserContext.storageState');
+            if (isBrowserCrash && context) {
+              this.logger.warn(`Browser crash detected — releasing dead context and acquiring fresh one for ${postId}`);
+              try { this.browser.releaseContext(post.network, context); } catch { /* dead context */ }
+              context = null;
+              try {
+                context = await this.browser.acquireContext(post.network, storageStateStr);
+                this.logger.log(`Fresh context acquired for retry ${attempt} of ${postId}`);
+              } catch (acquireErr) {
+                this.logger.error(`Failed to acquire fresh context for retry: ${(acquireErr as Error).message}`);
+              }
+            }
           },
         });
       } catch (retryErr) {

@@ -80,13 +80,13 @@ describe('AutoApproveService.evaluate (A1/BUG-12 — single decision-gate)', () 
     expect(writtenStatus(prisma)).toBe(PostStatus.REJECTED);
   });
 
-  it('missing score + enabled → HUMAN_REVIEW (AU2 fail-closed, never auto-publish)', async () => {
+  it('missing score + enabled → AUTO_APPROVE (AutoCheck passed, safe to publish)', async () => {
     const { service, prisma } = build();
     const res = await service.evaluate(...evalArgs(undefined));
 
-    expect(res.decision).toBe('HUMAN_REVIEW');
-    expect(res.reason).toMatch(/fail-closed|Missing quality score/i);
-    expect(writtenStatus(prisma)).toBe(PostStatus.DRAFT);
+    expect(res.decision).toBe('AUTO_APPROVE');
+    expect(res.reason).toMatch(/Missing quality score.*AutoCheck passed/i);
+    expect(writtenStatus(prisma)).toBe(PostStatus.APPROVED);
   });
 
   it('AutoCheck content failure → REJECT regardless of a high score', async () => {

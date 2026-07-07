@@ -28,7 +28,7 @@ export interface RetryOptions {
    */
   retryable?: (err: unknown) => boolean;
   /** Called before each retry with the attempt number and delay. */
-  onRetry?: (attempt: number, delayMs: number, err: unknown) => void;
+  onRetry?: (attempt: number, delayMs: number, err: unknown) => void | Promise<void>;
 }
 
 /**
@@ -72,7 +72,7 @@ export async function withRetry<T>(
       const jitterAmount = exponentialDelay * jitter * (Math.random() * 2 - 1);
       const delayMs = Math.max(0, Math.round(exponentialDelay + jitterAmount));
 
-      opts.onRetry?.(attempt + 1, delayMs, err);
+      await opts.onRetry?.(attempt + 1, delayMs, err);
 
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
@@ -97,7 +97,7 @@ export async function navigateWithRetry(
     waitUntil?: 'networkidle' | 'domcontentloaded' | 'load';
     timeoutMs?: number;
     maxRetries?: number;
-    onRetry?: (attempt: number, delayMs: number, err: unknown) => void;
+    onRetry?: (attempt: number, delayMs: number, err: unknown) => void | Promise<void>;
   } = {},
 ): Promise<void> {
   const { waitUntil = 'domcontentloaded', timeoutMs = 30000, maxRetries = 3, onRetry } = opts;
