@@ -219,8 +219,8 @@ describe('TrendingScraperService (Item 38 — F22 Google Trends + X scraping)', 
     expect(topics[0].rank).toBe(1);
     expect(topics[0].scrapedAt).toBeInstanceOf(Date);
 
-    // Verify browser was used
-    expect(mockBrowser.acquireContext).toHaveBeenCalledWith('X');
+    // Verify browser was used (second arg is storageState, which may be undefined in tests)
+    expect(mockBrowser.acquireContext).toHaveBeenCalledWith('X', undefined);
     expect(mockBrowser.releaseContext).toHaveBeenCalled();
   });
 

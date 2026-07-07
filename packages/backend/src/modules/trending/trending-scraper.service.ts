@@ -28,6 +28,7 @@ import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import { IBrowserPort } from '../../domain/ports/browser.port.js';
 import { LlmService } from '../../infrastructure/llm/llm.service.js';
+import { SessionsService } from '../sessions/sessions.service.js';
 import type { BrowserContext, Page } from '../../domain/ports/browser-primitives';
 import { SocialNetwork } from '@prisma/client';
 import { parseGoogleTrendsRss as parseGoogleTrendsRssPure } from './google-trends-rss.js';
@@ -65,7 +66,16 @@ const X_TRENDS_URLS = [
 ];
 const DEFAULT_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 const X_SCRAPE_TIMEOUT_MS = 30_000; // 30s timeout for X scraping
-const X_TREND_SELECTOR = '[data-testid="trend"]';
+// Multi-fallback selectors for X trending topics — X changes DOM structure frequently.
+// Try data-testid first (most stable), then aria-label, then CSS, then text-based.
+const X_TREND_SELECTORS: readonly string[] = [
+  '[data-testid="trend"]',                    // Original — may still work on some layouts
+  'aside[aria-label="Trending"] [data-testid="trend"]',  // Sidebar with aria-label
+  'section[aria-label="Trending"] [data-testid="trend"]', // Section wrapper
+  '[data-testid="trend"] > div > div > span',  // Deeper nesting
+  'div[role="link"] span:has-text("Trending")', // Text-based fallback
+  'aside a[href*="/explore/tabs/trending"]',   // Link to trending tab
+];
 
 /**
  * Niche keyword whitelist — Google/X trends must contain at least one of these
@@ -136,6 +146,7 @@ export class TrendingScraperService implements OnModuleInit {
     private readonly schedulerRegistry: SchedulerRegistry,
     @Optional() private readonly llmService?: LlmService,
     @Optional() @Inject(IBrowserPort) private readonly browser?: IBrowserPort,
+    @Optional() private readonly sessionsService?: SessionsService,
   ) {
     this.cacheTtlMs = this.configService.get<number>('TRENDING_CACHE_TTL_MS', DEFAULT_CACHE_TTL_MS);
     this.enabled = parseBool(this.configService.get<string>('TRENDING_SCRAPING_ENABLED', 'true'));
@@ -302,7 +313,19 @@ export class TrendingScraperService implements OnModuleInit {
     let context: BrowserContext | null = null;
     let page: Awaited<ReturnType<BrowserContext['newPage']>> | undefined;
     try {
-      context = await this.browser.acquireContext('X' as SocialNetwork);
+      // Use authenticated session if available — X may require login to view trends
+      let storageState: string | undefined;
+      if (this.sessionsService) {
+        try {
+          const session = await this.sessionsService.getOrCreateSession('X' as SocialNetwork);
+          if (session?.storageState) {
+            storageState = this.sessionsService.decryptStorageState(session);
+          }
+        } catch (err) {
+          this.logger.debug(`Could not get X session for trending scrape: ${(err as Error).message}`);
+        }
+      }
+      context = await this.browser.acquireContext('X' as SocialNetwork, storageState);
       page = await context.newPage();
 
       // Try multiple URLs — X has changed the explore page structure multiple times.
@@ -344,35 +367,70 @@ export class TrendingScraperService implements OnModuleInit {
 
   /**
    * Extract trending topic text from X Explore page.
-   * The trending tab shows trend cards with [data-testid="trend"].
+   * Tries multiple selectors — X changes DOM structure frequently.
    */
   private async extractXTrends(page: Page, limit: number): Promise<ScrapedTrendingTopic[]> {
     const now = new Date();
 
-    // Wait for trend elements to appear
-    try {
-      await page.waitForSelector(X_TREND_SELECTOR, { timeout: 10_000 });
-    } catch {
-      this.logger.warn('X trend elements not found — page may not have loaded trends');
+    // Try each selector until one finds trend elements
+    let matchedSelector: string | null = null;
+    for (const selector of X_TREND_SELECTORS) {
+      try {
+        await page.waitForSelector(selector, { timeout: 5_000 });
+        matchedSelector = selector;
+        this.logger.debug(`X trends: matched selector "${selector}"`);
+        break;
+      } catch {
+        // Try next selector
+      }
+    }
+
+    if (!matchedSelector) {
+      this.logger.warn('X trend elements not found — all selectors failed (page may not have loaded trends or DOM changed)');
+      // Take a screenshot for debugging if screenshots are enabled
+      try {
+        const url = page.url();
+        this.logger.debug(`X trends: last URL was ${url}, page title: ${await page.title()}`);
+      } catch {
+        // Page may be closed
+      }
       return [];
     }
 
-    // Extract trend text from each trend card
+    // Extract trend text using the matched selector + fallback extraction strategies
     const trends = await page.evaluate(
-      ({ selector, limit }: { selector: string; limit: number }) => {
-        const elements = document.querySelectorAll(selector);
+      ({ selectors, limit }: { selectors: readonly string[]; limit: number }) => {
         const results: Array<{ topic: string; rank: number }> = [];
-        elements.forEach((el, idx) => {
-          if (idx >= limit) return;
-          // Trend text is usually in a span within the trend card
-          const text = el.textContent?.trim()?.split('\n')[0]?.trim();
-          if (text && text.length > 0 && text.length < 200) {
-            results.push({ topic: text, rank: idx + 1 });
-          }
-        });
+
+        // Try each selector for extraction
+        for (const selector of selectors) {
+          const elements = document.querySelectorAll(selector);
+          if (elements.length === 0) continue;
+
+          elements.forEach((el, idx) => {
+            if (idx >= limit) return;
+            // Try multiple text extraction strategies:
+            // 1. First line of textContent (trend name is usually first)
+            // 2. Look for specific trend name elements
+            // 3. Fallback to full textContent
+            const trendName = el.querySelector('[data-testid="trendName"]')?.textContent?.trim()
+              || el.querySelector('span')?.textContent?.trim()
+              || el.textContent?.trim()?.split('\n')[0]?.trim();
+
+            if (trendName && trendName.length > 0 && trendName.length < 200) {
+              // Dedup by topic text
+              if (!results.some((r) => r.topic === trendName)) {
+                results.push({ topic: trendName, rank: idx + 1 });
+              }
+            }
+          });
+
+          if (results.length > 0) break; // Found trends with this selector
+        }
+
         return results;
       },
-      { selector: X_TREND_SELECTOR, limit },
+      { selectors: X_TREND_SELECTORS, limit },
     );
 
     return trends.map((t) => ({

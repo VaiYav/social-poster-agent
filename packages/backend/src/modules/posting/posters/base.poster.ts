@@ -168,10 +168,11 @@ export abstract class BasePoster {
     // Wait for post elements to load — network-specific selectors
     const postContentSelector = this.getProfilePostContentSelector();
     await page.waitForSelector(postContentSelector, { timeout: 15000 }).catch(() => {});
-    // Wait for the post to appear on the profile. X.com can take 5-10 seconds to
-    // render a new post after submission, and 3s was too short — causing false
-    // "Posted content not found on profile page" failures.
-    await page.waitForTimeout(5000);
+    // Wait for the post to appear on the profile. X.com can take 5-15 seconds to
+    // render a new post after submission, and 5s was sometimes too short — causing
+    // false "Posted content not found on profile page" failures. Use 8s + a retry
+    // with a page reload if the first check doesn't find the content.
+    await page.waitForTimeout(8000);
 
     // Take screenshot of profile for debugging
     await this.screenshot(page, 'after-validate');
@@ -236,20 +237,43 @@ export abstract class BasePoster {
         if (foundInPost) {
           this.logger.log(`${this.network} content found in post text element: "${foundInPost.slice(0, 60)}..."`);
         } else {
-          // Log first 3 post text elements to see what's actually on the profile
-          const preview = postTexts.slice(0, 3).map((t) => `"${t.slice(0, 80)}"`).join(', ');
-          this.logger.warn(`${this.network} profile post text elements (first 3): ${preview}`);
-          // Log first 200 chars of page text for debugging
-          this.logger.warn(
-            `${this.network} content NOT found on profile. Page text preview: "${(pageText ?? '').slice(0, 200)}"`,
-          );
-          this.logger.warn(
-            `${this.network} normalized snippet: "${normalizedSnippet}", normalized noQuote: "${normalizedNoQuote}"`,
-          );
-          throw new ValidationError(this.network, 'Posted content not found on profile page', {
-            expectedPattern: contentSnippet,
-            actualUrl: page.url(),
+          // Retry: reload the profile page and check again — X can have a delayed render
+          // where the post appears only after a second navigation
+          this.logger.warn(`${this.network} content not found on first check — reloading profile for retry`);
+          await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
+          await page.waitForSelector(postContentSelector, { timeout: 15000 }).catch(() => {});
+          await page.waitForTimeout(5000);
+
+          const retryPageText = await page.innerText('body').catch(() => '');
+          const retryNormalized = normalize(retryPageText ?? '');
+          const retryPostTexts = await page.locator(postContentSelector).allInnerTexts().catch(() => []);
+          const retryFoundInPost = retryPostTexts.find((t) => {
+            const nt = normalize(t);
+            return (
+              nt.includes(normalizedSnippet) ||
+              nt.includes(normalizedNoQuote) ||
+              t.includes(contentSnippet) ||
+              t.includes(noQuoteSnippet)
+            );
           });
+
+          if (retryFoundInPost || (retryNormalized && retryNormalized.includes(normalizedSnippet))) {
+            this.logger.log(`${this.network} content found after profile reload (delayed render)`);
+          } else {
+            // Log first 3 post text elements to see what's actually on the profile
+            const preview = retryPostTexts.slice(0, 3).map((t) => `"${t.slice(0, 80)}"`).join(', ');
+            this.logger.warn(`${this.network} profile post text elements after reload (first 3): ${preview}`);
+            this.logger.warn(
+              `${this.network} content NOT found on profile after reload. Page text preview: "${(retryPageText ?? '').slice(0, 200)}"`,
+            );
+            this.logger.warn(
+              `${this.network} normalized snippet: "${normalizedSnippet}", normalized noQuote: "${normalizedNoQuote}"`,
+            );
+            throw new ValidationError(this.network, 'Posted content not found on profile page', {
+              expectedPattern: contentSnippet,
+              actualUrl: page.url(),
+            });
+          }
         }
       }
     }

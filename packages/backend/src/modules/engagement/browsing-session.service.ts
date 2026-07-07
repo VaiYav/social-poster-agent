@@ -313,7 +313,9 @@ export class BrowsingSessionService {
         errorMessage.includes('Target page, context or browser has been closed') ||
         errorMessage.includes('browserContext.storageState') ||
         errorMessage.includes('page.goto: Target page, context or browser has been closed') ||
-        errorMessage.includes('page.waitForTimeout: Target page, context or browser has been closed')
+        errorMessage.includes('page.waitForTimeout: Target page, context or browser has been closed') ||
+        errorMessage.includes('Page was closed during post extraction') ||
+        errorMessage.includes('Page closed during batch processing')
       ) {
         this.logger.warn(`Fatal browser error for ${network} — closing context instead of returning to pool`);
         if (context) {

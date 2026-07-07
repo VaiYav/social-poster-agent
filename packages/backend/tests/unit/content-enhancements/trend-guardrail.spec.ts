@@ -41,6 +41,29 @@ describe('isBlocklisted (B11 — word-boundary blocklist)', () => {
       expect(isBlocklisted(topic), topic).toBe(false);
     }
   });
+
+  it('allows "Cancer" the zodiac sign when in astrological context (override)', () => {
+    for (const topic of [
+      'Jupiter in Cancer — growth through emotional security and home',
+      'Full Moon in Cancer brings emotional clarity',
+      'Cancer season: nurturing your inner world',
+      'New Moon in Cancer 0°02′',
+      'Saturn square Cancer ascendant',
+      'Cancer zodiac sign personality traits',
+    ]) {
+      expect(isBlocklisted(topic), topic).toBe(false);
+    }
+  });
+
+  it('still blocks "cancer" the disease when no astrological context', () => {
+    for (const topic of [
+      'New cancer breakthrough',
+      'Cancer treatment options',
+      'Cancer survivor story',
+    ]) {
+      expect(isBlocklisted(topic), topic).toBe(true);
+    }
+  });
 });
 
 describe('checkTrendSafety (B9 — fail closed on LLM error)', () => {
