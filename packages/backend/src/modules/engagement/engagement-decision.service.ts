@@ -25,7 +25,10 @@ import {
   parseDecisionResponse,
   buildBatchDecisionUserPrompt,
   parseBatchDecisionResponse,
+  parseCommentResponse,
+  parseQuoteResponse,
 } from '../../infrastructure/llm/prompts/v0.4.0/engagement-decision.js';
+import { matchesScript, normalizeLanguage } from '../../infrastructure/util/script-check.js';
 
 @Injectable()
 export class EngagementDecisionService implements IEngagementDecisionPort {
@@ -195,13 +198,19 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       const response = await this.llm.generateChat(
         ENGAGEMENT_COMMENT_SYSTEM_PROMPT,
         userPrompt,
-        { temperature: 0.7, maxTokens: 100 },
+        { temperature: 0.7, maxTokens: 150 },
       );
 
-      const comment = response.content.trim();
+      const { language, comment } = parseCommentResponse(response.content);
 
       if (!comment) {
         this.logger.warn('LLM returned empty comment — generateComment returns null');
+        return null;
+      }
+
+      // Post-validation: verify the comment's script matches the detected language.
+      // Catches the #1 bot tell — commenting in English on a non-English post.
+      if (!this.validateScriptMatch(comment, language, 'comment')) {
         return null;
       }
 
@@ -234,13 +243,18 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       const response = await this.llm.generateChat(
         ENGAGEMENT_QUOTE_SYSTEM_PROMPT,
         userPrompt,
-        { temperature: 0.7, maxTokens: 100 },
+        { temperature: 0.7, maxTokens: 150 },
       );
 
-      const quote = response.content.trim();
+      const { language, quote } = parseQuoteResponse(response.content);
 
       if (!quote) {
         this.logger.warn('LLM returned empty quote — generateQuoteText returns null');
+        return null;
+      }
+
+      // Post-validation: verify the quote's script matches the detected language.
+      if (!this.validateScriptMatch(quote, language, 'quote')) {
         return null;
       }
 
@@ -292,5 +306,25 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       'this resonates', 'very interesting',
     ];
     return forbidden.some((f) => lower.includes(f));
+  }
+
+  /**
+   * Post-validation: verify that the LLM-generated text uses the script of the
+   * language it claimed to detect. Catches the #1 bot tell — English text
+   * returned for a non-English post/comment.
+   *
+   * @param text - The generated comment/quote text
+   * @param language - The language the LLM claimed (may be undefined for backward compat)
+   * @param kind - 'comment' or 'quote' (for logging only)
+   * @returns true if the script matches (or language is missing → skip validation)
+   */
+  private validateScriptMatch(text: string, language: string | undefined, kind: 'comment' | 'quote'): boolean {
+    if (!language) return true; // backward compat — no language field, skip validation
+    const lang = normalizeLanguage(language);
+    if (matchesScript(text, lang)) return true;
+    this.logger.warn(
+      `${kind[0]!.toUpperCase() + kind.slice(1)} script mismatch: language=${lang}, ${kind}="${text.slice(0, 60)}" — returning null`,
+    );
+    return false;
   }
 }

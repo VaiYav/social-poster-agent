@@ -45,6 +45,7 @@ import { PostStatus, SocialNetwork, CommentStatus } from '@prisma/client';
 import type { Page } from '../../domain/ports/browser-primitives';
 import { parseBool } from '../../infrastructure/config/parse-bool';
 import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
+import { matchesScript, normalizeLanguage } from '../../infrastructure/util/script-check.js';
 
 export interface ScrapedComment {
   commentId: string;
@@ -58,6 +59,9 @@ export interface ReplyDecision {
   reason: string;
   replyText?: string;
   reviewReason?: string;
+  /** Language the LLM detected in the comment (en/ru/uk/es/it).
+   * Used for post-validation: if replyText script doesn't match, downgrade to human_review. */
+  detectedLanguage?: string;
 }
 
 @Injectable()
@@ -489,7 +493,14 @@ BAD replies (forbidden — if you write these, you failed):
 - "Check out our website for more!" (self-promo)
 
 Return JSON:
-{"action": "auto_reply" | "human_review", "reason": "why", "replyText": "the reply (same language as comment)", "reviewReason": "why human review (if applicable)"}`;
+{"action": "auto_reply" | "human_review", "reason": "why", "detectedLanguage": "en|ru|uk|es|it", "replyText": "the reply (in detectedLanguage)", "reviewReason": "why human review (if applicable)"}
+
+LANGUAGE DETECTION — DO THIS FIRST, before writing the reply:
+1. Look at the comment's script: Cyrillic → ru or uk. Latin → en, es, or it.
+2. Ukrainian-specific chars: і, ї, є, ґ. If present → uk. Otherwise Cyrillic → ru.
+3. Latin script: Spanish has "que", "para", "gracias", "está". Italian has "che", "per", "grazie", "è". Otherwise → en.
+4. Set detectedLanguage to the ISO code. Then write replyText in THAT language.
+5. A missed language switch is worse than an extra one — when in doubt, commit.`;
 
     // SEC3: the comment author + text are untrusted external input — sanitize
     // before interpolating so a comment can't inject instructions the model then
@@ -500,7 +511,7 @@ Comment from @${sanitizeUntrustedInput(comment.author, 60)}: "${sanitizeUntruste
 
 Network: ${post.network}
 
-IMPORTANT: Reply in the SAME LANGUAGE as the comment above. Detect the language and match it exactly.`;
+Identify the language of the comment (set detectedLanguage), then write replyText in that language.`;
 
     try {
       const response = await this.llmService!.generateChat(systemPrompt, userPrompt, { temperature: 0.4 });
@@ -530,6 +541,21 @@ IMPORTANT: Reply in the SAME LANGUAGE as the comment above. Detect the language 
       if (parsed.action === 'auto_reply' && (!parsed.replyText || typeof parsed.replyText !== 'string')) {
         parsed.action = 'human_review';
         parsed.reviewReason = 'LLM auto_reply missing replyText — defaulting to human review';
+      }
+
+      // Post-validation: verify the reply's script matches the detected language.
+      // This catches the #1 bot tell — replying in English to a non-English comment.
+      // The LLM commits to a language via detectedLanguage; we verify the replyText
+      // actually uses that language's script. If mismatch → downgrade to human_review.
+      if (parsed.action === 'auto_reply' && parsed.replyText) {
+        const lang = normalizeLanguage(parsed.detectedLanguage);
+        if (!matchesScript(parsed.replyText, lang)) {
+          this.logger.warn(
+            `Reply script mismatch: detectedLanguage=${lang}, replyText="${parsed.replyText.slice(0, 60)}" — downgrading to human_review`,
+          );
+          parsed.action = 'human_review';
+          parsed.reviewReason = `Reply script does not match detected language (${lang}) — requires human review`;
+        }
       }
 
       // Complexity threshold check

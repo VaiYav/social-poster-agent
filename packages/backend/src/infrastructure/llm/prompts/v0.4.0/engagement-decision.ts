@@ -98,7 +98,12 @@ BAD comments (forbidden — if you write these, you failed):
 - Commenting in English on a Ukrainian/Russian/Spanish post (language mismatch)
 - "This is so true!" or "I needed to hear this today" (zero substance)
 
-Write ONE comment in the SAME LANGUAGE as the post. Just the comment text. No quotes, no preamble, no "Here's your comment:"`;
+Write ONE comment in the SAME LANGUAGE as the post. Just the comment text. No quotes, no preamble, no "Here's your comment:"
+
+Respond as JSON: {"language": "en|ru|uk|es|it", "comment": "the comment text"}
+- Set "language" to the detected language of the post FIRST, then write "comment" in that language.
+- Detect by script: Cyrillic → ru or uk (Ukrainian has і, ї, є, ґ). Latin → en, es (que, para, gracias, está), or it (che, per, grazie, è), or en.
+- A missed language switch is worse than an extra one — when in doubt, commit.`;
 
 export const ENGAGEMENT_COMMENT_USER_TEMPLATE = `You're about to comment on this post:
 
@@ -124,7 +129,12 @@ HOW TO WRITE A GOOD QUOTE:
 - NO links. NO hashtags. NO self-promotion.
 - NO generic phrases: "Great post!" "Love this!" "Spot on!"
 
-Write ONE quote comment in the SAME LANGUAGE as the post. Just the text. No quotes, no preamble.`;
+Write ONE quote comment in the SAME LANGUAGE as the post. Just the text. No quotes, no preamble.
+
+Respond as JSON: {"language": "en|ru|uk|es|it", "quote": "the quote text"}
+- Set "language" to the detected language of the post FIRST, then write "quote" in that language.
+- Detect by script: Cyrillic → ru or uk (Ukrainian has і, ї, є, ґ). Latin → en, es (que, para, gracias, está), or it (che, per, grazie, è), or en.
+- A missed language switch is worse than an extra one — when in doubt, commit.`;
 
 export const ENGAGEMENT_QUOTE_USER_TEMPLATE = `You're about to quote-post this post:
 
@@ -264,6 +274,62 @@ export function buildQuoteUserPrompt(ctx: PostContext): string {
     .replace('{network}', ctx.network)
     .replace('{authorHandle}', ctx.authorHandle ?? 'unknown')
     .replace('{postText}', ctx.postText.slice(0, 500));
+}
+
+/**
+ * Parse an LLM JSON response of shape {"language": "...", "<field>": "..."}.
+ * Falls back to treating the raw content as the field value if JSON parsing
+ * fails (backward compatibility with models that ignore the JSON instruction).
+ *
+ * @param content - Raw LLM response
+ * @param field - The key holding the text ("comment" or "quote")
+ * @returns `{ language?, [field]: string | null }`
+ */
+function parseLangJsonResponse(
+  content: string,
+  field: 'comment' | 'quote',
+): { language?: string; text: string | null } {
+  const trimmed = content.trim();
+  if (!trimmed) return { text: null };
+
+  const jsonMatch = trimmed.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0]) as { language?: string; comment?: string; quote?: string };
+      const value = parsed[field];
+      if (value && typeof value === 'string') {
+        return { language: parsed.language, text: value.trim() };
+      }
+    } catch {
+      // Fall through to raw-text fallback
+    }
+  }
+
+  // Fallback: treat the whole response as the text (backward compat)
+  return { text: trimmed };
+}
+
+/**
+ * Parse the LLM's JSON response for comment generation.
+ * Expected format: {"language": "en|ru|uk|es|it", "comment": "the comment text"}
+ *
+ * Falls back to treating the raw content as the comment text if JSON parsing
+ * fails (backward compatibility with models that ignore the JSON instruction).
+ */
+export function parseCommentResponse(content: string): { language?: string; comment: string | null } {
+  const { language, text } = parseLangJsonResponse(content, 'comment');
+  return { language, comment: text };
+}
+
+/**
+ * Parse the LLM's JSON response for quote generation.
+ * Expected format: {"language": "en|ru|uk|es|it", "quote": "the quote text"}
+ *
+ * Falls back to treating the raw content as the quote text if JSON parsing fails.
+ */
+export function parseQuoteResponse(content: string): { language?: string; quote: string | null } {
+  const { language, text } = parseLangJsonResponse(content, 'quote');
+  return { language, quote: text };
 }
 
 /**

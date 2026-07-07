@@ -386,4 +386,128 @@ describe('EngagementDecisionService', () => {
     const decision = await service.decideAction(createPostContext());
     expect(decision.action).toBe('read');
   });
+
+  // ── Language matching (script validation) ──
+  // The LLM is asked to detect the post's language and write the comment in it.
+  // We post-validate: if the LLM says "uk" but writes in Latin script, return null
+  // (caller downgrades comment → like → read) instead of posting an English comment.
+
+  it('ED-LANG-001: accepts JSON comment with matching script (Ukrainian)', async () => {
+    mockLlm = createMockLlm([
+      { content: '{"language":"uk","comment":"Місяць у Раку — це реально."}', model: 'mock' },
+    ]);
+    service = new EngagementDecisionService(mockLlm);
+    const comment = await service.generateComment(createPostContext({ postText: 'Місяць у Раку сьогодні' }));
+    expect(comment).toBe('Місяць у Раку — це реально.');
+  });
+
+  it('ED-LANG-002: rejects comment when script mismatches (English comment, claimed uk)', async () => {
+    mockLlm = createMockLlm([
+      { content: '{"language":"uk","comment":"Thanks for sharing this!"}', model: 'mock' },
+    ]);
+    service = new EngagementDecisionService(mockLlm);
+    const comment = await service.generateComment(createPostContext({ postText: 'Місяць у Раку' }));
+    // Script mismatch → null (caller downgrades, never posts English on Ukrainian)
+    expect(comment).toBeNull();
+  });
+
+  it('ED-LANG-003: rejects comment when script mismatches (English comment, claimed ru)', async () => {
+    mockLlm = createMockLlm([
+      { content: '{"language":"ru","comment":"Love this post about astrology!"}', model: 'mock' },
+    ]);
+    service = new EngagementDecisionService(mockLlm);
+    const comment = await service.generateComment(createPostContext({ postText: 'Спасибо за пост' }));
+    expect(comment).toBeNull();
+  });
+
+  it('ED-LANG-004: accepts English comment for English post', async () => {
+    mockLlm = createMockLlm([
+      { content: '{"language":"en","comment":"Saturn return hit me at 28 too."}', model: 'mock' },
+    ]);
+    service = new EngagementDecisionService(mockLlm);
+    const comment = await service.generateComment(createPostContext());
+    expect(comment).toBe('Saturn return hit me at 28 too.');
+  });
+
+  it('ED-LANG-005: accepts Spanish comment for Spanish post', async () => {
+    mockLlm = createMockLlm([
+      { content: '{"language":"es","comment":"Saturno tarda 29.5 años. Y aun así te destroza."}', model: 'mock' },
+    ]);
+    service = new EngagementDecisionService(mockLlm);
+    const comment = await service.generateComment(createPostContext({ postText: 'Saturno en Aries hoy' }));
+    expect(comment).toBe('Saturno tarda 29.5 años. Y aun así te destroza.');
+  });
+
+  it('ED-LANG-006: accepts Italian comment for Italian post', async () => {
+    mockLlm = createMockLlm([
+      { content: '{"language":"it","comment":"Saturno impiega 29.5 anni. E ti distrugge lo stesso."}', model: 'mock' },
+    ]);
+    service = new EngagementDecisionService(mockLlm);
+    const comment = await service.generateComment(createPostContext({ postText: 'Saturno in Ariete oggi' }));
+    expect(comment).toBe('Saturno impiega 29.5 anni. E ti distrugge lo stesso.');
+  });
+
+  it('ED-LANG-007: rejects Cyrillic comment when language claimed as en', async () => {
+    mockLlm = createMockLlm([
+      { content: '{"language":"en","comment":"Спасибо за пост"}', model: 'mock' },
+    ]);
+    service = new EngagementDecisionService(mockLlm);
+    const comment = await service.generateComment(createPostContext());
+    expect(comment).toBeNull();
+  });
+
+  it('ED-LANG-008: accepts mixed-script comment when Cyrillic dominates (uk)', async () => {
+    mockLlm = createMockLlm([
+      { content: '{"language":"uk","comment":"Меркурий retrograde — це реально так."}', model: 'mock' },
+    ]);
+    service = new EngagementDecisionService(mockLlm);
+    const comment = await service.generateComment(createPostContext({ postText: 'Меркурий retrograde' }));
+    expect(comment).toBe('Меркурий retrograde — це реально так.');
+  });
+
+  it('ED-LANG-009: backward compat — plain text response (no JSON) still works', async () => {
+    mockLlm = createMockLlm([
+      { content: 'The Moon in Cancer energy is so real this week.', model: 'mock' },
+    ]);
+    service = new EngagementDecisionService(mockLlm);
+    const comment = await service.generateComment(createPostContext());
+    // No JSON → fallback to raw text, no language field → skip script validation
+    expect(comment).toBe('The Moon in Cancer energy is so real this week.');
+  });
+
+  it('ED-LANG-010: rejects quote when script mismatches (English quote, claimed uk)', async () => {
+    mockLlm = createMockLlm([
+      { content: '{"language":"uk","quote":"Great post about astrology!"}', model: 'mock' },
+    ]);
+    service = new EngagementDecisionService(mockLlm);
+    const quote = await service.generateQuoteText(createPostContext({ postText: 'Місяць у Раку' }));
+    expect(quote).toBeNull();
+  });
+
+  it('ED-LANG-011: accepts JSON quote with matching script (Russian)', async () => {
+    mockLlm = createMockLlm([
+      { content: '{"language":"ru","quote":"Сатурн вернулся в 28 — но никто не предупредил."}', model: 'mock' },
+    ]);
+    service = new EngagementDecisionService(mockLlm);
+    const quote = await service.generateQuoteText(createPostContext({ postText: 'Сатурн возвращается' }));
+    expect(quote).toBe('Сатурн вернулся в 28 — но никто не предупредил.');
+  });
+
+  it('ED-LANG-012: accepts JSON with locale variant detectedLanguage (en-US normalizes to en)', async () => {
+    mockLlm = createMockLlm([
+      { content: '{"language":"en-US","comment":"Saturn return is real."}', model: 'mock' },
+    ]);
+    service = new EngagementDecisionService(mockLlm);
+    const comment = await service.generateComment(createPostContext());
+    expect(comment).toBe('Saturn return is real.');
+  });
+
+  it('ED-LANG-013: rejects JSON with locale variant when script mismatches (ru-RU but Latin text)', async () => {
+    mockLlm = createMockLlm([
+      { content: '{"language":"ru-RU","comment":"Thanks for the post!"}', model: 'mock' },
+    ]);
+    service = new EngagementDecisionService(mockLlm);
+    const comment = await service.generateComment(createPostContext({ postText: 'Спасибо' }));
+    expect(comment).toBeNull();
+  });
 });

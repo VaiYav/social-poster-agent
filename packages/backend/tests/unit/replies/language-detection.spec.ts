@@ -357,4 +357,233 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
     );
     expect(disabled.isEnabled()).toBe(false);
   });
+
+  // ── Language matching (post-validation) ──
+  // The LLM is asked to detect the comment's language and write the reply in it.
+  // We post-validate: if the LLM says "uk" but writes in Latin script, downgrade
+  // to human_review instead of posting an English reply to a Ukrainian comment.
+
+  function createServiceWithLlm(mockLlm: any) {
+    return new RepliesMonitorService(
+      prisma as any,
+      createMockConfigService({ REPLIES_ENABLED: 'true' }),
+      createMockAccountsService() as any,
+      createMockSessionsService() as any,
+      createMockSchedulerRegistry() as any,
+      createMockDiscord() as any,
+      createMockSseService() as any,
+      mockLlm as any,
+      undefined, undefined,
+    );
+  }
+
+  it('LANG-001: accepts auto_reply when Ukrainian comment gets Ukrainian reply', async () => {
+    const mockLlm = {
+      generateChat: vi.fn().mockResolvedValue({
+        content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"uk","replyText":"Дякую! Це реально так."}',
+        model: 'test',
+        tokens: 10,
+      }),
+    };
+    const svcWithLlm = createServiceWithLlm(mockLlm);
+    const result = await (svcWithLlm as any).decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Це супер! Дякую' },
+    );
+    expect(result.action).toBe('auto_reply');
+    expect(result.detectedLanguage).toBe('uk');
+    expect(result.replyText).toContain('Дякую');
+  });
+
+  it('LANG-002: downgrades to human_review when LLM writes English reply to Ukrainian comment', async () => {
+    const mockLlm = {
+      generateChat: vi.fn().mockResolvedValue({
+        content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"uk","replyText":"Thanks for sharing this!"}',
+        model: 'test',
+        tokens: 10,
+      }),
+    };
+    const svcWithLlm = createServiceWithLlm(mockLlm);
+    const result = await (svcWithLlm as any).decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Це супер! Дякую' },
+    );
+    // Script mismatch: uk expected Cyrillic, got Latin → downgrade
+    expect(result.action).toBe('human_review');
+    expect(result.reviewReason).toContain('script');
+  });
+
+  it('LANG-003: downgrades to human_review when LLM writes English reply to Russian comment', async () => {
+    const mockLlm = {
+      generateChat: vi.fn().mockResolvedValue({
+        content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"ru","replyText":"Love this post!"}',
+        model: 'test',
+        tokens: 10,
+      }),
+    };
+    const svcWithLlm = createServiceWithLlm(mockLlm);
+    const result = await (svcWithLlm as any).decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Спасибо за пост' },
+    );
+    expect(result.action).toBe('human_review');
+    expect(result.reviewReason).toContain('script');
+  });
+
+  it('LANG-004: accepts auto_reply when English comment gets English reply', async () => {
+    const mockLlm = {
+      generateChat: vi.fn().mockResolvedValue({
+        content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"en","replyText":"Thanks for the insight!"}',
+        model: 'test',
+        tokens: 10,
+      }),
+    };
+    const svcWithLlm = createServiceWithLlm(mockLlm);
+    const result = await (svcWithLlm as any).decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Love this post about astrology' },
+    );
+    expect(result.action).toBe('auto_reply');
+    expect(result.detectedLanguage).toBe('en');
+  });
+
+  it('LANG-005: accepts auto_reply when Spanish comment gets Spanish reply', async () => {
+    const mockLlm = {
+      generateChat: vi.fn().mockResolvedValue({
+        content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"es","replyText":"¡Gracias! Saturno es real."}',
+        model: 'test',
+        tokens: 10,
+      }),
+    };
+    const svcWithLlm = createServiceWithLlm(mockLlm);
+    const result = await (svcWithLlm as any).decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: '¡Me encanta este post!' },
+    );
+    expect(result.action).toBe('auto_reply');
+    expect(result.detectedLanguage).toBe('es');
+  });
+
+  it('LANG-006: accepts auto_reply when Italian comment gets Italian reply', async () => {
+    const mockLlm = {
+      generateChat: vi.fn().mockResolvedValue({
+        content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"it","replyText":"Grazie! Saturno è reale."}',
+        model: 'test',
+        tokens: 10,
+      }),
+    };
+    const svcWithLlm = createServiceWithLlm(mockLlm);
+    const result = await (svcWithLlm as any).decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Mi piace questo post!' },
+    );
+    expect(result.action).toBe('auto_reply');
+    expect(result.detectedLanguage).toBe('it');
+  });
+
+  it('LANG-007: downgrades when LLM writes Cyrillic reply to English comment', async () => {
+    const mockLlm = {
+      generateChat: vi.fn().mockResolvedValue({
+        content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"en","replyText":"Спасибо за пост"}',
+        model: 'test',
+        tokens: 10,
+      }),
+    };
+    const svcWithLlm = createServiceWithLlm(mockLlm);
+    const result = await (svcWithLlm as any).decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Love this post about astrology' },
+    );
+    // Script mismatch: en expected Latin, got Cyrillic → downgrade
+    expect(result.action).toBe('human_review');
+    expect(result.reviewReason).toContain('script');
+  });
+
+  it('LANG-008: accepts auto_reply when detectedLanguage is missing (no validation)', async () => {
+    // Backward compat: if LLM doesn't return detectedLanguage, skip validation
+    const mockLlm = {
+      generateChat: vi.fn().mockResolvedValue({
+        content: '{"action":"auto_reply","reason":"Positive","replyText":"Thanks!"}',
+        model: 'test',
+        tokens: 10,
+      }),
+    };
+    const svcWithLlm = createServiceWithLlm(mockLlm);
+    const result = await (svcWithLlm as any).decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Love this post' },
+    );
+    expect(result.action).toBe('auto_reply');
+    expect(result.replyText).toBe('Thanks!');
+  });
+
+  it('LANG-009: system prompt includes detectedLanguage in JSON schema', async () => {
+    const mockLlm = {
+      generateChat: vi.fn().mockResolvedValue({
+        content: '{"action":"auto_reply","reason":"ok","detectedLanguage":"en","replyText":"Thanks!"}',
+        model: 'test',
+        tokens: 10,
+      }),
+    };
+    const svcWithLlm = createServiceWithLlm(mockLlm);
+    await (svcWithLlm as any).decideReply(
+      { id: '1', network: 'X', content: 'Post' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Nice post' },
+    );
+    const [systemPrompt] = mockLlm.generateChat.mock.calls[0];
+    expect(systemPrompt).toContain('detectedLanguage');
+    expect(systemPrompt).toContain('en|ru|uk|es|it');
+    expect(systemPrompt).toContain('LANGUAGE DETECTION');
+  });
+
+  it('LANG-010: accepts mixed-script reply for uk when Cyrillic dominates', async () => {
+    // Ukrainian reply with English astrology term — Cyrillic dominates
+    const mockLlm = {
+      generateChat: vi.fn().mockResolvedValue({
+        content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"uk","replyText":"Меркурий retrograde — це реально так."}',
+        model: 'test',
+        tokens: 10,
+      }),
+    };
+    const svcWithLlm = createServiceWithLlm(mockLlm);
+    const result = await (svcWithLlm as any).decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Так, це правда' },
+    );
+    expect(result.action).toBe('auto_reply');
+  });
+
+  it('LANG-011: accepts locale variant detectedLanguage (uk-UA normalizes to uk)', async () => {
+    const mockLlm = {
+      generateChat: vi.fn().mockResolvedValue({
+        content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"uk-UA","replyText":"Дякую за пост!"}',
+        model: 'test',
+        tokens: 10,
+      }),
+    };
+    const svcWithLlm = createServiceWithLlm(mockLlm);
+    const result = await (svcWithLlm as any).decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Дякую' },
+    );
+    expect(result.action).toBe('auto_reply');
+  });
+
+  it('LANG-012: downgrades when locale variant detectedLanguage mismatches script', async () => {
+    const mockLlm = {
+      generateChat: vi.fn().mockResolvedValue({
+        content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"ru-RU","replyText":"Thanks!"}',
+        model: 'test',
+        tokens: 10,
+      }),
+    };
+    const svcWithLlm = createServiceWithLlm(mockLlm);
+    const result = await (svcWithLlm as any).decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Спасибо' },
+    );
+    // ru-RU normalizes to ru, but replyText is Latin → mismatch → human_review
+    expect(result.action).toBe('human_review');
+    expect(result.reviewReason).toContain('script');
+  });
 });

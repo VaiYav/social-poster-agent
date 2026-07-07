@@ -9,11 +9,15 @@ import { describe, it, expect } from 'vitest';
 import {
   buildDecisionUserPrompt,
   buildCommentUserPrompt,
+  buildQuoteUserPrompt,
   parseDecisionResponse,
-  buildBatchDecisionUserPrompt,
   parseBatchDecisionResponse,
+  parseCommentResponse,
+  parseQuoteResponse,
+  buildBatchDecisionUserPrompt,
   ENGAGEMENT_DECISION_SYSTEM_PROMPT,
   ENGAGEMENT_COMMENT_SYSTEM_PROMPT,
+  ENGAGEMENT_QUOTE_SYSTEM_PROMPT,
 } from '../../../src/infrastructure/llm/prompts/v0.4.0/engagement-decision';
 import type { PostContext } from '../../../src/domain/ports/engagement-decision.port';
 
@@ -185,11 +189,82 @@ describe('Engagement Prompts', () => {
     expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('Сатурн вернулся');
   });
 
-  it('PR-018f: comment user prompt instructs language matching', () => {
-    const ctx = createPostContext({ postText: 'Це український пост' });
-    const prompt = buildCommentUserPrompt(ctx);
-    expect(prompt).toContain('Match the language');
-    expect(prompt).toContain('Ukrainian');
+  it('PR-018f: comment system prompt includes JSON language schema', () => {
+    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('Respond as JSON');
+    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('"language"');
+    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('en|ru|uk|es|it');
+  });
+
+  it('PR-018g: quote system prompt includes JSON language schema', () => {
+    expect(ENGAGEMENT_QUOTE_SYSTEM_PROMPT).toContain('Respond as JSON');
+    expect(ENGAGEMENT_QUOTE_SYSTEM_PROMPT).toContain('"language"');
+    expect(ENGAGEMENT_QUOTE_SYSTEM_PROMPT).toContain('en|ru|uk|es|it');
+  });
+
+  it('PR-018h: comment system prompt includes script-based detection guidance', () => {
+    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('Cyrillic');
+    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('Ukrainian has і');
+  });
+
+  it('PR-018i: quote system prompt includes script-based detection guidance', () => {
+    expect(ENGAGEMENT_QUOTE_SYSTEM_PROMPT).toContain('Cyrillic');
+    expect(ENGAGEMENT_QUOTE_SYSTEM_PROMPT).toContain('Ukrainian has і');
+  });
+
+  // ── parseCommentResponse ──
+
+  it('PR-COM-001: parses JSON comment response with language', () => {
+    const result = parseCommentResponse('{"language":"uk","comment":"Дякую за пост!"}');
+    expect(result.language).toBe('uk');
+    expect(result.comment).toBe('Дякую за пост!');
+  });
+
+  it('PR-COM-002: parses JSON wrapped in markdown', () => {
+    const result = parseCommentResponse('```json\n{"language":"ru","comment":"Спасибо"}\n```');
+    expect(result.language).toBe('ru');
+    expect(result.comment).toBe('Спасибо');
+  });
+
+  it('PR-COM-003: falls back to raw text when JSON parse fails', () => {
+    const result = parseCommentResponse('Just a plain comment');
+    expect(result.language).toBeUndefined();
+    expect(result.comment).toBe('Just a plain comment');
+  });
+
+  it('PR-COM-004: returns null for empty response', () => {
+    expect(parseCommentResponse('').comment).toBeNull();
+    expect(parseCommentResponse('   ').comment).toBeNull();
+  });
+
+  it('PR-COM-005: handles JSON without comment field (fallback to raw)', () => {
+    const result = parseCommentResponse('{"language":"en"}');
+    // No comment field — fallback to raw text
+    expect(result.comment).toBe('{"language":"en"}');
+  });
+
+  // ── parseQuoteResponse ──
+
+  it('PR-QUO-001: parses JSON quote response with language', () => {
+    const result = parseQuoteResponse('{"language":"es","quote":"¡Excelente post!"}');
+    expect(result.language).toBe('es');
+    expect(result.quote).toBe('¡Excelente post!');
+  });
+
+  it('PR-QUO-002: parses JSON wrapped in markdown', () => {
+    const result = parseQuoteResponse('```json\n{"language":"it","quote":"Ottimo post!"}\n```');
+    expect(result.language).toBe('it');
+    expect(result.quote).toBe('Ottimo post!');
+  });
+
+  it('PR-QUO-003: falls back to raw text when JSON parse fails', () => {
+    const result = parseQuoteResponse('Just a plain quote');
+    expect(result.language).toBeUndefined();
+    expect(result.quote).toBe('Just a plain quote');
+  });
+
+  it('PR-QUO-004: returns null for empty response', () => {
+    expect(parseQuoteResponse('').quote).toBeNull();
+    expect(parseQuoteResponse('   ').quote).toBeNull();
   });
 
   // ── buildBatchDecisionUserPrompt ──
