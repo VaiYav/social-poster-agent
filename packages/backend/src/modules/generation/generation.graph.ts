@@ -992,12 +992,42 @@ Return ONLY the refined post text. No preamble.`;
     try {
       const response = await llm.generateChat('', refinePrompt, { temperature: 0.5, role: 'draft' });
 
+      let refined = response.content.trim();
+
+      // Q12: Hard char-limit enforcement — if the refined text still exceeds the
+      // network limit, do one more LLM pass to cut it down. LLMs (especially
+      // smaller models like Gemini Flash Lite) often ignore "max N chars" in the
+      // prompt. If the LLM is unavailable, hard-truncate at the last word boundary.
+      if (refined.length > charLimit) {
+        logger.warn(
+          `refine_${network}: refined text ${refined.length} chars > limit ${charLimit} — doing truncation pass`,
+        );
+        try {
+          const cutResponse = await llm.generateChat(
+            '',
+            `Cut this ${network} post to ${charLimit} characters or fewer. Keep the hook and the punchline. Remove filler, not substance.\n\nPost:\n"${refined}"\n\nReturn ONLY the shortened post (max ${charLimit} chars):`,
+            { temperature: 0.3, role: 'draft' },
+          );
+          const cut = cutResponse.content.trim();
+          if (cut.length > 0 && cut.length <= charLimit) {
+            refined = cut;
+          } else {
+            // LLM still didn't comply — hard truncate at last word boundary
+            refined = refined.slice(0, charLimit).replace(/\s+\S*$/, '').trim();
+          }
+        } catch {
+          // LLM unavailable — hard truncate
+          refined = refined.slice(0, charLimit).replace(/\s+\S*$/, '').trim();
+        }
+        logger.debug(`refine_${network}: after truncation pass — ${refined.length} chars`);
+      }
+
       // B5: Return ONLY the updated network — reducer merges concurrent updates
       return {
         results: {
           [network]: {
             ...netResult,
-            refined: response.content.trim(),
+            refined,
             pendingHumanizeRetry: false,
           },
         },

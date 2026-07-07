@@ -108,9 +108,11 @@ export function hammingDistance(hash1: string, hash2: string): number {
 
 /**
  * Check if two texts are near-duplicates.
- * Threshold: Hamming distance ≤ 3 means likely duplicate.
+ * Threshold: Hamming distance ≤ 5 means likely duplicate.
+ * (Was 3 — too strict for short social posts where same-topic posts share
+ * many 3-word shingles. 5 is the standard threshold for short-text dedup.)
  */
-export function isNearDuplicate(text1: string, text2: string, threshold = 3): boolean {
+export function isNearDuplicate(text1: string, text2: string, threshold = 5): boolean {
   const h1 = simhash(text1);
   const h2 = simhash(text2);
   return hammingDistance(h1, h2) <= threshold;
@@ -126,7 +128,7 @@ export function isNearDuplicate(text1: string, text2: string, threshold = 3): bo
 export function isDuplicateHash(
   candidateHash: string,
   existingHashes: string[],
-  threshold = 3,
+  threshold = 5,
 ): boolean {
   return existingHashes.some((existing) => hammingDistance(candidateHash, existing) <= threshold);
 }
@@ -138,7 +140,7 @@ export function isDuplicateHash(
 export function isDuplicateAgainstCorpus(
   candidateText: string,
   existingHashes: string[],
-  threshold = 3,
+  threshold = 5,
 ): boolean {
   return isDuplicateHash(simhash(candidateText), existingHashes, threshold);
 }

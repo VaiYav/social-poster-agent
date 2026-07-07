@@ -693,7 +693,7 @@ export class GenerationService {
     const finalFacts = (finalState as { facts?: string[] }).facts ?? [];
 
     // Save each generated post as DRAFT
-    // B5: SimHash dedup — skip near-duplicate posts (Hamming distance ≤ 3)
+    // B5: SimHash dedup — skip near-duplicate posts (Hamming distance ≤ 5)
     const savedPosts: { id: string }[] = [];
 
     // Load recent post hashes for this network to check against
