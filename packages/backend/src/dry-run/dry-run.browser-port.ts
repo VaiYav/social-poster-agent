@@ -441,4 +441,8 @@ export class DryRunBrowserPort implements IBrowserPort {
   suppressPageErrors(page: Page): Promise<void> {
     return this.real.suppressPageErrors(page);
   }
+
+  applyResourceBlocking(page: Page, opts?: { blockImages?: boolean }): Promise<void> {
+    return this.real.applyResourceBlocking(page, opts);
+  }
 }

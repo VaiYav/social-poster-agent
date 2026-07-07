@@ -124,3 +124,41 @@ Refs: [camoufox#635](https://github.com/daijro/camoufox/issues/635), [playwright
 - `RUN node .../patch-playwright.js` in `docker/Dockerfile.backend` after `pnpm install` (both builder + production stages)
 
 **When upgrading `playwright-core`**: re-run `node packages/backend/scripts/patch-playwright.js` and verify the patch sites still match. The script logs a warning if no sites matched (version drift).
+
+## Browser memory optimization (`packages/backend/src/infrastructure/browser/browser.factory.ts`)
+
+### firefox_user_prefs (launch-time, global)
+
+Camoufox/Firefox consumes ~340-500 MB RSS per process (benchmark: [camoufox#87](https://github.com/daijro/camoufox/issues/87)). `BrowserFactory` applies memory-saving `firefox_user_prefs` at launch via the `firefox_user_prefs` field of `LaunchOptions` (camoufox-js). Gated by `CAMOUFOX_MEMORY_PREFS=true` (default on). Prefs applied:
+
+- **Session history**: `max_total_viewers=0`, `max_entries=3` — automation never uses go_back/go_forward, cached viewers are pure overhead (~10-30 MB each).
+- **Session restore**: `max_tabs_undo=0`, `resume_from_crash=false` — automation controls lifecycle.
+- **Cache**: `disk.enable=false`, `memory.capacity=16384` (16 MB cap), `media.memory_cache_max_size=8192` — default auto-sizes to 50-100 MB+ in containers.
+- **JS GC**: `high_water_mark=128` (trigger GC at 128 MB vs default ~256), `gc_incremental_slice_ms=5`, `compact_on_user_inactive=true` + delay 5000 — more frequent GC, less resident heap.
+- **Memory pressure**: `memory.free_dirty_pages=true` — aggressive dirty page freeing (helps jemalloc fragmentation).
+- **Image decode**: `image.mem.decode_bytes_at_a_time=4096` (configurable via `CAMOUFOX_IMAGE_DECODE_CHUNK`) — fix for camoufox#87 OOM on scroll; default 32768 causes excessive memory on media-heavy feeds.
+- **Telemetry/devtools**: `datareporting.policy.dataSubmissionEnabled=false`, `toolkit.telemetry.reportingpolicy.firstRun=false`, `devtools.jsonview.enabled=false` — no background network traffic.
+
+**Intentionally NOT touched**: `dom.ipc.processCount` — Camoufox enables fission/web-content-isolation for anti-detect (WAF suspicion). Lowering processCount would risk detection. Playwright's `playwright.cfg` sets `dom.ipc.processCount=60000` and some prefs there cannot be overridden via `firefox_user_prefs` (known limitation, [playwright#15405](https://github.com/microsoft/playwright/issues/15405)) — but cache/session-history/JS-GC prefs apply fine.
+
+Applied to both `launchBrowser()` (X/Threads pooled contexts) and `launchPersistentContext()` (Facebook persistent context). For persistent contexts, Playwright writes prefs to `user.js` in the profile dir.
+
+### Resource blocking (`applyResourceBlocking`, runtime, per-page)
+
+`IBrowserPort.applyResourceBlocking(page, { blockImages })` centralises `page.route()` request interception. Media + fonts are blocked at every call site (no use case needs them). Images are blocked only when `opts.blockImages=true` AND `CAMOUFOX_BLOCK_IMAGES_READONLY=true` (default on).
+
+**Call sites (read-only contexts — all block media + fonts + images):**
+- `browsing-session.service.ts` (engagement scroll) — `blockImages: true` (only needs text for like/comment)
+- `trending-scraper.service.ts` (X trends scrape) — `blockImages: true` (only needs trend label text)
+- `base.poster.ts` `verifyPosted()` — `blockImages: true` (only needs post text + URL pattern)
+- `replies-monitor.service.ts` (comment scraping) — `blockImages: true` (scrolls media-heavy feeds for comment text)
+
+**NOT called on:**
+- **Posting path (x/threads/facebook posters)** — no resource blocking; full page render needed for compose + visual verification
+- **Sessions service** (login flows) — no blocking; login pages may need full render
+
+**Why per-page `page.route()` instead of launch-time `block_images`**: `page.route()` is runtime — no browser relaunch needed to toggle, and posting path keeps images. Launch-time `permissions.default.image=2` would block globally including posting.
+
+### Existing memory infrastructure (pre-existing, not part of this optimization)
+
+`BrowserFactory` already has: pool size=1 (default), idle context TTL=3 min, orphan context sweep, browser lifetime restart (15 min default, `BROWSER_MAX_LIFETIME_MS`), persistent (Facebook) context idle close (`PERSISTENT_CONTEXT_IDLE_TTL_MS`). These handle *process lifecycle* memory; the new `firefox_user_prefs` + resource blocking handle *in-process* memory.

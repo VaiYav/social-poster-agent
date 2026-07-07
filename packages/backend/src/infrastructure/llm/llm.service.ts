@@ -658,7 +658,16 @@ export class LlmService implements ILlmPort, OnModuleInit {
 
         const msg = (lastErr as Error)?.message ?? 'unknown error';
         errors.push(`${provider.name}: ${msg}`);
-        this.recordFailure(provider.name, this.isTerminalLlmError(lastErr));
+        // Q13: Don't count 429 (rate limit) as a circuit breaker failure —
+        // 429 is transient and already handled by rate-limit retry + failover.
+        // Counting it trips the breaker after cbThreshold 429s, blocking ALL
+        // providers during rate-limit bursts and causing "All LLM providers failed".
+        const isRateLimit = this.isRateLimitError(lastErr);
+        if (!isRateLimit) {
+          this.recordFailure(provider.name, this.isTerminalLlmError(lastErr));
+        } else {
+          this.logger.debug(`${provider.name} rate-limited (429) — not counting as circuit breaker failure`);
+        }
         this.logger.warn(
           `LLM provider ${provider.name} failed: ${msg.slice(0, 120)}`,
         );

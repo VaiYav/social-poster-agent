@@ -241,6 +241,14 @@ export class RepliesMonitorService implements OnModuleInit {
       context = await this.browser.acquireContext(network, storageState);
       page = await context.newPage();
 
+      // Suppress uncaught page-side JS errors (social feeds throw many) that can
+      // crash the Playwright/Camoufox Firefox driver (see browser.factory.ts doc).
+      await this.browser.suppressPageErrors(page);
+      // MEM: block images/media/fonts — comment scraping only needs text. The
+      // scrollForComments loop scrolls media-heavy feeds, which is the exact OOM
+      // scenario from camoufox#87. Blocking images prevents renderer memory blowup.
+      await this.browser.applyResourceBlocking(page, { blockImages: true });
+
       await page.goto(postUrl, { waitUntil: 'networkidle', timeout: 30_000 });
       await page.waitForTimeout(3000); // Let comments load
 

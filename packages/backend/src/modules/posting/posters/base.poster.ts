@@ -672,6 +672,10 @@ export abstract class BasePoster {
     try {
       page = await context.newPage();
       await this.browser.suppressPageErrors(page);
+      // MEM: block images/media/fonts — verification only needs the text content
+      // of the post + the URL pattern. Profile pages are media-heavy (avatars,
+      // embedded images) and accumulate renderer memory during the scan.
+      await this.browser.applyResourceBlocking(page, { blockImages: true });
       return await this.validatePostOnProfile(page, profileUrl, content, this.getVerificationUrlPattern());
     } catch {
       // Not found / not verifiable — treat as "not posted" (caller will re-post).

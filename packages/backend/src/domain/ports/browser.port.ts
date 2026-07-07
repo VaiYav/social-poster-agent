@@ -155,4 +155,22 @@ export interface IBrowserPort {
    * every `context.newPage()`, before navigating.
    */
   suppressPageErrors(page: Page): Promise<void>;
+
+  /**
+   * Block heavy resource types (media, fonts, optionally images) to reduce
+   * memory pressure and prevent renderer-process OOM kills on media-heavy
+   * social feeds (X/Threads scroll sessions, trending scrapes, post
+   * verification). Read-only operations only need text content — images and
+   * video are pure memory overhead that accumulates during long scroll sessions
+   * and triggers the Camoufox/Firefox OOM documented in camoufox#87.
+   *
+   * Call immediately after `context.newPage()` and before navigating.
+   *
+   * @param page - Playwright page to apply request interception on
+   * @param opts.blockImages - When true, also block image requests. Set to
+   *   true for read-only contexts (engagement, trending, verifyPosted) where
+   *   images are not needed. Leave false for posting (visual verification may
+   *   need rendered images). Media + fonts are always blocked.
+   */
+  applyResourceBlocking(page: Page, opts?: { blockImages?: boolean }): Promise<void>;
 }

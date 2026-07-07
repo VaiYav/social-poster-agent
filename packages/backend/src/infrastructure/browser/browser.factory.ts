@@ -61,6 +61,19 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
   private readonly persistentContextLastUsed = new Map<SocialNetwork, number>();
   private readonly persistentContextIdleTtlMs: number;
   private readonly profileDir: string;
+  // MEM: Firefox about:config prefs applied at launch to reduce Camoufox/Firefox
+  // memory footprint. Tuned for headless automation (no human browsing UX).
+  // Research: camoufox#87 (memory benchmark + OOM fix), playwright#38864
+  // (Firefox RAM accumulation), ArchWiki Firefox tweaks, datawookie Playwright
+  // footprint. dom.ipc.processCount is intentionally NOT touched — Camoufox
+  // enables fission/web-isolation for anti-detect, lowering processCount would
+  // risk WAF detection.
+  private readonly memoryPrefsEnabled: boolean;
+  private readonly firefoxUserPrefs: Record<string, unknown>;
+  // MEM: block image requests in read-only contexts (engagement, trending,
+  // verifyPosted) via page.route(). Posting path keeps images for visual
+  // verification. Media + fonts are always blocked (no use case needs them).
+  private readonly blockImagesReadOnly: boolean;
 
   // Sprint K: Context pool — reuse contexts per network to avoid repeated creation overhead.
   // Each network gets up to `poolSize` contexts. Idle contexts are returned to the pool.
@@ -136,6 +149,17 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     // Persistent browser profiles directory — stores fingerprint + cookies per network
     // Facebook requires this to avoid "suspicious login" challenges on every run
     this.profileDir = this.configService.get<string>('CAMOUFOX_PROFILE_DIR', '/tmp/spa-profiles');
+    // MEM: memory-saving firefox_user_prefs. Toggle off via CAMOUFOX_MEMORY_PREFS=false
+    // (e.g. for debugging memory issues or benchmarking). Prefs are safe for automation:
+    // they reduce cache, session history, JS GC thresholds, image decode chunk size, and
+    // disable telemetry/devtools — none affect fingerprinting or anti-detect.
+    this.memoryPrefsEnabled = parseBool(this.configService.get<string>('CAMOUFOX_MEMORY_PREFS', 'true'));
+    const imageDecodeChunk = Math.max(1024, this.configService.get<number>('CAMOUFOX_IMAGE_DECODE_CHUNK', 4096));
+    this.firefoxUserPrefs = this.memoryPrefsEnabled ? this.buildMemoryPrefs(imageDecodeChunk) : {};
+    // MEM: block images in read-only contexts. Toggle via CAMOUFOX_BLOCK_IMAGES_READONLY.
+    this.blockImagesReadOnly = parseBool(
+      this.configService.get<string>('CAMOUFOX_BLOCK_IMAGES_READONLY', 'true'),
+    );
     // SEC2: the persistent profile stores plaintext auth cookies outside the DB encryption.
     // /tmp is broadly accessible; in production it must live on a restricted/encrypted volume.
     if (this.configService.get<string>('NODE_ENV') === 'production' && this.profileDir.startsWith('/tmp/')) {
@@ -176,6 +200,47 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     }
   }
 
+  /**
+   * MEM: Build the firefox_user_prefs object for memory optimization.
+   * Extracted from constructor for readability. See AGENTS.md "Browser memory
+   * optimization" for the research behind each pref.
+   *
+   * @param imageDecodeChunk - bytes per image decode chunk (camoufox#87 OOM fix)
+   */
+  private buildMemoryPrefs(imageDecodeChunk: number): Record<string, unknown> {
+    return {
+      // Session history — don't retain back/forward cached viewers (each ~10-30 MB).
+      // Automation never uses go_back/go_forward, so zero viewers is safe.
+      'browser.sessionhistory.max_total_viewers': 0,
+      'browser.sessionhistory.max_entries': 3,
+      // Session restore — no tab undo, no crash resume (automation controls lifecycle).
+      'browser.sessionstore.max_tabs_undo': 0,
+      'browser.sessionstore.resume_from_crash': false,
+      // Cache — disk cache off (we have no reuse benefit), memory cache capped at 16 MB
+      // (default auto-sizes based on system RAM, often 50-100 MB+ in containers).
+      'browser.cache.disk.enable': false,
+      'browser.cache.memory.capacity': 16384,
+      'media.memory_cache_max_size': 8192,
+      // JS GC — trigger GC earlier (128 MB high-water mark vs default ~256 MB),
+      // run incremental GC slices more frequently, compact on user inactive.
+      // Reduces resident JS heap without affecting execution correctness.
+      'javascript.options.mem.high_water_mark': 128,
+      'javascript.options.mem.gc_incremental_slice_ms': 5,
+      'javascript.options.compact_on_user_inactive': true,
+      'javascript.options.compact_on_user_inactive_delay': 5000,
+      // Memory pressure — free dirty pages aggressively (helps jemalloc/arena fragmentation).
+      'memory.free_dirty_pages': true,
+      // Image decode — fix for camoufox#87 OOM on scroll: default 32768 causes
+      // excessive memory when scrolling media-heavy feeds. 4096 matches the upstream
+      // fix from daijro. Configurable via CAMOUFOX_IMAGE_DECODE_CHUNK.
+      'image.mem.decode_bytes_at_a_time': imageDecodeChunk,
+      // Telemetry/devtools — disable to save memory + avoid background network traffic.
+      'datareporting.policy.dataSubmissionEnabled': false,
+      'toolkit.telemetry.reportingpolicy.firstRun': false,
+      'devtools.jsonview.enabled': false,
+    };
+  }
+
   private async launchBrowser(): Promise<Browser> {
     const launchOpts: LaunchOptions = {
       headless: this.headless,
@@ -184,6 +249,13 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
       locale: this.locale,
       os: this.targetOs,
     };
+
+    // MEM: apply memory-saving firefox_user_prefs (cache caps, session history,
+    // JS GC tuning, image decode chunk, telemetry off). See constructor doc for
+    // the full list and research references.
+    if (this.memoryPrefsEnabled) {
+      launchOpts.firefox_user_prefs = this.firefoxUserPrefs;
+    }
 
     // Proxy support for IP rotation (anti-detection)
     if (this.proxyUrl) {
@@ -218,7 +290,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
 
     this.browserLaunchTime = Date.now();
     this.logger.log(
-      `Camoufox launched (headless=${this.headless}, os=${this.targetOs}, humanize=${this.humanize}, geoip=${this.geoip}, proxy=${!!this.proxyUrl})`,
+      `Camoufox launched (headless=${this.headless}, os=${this.targetOs}, humanize=${this.humanize}, geoip=${this.geoip}, proxy=${!!this.proxyUrl}, memoryPrefs=${this.memoryPrefsEnabled})`,
     );
     return browser;
   }
@@ -288,6 +360,15 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
       os: this.targetOs,
     };
 
+    // MEM: apply memory-saving firefox_user_prefs to persistent context too.
+    // For persistent contexts (user_data_dir), Playwright writes prefs to user.js
+    // in the profile dir. Some prefs from playwright.cfg may not be overridable
+    // (known Playwright limitation, #15405), but cache/session-history/JS-GC prefs
+    // apply fine.
+    if (this.memoryPrefsEnabled) {
+      launchOpts.firefox_user_prefs = this.firefoxUserPrefs;
+    }
+
     // Proxy support
     if (this.proxyUrl) {
       launchOpts.proxy = { server: this.proxyUrl };
@@ -305,7 +386,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
 
     this.persistentContexts.set(network, context);
     this.logger.log(
-      `Persistent context created for ${network} (profile: ${profilePath})`,
+      `Persistent context created for ${network} (profile: ${profilePath}, memoryPrefs=${this.memoryPrefsEnabled})`,
     );
     return context;
   }
@@ -816,6 +897,45 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
       window.addEventListener('unhandledrejection', (e) => { e.preventDefault(); e.stopImmediatePropagation(); }, true);
     });
     page.on('pageerror', () => {});
+  }
+
+  /**
+   * Block heavy resource types (media, fonts, optionally images) via page.route()
+   * to reduce memory pressure and prevent renderer-process OOM kills on media-heavy
+   * social feeds. Read-only operations (engagement scroll, trending scrape, post
+   * verification) only need text content — images/video/fonts are pure memory
+   * overhead that accumulates during long scroll sessions.
+   *
+   * Centralised here so all call sites use the same blocking policy. The
+   * `blockImagesReadOnly` env flag (CAMOUFOX_BLOCK_IMAGES_READONLY, default true)
+   * gates whether images are blocked when `opts.blockImages` is true — allows
+   * disabling globally if a use case needs images in a read-only context.
+   *
+   * Media + fonts are ALWAYS blocked (no use case in this app needs them).
+   * Images are blocked only when `opts.blockImages` is true AND the env flag is on.
+   *
+   * @param page - Playwright page to apply request interception on
+   * @param opts.blockImages - When true, block images too (read-only contexts).
+   *   Posting path passes false (or omits) to keep images for visual verification.
+   */
+  async applyResourceBlocking(page: Page, opts?: { blockImages?: boolean }): Promise<void> {
+    const blockImages = opts?.blockImages && this.blockImagesReadOnly;
+    try {
+      await page.route('**/*', (route) => {
+        const type = route.request().resourceType();
+        if (
+          type === 'media' ||
+          type === 'font' ||
+          (blockImages && type === 'image')
+        ) {
+          void route.abort();
+        } else {
+          void route.continue();
+        }
+      });
+    } catch {
+      // route() can fail if the page/context is already closed — non-fatal
+    }
   }
 
   /**

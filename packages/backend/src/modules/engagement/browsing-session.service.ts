@@ -181,18 +181,9 @@ export class BrowsingSessionService {
       // text content of posts — images/videos are not needed for liking or
       // commenting. X.com pages with many media-heavy tweets crash the Firefox
       // renderer under memory pressure in constrained containers.
-      try {
-        await page.route('**/*', (route) => {
-          const type = route.request().resourceType();
-          if (type === 'image' || type === 'media' || type === 'font') {
-            void route.abort();
-          } else {
-            void route.continue();
-          }
-        });
-      } catch {
-        // route() can fail if the page/context is already closed — non-fatal
-      }
+      // Centralised in BrowserFactory.applyResourceBlocking so all read-only
+      // call sites share the same blocking policy (gated by CAMOUFOX_BLOCK_IMAGES_READONLY).
+      await this.browser.applyResourceBlocking(page, { blockImages: true });
 
       // Pre-session health check: verify the page/browser is responsive before
       // committing to a full engagement graph run. A simple evaluate call catches

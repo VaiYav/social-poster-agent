@@ -196,6 +196,7 @@ export function createMockBrowserPort(): IBrowserPort {
     waitForStable: vi.fn().mockResolvedValue(undefined),
     dismissDialogs: vi.fn().mockResolvedValue(undefined),
     suppressPageErrors: vi.fn().mockResolvedValue(undefined),
+    applyResourceBlocking: vi.fn().mockResolvedValue(undefined),
   } as unknown as IBrowserPort;
 }
 

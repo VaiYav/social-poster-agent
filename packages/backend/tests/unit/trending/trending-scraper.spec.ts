@@ -57,6 +57,8 @@ function createMockBrowserPort() {
   return {
     acquireContext: vi.fn().mockResolvedValue(mockContext),
     releaseContext: vi.fn(),
+    suppressPageErrors: vi.fn().mockResolvedValue(undefined),
+    applyResourceBlocking: vi.fn().mockResolvedValue(undefined),
     _mockPage: mockPage,
     _mockContext: mockContext,
   };

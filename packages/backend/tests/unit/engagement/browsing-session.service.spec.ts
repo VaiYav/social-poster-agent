@@ -39,6 +39,7 @@ describe('BrowsingSessionService — page lifecycle', () => {
     releaseContext: ReturnType<typeof vi.fn>;
     saveStorageState: ReturnType<typeof vi.fn>;
     suppressPageErrors: ReturnType<typeof vi.fn>;
+    applyResourceBlocking: ReturnType<typeof vi.fn>;
   };
   let sessionsService: {
     getOrCreateSession: ReturnType<typeof vi.fn>;
@@ -56,6 +57,7 @@ describe('BrowsingSessionService — page lifecycle', () => {
       releaseContext: vi.fn(),
       saveStorageState: vi.fn().mockResolvedValue(JSON.stringify({ cookies: [], origins: [] })),
       suppressPageErrors: vi.fn().mockResolvedValue(undefined),
+      applyResourceBlocking: vi.fn().mockResolvedValue(undefined),
     };
     sessionsService = {
       getOrCreateSession: vi.fn().mockResolvedValue(fixtureSession),

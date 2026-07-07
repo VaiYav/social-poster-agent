@@ -328,6 +328,14 @@ export class TrendingScraperService implements OnModuleInit {
       context = await this.browser.acquireContext('X' as SocialNetwork, storageState);
       page = await context.newPage();
 
+      // Suppress uncaught page-side JS errors (X React app throws many) that can
+      // crash the Playwright/Camoufox Firefox driver (see browser.factory.ts doc).
+      await this.browser.suppressPageErrors(page);
+      // MEM: block images/media/fonts — trending scrape only needs the text of
+      // trend labels. Media-heavy X pages accumulate renderer memory during the
+      // 5s hydration wait; blocking images prevents OOM on constrained hosts.
+      await this.browser.applyResourceBlocking(page, { blockImages: true });
+
       // Try multiple URLs — X has changed the explore page structure multiple times.
       // The trends may be on /explore/tabs/trending, /explore, or the home page sidebar.
       let topics: ScrapedTrendingTopic[] = [];
