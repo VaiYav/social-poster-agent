@@ -569,6 +569,25 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
     expect(result.action).toBe('auto_reply');
   });
 
+  it('LANG-013: trusts deterministic detector when LLM echoes a different language code', async () => {
+    const mockLlm = {
+      generateChat: vi.fn().mockResolvedValue({
+        content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"en","replyText":"Дякую за пост!"}',
+        model: 'test',
+        tokens: 10,
+      }),
+    };
+    const svcWithLlm = createServiceWithLlm(mockLlm);
+    const result = await (svcWithLlm as any).decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Дякую за пост' },
+    );
+    // Detector says uk, LLM said en; we validate the Cyrillic reply as uk → passes
+    expect(result.action).toBe('auto_reply');
+    expect(result.detectedLanguage).toBe('uk');
+    expect(result.replyText).toContain('Дякую');
+  });
+
   it('LANG-012: downgrades when locale variant detectedLanguage mismatches script', async () => {
     const mockLlm = {
       generateChat: vi.fn().mockResolvedValue({

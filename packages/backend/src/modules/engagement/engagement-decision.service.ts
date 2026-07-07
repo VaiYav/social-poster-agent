@@ -29,6 +29,10 @@ import {
   parseQuoteResponse,
 } from '../../infrastructure/llm/prompts/v0.4.0/engagement-decision.js';
 import { matchesScript, normalizeLanguage } from '../../infrastructure/util/script-check.js';
+import { detectLanguage } from '../../infrastructure/util/language-detector.js';
+
+const ENGAGEMENT_COMMENT_TEMPERATURE = Number(process.env.ENGAGEMENT_COMMENT_TEMPERATURE ?? 0.8);
+const ENGAGEMENT_QUOTE_TEMPERATURE = Number(process.env.ENGAGEMENT_QUOTE_TEMPERATURE ?? 0.8);
 
 @Injectable()
 export class EngagementDecisionService implements IEngagementDecisionPort {
@@ -194,11 +198,13 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
     }
 
     try {
+      const detectedLanguage = detectLanguage(context.postText);
+      const systemPrompt = ENGAGEMENT_COMMENT_SYSTEM_PROMPT.replaceAll('{detectedLanguage}', detectedLanguage);
       const userPrompt = buildCommentUserPrompt(context);
       const response = await this.llm.generateChat(
-        ENGAGEMENT_COMMENT_SYSTEM_PROMPT,
+        systemPrompt,
         userPrompt,
-        { temperature: 0.7, maxTokens: 150 },
+        { temperature: ENGAGEMENT_COMMENT_TEMPERATURE, maxTokens: 150 },
       );
 
       const { language, comment } = parseCommentResponse(response.content);
@@ -210,7 +216,14 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
 
       // Post-validation: verify the comment's script matches the detected language.
       // Catches the #1 bot tell — commenting in English on a non-English post.
-      if (!this.validateScriptMatch(comment, language, 'comment')) {
+      // If the LLM echoed a different language code, trust the deterministic detector.
+      const outputLanguage = language === detectedLanguage ? language : detectedLanguage;
+      if (language !== detectedLanguage) {
+        this.logger.warn(
+          `Comment language mismatch: LLM said ${language}, detector said ${detectedLanguage} — using ${outputLanguage}`,
+        );
+      }
+      if (!this.validateScriptMatch(comment, outputLanguage, 'comment')) {
         return null;
       }
 
@@ -239,11 +252,13 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
     }
 
     try {
+      const detectedLanguage = detectLanguage(context.postText);
+      const systemPrompt = ENGAGEMENT_QUOTE_SYSTEM_PROMPT.replaceAll('{detectedLanguage}', detectedLanguage);
       const userPrompt = buildQuoteUserPrompt(context);
       const response = await this.llm.generateChat(
-        ENGAGEMENT_QUOTE_SYSTEM_PROMPT,
+        systemPrompt,
         userPrompt,
-        { temperature: 0.7, maxTokens: 150 },
+        { temperature: ENGAGEMENT_COMMENT_TEMPERATURE, maxTokens: 150 },
       );
 
       const { language, quote } = parseQuoteResponse(response.content);
@@ -254,7 +269,14 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       }
 
       // Post-validation: verify the quote's script matches the detected language.
-      if (!this.validateScriptMatch(quote, language, 'quote')) {
+      // Trust the deterministic detector if the LLM echoed a different code.
+      const outputLanguage = language === detectedLanguage ? language : detectedLanguage;
+      if (language !== detectedLanguage) {
+        this.logger.warn(
+          `Quote language mismatch: LLM said ${language}, detector said ${detectedLanguage} — using ${outputLanguage}`,
+        );
+      }
+      if (!this.validateScriptMatch(quote, outputLanguage, 'quote')) {
         return null;
       }
 

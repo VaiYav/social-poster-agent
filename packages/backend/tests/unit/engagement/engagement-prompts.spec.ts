@@ -170,7 +170,7 @@ describe('Engagement Prompts', () => {
   });
 
   it('PR-018b: comment system prompt instructs to match post language', () => {
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('SAME LANGUAGE');
+    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('EXACTLY this language');
     expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('Ukrainian');
     expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('Russian');
   });
@@ -201,14 +201,14 @@ describe('Engagement Prompts', () => {
     expect(ENGAGEMENT_QUOTE_SYSTEM_PROMPT).toContain('en|ru|uk|es|it');
   });
 
-  it('PR-018h: comment system prompt includes script-based detection guidance', () => {
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('Cyrillic');
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('Ukrainian has і');
+  it('PR-018h: comment system prompt includes detectedLanguage placeholder', () => {
+    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('{detectedLanguage}');
+    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('EXACTLY this language');
   });
 
-  it('PR-018i: quote system prompt includes script-based detection guidance', () => {
-    expect(ENGAGEMENT_QUOTE_SYSTEM_PROMPT).toContain('Cyrillic');
-    expect(ENGAGEMENT_QUOTE_SYSTEM_PROMPT).toContain('Ukrainian has і');
+  it('PR-018i: quote system prompt includes detectedLanguage placeholder', () => {
+    expect(ENGAGEMENT_QUOTE_SYSTEM_PROMPT).toContain('{detectedLanguage}');
+    expect(ENGAGEMENT_QUOTE_SYSTEM_PROMPT).toContain('EXACTLY this language');
   });
 
   // ── parseCommentResponse ──

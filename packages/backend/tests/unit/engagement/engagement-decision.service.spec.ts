@@ -461,7 +461,7 @@ describe('EngagementDecisionService', () => {
       { content: '{"language":"uk","comment":"Меркурий retrograde — це реально так."}', model: 'mock' },
     ]);
     service = new EngagementDecisionService(mockLlm);
-    const comment = await service.generateComment(createPostContext({ postText: 'Меркурий retrograde' }));
+    const comment = await service.generateComment(createPostContext({ postText: 'Місяць у Раку' }));
     expect(comment).toBe('Меркурий retrograde — це реально так.');
   });
 
