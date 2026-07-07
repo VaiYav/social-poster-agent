@@ -41,11 +41,13 @@ WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
 # Install Chromium dependencies for Camoufox/Playwright
+# unzip + curl: needed if Camoufox needs to be downloaded at runtime (AdmZip fallback)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgtk-3-0 libasound2 libdbus-glib-1-2 libx11-xcb1 \
     libxcomposite1 libxdamage1 libxrandr2 libxss1 \
     libxtst6 libpango-1.0-0 libcairo2 libatk1.0-0 \
     libatk-bridge2.0-0 libnss3 libnspr4 \
+    unzip curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./

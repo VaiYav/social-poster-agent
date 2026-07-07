@@ -57,12 +57,14 @@ WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
 # Install Chromium/Firefox dependencies for Camoufox/Playwright
+# unzip: needed to reliably extract the Camoufox binary from the 557MB zip
+#   (AdmZip in camoufox-js silently fails to extract the large camoufox-bin file)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgtk-3-0 libasound2 libdbus-glib-1-2 libx11-xcb1 \
     libxcomposite1 libxdamage1 libxrandr2 libxss1 \
     libxtst6 libpango-1.0-0 libcairo2 libatk1.0-0 \
     libatk-bridge2.0-0 libnss3 libnspr4 \
-    openssl \
+    openssl unzip curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
@@ -119,26 +121,21 @@ RUN groupadd -r spa && useradd -r -g spa -m -d /home/spa spa && \
 # from .pnpm is required to reach the actual file (maxdepth 3 was too shallow and always
 # returned an empty path, causing require(undefined) to fail silently).
 # TIP: set GITHUB_TOKEN in Railway build vars to raise the API rate limit from 60 to 5000/hr.
+#
+# KNOWN ISSUE: AdmZip in camoufox-js silently fails to extract the large camoufox-bin binary
+# from the 557MB zip — small files (fonts, addons, version.json) extract fine, but the
+# ~200MB binary is missing. The pre-install script verifies camoufox-bin exists after the
+# JS install; if missing, it falls back to curl + unzip (system tools) which handle large
+# files correctly.
+COPY packages/backend/scripts/camoufox-preinstall.sh ./packages/backend/scripts/camoufox-preinstall.sh
 RUN CMX=$(find /app/node_modules/.pnpm -maxdepth 5 -path '*/camoufox-js/dist/pkgman.js' | head -1) && \
     if [ -z "$CMX" ]; then \
         echo "[Camoufox pre-install] WARNING: pkgman.js not found — camoufox-js not installed in prod stage? Will retry at runtime."; \
-        echo "[Camoufox pre-install] searching node_modules directly..."; \
         CMX=$(find /app/node_modules -maxdepth 5 -path '*/camoufox-js/dist/pkgman.js' | head -1); \
     fi && \
-    echo "Camoufox pkgman: $CMX" && \
     if [ -n "$CMX" ]; then \
-        su spa -s /bin/sh -c '\
-            for attempt in 1 2 3; do \
-                echo "[Camoufox pre-install] attempt $attempt/3..."; \
-                CMX="'"$CMX"'" node -e "const{CamoufoxFetcher}=require(process.env.CMX);new CamoufoxFetcher().install().then(()=>{console.log(\"Camoufox pre-installed OK\");process.exit(0)}).catch(e=>{console.log(\"attempt $attempt failed: \"+e.message);process.exit(1)})" 2>&1 && break; \
-                echo "[Camoufox pre-install] attempt $attempt failed, sleeping before retry..."; \
-                sleep $((attempt * 10)); \
-            done; \
-            if [ -f /home/spa/.cache/camoufox/version.json ]; then \
-                echo "[Camoufox pre-install] verified: version.json present"; \
-            else \
-                echo "[Camoufox pre-install] all attempts failed — will retry at runtime"; \
-            fi' || true; \
+        chmod +x packages/backend/scripts/camoufox-preinstall.sh && \
+        su spa -s /bin/sh -c "HOME=/home/spa packages/backend/scripts/camoufox-preinstall.sh '$CMX'" || true; \
     fi
 
 USER spa
