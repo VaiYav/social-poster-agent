@@ -62,7 +62,9 @@ if [ -z "$DL_URL" ]; then
 fi
 
 echo "[Camoufox pre-install] downloading from $DL_URL..."
-if ! curl -fsSL -o /tmp/camoufox.zip "$DL_URL"; then
+# --retry 3: retry on transient errors
+# --cacert: explicit CA bundle path (ca-certificates package)
+if ! curl --retry 3 --retry-delay 5 -fsSL -o /tmp/camoufox.zip "$DL_URL"; then
     echo "[Camoufox pre-install] curl download failed — will retry at runtime"
     rm -f /tmp/camoufox.zip
     exit 0  # non-fatal
