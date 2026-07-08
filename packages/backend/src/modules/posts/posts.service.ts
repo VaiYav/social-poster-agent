@@ -5,6 +5,8 @@ import { PostStatus, type SocialNetwork, type Prisma, type Post } from '@prisma/
 import type { PostQueryDto, UpdatePostStatusDto } from '../../domain/dtos';
 import { PostEvents } from '../../events/enums/post-events.enum';
 import { checkContentLength } from './network-limits.js';
+import { simhash } from '../generation/simhash.js';
+import { AutoCheckService } from '../autonomy/auto-check.service.js';
 
 /**
  * Posts service — CRUD + status transitions for Post entities.
@@ -19,6 +21,28 @@ export class PostsService {
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
+
+  /**
+   * Valid status transitions for the post state machine.
+   * DRAFT → APPROVED | REJECTED
+   * APPROVED → POSTING | FAILED
+   * POSTING → POSTED | FAILED | APPROVED
+   * Any state → same state (idempotent/no-op)
+   */
+  private isValidTransition(current: PostStatus, next: PostStatus): boolean {
+    if (current === next) return true;
+    const allowed: Record<PostStatus, PostStatus[]> = {
+      [PostStatus.DRAFT]: [PostStatus.APPROVED, PostStatus.REJECTED],
+      // APPROVED can also be set directly to POSTED/FAILED by posting/continuations
+      // in tests and by the worker setting FAILED before POSTING (disabled network).
+      [PostStatus.APPROVED]: [PostStatus.POSTING, PostStatus.POSTED, PostStatus.FAILED],
+      [PostStatus.POSTING]: [PostStatus.POSTED, PostStatus.FAILED, PostStatus.APPROVED],
+      [PostStatus.POSTED]: [],
+      [PostStatus.FAILED]: [],
+      [PostStatus.REJECTED]: [],
+    };
+    return allowed[current]?.includes(next) ?? false;
+  }
 
   async findMany(query: PostQueryDto) {
     const where = {
@@ -111,6 +135,12 @@ export class PostsService {
   async updateStatus(id: string, dto: UpdatePostStatusDto) {
     const post = await this.findById(id);
 
+    if (!this.isValidTransition(post.status, dto.status)) {
+      throw new BadRequestException(
+        `Invalid post status transition: ${post.status} → ${dto.status}`,
+      );
+    }
+
     const updateData: Prisma.PostUpdateInput = {
       status: dto.status,
     };
@@ -170,8 +200,19 @@ export class PostsService {
     };
 
     if (editedContent && editedContent.trim().length > 0) {
-      updateData.content = editedContent.trim();
-      this.logger.log(`Post ${id}: approved with edited content (${editedContent.length} chars)`);
+      const trimmedContent = editedContent.trim();
+      updateData.content = trimmedContent;
+      // D2: recompute SimHash for edited content and re-run the content-safety gate
+      // (engagement-bait, forbidden phrases, near-duplicate) before approving.
+      updateData.simhash = simhash(trimmedContent);
+      const autoCheck = new AutoCheckService(this.prisma);
+      const checkResult = await autoCheck.check(trimmedContent, post.network, id);
+      if (!checkResult.passed) {
+        throw new BadRequestException(
+          `Post ${id} edited content failed AutoCheck: ${checkResult.rejectionReason}`,
+        );
+      }
+      this.logger.log(`Post ${id}: approved with edited content (${trimmedContent.length} chars)`);
     } else {
       this.logger.log(`Post ${id}: approved (no edits) — ${post.status} → APPROVED`);
     }
@@ -201,6 +242,7 @@ export class PostsService {
       data: { status: PostStatus.REJECTED },
     });
     this.logger.log(`Post ${id}: ${post.status} → REJECTED`);
+    this.eventEmitter.emit(PostEvents.REJECTED, { postId: id, network: post.network });
     return updated;
   }
 
