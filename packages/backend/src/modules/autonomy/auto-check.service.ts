@@ -137,13 +137,11 @@ export class AutoCheckService {
       where: {
         network,
         createdAt: { gte: since },
+        status: 'POSTED',
         ...(excludePostId ? { id: { not: excludePostId } } : {}),
-        OR: [
-          { simhash: { not: null } },
-          { status: 'POSTED' },
-        ],
       },
       select: { simhash: true, content: true },
+      orderBy: { createdAt: 'desc' },
       take: 200,
     });
 

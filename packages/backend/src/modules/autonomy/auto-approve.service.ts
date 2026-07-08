@@ -214,28 +214,31 @@ export class AutoApproveService {
    */
   private async checkRejectStreak(): Promise<void> {
     const recent = await this.prisma.post.findMany({
-      where: { status: PostStatus.REJECTED },
       orderBy: { createdAt: 'desc' },
       take: this.rejectStreakAlertLimit,
-      select: { createdAt: true },
+      select: { status: true, createdAt: true },
     });
 
-    if (recent.length >= this.rejectStreakAlertLimit) {
-      // Check if all rejects are within last 1 hour
-      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-      const allRecent = recent.every((p) => p.createdAt >= oneHourAgo);
-      if (allRecent) {
-        this.logger.error(
-          `Reject streak alert: ${recent.length} consecutive rejects in last hour — ` +
-            `check LLM quality or content source`,
-        );
-        // Discord notification is handled by DiscordNotificationService via SSE health_alert
-        await this.sseService.publish({
-          type: 'health_alert',
-          severity: 'warning',
-          error: `Auto-approve reject streak: ${recent.length} rejects in last hour`,
-        });
-      }
+    // A streak means the last N posts are ALL rejected, not just N rejected posts
+    // scattered among approvals/reviews.
+    if (recent.length < this.rejectStreakAlertLimit || recent.some((p) => p.status !== PostStatus.REJECTED)) {
+      return;
+    }
+
+    // Check if all rejects are within last 1 hour
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const allRecent = recent.every((p) => p.createdAt >= oneHourAgo);
+    if (allRecent) {
+      this.logger.error(
+        `Reject streak alert: ${recent.length} consecutive rejects in last hour — ` +
+          `check LLM quality or content source`,
+      );
+      // Discord notification is handled by DiscordNotificationService via SSE health_alert
+      await this.sseService.publish({
+        type: 'health_alert',
+        severity: 'warning',
+        error: `Auto-approve reject streak: ${recent.length} rejects in last hour`,
+      });
     }
   }
 }

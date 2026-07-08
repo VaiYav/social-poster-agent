@@ -432,7 +432,7 @@ describe('E2E Sprint D: Session Health Check — generate → approve → post',
 
     // Events
     defineParamtypes(EventsController, [SseService]);
-    defineParamtypes(AutoApproveListener, [PostsService, PrismaService, ModuleRef, ConfigService, Object]);
+    defineParamtypes(AutoApproveListener, [PrismaService, ModuleRef, ConfigService, Object]);
     defineParamtypes(SseEventListener, [SseService]);
 
     // Queue

@@ -35,7 +35,6 @@ export async function restoreSprintOParamtypes(
   const MetricsScraperService = (await import('../../src/modules/analytics/metrics-scraper.service.js')).MetricsScraperService;
   const SseService = (await import('../../src/infrastructure/sse/sse.service.js')).SseService;
   const FlowControlService = (await import('../../src/modules/flow-control/flow-control.service.js')).FlowControlService;
-  const PostsService = (await import('../../src/modules/posts/posts.service.js')).PostsService;
   const AutoCheckService = (await import('../../src/modules/autonomy/auto-check.service.js')).AutoCheckService;
   const AutoApproveService = (await import('../../src/modules/autonomy/auto-approve.service.js')).AutoApproveService;
   const AutonomousRunnerService = (await import('../../src/modules/autonomy/autonomous-runner.service.js')).AutonomousRunnerService;
@@ -63,7 +62,7 @@ export async function restoreSprintOParamtypes(
   defineFn(AutoCheckService, [PrismaService]);
   defineFn(AutoApproveService, [ConfigService, PrismaService, SseService, AutoCheckService]);
   defineFn(AutonomousRunnerService, [ConfigService, PrismaService, SseService, FlowControlService, AutoApproveService, ModuleRef, Object]);
-  defineFn(AutoApproveListener, [PostsService, PrismaService, ModuleRef, ConfigService, Object]);
+  defineFn(AutoApproveListener, [PrismaService, ModuleRef, ConfigService, Object]);
 
   // Auth module — AuthService(Prisma, Jwt, Config), AuthController(Auth, Config), JwtAuthGuard(Jwt, Config)
   defineFn(AuthService, [PrismaService, JwtService, ConfigService]);
