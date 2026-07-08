@@ -349,11 +349,22 @@ export class StateCollectorService {
       }).catch(() => 0),
 
       // Ban detection — parallel per network
+      // H9: 5 consecutive FAILED posts → ban detected → orchestrator WAITs.
+      // Time-windowed: only counts FAILED posts from the last BAN_DETECTION_WINDOW_HOURS
+      // (default 2h). Without a time window, old FAILED posts block the orchestrator
+      // indefinitely — it keeps WAITing because the failed posts never get cleared.
       Promise.all(
         networks.map(async (network): Promise<number> => {
           try {
+            const banWindowHours = Number(
+              this.configService.get('BAN_DETECTION_WINDOW_HOURS', 2),
+            );
+            const banWindowCutoff = new Date(Date.now() - banWindowHours * 60 * 60 * 1000);
             const recentPosts = await this.prisma.post.findMany({
-              where: { network: network as SocialNetwork },
+              where: {
+                network: network as SocialNetwork,
+                createdAt: { gt: banWindowCutoff },
+              },
               orderBy: { createdAt: 'desc' },
               take: 5,
               select: { status: true },

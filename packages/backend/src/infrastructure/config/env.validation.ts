@@ -79,6 +79,11 @@ const envSchema = Joi.object({
   COHERE_API_KEY: Joi.string().allow('').default(''),
   COHERE_MODEL: Joi.string().default('command-r7b'),
 
+  // ── Orchestrator ban detection ──
+  // H9: 5 consecutive FAILED posts within this window → ban detected → WAIT.
+  // Without a time window, old FAILED posts block the orchestrator indefinitely.
+  BAN_DETECTION_WINDOW_HOURS: Joi.number().min(1).max(24).default(2),
+
   // ── Database ──
   DATABASE_URL: Joi.string().default('postgresql://spa:spa@localhost:5433/social_poster'),
 
