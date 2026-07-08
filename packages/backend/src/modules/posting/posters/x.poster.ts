@@ -150,15 +150,20 @@ export class XPoster extends BasePoster {
         this.logger.debug(`X after fill() + nudge — textbox content: "${enteredText.slice(0, 50)}..."`);
       }
 
-      // Strategy 3: if fill() didn't work either, use keyboard.type() (last resort)
+      // Strategy 3: if fill() didn't work either, try clipboard paste then keyboard.type() (last resort)
       if (!enteredText || enteredText.trim().length < 10) {
-        this.logger.warn(`X fill() didn't enter text — trying keyboard.type()...`);
-        await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
-        await this.browser.randomDelay(200, 400);
-        await page.keyboard.type(content, { delay: 30 });
+        this.logger.warn(`X fill() didn't enter text — trying clipboard paste...`);
+        const pasted = await this.pasteContent(page, textbox, content);
+        if (!pasted) {
+          this.logger.warn(`X clipboard paste failed — trying keyboard.type() with slow delay...`);
+          await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+          await this.browser.randomDelay(200, 400);
+          // Use delay: 50 (not 30) to avoid dropping characters in multilingual content
+          await page.keyboard.type(content, { delay: 50 });
+        }
         await this.browser.randomDelay(300, 600);
         enteredText = await textbox.innerText().catch(() => '');
-        this.logger.debug(`X after keyboard.type() — textbox content: "${enteredText.slice(0, 50)}..."`);
+        this.logger.debug(`X after paste/type — textbox content: "${enteredText.slice(0, 50)}..."`);
       }
 
       // Screenshot after typing
@@ -183,15 +188,19 @@ export class XPoster extends BasePoster {
       // If the button is disabled (DraftJS state not updated), retry text entry.
       let buttonVisible = await postButton.isVisible().catch(() => false);
       if (!buttonVisible) {
-        this.logger.warn(`X post button not visible — retrying text entry via keyboard...`);
-        // Re-focus and re-type to trigger DraftJS state update
-        await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
-        await this.browser.randomDelay(200, 500);
-        // Select all existing content and replace
-        await page.keyboard.press('Control+A').catch(() => {});
-        await page.keyboard.press('Backspace').catch(() => {});
-        await this.browser.randomDelay(200, 400);
-        await page.keyboard.type(content, { delay: 30 });
+        this.logger.warn(`X post button not visible — retrying text entry via clipboard paste...`);
+        // Try clipboard paste first (more reliable for multilingual content)
+        const pasted = await this.pasteContent(page, textbox, content);
+        if (!pasted) {
+          // Fallback: re-focus and re-type to trigger DraftJS state update
+          await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+          await this.browser.randomDelay(200, 500);
+          // Select all existing content and replace
+          await page.keyboard.press('Control+A').catch(() => {});
+          await page.keyboard.press('Backspace').catch(() => {});
+          await this.browser.randomDelay(200, 400);
+          await page.keyboard.type(content, { delay: 50 });
+        }
         await this.browser.randomDelay(800, 1500);
         buttonVisible = await postButton.isVisible().catch(() => false);
       }
@@ -239,18 +248,23 @@ export class XPoster extends BasePoster {
         this.logger.log(`X after fill() + nudge — button disabled: ${isDisabled}, aria-disabled: ${ariaDisabled}`);
       }
       if (isDisabled) {
-        // Strategy B: clear and re-type with keyboard.type into focused textbox
-        this.logger.warn(`X post button still disabled after fill() — trying keyboard.type()...`);
-        await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
-        await page.keyboard.press('Control+A').catch(() => {});
-        await page.keyboard.press('Backspace').catch(() => {});
-        await this.browser.randomDelay(200, 400);
-        await page.keyboard.type(content, { delay: 30 });
+        // Strategy B: try clipboard paste (more reliable for multilingual content)
+        this.logger.warn(`X post button still disabled after fill() — trying clipboard paste...`);
+        const pasted = await this.pasteContent(page, textbox, content);
+        if (!pasted) {
+          // Fallback: clear and re-type with keyboard.type into focused textbox
+          this.logger.warn(`X clipboard paste failed — trying keyboard.type() with slow delay...`);
+          await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+          await page.keyboard.press('Control+A').catch(() => {});
+          await page.keyboard.press('Backspace').catch(() => {});
+          await this.browser.randomDelay(200, 400);
+          await page.keyboard.type(content, { delay: 50 });
+        }
         await page.waitForTimeout(1000);
         isDisabled = await postButton.isDisabled().catch(() => false);
         ariaDisabled = await postButton.getAttribute('aria-disabled').catch(() => null);
         if (ariaDisabled === 'true') isDisabled = true;
-        this.logger.log(`X after keyboard.type() retry — button disabled: ${isDisabled}, aria-disabled: ${ariaDisabled}`);
+        this.logger.log(`X after paste/type retry — button disabled: ${isDisabled}, aria-disabled: ${ariaDisabled}`);
       }
       if (isDisabled) {
         // Button is still disabled — DraftJS refuses to accept the content.
@@ -289,13 +303,38 @@ export class XPoster extends BasePoster {
       // without submitting (known /compose/post issue: button navigates to /home but
       // tweet is not posted — text remains in textbox)
       const navigatedToHomeWithoutPosting = !stillOnCompose && textboxContentAfterClick.length > 0 && page.url().includes('/home');
-      if (humanClickFailed || stillOnCompose || navigatedToHomeWithoutPosting) {
-        this.logger.log(`X trying Cmd+Enter keyboard shortcut to submit (navigatedToHomeWithoutPosting: ${navigatedToHomeWithoutPosting})...`);
-        // Navigate back to /compose/post if we're on /home (textbox won't exist there)
+      if (navigatedToHomeWithoutPosting) {
+        // /compose/post Post button is broken — it navigated to /home without submitting.
+        // Don't re-navigate to /compose/post (it's the broken path). Instead, use the
+        // home page compose dialog which is the canonical posting path.
+        this.logger.warn(`X /compose/post Post button navigated to /home without submitting — trying home page compose dialog...`);
+        const homeRetry = await this.postViaHomePageCompose(page, content);
+        if (homeRetry && !homeRetry.error) {
+          // Successfully posted via home page compose — post thread replies if needed
+          if (homeRetry.url && threadItems && threadItems.length > 0) {
+            const replyResults = await this.postThreadReplies(page, homeRetry.url, threadItems);
+            return { ...homeRetry, threadReplyResults: replyResults };
+          }
+          return homeRetry;
+        }
+        // Home page compose also failed — fall through to profile validation
+        // (the tweet was never posted, so this will correctly report a failure)
+        this.logger.warn(`X home page compose dialog also failed — reporting failure`);
+      } else if (humanClickFailed || stillOnCompose) {
+        this.logger.log(`X trying Cmd+Enter keyboard shortcut to submit (humanClickFailed: ${humanClickFailed}, stillOnCompose: ${stillOnCompose})...`);
+        // Only re-navigate to /compose/post if we're NOT already on /home
+        // (if we're on /home, the /compose/post path is broken — use home page compose instead)
         if (page.url().includes('/home')) {
-          this.logger.log(`X navigating back to /compose/post for Cmd+Enter retry...`);
-          await this.navigate(page, 'https://x.com/compose/post', 'domcontentloaded');
-          await this.browser.randomDelay(1000, 2000);
+          this.logger.log(`X on /home — using home page compose dialog for Cmd+Enter retry...`);
+          const homeRetry = await this.postViaHomePageCompose(page, content);
+          if (homeRetry && !homeRetry.error) {
+            if (homeRetry.url && threadItems && threadItems.length > 0) {
+              const replyResults = await this.postThreadReplies(page, homeRetry.url, threadItems);
+              return { ...homeRetry, threadReplyResults: replyResults };
+            }
+            return homeRetry;
+          }
+        } else {
           // Re-find the textbox and re-type the content using execCommand so DraftJS
           // actually registers the input and the Post button enables.
           const retryTextbox = page
@@ -315,14 +354,6 @@ export class XPoster extends BasePoster {
           await page.keyboard.press('Control+Enter').catch(() => {});
           await this.browser.randomDelay(2000, 4000);
           this.logger.log(`X after Cmd+Enter retry — URL: ${page.url()}`);
-        } else {
-          await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
-          await this.browser.randomDelay(300, 600);
-          await page.keyboard.press('Meta+Enter').catch(() => {});
-          await this.browser.randomDelay(200, 400);
-          await page.keyboard.press('Control+Enter').catch(() => {});
-          await this.browser.randomDelay(2000, 4000);
-          this.logger.log(`X after Cmd+Enter — URL: ${page.url()}`);
         }
       }
 
@@ -528,6 +559,83 @@ export class XPoster extends BasePoster {
   }
 
   /**
+   * Paste content into the compose textbox via a synthetic clipboard paste event.
+   * More reliable than keyboard.type() for multilingual content (Cyrillic, CJK, etc.)
+   * because keyboard.type() with fast delays can drop characters (e.g., "Хирон в" → "Хиронв").
+   * DraftJS handles paste events natively, so this also properly updates React state
+   * and enables the Post button.
+   *
+   * @returns true if the paste likely succeeded (textbox has content), false otherwise.
+   */
+  private async pasteContent(page: Page, textbox: Locator, content: string): Promise<boolean> {
+    try {
+      // Focus the textbox
+      await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+      await this.browser.randomDelay(200, 400);
+
+      // Select any existing content and replace it
+      await page.keyboard.press('Control+A').catch(() => {});
+      await this.browser.randomDelay(100, 200);
+
+      // Dispatch a synthetic paste event with the content.
+      // DataTransfer + ClipboardEvent is the standard way to simulate paste in browsers.
+      // DraftJS listens for 'paste' events and processes the clipboard data.
+      const pasted = await textbox.evaluate((el: HTMLElement, text: string) => {
+        try {
+          el.focus();
+          // Create a DataTransfer with the content
+          const dt = new DataTransfer();
+          dt.setData('text/plain', text);
+          // Create and dispatch a paste event
+          const pasteEvent = new ClipboardEvent('paste', {
+            bubbles: true,
+            cancelable: true,
+            clipboardData: dt as any,
+          });
+          el.dispatchEvent(pasteEvent);
+          return true;
+        } catch {
+          return false;
+        }
+      }, content).catch(() => false);
+
+      if (pasted) {
+        await this.browser.randomDelay(300, 600);
+        // Trigger an input event in case the paste event didn't fire one
+        await textbox.evaluate((el: HTMLElement) => {
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+        }).catch(() => {});
+        const enteredText = await textbox.innerText().catch(() => '');
+        if (enteredText && enteredText.trim().length >= content.trim().length * 0.8) {
+          this.logger.debug(`X pasteContent succeeded via ClipboardEvent — content length: ${enteredText.length}`);
+          return true;
+        }
+      }
+
+      // Fallback: use page.evaluate to write to clipboard API, then Ctrl+V
+      this.logger.debug(`X pasteContent: ClipboardEvent didn't work — trying clipboard API + Ctrl+V...`);
+      await page.evaluate((text: string) => {
+        return navigator.clipboard?.writeText(text).catch(() => {});
+      }, content).catch(() => {});
+      await this.browser.randomDelay(100, 200);
+      await page.keyboard.press('Control+V').catch(() => {});
+      await this.browser.randomDelay(300, 600);
+
+      const enteredText2 = await textbox.innerText().catch(() => '');
+      if (enteredText2 && enteredText2.trim().length >= content.trim().length * 0.8) {
+        this.logger.debug(`X pasteContent succeeded via clipboard API + Ctrl+V — content length: ${enteredText2.length}`);
+        return true;
+      }
+
+      this.logger.warn(`X pasteContent failed — content not entered`);
+      return false;
+    } catch (err) {
+      this.logger.warn(`X pasteContent error: ${(err as Error).message}`);
+      return false;
+    }
+  }
+
+  /**
    * Fallback posting strategy: navigate to X home page, open the compose
    * dialog via the "Post" button in the side nav, type content, and submit.
    *
@@ -541,7 +649,10 @@ export class XPoster extends BasePoster {
   private async postViaHomePageCompose(page: Page, content: string): Promise<PostResult | null> {
     try {
       this.logger.log(`X fallback: navigating to home page...`);
-      await this.navigate(page, 'https://x.com/home', 'domcontentloaded');
+      // Use networkidle (not domcontentloaded) — X's SPA needs time to hydrate after load.
+      // domcontentloaded fires before React mounts, leaving only <style> tags in the body,
+      // which causes the compose button search to fail every time.
+      await this.navigate(page, 'https://x.com/home', 'networkidle');
 
       // Check if logged in
       if (await this.isOnLoginPage(page)) {
@@ -555,7 +666,28 @@ export class XPoster extends BasePoster {
       // Give X's heavy SPA more time to hydrate; many production failures show the body
       // still containing only <style> at the 20s mark, causing the compose button search to
       // fail immediately and forcing the fragile /compose/post fallback.
-      await page.waitForSelector('[data-testid="primaryColumn"], [data-testid="SideNav_NewTweet_Button"]', { timeout: 45000 }).catch(() => {});
+      let spaMounted = await page.waitForSelector(
+        '[data-testid="primaryColumn"], [data-testid="SideNav_NewTweet_Button"]',
+        { timeout: 30000 },
+      ).then(() => true).catch(() => false);
+
+      // If SPA didn't mount within 30s, reload with networkidle and try again.
+      // X sometimes serves a degraded page (only <style> tags, no JS) on first load —
+      // a reload with networkidle forces a fresh fetch and gives the SPA time to hydrate.
+      if (!spaMounted) {
+        this.logger.warn(`X fallback: SPA not mounted after 30s — reloading page with networkidle...`);
+        await page.reload({ waitUntil: 'networkidle', timeout: 30000 }).catch(() => {});
+        await this.browser.randomDelay(2000, 4000);
+        spaMounted = await page.waitForSelector(
+          '[data-testid="primaryColumn"], [data-testid="SideNav_NewTweet_Button"]',
+          { timeout: 20000 },
+        ).then(() => true).catch(() => false);
+      }
+
+      if (!spaMounted) {
+        this.logger.warn(`X fallback: SPA still not mounted after reload — giving up on home page compose`);
+        return null;
+      }
 
       // Wait for the side nav to load — the compose button may not be immediately visible
       // after navigation. Wait up to 30s for it to appear, and retry once after a short pause.
@@ -858,9 +990,13 @@ export class XPoster extends BasePoster {
     // Verify text was entered
     const enteredText = await textbox.innerText().catch(() => '');
     if (!enteredText || enteredText.trim().length < 5) {
-      this.logger.warn(`X reply: typeHuman didn't enter text — trying keyboard.type()...`);
-      await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
-      await page.keyboard.type(content, { delay: 30 });
+      this.logger.warn(`X reply: typeHuman didn't enter text — trying clipboard paste...`);
+      const pasted = await this.pasteContent(page, textbox, content);
+      if (!pasted) {
+        this.logger.warn(`X reply: clipboard paste failed — trying keyboard.type() with slow delay...`);
+        await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+        await page.keyboard.type(content, { delay: 50 });
+      }
       await this.browser.randomDelay(500, 1000);
     }
 
