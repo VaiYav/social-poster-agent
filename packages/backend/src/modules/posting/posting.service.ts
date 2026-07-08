@@ -40,6 +40,19 @@ export class PostingService {
   private readonly logger = new Logger(PostingService.name);
   private readonly circuitBreakers: CircuitBreakerRegistry = new CircuitBreakerRegistry();
 
+  /**
+   * Determine whether a posting failure should be retried by the queue worker.
+   * Falls back to true for session-expiry/self-recovery signals, false for
+   * generic Errors, and respects SpaError.retryable when available.
+   */
+  private isRetryableError(err: unknown, result?: PostResult): boolean {
+    if (result?.retryable !== undefined) return result.retryable;
+    if (err instanceof SpaError) return err.retryable;
+    const message = (err as Error | undefined)?.message ?? String(err);
+    if (/session expired.*deferred retry/i.test(message)) return true;
+    return false;
+  }
+
   constructor(
     @Inject(IBrowserPort) private readonly browser: IBrowserPort,
     private readonly accountsService: AccountsService,
@@ -405,7 +418,7 @@ export class PostingService {
           error: result.error,
         });
 
-        return { success: false, error: result.error };
+        return { success: false, error: result.error, retryable: this.isRetryableError(undefined, result) };
       }
 
       // Validate post URL — reject homepage URLs (post likely didn't publish correctly)
@@ -428,7 +441,7 @@ export class PostingService {
             error: errorMsg,
           });
 
-          return { success: false, error: errorMsg };
+          return { success: false, error: errorMsg, retryable: false };
         }
       }
 
@@ -536,7 +549,7 @@ export class PostingService {
         error: message,
       });
 
-      return { success: false, error: message };
+      return { success: false, error: message, retryable: this.isRetryableError(err) };
     } finally {
       // Sprint K: Release context back to pool for reuse (instead of closing).
       // P0-H1: Guaranteed cleanup regardless of outcome — prevents context leaks.

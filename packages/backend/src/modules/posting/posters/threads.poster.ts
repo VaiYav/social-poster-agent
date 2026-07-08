@@ -40,7 +40,7 @@ export class ThreadsPoster extends BasePoster {
       // Check if logged in
       if (await this.isOnLoginPage(page)) {
         this.logger.warn(`Threads session expired — login page detected`);
-        return { error: 'Not logged in — session expired, relogin needed' };
+        return { error: 'Not logged in — session expired, relogin needed', retryable: true };
       }
 
       // Detect shadowban/restriction before attempting to post

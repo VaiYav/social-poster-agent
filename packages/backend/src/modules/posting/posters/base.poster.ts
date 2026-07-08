@@ -28,6 +28,11 @@ export interface PostResult {
   url?: string;
   error?: string;
   screenshotPath?: string;
+  /**
+   * Whether this error should be retried by BullMQ.
+   * Omitted for successful posts; must be present for any error result.
+   */
+  retryable?: boolean;
   /** P0-H2: Per-reply results for thread posting (partial failure tracking). */
   threadReplyResults?: Array<{ index: number; success: boolean; error?: string }>;
 }
@@ -368,10 +373,10 @@ export abstract class BasePoster {
       return { url };
     } catch (err) {
       if (err instanceof SpaError) {
-        return { error: err.message, screenshotPath: err.screenshotPath };
+        return { error: err.message, screenshotPath: err.screenshotPath, retryable: err.retryable };
       }
       const classified = await this.classifyError(err, page, context);
-      return { error: classified.message, screenshotPath: classified.screenshotPath };
+      return { error: classified.message, screenshotPath: classified.screenshotPath, retryable: classified.retryable };
     }
   }
 

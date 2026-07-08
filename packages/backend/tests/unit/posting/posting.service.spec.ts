@@ -564,7 +564,7 @@ describe('MOD-03: PostingService', () => {
 
     const result = await ctx.service.postById('post-err');
 
-    expect(result).toEqual({ success: false, error: 'navigation timeout' });
+    expect(result).toEqual({ success: false, error: 'navigation timeout', retryable: false });
 
     // updateStatus called with FAILED + errorMessage
     const failedCall = ctx.postsService.updateStatus.mock.calls.find(
@@ -663,7 +663,7 @@ describe('MOD-03: PostingService', () => {
 
     const result = await ctx.service.postById('post-crash');
 
-    expect(result).toEqual({ success: false, error: 'browser crash' });
+    expect(result).toEqual({ success: false, error: 'browser crash', retryable: false });
 
     // FAILED status set
     const failedCall = ctx.postsService.updateStatus.mock.calls.find(
