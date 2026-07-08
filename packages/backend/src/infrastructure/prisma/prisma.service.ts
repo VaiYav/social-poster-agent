@@ -8,6 +8,10 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   constructor() {
     super({
       log: ['warn', 'error'],
+      transactionOptions: {
+        maxWait: 5000,
+        timeout: 30000,
+      },
     });
   }
 

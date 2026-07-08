@@ -52,9 +52,17 @@ const envSchema = Joi.object({
   // Sprint J: LLM circuit breaker + cache config
   LLM_CB_THRESHOLD: Joi.number().default(3),
   LLM_CB_COOLDOWN_MS: Joi.number().default(60000),
+  LLM_CB_TERMINAL_COOLDOWN_MS: Joi.number().default(6 * 60 * 60 * 1000),
   LLM_CACHE_TTL_MS: Joi.number().default(300000),
   LLM_CACHE_MAX_SIZE: Joi.number().default(100),
   CONTENT_CACHE_TTL_MS: Joi.number().default(120000),
+  // Sprint Q: per-provider rate-limit backoff
+  LLM_RATE_LIMIT_MAX_COOLDOWN_MS: Joi.number().default(2 * 60 * 60 * 1000),
+  LLM_RATE_LIMIT_BASE_BACKOFF_MS: Joi.number().default(10000),
+  LLM_RATE_LIMIT_STRIKE_WINDOW_MS: Joi.number().default(10 * 60 * 1000),
+  LLM_RATE_LIMIT_STRIKE_THRESHOLD: Joi.number().default(3),
+  LLM_RATE_LIMIT_STRIKE_PENALTY_MS: Joi.number().default(30 * 60 * 1000),
+  LLM_RATE_LIMIT_RETRY_AFTER_MAX_MS: Joi.number().default(10000),
   GROQ_API_KEY: Joi.string().allow('').default(''),
   GROQ_MODEL: Joi.string().default('llama-3.3-70b-versatile'),
   OPENROUTER_API_KEY: Joi.string().allow('').default(''),

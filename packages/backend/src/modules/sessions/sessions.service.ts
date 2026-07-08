@@ -389,6 +389,10 @@ export class SessionsService implements OnModuleInit {
         }
       } catch {}
       return null;
+    } finally {
+      if (context) {
+        await context.close().catch(() => void 0);
+      }
     }
   }
 
@@ -1191,6 +1195,10 @@ export class SessionsService implements OnModuleInit {
         }
       } catch {}
       return null;
+    } finally {
+      if (context) {
+        await context.close().catch(() => void 0);
+      }
     }
   }
 

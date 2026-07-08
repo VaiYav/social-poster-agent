@@ -182,7 +182,7 @@ export class PromptRegistry implements IPromptPort {
  * Langfuse uses {{double-brace}} Mustache syntax; local fallbacks use
  * {single-brace}. This replaces {var} with the corresponding value.
  */
-function interpolate(template: string, variables: Record<string, string>): string {
+export function interpolate(template: string, variables: Record<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (match, key: string): string => {
     if (!(key in variables)) return match
     const val = variables[key]

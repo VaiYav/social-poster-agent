@@ -11,6 +11,9 @@ process.env.SPA_UI_PORT = '3103';
 process.env.SPA_API_PREFIX = 'api/v1';
 process.env.SPA_SWAGGER_PATH = 'docs';
 
+// Enable all three networks in tests (production default is X,THREADS only)
+process.env.ENABLED_NETWORKS = 'X,THREADS,FACEBOOK';
+
 // Unit tests use mocks — these are fallbacks for any code that reads env directly
 process.env.DATABASE_URL =
   'postgresql://spa:spa@localhost:5433/social_poster';

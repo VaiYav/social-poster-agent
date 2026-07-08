@@ -39,6 +39,16 @@ export interface LlmResponse {
   cost?: number;
 }
 
+export interface ProviderStatus {
+  name: string;
+  model: string;
+  circuitOpen: boolean;
+  failures: number;
+  rateLimitUntil: number;
+  rateLimitStrikes: number;
+  consecutive429s: number;
+}
+
 export interface ILlmPort {
   /**
    * Generate text from a prompt using the configured LLM provider.
@@ -60,9 +70,9 @@ export interface ILlmPort {
   getPromptVersion?(): string;
 
   /**
-   * Get provider circuit breaker status for monitoring.
+   * Get provider circuit breaker + rate-limit status for monitoring.
    */
-  getProviderStatus?(): Array<{ name: string; model: string; circuitOpen: boolean; failures: number }>;
+  getProviderStatus?(): ProviderStatus[];
 
   /**
    * Reset circuit breakers after fixing auth/billing issues.

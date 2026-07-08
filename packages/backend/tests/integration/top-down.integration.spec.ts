@@ -155,6 +155,13 @@ vi.mock('node:fs/promises', () => ({
   readFile: fsMocks.readFile,
 }));
 
+// node:fs — ContentModule uses existsSync to choose between filesystem (ContentReader)
+// and DB-backed (DbContentReader) IContentPort implementations. ITC-027 needs the
+// fs path so the real ContentReader runs against the mocked node:fs/promises.
+vi.mock('node:fs', () => ({
+  existsSync: vi.fn().mockReturnValue(true),
+}));
+
 // ── Real source imports (after vi.mock is hoisted) ───────────────────────────
 import 'reflect-metadata';
 import { PrismaService } from '../../src/infrastructure/prisma/prisma.service';
@@ -399,6 +406,8 @@ async function buildGenerationModule(opts: {
       GenerationModule,
     ],
   })
+    .overrideProvider(PrismaService)
+    .useValue(opts.prisma)
     .overrideProvider(ILlmPort)
     .useValue(opts.llm)
     // Sprint I: Mock SseService — GenerationService now publishes progress events
@@ -452,6 +461,8 @@ async function buildQueueModule(opts: {
       QueueModule,
     ],
   })
+    .overrideProvider(PrismaService)
+    .useValue(opts.prisma)
     .overrideProvider(PostingService)
     .useValue(opts.postingService)
     .overrideProvider(IBrowserPort)
@@ -537,8 +548,8 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     const runId = await gen.generate(1, [SocialNetwork.X]);
 
     expect(runId).toBe('run-001');
-    // 1 topic × 1 network = 1 post → 4 LLM calls (hook, draft, critique, refine)
-    expect(llm.generateChat).toHaveBeenCalledTimes(4);
+    // 1 topic × 1 network = 1 post → 5 LLM calls (hook, draft, critique, refine, judge)
+    expect(llm.generateChat).toHaveBeenCalledTimes(5);
     // A DRAFT post was created via the real PostsService → PrismaService
     expect(prisma.post.create).toHaveBeenCalledTimes(1);
     const createArg = prisma.post.create.mock.calls[0]![0];
@@ -614,7 +625,7 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     await gen.generate(1, [SocialNetwork.X]);
 
     // Dedup check was invoked through the real PostsService
-    expect(spy).toHaveBeenCalledWith('/blog/venus.md', SocialNetwork.X);
+    expect(spy).toHaveBeenCalledWith('/blog/venus.md', SocialNetwork.X, 14);
     // No new post created because a duplicate already exists for X
     expect(prisma.post.create).not.toHaveBeenCalled();
   });
@@ -739,10 +750,10 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     expect(addArgs[0]).toBe('post');
     expect(addArgs[1]).toEqual({ postId: 'post-016', network: SocialNetwork.X });
 
-    // Job options: jobId = postId (idempotency), attempts = 3, exponential backoff
+    // Job options: jobId = postId (idempotency), attempts = 8 (BULLMQ_POSTING_MAX_RETRIES default), exponential backoff
     const opts = addArgs[2] as { jobId: string; attempts: number; backoff: { type: string; delay: number } };
     expect(opts.jobId).toBe('post-016');
-    expect(opts.attempts).toBe(3);
+    expect(opts.attempts).toBe(8);
     expect(opts.backoff.type).toBe('exponential');
   });
 
@@ -777,9 +788,9 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     expect(runId).toBe('run-026');
     // 3 topics × 3 networks = 9 DRAFT posts
     expect(prisma.post.create).toHaveBeenCalledTimes(9);
-    // 3 topics × 10 LLM calls = 30 generateChat calls
-    // (per topic: 1 hook + 3 drafts + 3 critiques + 3 refines)
-    expect(llm.generateChat).toHaveBeenCalledTimes(30);
+    // 3 topics × 13 LLM calls = 39 generateChat calls
+    // (per topic: 1 hook + 3 drafts + 3 critiques + 3 refines + 3 judges)
+    expect(llm.generateChat).toHaveBeenCalledTimes(39);
 
     // Verify all three networks are represented in created posts
     const networks = prisma.post.create.mock.calls.map(
@@ -952,8 +963,8 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     })) as { posts?: Array<{ content?: string }>; results?: Record<string, { refined?: string; critique?: string }> };
 
     const callsAfterResume = (llm.generateChat as ReturnType<typeof vi.fn>).mock.calls.length;
-    // Only 2 NEW LLM calls (critique + refine) — completed nodes were skipped
-    expect(callsAfterResume - callsBeforeResume).toBe(2);
+    // 3 NEW LLM calls (critique + refine + judge) — completed nodes were skipped
+    expect(callsAfterResume - callsBeforeResume).toBe(3);
 
     // Final state has posts produced by the resumed nodes
     expect(finalState.posts).toBeDefined();

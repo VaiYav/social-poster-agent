@@ -66,6 +66,7 @@ import { PostsModule } from '../../src/modules/posts/posts.module';
 import { SessionsModule } from '../../src/modules/sessions/sessions.module';
 import { RateLimitModule } from '../../src/modules/rate-limit/rate-limit.module';
 import { PrismaModule } from '../../src/infrastructure/prisma/prisma.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 // Services
 import { PostingService } from '../../src/modules/posting/posting.service';
@@ -871,6 +872,7 @@ describe('Big-Bang Integration: Full AppModule (ITC-017..020, ITC-035)', () => {
           RedisModule, // Sprint L: Global module — provides SHARED_REDIS tokens via mocked ioredis
           NotificationsModule, // Global — provides DiscordNotificationService for QueueFactory
           EventEmitterModule.forRoot(), // EDA: PostsService emits domain events
+          ScheduleModule.forRoot(), // provides SchedulerRegistry for SessionsService
           PostingModule,
           BrowserModule,
           SseModule,

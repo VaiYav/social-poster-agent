@@ -142,6 +142,7 @@ export function createMockPage(opts: {
     addInitScript: vi.fn().mockResolvedValue(undefined),
     on: vi.fn().mockReturnValue(undefined),
     goBack: vi.fn().mockResolvedValue(undefined),
+    reload: vi.fn().mockResolvedValue(undefined),
     _locator: mockLocator,
   };
   return page;

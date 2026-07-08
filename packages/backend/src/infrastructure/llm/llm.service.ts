@@ -4,7 +4,8 @@ import { ChatOpenAI } from '@langchain/openai';
 import type { BaseCallbackHandler } from '../../domain/ports/llm-primitives.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
-import type { ILlmPort, GenerateOptions, LlmResponse, LlmRole } from '../../domain/ports/llm.port.js';
+import type { ILlmPort, GenerateOptions, LlmResponse, LlmRole, ProviderStatus } from '../../domain/ports/llm.port.js';
+import { LlmProviderRateLimit } from './llm-provider-rate-limit.js';
 import { IPromptPort } from '../../domain/ports/prompt.port.js';
 
 /**
@@ -48,6 +49,185 @@ interface CacheEntry {
   response: LlmResponse;
   expiresAt: number;
 }
+
+/** Provider registry entry used to build the chain from env vars. */
+interface ProviderSpec {
+  name: string;
+  /** Env var that must be set for the provider to be included (not needed when alwaysInclude is true). */
+  keyEnv?: string;
+  /** Env var that holds the model name. */
+  modelEnv: string;
+  defaultModel: string;
+  /** OpenAI-compatible base URL, or a function to compute it from config. */
+  baseURL?: string | ((config: ConfigService) => string);
+  /** If true, include the provider even when keyEnv is empty. */
+  alwaysInclude?: boolean;
+  /** API key to use when the provider is keyless (e.g. Ollama). */
+  defaultApiKey?: string;
+  /** Optional override for supportsTemperature and timeout. */
+  customize?: (
+    config: ConfigService,
+    model: string,
+    defaultTimeout: number,
+  ) => Partial<Pick<LlmProviderConfig, 'supportsTemperature' | 'timeout'>>;
+}
+
+const REASONING_MODEL_PATTERN = /^(gpt-5(\.\d+)?|o1|o3|o4-mini|codex-mini)/;
+
+/**
+ * Static provider registry. Keeping provider metadata as data makes the chain
+ * extensible and eliminates the repetitive if/push blocks in buildProviderChain.
+ */
+const PROVIDER_DEFINITIONS: ProviderSpec[] = [
+  // 1. Groq — FREE, fast inference
+  {
+    name: 'groq',
+    keyEnv: 'GROQ_API_KEY',
+    modelEnv: 'GROQ_MODEL',
+    defaultModel: 'llama-3.3-70b-versatile',
+    baseURL: 'https://api.groq.com/openai/v1',
+  },
+  // 2. OpenRouter — FREE models available
+  {
+    name: 'openrouter',
+    keyEnv: 'OPENROUTER_API_KEY',
+    modelEnv: 'OPENROUTER_MODEL',
+    defaultModel: 'meta-llama/llama-3.3-70b-instruct:free',
+    baseURL: 'https://openrouter.ai/api/v1',
+  },
+  // 3. DeepSeek — cheap
+  {
+    name: 'deepseek',
+    keyEnv: 'DEEPSEEK_API_KEY',
+    modelEnv: 'DEEPSEEK_MODEL',
+    defaultModel: 'deepseek-chat',
+    baseURL: 'https://api.deepseek.com',
+  },
+  // 4. Cerebras — FREE, fast
+  // NOTE: llama-3.3-70b was deprecated/removed from Cerebras on Feb 16, 2026.
+  // gpt-oss-120b is the current production model (120B params, ~3000 tok/s).
+  {
+    name: 'cerebras',
+    keyEnv: 'CEREBRAS_API_KEY',
+    modelEnv: 'CEREBRAS_MODEL',
+    defaultModel: 'gpt-oss-120b',
+    baseURL: 'https://api.cerebras.ai/v1',
+  },
+  // 4.5 Anthropic — strong creative/multilingual backstop via the
+  // OpenAI-compatible endpoint. Previously advertised in .env.example but
+  // never wired into the chain (dead config — fixed in the quality pass).
+  {
+    name: 'anthropic',
+    keyEnv: 'ANTHROPIC_API_KEY',
+    modelEnv: 'ANTHROPIC_MODEL',
+    defaultModel: 'claude-haiku-4-5',
+    baseURL: 'https://api.anthropic.com/v1/',
+  },
+  // 5. OpenAI — paid overflow (may be quota-limited)
+  // gpt-5-nano, gpt-5.4-nano, gpt-5-mini and other reasoning models (o1, o3, o4-mini) do NOT accept
+  // `temperature` — only the default (1) is supported. We detect reasoning
+  // models by name and set supportsTemperature=false so the caller skips it.
+  {
+    name: 'openai',
+    keyEnv: 'OPENAI_API_KEY',
+    modelEnv: 'OPENAI_MODEL',
+    defaultModel: 'gpt-5-nano',
+    customize: (_config, model, defaultTimeout) => {
+      const isReasoningModel = REASONING_MODEL_PATTERN.test(model);
+      return {
+        supportsTemperature: !isReasoningModel,
+        timeout: isReasoningModel ? 60000 : defaultTimeout,
+      };
+    },
+  },
+  // 6. Google Gemini — free tier (1500 RPD), strong multilingual (OpenAI-compatible endpoint)
+  {
+    name: 'google',
+    keyEnv: 'GOOGLE_API_KEY',
+    modelEnv: 'GOOGLE_MODEL',
+    defaultModel: 'gemini-2.5-flash',
+    baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+  },
+  // 7. NVIDIA NIM — free ~40 req/min, general multilingual (OpenAI-compatible)
+  {
+    name: 'nvidia',
+    keyEnv: 'NVIDIA_API_KEY',
+    modelEnv: 'NVIDIA_MODEL',
+    defaultModel: 'meta/llama-3.3-70b-instruct',
+    baseURL: 'https://integrate.api.nvidia.com/v1',
+  },
+  // 8. SambaNova — FREE 20M tokens/day, no credit card, OpenAI-compatible
+  // Best free-tier quota available (200x Groq's 100K TPD). Llama 3.3 70B, DeepSeek, Qwen.
+  {
+    name: 'sambanova',
+    keyEnv: 'SAMBANOVA_API_KEY',
+    modelEnv: 'SAMBANOVA_MODEL',
+    defaultModel: 'Meta-Llama-3.3-70B-Instruct',
+    baseURL: 'https://api.sambanova.ai/v1',
+  },
+  // 9. GitHub Models — FREE 150 RPD, no credit card, OpenAI-compatible
+  // Access to GPT-5, Llama, DeepSeek, Mistral via one key. Needs GitHub PAT with models:read.
+  {
+    name: 'github',
+    keyEnv: 'GITHUB_TOKEN',
+    modelEnv: 'GITHUB_MODEL',
+    defaultModel: 'meta-llama/Llama-3.3-70B-Instruct',
+    baseURL: 'https://models.inference.ai.azure.com',
+  },
+  // 10. xAI Grok — $25 free credits on signup, no credit card, OpenAI-compatible
+  {
+    name: 'xai',
+    keyEnv: 'XAI_API_KEY',
+    modelEnv: 'XAI_MODEL',
+    defaultModel: 'grok-4.1-fast',
+    baseURL: 'https://api.x.ai/v1',
+  },
+  // 11. Mistral AI — Free mode, no credit card, OpenAI-compatible
+  // EU-hosted, strong multilingual (good for uk/es/it).
+  {
+    name: 'mistral',
+    keyEnv: 'MISTRAL_API_KEY',
+    modelEnv: 'MISTRAL_MODEL',
+    defaultModel: 'mistral-small-latest',
+    baseURL: 'https://api.mistral.ai/v1',
+  },
+  // 12. Hugging Face Inference Providers — $0.10/mo free, auto-failover, OpenAI-compatible
+  // Routes to 15+ inference partners automatically.
+  {
+    name: 'huggingface',
+    keyEnv: 'HF_TOKEN',
+    modelEnv: 'HF_MODEL',
+    defaultModel: 'meta-llama/Llama-3.3-70B-Instruct',
+    baseURL: 'https://router.huggingface.co/v1',
+  },
+  // 13. Together AI — $25 free credits, no credit card, OpenAI-compatible
+  // 68 free models including Llama 3.3 70B free variant. Credits don't expire.
+  {
+    name: 'together',
+    keyEnv: 'TOGETHER_API_KEY',
+    modelEnv: 'TOGETHER_MODEL',
+    defaultModel: 'meta-llama/Llama-3.3-70B-Instruct-Turbo-Free',
+    baseURL: 'https://api.together.ai/v1',
+  },
+  // 14. Cohere — Trial key: 1000 calls/mo, 20 RPM, no credit card
+  // Not for production use (TOS). Good for prototyping.
+  {
+    name: 'cohere',
+    keyEnv: 'COHERE_API_KEY',
+    modelEnv: 'COHERE_MODEL',
+    defaultModel: 'command-r7b',
+    baseURL: 'https://api.cohere.ai/v1',
+  },
+  // 15. Ollama — local, last resort (no API key needed)
+  {
+    name: 'ollama',
+    modelEnv: 'OLLAMA_DEFAULT_MODEL',
+    defaultModel: 'gemma4',
+    baseURL: (config) => `${config.get<string>('OLLAMA_URL', 'http://localhost:11434')}/v1`,
+    alwaysInclude: true,
+    defaultApiKey: 'ollama',
+  },
+];
 
 /**
  * AsyncLocalStorage for ambient Langfuse callback propagation.
@@ -110,6 +290,9 @@ export class LlmService implements ILlmPort, OnModuleInit {
   private readonly cacheTtlMs: number;
   private readonly cacheMaxSize: number;
 
+  // Sprint Q: Per-provider rate-limit cooldown (separate from circuit breaker)
+  private readonly rateLimitBackoff: LlmProviderRateLimit;
+
   // Sprint J: Prompt version — bumped when prompts change, stored in llmMetadata
   // Sprint P: Now sourced from PromptRegistry when available, falls back to static constant
   static readonly PROMPT_VERSION = '0.5.0-quality-pass';
@@ -141,6 +324,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
     this.cacheMaxSize = this.configService.get<number>('LLM_CACHE_MAX_SIZE', 100);
     this.maxConcurrent = Number(this.configService.get<string | number>('LLM_MAX_CONCURRENT', 4)) || 4;
     this.rateLimitRetryMs = Number(this.configService.get<string | number>('LLM_RATE_LIMIT_RETRY_MS', 2_500)) || 2_500;
+    this.rateLimitBackoff = new LlmProviderRateLimit(this.configService);
   }
 
   onModuleInit(): void {
@@ -186,258 +370,31 @@ export class LlmService implements ILlmPort, OnModuleInit {
    * Only includes providers that have an API key set (or are keyless like Ollama).
    */
   private buildProviderChain(): LlmProviderConfig[] {
-    const chain: LlmProviderConfig[] = [];
     const defaultTemp = 0.7;
     const defaultTimeout = 30000;
+    const chain: LlmProviderConfig[] = [];
 
-    // 1. Groq — FREE, fast inference
-    const groqKey = this.configService.get<string>('GROQ_API_KEY', '');
-    if (groqKey) {
+    for (const def of PROVIDER_DEFINITIONS) {
+      const key = def.keyEnv ? this.configService.get<string>(def.keyEnv, '') : '';
+      if (!def.alwaysInclude && !key) continue;
+
+      const model = this.configService.get<string>(def.modelEnv, def.defaultModel);
+      const apiKey = def.alwaysInclude ? (def.defaultApiKey ?? key ?? '') : (key || '');
+      if (!def.alwaysInclude && !apiKey) continue;
+
+      const baseURL = typeof def.baseURL === 'function' ? def.baseURL(this.configService) : def.baseURL;
+      const custom = def.customize ? def.customize(this.configService, model, defaultTimeout) : {};
+
       chain.push({
-        name: 'groq',
-        model: this.configService.get<string>('GROQ_MODEL', 'llama-3.3-70b-versatile'),
-        apiKey: groqKey,
-        baseURL: 'https://api.groq.com/openai/v1',
+        name: def.name,
+        model,
+        apiKey,
+        baseURL,
         temperature: defaultTemp,
-        supportsTemperature: true,
-        timeout: defaultTimeout,
+        supportsTemperature: custom.supportsTemperature ?? true,
+        timeout: custom.timeout ?? defaultTimeout,
       });
     }
-
-    // 2. OpenRouter — FREE models available
-    const openrouterKey = this.configService.get<string>('OPENROUTER_API_KEY', '');
-    if (openrouterKey) {
-      chain.push({
-        name: 'openrouter',
-        model: this.configService.get<string>(
-          'OPENROUTER_MODEL',
-          'meta-llama/llama-3.3-70b-instruct:free',
-        ),
-        apiKey: openrouterKey,
-        baseURL: 'https://openrouter.ai/api/v1',
-        temperature: defaultTemp,
-        supportsTemperature: true,
-        timeout: defaultTimeout,
-      });
-    }
-
-    // 3. DeepSeek — cheap
-    const deepseekKey = this.configService.get<string>('DEEPSEEK_API_KEY', '');
-    if (deepseekKey) {
-      chain.push({
-        name: 'deepseek',
-        model: this.configService.get<string>('DEEPSEEK_MODEL', 'deepseek-chat'),
-        apiKey: deepseekKey,
-        baseURL: 'https://api.deepseek.com',
-        temperature: defaultTemp,
-        supportsTemperature: true,
-        timeout: defaultTimeout,
-      });
-    }
-
-    // 4. Cerebras — FREE, fast
-    // NOTE: llama-3.3-70b was deprecated/removed from Cerebras on Feb 16, 2026.
-    // gpt-oss-120b is the current production model (120B params, ~3000 tok/s).
-    const cerebrasKey = this.configService.get<string>('CEREBRAS_API_KEY', '');
-    if (cerebrasKey) {
-      chain.push({
-        name: 'cerebras',
-        model: this.configService.get<string>('CEREBRAS_MODEL', 'gpt-oss-120b'),
-        apiKey: cerebrasKey,
-        baseURL: 'https://api.cerebras.ai/v1',
-        temperature: defaultTemp,
-        supportsTemperature: true,
-        timeout: defaultTimeout,
-      });
-    }
-
-    // 4.5 Anthropic — strong creative/multilingual backstop via the
-    // OpenAI-compatible endpoint. Previously advertised in .env.example but
-    // never wired into the chain (dead config — fixed in the quality pass).
-    const anthropicKey = this.configService.get<string>('ANTHROPIC_API_KEY', '');
-    if (anthropicKey) {
-      chain.push({
-        name: 'anthropic',
-        model: this.configService.get<string>('ANTHROPIC_MODEL', 'claude-haiku-4-5'),
-        apiKey: anthropicKey,
-        baseURL: 'https://api.anthropic.com/v1/',
-        temperature: defaultTemp,
-        supportsTemperature: true,
-        timeout: defaultTimeout,
-      });
-    }
-
-    // 5. OpenAI — paid overflow (may be quota-limited)
-    // gpt-5-nano, gpt-5.4-nano, gpt-5-mini and other reasoning models (o1, o3, o4-mini) do NOT accept
-    // `temperature` — only the default (1) is supported. We detect reasoning
-    // models by name and set supportsTemperature=false so the caller skips it.
-    const openaiKey = this.configService.get<string>('OPENAI_API_KEY', '');
-    if (openaiKey) {
-      const openaiModel = this.configService.get<string>('OPENAI_MODEL', 'gpt-5-nano');
-      // Updated regex to match gpt-5.x variants and other reasoning models
-      const isReasoningModel = /^(gpt-5(\.\d+)?|o1|o3|o4-mini|codex-mini)/.test(openaiModel);
-      chain.push({
-        name: 'openai',
-        model: openaiModel,
-        apiKey: openaiKey,
-        temperature: defaultTemp,
-        supportsTemperature: !isReasoningModel,
-        timeout: isReasoningModel ? 60000 : defaultTimeout, // Reasoning models need more time
-      });
-    }
-
-    // 6. Google Gemini — free tier (1500 RPD), strong multilingual (OpenAI-compatible endpoint)
-    const googleKey = this.configService.get<string>('GOOGLE_API_KEY', '');
-    if (googleKey) {
-      chain.push({
-        name: 'google',
-        model: this.configService.get<string>('GOOGLE_MODEL', 'gemini-2.5-flash'),
-        apiKey: googleKey,
-        baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
-        temperature: defaultTemp,
-        supportsTemperature: true,
-        timeout: defaultTimeout,
-      });
-    }
-
-    // 7. NVIDIA NIM — free ~40 req/min, general multilingual (OpenAI-compatible)
-    const nvidiaKey = this.configService.get<string>('NVIDIA_API_KEY', '');
-    if (nvidiaKey) {
-      chain.push({
-        name: 'nvidia',
-        model: this.configService.get<string>('NVIDIA_MODEL', 'meta/llama-3.3-70b-instruct'),
-        apiKey: nvidiaKey,
-        baseURL: 'https://integrate.api.nvidia.com/v1',
-        temperature: defaultTemp,
-        supportsTemperature: true,
-        timeout: defaultTimeout,
-      });
-    }
-
-    // 8. SambaNova — FREE 20M tokens/day, no credit card, OpenAI-compatible
-    // Best free-tier quota available (200x Groq's 100K TPD). Llama 3.3 70B, DeepSeek, Qwen.
-    // Signup: cloud.sambanova.ai → email → API Keys → Create
-    const sambanovaKey = this.configService.get<string>('SAMBANOVA_API_KEY', '');
-    if (sambanovaKey) {
-      chain.push({
-        name: 'sambanova',
-        model: this.configService.get<string>('SAMBANOVA_MODEL', 'Meta-Llama-3.3-70B-Instruct'),
-        apiKey: sambanovaKey,
-        baseURL: 'https://api.sambanova.ai/v1',
-        temperature: defaultTemp,
-        supportsTemperature: true,
-        timeout: defaultTimeout,
-      });
-    }
-
-    // 9. GitHub Models — FREE 150 RPD, no credit card, OpenAI-compatible
-    // Access to GPT-5, Llama, DeepSeek, Mistral via one key. Needs GitHub PAT with models:read.
-    // Signup: github.com/settings/tokens → fine-grained PAT → models:read scope
-    const githubToken = this.configService.get<string>('GITHUB_TOKEN', '');
-    if (githubToken) {
-      chain.push({
-        name: 'github',
-        model: this.configService.get<string>('GITHUB_MODEL', 'meta-llama/Llama-3.3-70B-Instruct'),
-        apiKey: githubToken,
-        baseURL: 'https://models.inference.ai.azure.com',
-        temperature: defaultTemp,
-        supportsTemperature: true,
-        timeout: defaultTimeout,
-      });
-    }
-
-    // 10. xAI Grok — $25 free credits on signup, no credit card, OpenAI-compatible
-    // $25 = ~50M input tokens on grok-4.1-fast. Credits expire in 30 days.
-    // Signup: console.x.ai → email → $25 auto-applied
-    const xaiKey = this.configService.get<string>('XAI_API_KEY', '');
-    if (xaiKey) {
-      chain.push({
-        name: 'xai',
-        model: this.configService.get<string>('XAI_MODEL', 'grok-4.1-fast'),
-        apiKey: xaiKey,
-        baseURL: 'https://api.x.ai/v1',
-        temperature: defaultTemp,
-        supportsTemperature: true,
-        timeout: defaultTimeout,
-      });
-    }
-
-    // 11. Mistral AI — Free mode, no credit card, OpenAI-compatible
-    // Free mode with limited usage. EU-hosted, strong multilingual (good for uk/es/it).
-    // Signup: console.mistral.ai → API Keys → Create
-    const mistralKey = this.configService.get<string>('MISTRAL_API_KEY', '');
-    if (mistralKey) {
-      chain.push({
-        name: 'mistral',
-        model: this.configService.get<string>('MISTRAL_MODEL', 'mistral-small-latest'),
-        apiKey: mistralKey,
-        baseURL: 'https://api.mistral.ai/v1',
-        temperature: defaultTemp,
-        supportsTemperature: true,
-        timeout: defaultTimeout,
-      });
-    }
-
-    // 12. Hugging Face Inference Providers — $0.10/mo free, auto-failover, OpenAI-compatible
-    // Routes to 15+ inference partners automatically. PRO ($9/mo) → $2/mo credits.
-    // Signup: huggingface.co/settings/tokens → fine-grained token → Make calls to Inference Providers
-    const hfToken = this.configService.get<string>('HF_TOKEN', '');
-    if (hfToken) {
-      chain.push({
-        name: 'huggingface',
-        model: this.configService.get<string>('HF_MODEL', 'meta-llama/Llama-3.3-70B-Instruct'),
-        apiKey: hfToken,
-        baseURL: 'https://router.huggingface.co/v1',
-        temperature: defaultTemp,
-        supportsTemperature: true,
-        timeout: defaultTimeout,
-      });
-    }
-
-    // 13. Together AI — $25 free credits, no credit card, OpenAI-compatible
-    // 68 free models including Llama 3.3 70B free variant. Credits don't expire.
-    // Signup: api.together.ai → Settings → API Keys → Create
-    const togetherKey = this.configService.get<string>('TOGETHER_API_KEY', '');
-    if (togetherKey) {
-      chain.push({
-        name: 'together',
-        model: this.configService.get<string>('TOGETHER_MODEL', 'meta-llama/Llama-3.3-70B-Instruct-Turbo-Free'),
-        apiKey: togetherKey,
-        baseURL: 'https://api.together.ai/v1',
-        temperature: defaultTemp,
-        supportsTemperature: true,
-        timeout: defaultTimeout,
-      });
-    }
-
-    // 14. Cohere — Trial key: 1000 calls/mo, 20 RPM, no credit card
-    // Not for production use (TOS). Good for prototyping. Command A, R+, R7B.
-    // Signup: cohere.com → Dashboard → API Keys → Trial key
-    const cohereKey = this.configService.get<string>('COHERE_API_KEY', '');
-    if (cohereKey) {
-      chain.push({
-        name: 'cohere',
-        model: this.configService.get<string>('COHERE_MODEL', 'command-r7b'),
-        apiKey: cohereKey,
-        baseURL: 'https://api.cohere.ai/v1',
-        temperature: defaultTemp,
-        supportsTemperature: true,
-        timeout: defaultTimeout,
-      });
-    }
-
-    // 15. Ollama — local, last resort (no API key needed)
-    const ollamaUrl = this.configService.get<string>('OLLAMA_URL', 'http://localhost:11434');
-    const ollamaModel = this.configService.get<string>('OLLAMA_DEFAULT_MODEL', 'gemma4');
-    chain.push({
-      name: 'ollama',
-      model: ollamaModel,
-      apiKey: 'ollama', // Ollama doesn't need a real key, but ChatOpenAI requires non-empty
-      baseURL: `${ollamaUrl}/v1`,
-      temperature: defaultTemp,
-      supportsTemperature: true,
-      timeout: defaultTimeout,
-    });
 
     return chain;
   }
@@ -526,11 +483,15 @@ export class LlmService implements ILlmPort, OnModuleInit {
     const roleChain = role ? this.roleChains.get(role) : undefined;
     if (roleChain && roleChain.length > 0) {
       const preferred: LlmProviderConfig[] = [];
+      const preferredNames = new Set<string>();
       for (const name of roleChain) {
         const p = this.providers.find((pr) => pr.name === name);
-        if (p) preferred.push(p);
+        if (p) {
+          preferred.push(p);
+          preferredNames.add(p.name);
+        }
       }
-      const rest = this.providers.filter((p) => !preferred.includes(p));
+      const rest = this.providers.filter((p) => !preferredNames.has(p.name));
       return [...preferred, ...rest];
     }
 
@@ -549,11 +510,15 @@ export class LlmService implements ILlmPort, OnModuleInit {
 
   /** Q2: Detect a rate-limit (429) error — worth a retry on the SAME provider. */
   private isRateLimitError(err: unknown): boolean {
-    const status = (err as { status?: number; statusCode?: number })?.status
-      ?? (err as { status?: number; statusCode?: number })?.statusCode;
+    const status = LlmProviderRateLimit.extractStatusCode(err);
     if (status === 429) return true;
-    const message = (err as Error)?.message ?? '';
-    return /\b429\b|rate.?limit/i.test(message);
+    if (typeof err === 'object' && err !== null) {
+      const code = Reflect.get(err, 'code');
+      const lcErrorCode = Reflect.get(err, 'lc_error_code');
+      if (code === 'rate_limit_exceeded' || lcErrorCode === 'MODEL_RATE_LIMIT') return true;
+    }
+    const message = LlmProviderRateLimit.extractErrorMessage(err);
+    return /\b429\b|rate[ _]?limit|rate_limit_exceeded|too many requests/i.test(message);
   }
 
   /** Q2: Acquire a slot in the global concurrency semaphore. */
@@ -582,10 +547,32 @@ export class LlmService implements ILlmPort, OnModuleInit {
   }
 
   /**
-   * Sprint J: Circuit breaker — check if a provider is available.
-   * Returns false if provider has exceeded failure threshold and is in cooldown.
+   * Q3: Extract token usage from a LangChain response without type assertions.
+   */
+  private extractUsageMetadata(response: unknown): { total: number | undefined; input: number; output: number } {
+    const usage = response && typeof response === 'object' ? Reflect.get(response, 'usage_metadata') : undefined;
+    if (!usage || typeof usage !== 'object') {
+      return { total: undefined, input: 0, output: 0 };
+    }
+    const total = Reflect.get(usage, 'total_tokens');
+    const input = Reflect.get(usage, 'input_tokens');
+    const output = Reflect.get(usage, 'output_tokens');
+    return {
+      total: typeof total === 'number' ? total : undefined,
+      input: typeof input === 'number' ? input : 0,
+      output: typeof output === 'number' ? output : 0,
+    };
+  }
+
+  /**
+   * Sprint J/Q: Circuit breaker + rate-limit cooldown — check if a provider is available.
+   * Returns false if the provider is in a rate-limit penalty box or has a tripped breaker.
    */
   private isProviderAvailable(providerName: string): boolean {
+    if (!this.rateLimitBackoff.isAvailable(providerName)) {
+      return false;
+    }
+
     const cb = this.circuitBreakers.get(providerName);
     if (!cb || !cb.tripped) return true;
     // Terminal (auth/billing) failures get a much longer cooldown than transient ones.
@@ -605,28 +592,12 @@ export class LlmService implements ILlmPort, OnModuleInit {
    * as opposed to transient errors (429/5xx/timeouts) worth retrying soon.
    */
   private isTerminalLlmError(err: unknown): boolean {
-    const status = (err as { status?: number; statusCode?: number })?.status
-      ?? (err as { status?: number; statusCode?: number })?.statusCode;
+    const status = LlmProviderRateLimit.extractStatusCode(err);
     if (status === 401 || status === 402 || status === 403) return true;
-    const message = this.extractErrorMessage(err);
+    const message = LlmProviderRateLimit.extractErrorMessage(err);
     return /^\s*(401|402|403)\b/.test(message);
   }
 
-  /**
-   * Safely extract error message from various error object shapes.
-   * Some providers (OpenRouter) return undefined error objects in edge cases.
-   */
-  private extractErrorMessage(err: unknown): string {
-    if (!err) return 'unknown error';
-    if (typeof err === 'string') return err;
-    if (err instanceof Error) return err.message;
-    const message = (err as { message?: string })?.message;
-    if (message) return message;
-    const status = (err as { status?: number; statusCode?: number })?.status
-      ?? (err as { status?: number; statusCode?: number })?.statusCode;
-    if (status) return `HTTP ${status}`;
-    return 'unknown error';
-  }
 
   /**
    * Sprint J: Record a provider failure in the circuit breaker.
@@ -655,24 +626,37 @@ export class LlmService implements ILlmPort, OnModuleInit {
   }
 
   /**
-   * Sprint J: Record a provider success — resets the circuit breaker.
+   * Sprint J: Record a provider success — resets the circuit breaker and rate-limit cooldown.
    */
   private recordSuccess(providerName: string): void {
     this.circuitBreakers.delete(providerName);
+    this.rateLimitBackoff.recordSuccess(providerName);
   }
 
   /**
    * Sprint J: Generate cache key from prompts + options.
+   * The key includes the provider/model so a fallback response is not served
+   * as a hit for a different provider, and includes maxTokens/role/temperature
+   * so calls with different parameters do not collide.
    */
-  private cacheKey(systemPrompt: string, userPrompt: string, options?: GenerateOptions): string {
-    // Include temperature in the cache key to prevent collisions between
-    // calls with different temperature values (0.7 vs 0.9 would return the
-    // same cached response, which is semantically wrong).
-    // For reasoning models that ignore temperature, normalize undefined/0
-    // to a single canonical value so they still get cache hits.
+  private cacheKey(
+    systemPrompt: string,
+    userPrompt: string,
+    options: GenerateOptions | undefined,
+    provider: LlmProviderConfig,
+  ): string {
     const temp = options?.temperature;
-    const tempKey = temp === undefined || temp === 0 ? 'reasoning' : String(temp);
-    const input = `${systemPrompt}||${userPrompt}||t=${tempKey}`;
+    const tempKey = temp === undefined ? 'undef' : String(temp);
+    const parts = [
+      systemPrompt,
+      userPrompt,
+      `provider=${provider.name}`,
+      `model=${provider.model}`,
+      `t=${tempKey}`,
+      `maxTokens=${options?.maxTokens ?? 'undef'}`,
+      `role=${options?.role ?? 'none'}`,
+    ];
+    const input = parts.join('||');
     return createHash('sha256').update(input).digest('hex').slice(0, 32);
   }
 
@@ -725,11 +709,6 @@ export class LlmService implements ILlmPort, OnModuleInit {
     // must still produce fresh creative output (dedup happens upstream via
     // the hook cache and SimHash).
     const cacheable = options?.role !== 'draft' && options?.role !== 'hook';
-    const key = this.cacheKey(systemPrompt, userPrompt, options);
-    if (cacheable) {
-      const cached = this.getFromCache(key);
-      if (cached) return cached;
-    }
 
     // Q1: role-aware provider ordering (falls back to sticky default)
     const ordered = this.orderedProviders(options?.role);
@@ -740,10 +719,24 @@ export class LlmService implements ILlmPort, OnModuleInit {
     await this.acquireSlot();
     try {
       for (const provider of ordered) {
-        // Sprint J: Skip providers with tripped circuit breaker
+        const key = this.cacheKey(systemPrompt, userPrompt, options, provider);
+        if (cacheable) {
+          const cached = this.getFromCache(key);
+          if (cached) return cached;
+        }
+
+        // Sprint J/Q: Skip providers with tripped circuit breaker or rate-limit cooldown
         if (!this.isProviderAvailable(provider.name)) {
-          this.logger.debug(`Skipping ${provider.name} — circuit breaker tripped`);
-          errors.push(`${provider.name}: circuit breaker open`);
+          const rl = this.rateLimitBackoff.getStatus(provider.name);
+          if (rl.rateLimitUntil > Date.now()) {
+            this.logger.debug(
+              `Skipping ${provider.name} — rate-limit cooldown until ${new Date(rl.rateLimitUntil).toISOString()}`,
+            );
+            errors.push(`${provider.name}: rate-limit cooldown`);
+          } else {
+            this.logger.debug(`Skipping ${provider.name} — circuit breaker tripped`);
+            errors.push(`${provider.name}: circuit breaker open`);
+          }
           continue;
         }
 
@@ -773,6 +766,8 @@ export class LlmService implements ILlmPort, OnModuleInit {
         // Q2: up to 2 attempts on the same provider — a 429 means "wait",
         // not "switch": failing over on rate limits cascades the whole chain
         // down to the weakest model (Ollama) during bursts.
+        // Sprint Q: 429s now update a dedicated rate-limit cooldown; we only
+        // retry same provider if the provider tells us it will recover quickly.
         const maxAttempts = 2;
         let lastErr: unknown;
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -793,8 +788,8 @@ export class LlmService implements ILlmPort, OnModuleInit {
 
             // Q3: Prefer REAL token usage from the provider (usage_metadata),
             // fall back to the chars/4 estimate only when absent.
-            const usage = (response as { usage_metadata?: { input_tokens?: number; output_tokens?: number; total_tokens?: number } }).usage_metadata;
-            const usageTokens = usage?.total_tokens ?? ((usage?.input_tokens ?? 0) + (usage?.output_tokens ?? 0));
+            const usage = this.extractUsageMetadata(response);
+            const usageTokens = usage.total ?? (usage.input + usage.output);
             const tokens = usageTokens > 0
               ? usageTokens
               : this.estimateTokens(systemPrompt + userPrompt) + this.estimateTokens(content);
@@ -812,18 +807,40 @@ export class LlmService implements ILlmPort, OnModuleInit {
             return llmResponse;
           } catch (err) {
             lastErr = err;
-            const isLastAttempt = attempt === maxAttempts - 1;
-            if (!isLastAttempt && this.isRateLimitError(err)) {
-              const waitMs = this.rateLimitRetryMs + Math.floor(Math.random() * 1_500);
-              this.logger.debug(`${provider.name} rate-limited (429) — retrying same provider in ${waitMs}ms`);
-              await new Promise((r) => setTimeout(r, waitMs));
-              continue;
+            if (!this.isRateLimitError(err)) {
+              break; // non-429 → fail over immediately
             }
-            break; // non-429 or retries exhausted → fail over
+
+            const now = Date.now();
+            const retryAfterMs = LlmProviderRateLimit.parseRetryAfterMs(err, now);
+            const status = this.rateLimitBackoff.recordRateLimit(provider.name, retryAfterMs, now);
+
+            const isLastAttempt = attempt === maxAttempts - 1;
+            if (!isLastAttempt) {
+              let retryDelayMs: number | undefined;
+              if (retryAfterMs !== undefined && retryAfterMs <= this.rateLimitBackoff.retryAfterMaxMs) {
+                retryDelayMs = retryAfterMs;
+              } else if (retryAfterMs === undefined) {
+                retryDelayMs = this.rateLimitRetryMs + Math.floor(Math.random() * 1_500);
+              }
+
+              if (retryDelayMs !== undefined) {
+                this.logger.debug(
+                  `${provider.name} rate-limited (429) — retrying same provider in ${retryDelayMs}ms (consecutive: ${status.consecutive429s})`,
+                );
+                await new Promise((r) => setTimeout(r, retryDelayMs));
+                continue;
+              }
+            }
+
+            this.logger.warn(
+              `${provider.name} rate-limited (429) — cooldown until ${new Date(status.rateLimitUntil).toISOString()} (consecutive: ${status.consecutive429s}, strikes: ${status.rateLimitStrikes})`,
+            );
+            break; // cooldown set → fail over
           }
         }
 
-        const msg = this.extractErrorMessage(lastErr);
+        const msg = LlmProviderRateLimit.extractErrorMessage(lastErr);
         errors.push(`${provider.name}: ${msg}`);
         // Q13: Don't count 429 (rate limit) as a circuit breaker failure —
         // 429 is transient and already handled by rate-limit retry + failover.
@@ -862,16 +879,20 @@ export class LlmService implements ILlmPort, OnModuleInit {
   }
 
   /**
-   * Health check — returns the list of configured providers with circuit breaker status.
+   * Health check — returns the list of configured providers with circuit breaker and rate-limit status.
    */
-  getProviderStatus(): Array<{ name: string; model: string; circuitOpen: boolean; failures: number }> {
+  getProviderStatus(): ProviderStatus[] {
     return this.providers.map((p) => {
       const cb = this.circuitBreakers.get(p.name);
+      const rl = this.rateLimitBackoff.getStatus(p.name);
       return {
         name: p.name,
         model: p.model,
         circuitOpen: cb?.tripped ?? false,
         failures: cb?.failures ?? 0,
+        rateLimitUntil: rl.rateLimitUntil,
+        rateLimitStrikes: rl.rateLimitStrikes,
+        consecutive429s: rl.consecutive429s,
       };
     });
   }
@@ -902,11 +923,13 @@ export class LlmService implements ILlmPort, OnModuleInit {
     if (providerNames && providerNames.length > 0) {
       for (const name of providerNames) {
         this.circuitBreakers.delete(name);
-        this.logger.log(`Circuit breaker reset for ${name}`);
+        this.rateLimitBackoff.reset([name]);
+        this.logger.log(`Circuit breaker + rate-limit reset for ${name}`);
       }
     } else {
       this.circuitBreakers.clear();
-      this.logger.log('All circuit breakers reset');
+      this.rateLimitBackoff.reset();
+      this.logger.log('All circuit breakers and rate-limit cooldowns reset');
     }
   }
 

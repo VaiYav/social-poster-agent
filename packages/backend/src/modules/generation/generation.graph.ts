@@ -15,9 +15,34 @@ import { pickHumorMechanic, getHumorPromptGuidance, HUMOR_MECHANICS_BY_ID } from
 import { buildHumanizeInstruction } from '../content-enhancements/humanizer-gate.js';
 import { getLanguageExamples } from '../content-enhancements/language-packs.js';
 import type { IPromptPort, CompiledChatPrompt } from '../../domain/ports/prompt.port.js';
+import { interpolate } from '../../infrastructure/prompt/prompt-registry.js';
 import { JUDGE_SYSTEM_PROMPT, JUDGE_USER_PROMPT_TEMPLATE } from './prompts/judge-prompt.js';
 
 const logger = new Logger('GenerationGraph');
+
+/** Local fallback interpolation for graph prompts when `IPromptPort` is unavailable. */
+async function getCompiledChat(
+  promptPort: IPromptPort | undefined,
+  name: string,
+  variables: Record<string, string>,
+  fallback: CompiledChatPrompt,
+): Promise<CompiledChatPrompt> {
+  if (promptPort) return promptPort.getCompiledChat(name, variables, fallback);
+  return {
+    systemPrompt: interpolate(fallback.systemPrompt, variables),
+    userPrompt: interpolate(fallback.userPrompt, variables),
+  };
+}
+
+async function getCompiledText(
+  promptPort: IPromptPort | undefined,
+  name: string,
+  variables: Record<string, string>,
+  fallback: string,
+): Promise<string> {
+  if (promptPort) return promptPort.getCompiledText(name, variables, fallback);
+  return interpolate(fallback, variables);
+}
 
 // Temperature overrides — read once at module load. Reasoning models ignore
 // temperature by design, but these values are used for the non-reasoning chain.
@@ -375,9 +400,7 @@ Outline:
 Key facts:`,
   };
 
-  const { systemPrompt, userPrompt } = promptPort
-    ? await promptPort.getCompiledChat('research-extract', variables, fallback)
-    : fallback;
+  const { systemPrompt, userPrompt } = await getCompiledChat(promptPort, 'research-extract', variables, fallback);
 
   try {
     const response = await llm.generateChat(systemPrompt, userPrompt, { temperature: 0.7, role: 'facts' });
@@ -510,9 +533,7 @@ Keywords: {keywords}
 Hooks:`,
   };
 
-  const { systemPrompt, userPrompt } = promptPort
-    ? await promptPort.getCompiledChat('hook-generation', variables, fallback)
-    : fallback;
+  const { systemPrompt, userPrompt } = await getCompiledChat(promptPort, 'hook-generation', variables, fallback);
 
   let response;
   try {
@@ -759,9 +780,7 @@ Do NOT include any URLs or links in the post.
 Post text (in "{styleName}" style):`,
     };
 
-    const { systemPrompt, userPrompt } = promptPort
-      ? await promptPort.getCompiledChat('draft-post', variables, fallback)
-      : fallback;
+    const { systemPrompt, userPrompt } = await getCompiledChat(promptPort, 'draft-post', variables, fallback);
 
     try {
       const response = await llm.generateChat(systemPrompt, userPrompt, { temperature: DRAFT_TEMPERATURE, role: 'draft' });
@@ -863,9 +882,7 @@ VERDICT: GOOD means "post as-is, no changes needed" — use it ONLY when there i
 VERDICT: REVISE means the post needs a rewrite based on your critique.
 Where SCORE 10 = "I'd share this on my personal account and people would think I wrote it"; 7 = good enough to post; 5 = needs work; 3 = sounds like AI; 1 = unusable.`;
 
-    const critiquePrompt = promptPort
-      ? await promptPort.getCompiledText('critique-post', critiqueVariables, critiqueFallback)
-      : critiqueFallback;
+    const critiquePrompt = await getCompiledText(promptPort, 'critique-post', critiqueVariables, critiqueFallback);
 
     try {
       const response = await llm.generateChat('', critiquePrompt, { temperature: 0.3, role: 'critique' });
@@ -999,9 +1016,7 @@ ANTI-AI RULES:
 
 Return ONLY the refined post text. No preamble.`;
 
-    const refinePrompt = promptPort
-      ? await promptPort.getCompiledText('refine-post', refineVariables, refineFallback)
-      : refineFallback;
+    const refinePrompt = await getCompiledText(promptPort, 'refine-post', refineVariables, refineFallback);
 
     try {
       const response = await llm.generateChat('', refinePrompt, { temperature: REFINE_TEMPERATURE, role: 'draft' });
@@ -1215,16 +1230,7 @@ function makeJudgeNode(network: SocialNetwork, promptPort?: IPromptPort, refineT
     };
 
     try {
-      const systemPrompt = promptPort
-        ? await promptPort.getCompiledChat('post-quality-judge', variables, judgeFallback)
-        : {
-            systemPrompt: JUDGE_SYSTEM_PROMPT.replace('{slopList}', variables.slopList),
-            userPrompt: JUDGE_USER_PROMPT_TEMPLATE
-              .replace('{postText}', content)
-              .replace('{network}', network)
-              .replace('{charLimit}', String(charLimit))
-              .replace('{facts}', factsText),
-          };
+      const systemPrompt = await getCompiledChat(promptPort, 'post-quality-judge', variables, judgeFallback);
 
       // Q7: cap raised 300 → 700. The old cap + "enumerate first" instruction
       // meant the model either skipped its reasoning or truncated the JSON.
