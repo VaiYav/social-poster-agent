@@ -436,6 +436,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
       baseURL: `${ollamaUrl}/v1`,
       temperature: defaultTemp,
       supportsTemperature: true,
+      timeout: defaultTimeout,
     });
 
     return chain;
