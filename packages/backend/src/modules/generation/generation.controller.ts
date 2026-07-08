@@ -38,6 +38,23 @@ export class GenerationController {
     return this.llmService.getAvailableModels();
   }
 
+  @Get('provider-status')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get LLM provider circuit breaker status' })
+  @ApiResponse({ status: 200, description: 'Provider status with circuit breaker state' })
+  async getProviderStatus() {
+    return this.llmService.getProviderStatus();
+  }
+
+  @Post('reset-circuit-breakers')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Reset circuit breakers for LLM providers (after fixing auth/billing issues)' })
+  @ApiResponse({ status: 200, description: 'Circuit breakers reset' })
+  async resetCircuitBreakers(@Body() body: { providers?: string[] }) {
+    this.llmService.resetCircuitBreakers(body.providers);
+    return { message: 'Circuit breakers reset', providers: body.providers ?? 'all' };
+  }
+
   @Post('repurpose')
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({ summary: 'F10: Content Repurposing — deep fact extraction from articles' })

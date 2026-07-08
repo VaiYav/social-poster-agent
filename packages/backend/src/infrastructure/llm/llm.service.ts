@@ -24,6 +24,11 @@ interface LlmProviderConfig {
    * those models so we skip sending temperature entirely.
    */
   supportsTemperature: boolean;
+  /**
+   * Request timeout in milliseconds. Providers like OpenAI reasoning models
+   * may need more time due to their inference characteristics.
+   */
+  timeout: number;
 }
 
 /**
@@ -153,6 +158,15 @@ export class LlmService implements ILlmPort, OnModuleInit {
       .map((p) => `${p.name}/${p.model}`)
       .join(' → ');
     this.logger.log(`LLM provider chain (${this.providers.length}): ${summary}`);
+
+    // Log OpenAI configuration for debugging
+    const openaiKey = this.configService.get<string>('OPENAI_API_KEY', '');
+    const openaiModel = this.configService.get<string>('OPENAI_MODEL', 'gpt-5-nano');
+    if (openaiKey) {
+      this.logger.log(`OpenAI configured: model=${openaiModel}, key=${openaiKey.slice(0, 10)}...${openaiKey.slice(-4)}`);
+    } else {
+      this.logger.warn('OpenAI API key not configured');
+    }
   }
 
   /**
@@ -174,6 +188,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
   private buildProviderChain(): LlmProviderConfig[] {
     const chain: LlmProviderConfig[] = [];
     const defaultTemp = 0.7;
+    const defaultTimeout = 30000;
 
     // 1. Groq — FREE, fast inference
     const groqKey = this.configService.get<string>('GROQ_API_KEY', '');
@@ -185,6 +200,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
         baseURL: 'https://api.groq.com/openai/v1',
         temperature: defaultTemp,
         supportsTemperature: true,
+        timeout: defaultTimeout,
       });
     }
 
@@ -201,6 +217,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
         baseURL: 'https://openrouter.ai/api/v1',
         temperature: defaultTemp,
         supportsTemperature: true,
+        timeout: defaultTimeout,
       });
     }
 
@@ -214,6 +231,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
         baseURL: 'https://api.deepseek.com',
         temperature: defaultTemp,
         supportsTemperature: true,
+        timeout: defaultTimeout,
       });
     }
 
@@ -229,6 +247,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
         baseURL: 'https://api.cerebras.ai/v1',
         temperature: defaultTemp,
         supportsTemperature: true,
+        timeout: defaultTimeout,
       });
     }
 
@@ -244,23 +263,26 @@ export class LlmService implements ILlmPort, OnModuleInit {
         baseURL: 'https://api.anthropic.com/v1/',
         temperature: defaultTemp,
         supportsTemperature: true,
+        timeout: defaultTimeout,
       });
     }
 
     // 5. OpenAI — paid overflow (may be quota-limited)
-    // gpt-5-nano and other reasoning models (o1, o3, o4-mini) do NOT accept
+    // gpt-5-nano, gpt-5.4-nano, gpt-5-mini and other reasoning models (o1, o3, o4-mini) do NOT accept
     // `temperature` — only the default (1) is supported. We detect reasoning
     // models by name and set supportsTemperature=false so the caller skips it.
     const openaiKey = this.configService.get<string>('OPENAI_API_KEY', '');
     if (openaiKey) {
-      const openaiModel = this.configService.get<string>('LLM_DEFAULT_MODEL', 'gpt-5-nano');
-      const isReasoningModel = /^(gpt-5|o1|o3|o4-mini)/.test(openaiModel);
+      const openaiModel = this.configService.get<string>('OPENAI_MODEL', 'gpt-5-nano');
+      // Updated regex to match gpt-5.x variants and other reasoning models
+      const isReasoningModel = /^(gpt-5(\.\d+)?|o1|o3|o4-mini|codex-mini)/.test(openaiModel);
       chain.push({
         name: 'openai',
         model: openaiModel,
         apiKey: openaiKey,
         temperature: defaultTemp,
         supportsTemperature: !isReasoningModel,
+        timeout: isReasoningModel ? 60000 : defaultTimeout, // Reasoning models need more time
       });
     }
 
@@ -274,6 +296,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
         baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
         temperature: defaultTemp,
         supportsTemperature: true,
+        timeout: defaultTimeout,
       });
     }
 
@@ -287,6 +310,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
         baseURL: 'https://integrate.api.nvidia.com/v1',
         temperature: defaultTemp,
         supportsTemperature: true,
+        timeout: defaultTimeout,
       });
     }
 
@@ -302,6 +326,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
         baseURL: 'https://api.sambanova.ai/v1',
         temperature: defaultTemp,
         supportsTemperature: true,
+        timeout: defaultTimeout,
       });
     }
 
@@ -317,6 +342,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
         baseURL: 'https://models.inference.ai.azure.com',
         temperature: defaultTemp,
         supportsTemperature: true,
+        timeout: defaultTimeout,
       });
     }
 
@@ -332,6 +358,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
         baseURL: 'https://api.x.ai/v1',
         temperature: defaultTemp,
         supportsTemperature: true,
+        timeout: defaultTimeout,
       });
     }
 
@@ -347,6 +374,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
         baseURL: 'https://api.mistral.ai/v1',
         temperature: defaultTemp,
         supportsTemperature: true,
+        timeout: defaultTimeout,
       });
     }
 
@@ -362,6 +390,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
         baseURL: 'https://router.huggingface.co/v1',
         temperature: defaultTemp,
         supportsTemperature: true,
+        timeout: defaultTimeout,
       });
     }
 
@@ -377,6 +406,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
         baseURL: 'https://api.together.ai/v1',
         temperature: defaultTemp,
         supportsTemperature: true,
+        timeout: defaultTimeout,
       });
     }
 
@@ -392,6 +422,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
         baseURL: 'https://api.cohere.ai/v1',
         temperature: defaultTemp,
         supportsTemperature: true,
+        timeout: defaultTimeout,
       });
     }
 
@@ -429,24 +460,38 @@ export class LlmService implements ILlmPort, OnModuleInit {
     const temperature = provider.supportsTemperature
       ? (options?.temperature ?? provider.temperature)
       : undefined;
+    // For reasoning models, omit maxTokens entirely (don't pass -1)
     const maxTokens = provider.supportsTemperature
       ? (options?.maxTokens ?? -1)
-      : -1; // reasoning models: -1 = omit the parameter entirely
+      : undefined;
 
-    const key = `${provider.name}:${provider.model}:t${temperature ?? 'na'}:m${maxTokens}`;
+    const key = `${provider.name}:${provider.model}:t${temperature ?? 'na'}:m${maxTokens ?? 'na'}:to${provider.timeout}`;
     let model = this.models.get(key);
     if (!model) {
       const ctorArgs: Record<string, unknown> = {
         model: provider.model,
         apiKey: provider.apiKey,
         configuration: { baseURL: provider.baseURL },
-        timeout: 30000,
+        timeout: provider.timeout,
         maxRetries: 0, // we handle fallback ourselves
-        maxTokens,
       };
+      
+      // OpenAI reasoning models (gpt-5, o1, o3, o4-mini) require max_completion_tokens instead of maxTokens
+      const isOpenAIReasoning = provider.name === 'openai' && !provider.supportsTemperature;
+      
+      if (isOpenAIReasoning && maxTokens !== undefined) {
+        // Use max_completion_tokens for OpenAI reasoning models
+        ctorArgs.maxCompletionTokens = maxTokens;
+      } else if (maxTokens !== undefined) {
+        // Use maxTokens for other models
+        ctorArgs.maxTokens = maxTokens;
+      }
+      
+      // Only add temperature if the provider supports it
       if (temperature !== undefined) {
         ctorArgs.temperature = temperature;
       }
+      
       model = new ChatOpenAI(ctorArgs as ConstructorParameters<typeof ChatOpenAI>[0]);
       this.models.set(key, model);
     }
@@ -562,8 +607,24 @@ export class LlmService implements ILlmPort, OnModuleInit {
     const status = (err as { status?: number; statusCode?: number })?.status
       ?? (err as { status?: number; statusCode?: number })?.statusCode;
     if (status === 401 || status === 402 || status === 403) return true;
-    const message = (err as Error)?.message ?? '';
+    const message = this.extractErrorMessage(err);
     return /^\s*(401|402|403)\b/.test(message);
+  }
+
+  /**
+   * Safely extract error message from various error object shapes.
+   * Some providers (OpenRouter) return undefined error objects in edge cases.
+   */
+  private extractErrorMessage(err: unknown): string {
+    if (!err) return 'unknown error';
+    if (typeof err === 'string') return err;
+    if (err instanceof Error) return err.message;
+    const message = (err as { message?: string })?.message;
+    if (message) return message;
+    const status = (err as { status?: number; statusCode?: number })?.status
+      ?? (err as { status?: number; statusCode?: number })?.statusCode;
+    if (status) return `HTTP ${status}`;
+    return 'unknown error';
   }
 
   /**
@@ -761,7 +822,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
           }
         }
 
-        const msg = (lastErr as Error)?.message ?? 'unknown error';
+        const msg = this.extractErrorMessage(lastErr);
         errors.push(`${provider.name}: ${msg}`);
         // Q13: Don't count 429 (rate limit) as a circuit breaker failure —
         // 429 is transient and already handled by rate-limit retry + failover.
@@ -830,6 +891,22 @@ export class LlmService implements ILlmPort, OnModuleInit {
    */
   clearCache(): void {
     this.cache.clear();
+  }
+
+  /**
+   * Reset circuit breakers for specific providers or all providers.
+   * Useful after fixing auth/billing issues (e.g., topping up API keys).
+   */
+  resetCircuitBreakers(providerNames?: string[]): void {
+    if (providerNames && providerNames.length > 0) {
+      for (const name of providerNames) {
+        this.circuitBreakers.delete(name);
+        this.logger.log(`Circuit breaker reset for ${name}`);
+      }
+    } else {
+      this.circuitBreakers.clear();
+      this.logger.log('All circuit breakers reset');
+    }
   }
 
   /**

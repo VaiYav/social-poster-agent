@@ -58,4 +58,14 @@ export interface ILlmPort {
    * Sprint J: Get the current prompt version for tracking in llmMetadata.
    */
   getPromptVersion?(): string;
+
+  /**
+   * Get provider circuit breaker status for monitoring.
+   */
+  getProviderStatus?(): Array<{ name: string; model: string; circuitOpen: boolean; failures: number }>;
+
+  /**
+   * Reset circuit breakers after fixing auth/billing issues.
+   */
+  resetCircuitBreakers?(providerNames?: string[]): void;
 }
