@@ -30,6 +30,11 @@ export interface GenerateOptions {
    * Handlers with undefined entries are filtered out by the implementation.
    */
   callbacks?: BaseCallbackHandler[];
+  /**
+   * AbortSignal to cancel the in-flight LLM request.
+   * Passed to LangChain's model.invoke() so the underlying HTTP request is aborted.
+   */
+  signal?: AbortSignal;
 }
 
 export interface LlmResponse {
@@ -37,6 +42,16 @@ export interface LlmResponse {
   model: string;
   tokens?: number;
   cost?: number;
+}
+
+export interface ProviderStatus {
+  name: string;
+  model: string;
+  circuitOpen: boolean;
+  failures: number;
+  rateLimitUntil: number;
+  rateLimitStrikes: number;
+  consecutive429s: number;
 }
 
 export interface ILlmPort {
@@ -60,9 +75,9 @@ export interface ILlmPort {
   getPromptVersion?(): string;
 
   /**
-   * Get provider circuit breaker status for monitoring.
+   * Get provider circuit breaker + rate-limit status for monitoring.
    */
-  getProviderStatus?(): Array<{ name: string; model: string; circuitOpen: boolean; failures: number }>;
+  getProviderStatus?(): ProviderStatus[];
 
   /**
    * Reset circuit breakers after fixing auth/billing issues.

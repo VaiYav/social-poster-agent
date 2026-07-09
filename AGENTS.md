@@ -26,7 +26,7 @@ Langfuse tracing activates automatically when `LANGFUSE_PUBLIC_KEY` is set — n
 
 ### Prompt Management (Langfuse Prompt Management)
 
-All production prompts are stored in Langfuse Prompt Management and can be edited in the Langfuse UI without redeploying. The `PromptRegistry` (`infrastructure/llm/prompt-registry.ts`) is a thin facade that implements `IPromptPort` (`domain/ports/prompt.port.ts`). It fetches from Langfuse first (5-min cache, production label, 3s timeout, 1 retry, circuit breaker), then falls back to inline fallbacks passed by graph nodes.
+All production prompts are stored in Langfuse Prompt Management and can be edited in the Langfuse UI without redeploying. The `PromptRegistry` (`infrastructure/prompt/prompt-registry.ts`) is a thin facade that implements `IPromptPort` (`domain/ports/prompt.port.ts`). It fetches from Langfuse first (5-min cache, production label, 3s timeout, 1 retry, circuit breaker), then falls back to the inline fallback prompts defined in `modules/generation/prompts/fallback-prompts.ts` and passed by graph nodes.
 
 **Architecture (hexagonal):** Consumers (`generation.graph.ts`, `LlmDecisionService`, `LlmService`) depend on `IPromptPort` (domain port), not the concrete `PromptRegistry`. The port is bound in `PromptRegistryModule` (`@Global`) via `{ provide: IPromptPort, useExisting: PromptRegistry }`. `LlmModule` no longer re-exports `PromptRegistryModule` — it's imported separately in `app.module.ts`.
 
@@ -45,7 +45,7 @@ All production prompts are stored in Langfuse Prompt Management and can be edite
 
 **Migration script:** `packages/backend/scripts/migrate-prompts-to-langfuse.ts` — one-time script that creates all prompts in Langfuse. Run with: `npx tsx --env-file=../../.env scripts/migrate-prompts-to-langfuse.ts`. Re-running creates new versions (Langfuse supports versioning + labels).
 
-**Variable syntax:** Langfuse uses `{{double-brace}}` Mustache syntax. Inline fallbacks in graph nodes use `{single-brace}` syntax (interpolated by the `interpolate()` helper in `prompt-registry.ts` when Langfuse is disabled). The `toMustache()` helper converts `{var}` → `{{var}}` before passing fallbacks to the SDK. Graph nodes pre-compute all variables (including conditional content like `performanceGuidance`, `baitInstruction`) and pass them as strings.
+**Variable syntax:** Langfuse uses `{{double-brace}}` Mustache syntax. Inline fallbacks in graph nodes use `{single-brace}` syntax (interpolated by `interpolate()` in `domain/prompt-interpolation.ts` when Langfuse is disabled). The `toMustache()` helper (same file) converts `{var}` → `{{var}}` before passing fallbacks to the SDK. Graph nodes pre-compute all variables (including conditional content like `performanceGuidance`, `baitInstruction`) and pass them as strings.
 
 **Prompt-to-trace linking:** `GenerationService` adds `promptNames` to `traceMetadata` so traces can be filtered by which prompts were used. `LlmDecisionService` adds `promptNames: 'orchestrator-system'`.
 

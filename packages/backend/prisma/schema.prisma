@@ -157,6 +157,26 @@ model Topic {
   @@index([createdAt])
 }
 
+// ============================================================
+// Content sources — configurable input adapters for IContentPort
+// ============================================================
+
+model ContentSource {
+  id          String   @id @default(uuid())
+  sourceType  String   // "cap_file", "db", "rss", "api", "google_trends"
+  name        String?
+  enabled     Boolean  @default(true)
+  priority    Int      @default(0)
+  config      Json     // adapter-specific config (Record<string, unknown>)
+  lastRunAt   DateTime?
+  lastError   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([enabled])
+  @@index([priority])
+}
+
 model PostThread {
   id         String       @id @default(uuid())
   accountId  String
@@ -214,6 +234,7 @@ model Post {
   postedAt         DateTime?
   metrics          PostMetrics[]    @relation("PostMetricsToPost")
   incomingComments IncomingComment[] @relation("PostIncomingComments") // Sprint Q: tracked comments for reply monitoring
+  variants         PostVariant[]
 
   @@index([status])
   @@index([network])
@@ -221,6 +242,28 @@ model Post {
   @@index([generationRunId])
   @@index([threadId])
   @@index([simhash])
+}
+
+// A/B testing: variants generated for a post and their real-world outcomes.
+model PostVariant {
+  id          String        @id @default(uuid())
+  postId      String
+  post        Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  network     SocialNetwork
+  label       String        // e.g. 'a', 'b', 'base', 'default', 'custom'
+  content     String        // variant text
+  judgeScores Json?         // LLM-as-a-Judge scores from the generation run
+  selected    Boolean       @default(false)
+  postedAt    DateTime?
+  metricsAt   DateTime?
+  likes       Int?
+  comments    Int?
+  shares      Int?
+  impressions Int?
+  createdAt   DateTime      @default(now())
+
+  @@index([postId, network])
+  @@index([network, selected, postedAt])
 }
 
 // ============================================================

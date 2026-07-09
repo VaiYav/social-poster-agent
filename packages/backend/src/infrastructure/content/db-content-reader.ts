@@ -1,9 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { ContentTopic } from '@spa/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import type { IContentAdapter } from './adapters/content-adapter.interface.js';
 
 /**
- * DB-backed content reader — implements IContentPort using the Topic table.
+ * DB-backed content reader — implements IContentAdapter using the Topic table.
  * Replaces ContentReader (which reads from the CAP sibling repo filesystem)
  * so the app no longer depends on content-agent-platform being present.
  *
@@ -11,7 +12,10 @@ import { PrismaService } from '../prisma/prisma.service';
  * This reader fetches active, unused topics ordered by freshness.
  */
 @Injectable()
-export class DbContentReader {
+export class DbContentReader implements IContentAdapter {
+  readonly sourceType = 'db';
+  lastError: string | null = null;
+
   private readonly logger = new Logger(DbContentReader.name);
 
   constructor(private readonly prisma: PrismaService) {}
@@ -48,15 +52,21 @@ export class DbContentReader {
     return this.getTopics(limit);
   }
 
-  async readArticles(limit = 10): Promise<ContentTopic[]> {
-    return this.getTopics(limit);
+  async readArticles(_limit = 10): Promise<ContentTopic[]> {
+    // DB topics are brief-style, not full articles.
+    return [];
   }
 
   /**
-   * Mark a topic as used (so it's not repeated in the next generation cycle).
+   * 2.8.1: Mark a topic as used (so it's not repeated in the next generation cycle).
    */
-  async markUsed(topicId: string): Promise<void> {
-    const id = topicId.startsWith('db:') ? topicId.slice(3) : topicId;
+  async markUsed(topic: ContentTopic): Promise<void> {
+    const topicId = topic.path;
+    if (!topicId.startsWith('db:')) {
+      // Not a DB-backed topic (e.g. synthetic recycle topic) — nothing to mark.
+      return;
+    }
+    const id = topicId.slice(3);
     await this.prisma.topic.update({
       where: { id },
       data: { status: 'used', usedAt: new Date() },
@@ -70,5 +80,24 @@ export class DbContentReader {
    */
   async activeCount(): Promise<number> {
     return this.prisma.topic.count({ where: { status: 'active' } });
+  }
+
+  canHandle(sourceType: string): boolean {
+    return sourceType === 'brief';
+  }
+
+  async fetchTopics(limit = 5, since?: Date): Promise<ContentTopic[]> {
+    const topics = await this.getTopics(limit);
+    return since ? topics.filter((t) => t.publishedAt && t.publishedAt >= since) : topics;
+  }
+
+  async healthCheck(): Promise<{ ok: boolean; error?: string }> {
+    try {
+      await this.prisma.topic.count({ where: { status: 'active' } });
+      return { ok: true };
+    } catch (err) {
+      this.lastError = (err as Error).message;
+      return { ok: false, error: this.lastError };
+    }
   }
 }

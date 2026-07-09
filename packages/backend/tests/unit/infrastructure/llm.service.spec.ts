@@ -29,9 +29,21 @@ vi.mock('@langchain/openai', () => ({
 }));
 
 import { ConfigService } from '@nestjs/config';
+import type { BaseCallbackHandler } from '../../../src/domain/ports/llm-primitives.js';
 import { LlmService } from '../../../src/infrastructure/llm/llm.service';
 
 // ── Helpers ──
+
+function createRateLimitError(retryAfter: string | null = '120'): Error & { status: number; headers: Headers } {
+  const err = new Error('429 rate limit') as Error & { status: number; headers: Headers };
+  err.status = 429;
+  if (retryAfter) {
+    err.headers = new Headers([['retry-after', retryAfter]]);
+  } else {
+    err.headers = new Headers();
+  }
+  return err;
+}
 
 function createMockConfigService(overrides: Record<string, unknown> = {}): ConfigService {
   const defaults: Record<string, unknown> = {
@@ -360,6 +372,58 @@ describe('LlmService (MOD-05 — Infrastructure Adapters)', () => {
     expect(typeof status[0]!.failures).toBe('number');
   });
 
+  it('SQ-001: getProviderStatus() includes rate-limit cooldown fields', () => {
+    service.onModuleInit();
+    const status = service.getProviderStatus();
+
+    expect(status[0]).toHaveProperty('rateLimitUntil');
+    expect(status[0]).toHaveProperty('rateLimitStrikes');
+    expect(status[0]).toHaveProperty('consecutive429s');
+    expect(typeof status[0]!.rateLimitUntil).toBe('number');
+    expect(typeof status[0]!.rateLimitStrikes).toBe('number');
+    expect(typeof status[0]!.consecutive429s).toBe('number');
+  });
+
+  // ── Sprint Q: Rate-limit backoff ──
+
+  it('SQ-002: long Retry-After header fails over and sets rate-limit cooldown', async () => {
+    service.onModuleInit();
+    const err = createRateLimitError('120');
+
+    mocks.invoke
+      .mockRejectedValueOnce(err)
+      .mockResolvedValueOnce({ content: 'OpenAI response' });
+
+    const result = await service.generateChat('sys', 'usr');
+
+    expect(result.content).toBe('OpenAI response');
+    expect(result.model).toContain('openai');
+    // Groq is put in cooldown, not retried on the same provider.
+    expect(mocks.invoke).toHaveBeenCalledTimes(2);
+
+    const status = service.getProviderStatus();
+    const groq = status.find((s) => s.name === 'groq');
+    expect(groq?.consecutive429s).toBe(1);
+    expect(groq?.rateLimitUntil).toBeGreaterThan(Date.now());
+  });
+
+  it('SQ-003: resetCircuitBreakers also clears rate-limit cooldown', async () => {
+    service.onModuleInit();
+    const err = createRateLimitError('120');
+
+    mocks.invoke
+      .mockRejectedValueOnce(err)
+      .mockResolvedValueOnce({ content: 'OpenAI response' });
+    await service.generateChat('sys', 'usr');
+
+    let status = service.getProviderStatus();
+    expect(status.find((s) => s.name === 'groq')?.rateLimitUntil).toBeGreaterThan(Date.now());
+
+    service.resetCircuitBreakers(['groq']);
+    status = service.getProviderStatus();
+    expect(status.find((s) => s.name === 'groq')?.rateLimitUntil).toBe(0);
+  });
+
   // ── Sprint J: Prompt Versioning ──
 
   it('SJ-007: getPromptVersion() returns version string', () => {
@@ -374,7 +438,7 @@ describe('LlmService (MOD-05 — Infrastructure Adapters)', () => {
     service.onModuleInit();
     mocks.invoke.mockResolvedValue({ content: 'traced response' });
 
-    const fakeHandler = { name: 'LangfuseCallbackHandler' } as never;
+    const fakeHandler = { name: 'LangfuseCallbackHandler' } as BaseCallbackHandler;
     await service.generateChat('sys', 'usr', { callbacks: [fakeHandler] });
 
     // model.invoke should receive { callbacks: [...] } as the second arg

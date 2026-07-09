@@ -17,6 +17,7 @@ import { HookPerformanceBank } from './hook-performance-bank.js';
 import { VisualConceptService } from './visual-concept.service.js';
 import { ThreadDepthController } from './thread-depth.controller.js';
 import { ABVariantGenerator } from './ab-variant.generator.js';
+import { ABVariantService } from './ab-variant.service.js';
 
 @Module({
   providers: [
@@ -25,6 +26,7 @@ import { ABVariantGenerator } from './ab-variant.generator.js';
     VisualConceptService,
     ThreadDepthController,
     ABVariantGenerator,
+    ABVariantService,
   ],
   exports: [
     ContentPillarTracker,
@@ -32,6 +34,7 @@ import { ABVariantGenerator } from './ab-variant.generator.js';
     VisualConceptService,
     ThreadDepthController,
     ABVariantGenerator,
+    ABVariantService,
   ],
 })
 export class ContentEnhancementsModule {}

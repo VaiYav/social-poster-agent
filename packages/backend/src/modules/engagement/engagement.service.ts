@@ -14,6 +14,7 @@ import {
   SocialNetwork,
   type Prisma,
 } from '@prisma/client';
+import type { Page } from '../../domain/ports/browser-primitives.js';
 import type { BaseEngager } from './engagers/base.engager.js';
 import { XEngager } from './engagers/x.engager.js';
 import { ThreadsEngager } from './engagers/threads.engager.js';
@@ -195,25 +196,41 @@ export class EngagementService {
       targetUrl,
     });
 
-    try {
-      const engager = this.getEngager(network);
+    const engager = this.getEngager(network);
 
-      // Create browser context — decrypt storage state if encrypted (v1: prefix)
-      const storageState = session.storageState
-        ? this.sessionsService.decryptStorageState(session)
-        : undefined;
-      const context = await this.browser.createContext(network, storageState);
-      const page = await context.newPage();
+    // Create browser context — decrypt storage state if encrypted (v1: prefix)
+    const storageState = session.storageState
+      ? this.sessionsService.decryptStorageState(session)
+      : undefined;
+
+    let context: Awaited<ReturnType<IBrowserPort['createContext']>> | null = null;
+    let page: Page | null = null;
+    let result: EngagementResult | null = null;
+
+    try {
+      context = await this.browser.createContext(network, storageState);
+      page = await context.newPage();
 
       // Perform the engagement action
-      const result = await action(engager, page);
+      result = await action(engager, page);
 
       // Save updated session state
       const updatedState = await this.browser.saveStorageState(context);
       await this.sessionsService.updateStorageState(session.id, updatedState);
-      await page.close().catch(() => {});
-      await context.close().catch(() => {});
+    } catch (err) {
+      const errorMsg = (err as Error).message;
+      this.logger.error(`Interaction ${type} failed on ${network}: ${errorMsg}`);
+      result = { success: false, error: errorMsg };
+    } finally {
+      if (page) {
+        await page.close().catch(() => void 0);
+      }
+      if (context) {
+        await context.close().catch(() => void 0);
+      }
+    }
 
+    if (result) {
       // Update interaction record
       await this.prisma.interaction.update({
         where: { id: interaction.id },
@@ -246,30 +263,10 @@ export class EngagementService {
       );
 
       return { ...result, interactionId: interaction.id };
-    } catch (err) {
-      const errorMsg = (err as Error).message;
-      this.logger.error(`Interaction ${type} failed on ${network}: ${errorMsg}`);
-
-      await this.prisma.interaction.update({
-        where: { id: interaction.id },
-        data: {
-          status: InteractionStatus.FAILED,
-          errorMessage: errorMsg,
-          completedAt: new Date(),
-        },
-      });
-
-      await this.sseService.publish({
-        type: 'interaction_failed',
-        interactionId: interaction.id,
-        interactionType: type,
-        network: network as string,
-        targetUrl,
-        error: errorMsg,
-      });
-
-      return { success: false, error: errorMsg, interactionId: interaction.id };
     }
+
+    // Defensive fallback (should never reach here)
+    return { success: false, error: 'Unknown interaction error', interactionId: interaction.id };
   }
 
   /**

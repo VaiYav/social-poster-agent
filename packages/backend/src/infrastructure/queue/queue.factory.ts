@@ -188,7 +188,7 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
       const existingJob = await queue.getJob(postId);
       if (existingJob) {
         const state = await existingJob.getState();
-        if (state === 'completed' || state === 'failed') {
+        if (state === 'completed' || state === 'failed' || state === 'delayed') {
           this.logger.warn(
             `Removing existing ${state} posting job for ${postId} → re-enqueuing fresh job`,
           );
@@ -297,10 +297,10 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
       {
         jobId: postId,
         delay: delayMs,
-        attempts: this.maxRetries,
+        attempts: this.postingMaxRetries,
         backoff: {
           type: 'exponential',
-          delay: this.retryDelayMs,
+          delay: this.postingRetryDelayMs,
         },
         removeOnComplete: { count: 100 },
         removeOnFail: { count: 500 },
@@ -429,9 +429,13 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
    */
   async clearCompletedAndFailedJobs(network: string, action: 'posting' | 'engagement' = 'posting'): Promise<number> {
     const queue = this.getQueue(network, action);
-    const [completed, failed] = await Promise.all([queue.getCompleted(), queue.getFailed()]);
+    const [completed, failed, delayed] = await Promise.all([
+      queue.getCompleted(),
+      queue.getFailed(),
+      queue.getDelayed(),
+    ]);
     let cleared = 0;
-    for (const job of [...completed, ...failed]) {
+    for (const job of [...completed, ...failed, ...delayed]) {
       if (job.id) {
         await job.remove().catch(() => {});
         cleared++;

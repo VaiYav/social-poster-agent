@@ -41,8 +41,12 @@ import { DiscordNotificationService } from '../../infrastructure/notifications/d
 import { SseService } from '../../infrastructure/sse/sse.service.js';
 import { EngagementService } from '../engagement/engagement.service.js';
 import { QueueFactory } from '../../infrastructure/queue/queue.factory.js';
+import { FlowControlService } from '../flow-control/flow-control.service.js';
 import { PostStatus, SocialNetwork, CommentStatus } from '@prisma/client';
-import type { Page } from '../../domain/ports/browser-primitives';
+import type { Locator, Page } from '../../domain/ports/browser-primitives';
+import { IPromptPort } from '../../domain/ports/prompt.port.js';
+import { interpolate } from '../../domain/prompt-interpolation.js';
+import { REPLY_DECISION_PROMPT } from './prompts/reply-decision.prompt.js';
 import { parseBool } from '../../infrastructure/config/parse-bool';
 import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 import { matchesScript, normalizeLanguage } from '../../infrastructure/util/script-check.js';
@@ -54,7 +58,7 @@ export interface ScrapedComment {
   commentId: string;
   author: string;
   text: string;
-  authorProfileUrl?: string;
+  authorProfileUrl?: string | null;
 }
 
 export interface ReplyDecision {
@@ -89,6 +93,9 @@ export class RepliesMonitorService implements OnModuleInit {
     // RP1: when present, auto-replies are scheduled as delayed BullMQ jobs instead of
     // blocking the cron with an inline setTimeout. Absent in unit tests (inline fallback).
     @Optional() private readonly queueFactory?: QueueFactory,
+    @Optional() private readonly flowControl?: FlowControlService,
+    // Sprint P: versioned reply-decision prompt via PromptRegistry; absent in unit tests.
+    @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
   ) {
     this.enabled = parseBool(this.configService.get<string>('REPLIES_ENABLED', 'false'));
     this.cronSchedule = this.configService.get<string>('REPLIES_CRON_SCHEDULE', '0 */4 * * *');
@@ -133,13 +140,21 @@ export class RepliesMonitorService implements OnModuleInit {
     this.logger.log('Replies monitoring cycle started');
     const stats = { postsChecked: 0, commentsScraped: 0, repliesPosted: 0, humanReview: 0 };
 
+    // 2.9.3: Respect flow control — skip cycle if replies flow is paused.
+    if (this.flowControl && (await this.flowControl.isPaused('replies'))) {
+      this.logger.warn('Replies flow is paused — skipping monitoring cycle');
+      return stats;
+    }
+
     try {
       const posts = await this.getMonitorablePosts();
       this.logger.log(`Found ${posts.length} posts to monitor for comments`);
 
       for (const post of posts) {
         try {
-          const comments = await this.scrapeComments(post.network as SocialNetwork, post.postUrl!);
+          if (!post.postUrl) continue;
+
+          const comments = await this.scrapeComments(post.network as SocialNetwork, post.postUrl, post.content);
           stats.postsChecked++;
           stats.commentsScraped += comments.length;
 
@@ -214,7 +229,11 @@ export class RepliesMonitorService implements OnModuleInit {
    * Scrape comments from a post page using browser automation.
    * Navigates to the post URL, extracts comment text + authors.
    */
-  private async scrapeComments(network: SocialNetwork, postUrl: string): Promise<ScrapedComment[]> {
+  private async scrapeComments(
+    network: SocialNetwork,
+    postUrl: string,
+    postContent: string,
+  ): Promise<ScrapedComment[]> {
     if (!this.browser) {
       this.logger.warn('Browser port not available — cannot scrape comments');
       return [];
@@ -259,7 +278,7 @@ export class RepliesMonitorService implements OnModuleInit {
       await this.scrollForComments(page);
 
       // Extract comments using network-specific selectors
-      const comments = await this.extractComments(page, network);
+      const comments = await this.extractComments(page, network, postContent);
 
       this.logger.debug(`Scraped ${comments.length} comments from ${network} post ${postUrl}`);
       return comments;
@@ -292,9 +311,16 @@ export class RepliesMonitorService implements OnModuleInit {
    * Extract comments from the page using network-specific selectors.
    * Each network has a different DOM structure for comments.
    */
-  private async extractComments(page: Page, network: SocialNetwork): Promise<ScrapedComment[]> {
+  private async extractComments(
+    page: Page,
+    network: SocialNetwork,
+    postContent: string,
+  ): Promise<ScrapedComment[]> {
     const selectors = this.getCommentSelectors(network);
     const comments: ScrapedComment[] = [];
+
+    const normalize = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
+    const normalizedPostContent = normalize(postContent);
 
     try {
       const commentElements = await page.locator(selectors.commentContainer).all();
@@ -307,11 +333,21 @@ export class RepliesMonitorService implements OnModuleInit {
 
           if (!text || text.length < 2) continue;
 
+          // 2.9.2: The original post is often included in the same container list.
+          // Skip any element whose text is the original post content.
+          if (normalizedPostContent && normalize(text) === normalizedPostContent) {
+            continue;
+          }
+
+          // 2.9.1: Extract a profile URL for the author so self-reply detection
+          // uses the handle, not the display name (which can match other users).
+          const authorProfileUrl = await this.extractAuthorProfileUrl(el, network);
+
           // RP2: stable, script-safe commentId — the old strip-non-alnum approach collapsed
           // Cyrillic/emoji comments into collisions and silently dropped real comments.
           const commentId = buildCommentId(author, text);
 
-          comments.push({ commentId, author, text });
+          comments.push({ commentId, author, text, authorProfileUrl });
         } catch {
           // Skip individual comment extraction errors
         }
@@ -321,6 +357,27 @@ export class RepliesMonitorService implements OnModuleInit {
     }
 
     return comments;
+  }
+
+  /**
+   * 2.9.1: Extract the author's profile URL from a comment element.
+   * This is more reliable than the display name for self-reply detection.
+   */
+  private async extractAuthorProfileUrl(el: Locator, network: SocialNetwork): Promise<string | null> {
+    try {
+      switch (network) {
+        case SocialNetwork.X:
+          return await el.locator('[data-testid="User-Name"] a[href^="/"]').first().getAttribute('href');
+        case SocialNetwork.THREADS:
+          return await el.locator('a[href^="/@"]').first().getAttribute('href');
+        case SocialNetwork.FACEBOOK:
+          return await el.locator('a[href*="/user/"]').first().getAttribute('href');
+        default:
+          return null;
+      }
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -362,8 +419,8 @@ export class RepliesMonitorService implements OnModuleInit {
     postId: string,
     network: SocialNetwork,
     comments: ScrapedComment[],
-  ): Promise<{ id: string; commentId: string; author: string; text: string }[]> {
-    const newComments: { id: string; commentId: string; author: string; text: string }[] = [];
+  ): Promise<{ id: string; commentId: string; author: string; text: string; authorProfileUrl?: string | null }[]> {
+    const newComments: { id: string; commentId: string; author: string; text: string; authorProfileUrl?: string | null }[] = [];
 
     for (const comment of comments) {
       try {
@@ -383,7 +440,7 @@ export class RepliesMonitorService implements OnModuleInit {
 
         // Only process comments that are NEW (just created)
         if (created.status === CommentStatus.NEW) {
-          newComments.push(created);
+          newComments.push({ ...created, authorProfileUrl: comment.authorProfileUrl });
         }
       } catch {
         // Skip duplicates or errors
@@ -400,20 +457,23 @@ export class RepliesMonitorService implements OnModuleInit {
    */
   async decideReply(
     post: { id: string; network: string; content: string },
-    comment: { id: string; commentId: string; author: string; text: string },
+    comment: { id: string; commentId: string; author: string; text: string; authorProfileUrl?: string | null },
   ): Promise<ReplyDecision> {
     // 1. Skip spam/trolls (deterministic check first — free; word-boundary so "about" ≠ "bot")
     if (isLikelyTroll(comment.text)) {
       return { action: 'skip', reason: 'Potential troll/spam — skipped' };
     }
 
-    // 2. Don't reply to our own comments — look up account by network, compare handle
+    // 2. Don't reply to our own comments — look up account by network, compare handle.
+    // 2.9.1: Prefer the author profile URL because display names can match other users.
     try {
       const account = await this.accountsService.findByNetwork(post.network as SocialNetwork);
       if (account?.handle) {
-        const ownHandle = account.handle.toLowerCase();
-        const commentAuthor = comment.author.toLowerCase().replace(/^@/, '');
-        if (commentAuthor === ownHandle) {
+        const ownHandle = account.handle.toLowerCase().trim();
+        const commentHandle = comment.authorProfileUrl
+          ? extractHandleFromProfileUrl(comment.authorProfileUrl)
+          : normalizeHandle(comment.author);
+        if (commentHandle && commentHandle === ownHandle) {
           return { action: 'skip', reason: 'Self-reply skipped (own account)' };
         }
       }
@@ -456,80 +516,25 @@ export class RepliesMonitorService implements OnModuleInit {
    */
   private async llmDecideReply(
     post: { id: string; network: string; content: string },
-    comment: { id: string; commentId: string; author: string; text: string },
+    comment: { id: string; commentId: string; author: string; text: string; authorProfileUrl?: string | null },
   ): Promise<ReplyDecision> {
     // RP6: deterministic pre-detection of the comment language. The LLM still
     // echoes the language in the response, but it now starts from a ground-truth
     // label instead of guessing on short, ambiguous social text.
+    if (!this.llmService) {
+      this.logger.warn('LlmService not available — skipping comment (will retry next cycle)');
+      return { action: 'skip', reason: 'LLM service not available — will retry next cycle' };
+    }
+
     const detectedLanguage = detectLanguage(comment.text);
 
-    const systemPrompt = `You manage social media for an astrology app. Someone commented on your post. You need to:
-1. Figure out what kind of comment this is
-2. Decide: reply yourself or flag for a human
-3. If replying, write something that sounds like a real human, not a bot
-
-LANGUAGE — CRITICAL:
-- The comment language has already been detected for you: ${detectedLanguage}.
-- You MUST reply in EXACTLY this language. No exceptions. No mixing languages.
-- Ukrainian comment → Ukrainian reply. Russian → Russian. Spanish → Spanish. English → English. Italian → Italian.
-- Match the vibe: if they're casual, be casual. If they're formal, be measured. If they're funny, be funny back.
-- Replying in English to a non-English comment is the #1 bot tell. Don't do it.
-
-CLASSIFICATION:
-- simple: "love this!", "so true", emojis, quick thanks → reply yourself
-- complex: real questions about astrology, detailed discussions, someone sharing their chart → reply if you know the answer, otherwise flag for human
-- sensitive: complaints, personal crises, mental health mentions, someone asking for medical/financial advice → ALWAYS flag for human. Never attempt these yourself.
-
-HOW TO WRITE A HUMAN, CREATIVE REPLY:
-- Be specific. Reference what they actually said. "Thanks!" is not a reply, it's an acknowledgment.
-- Have personality. You can be warm, funny, sarcastic, playful, or sincere — match the comment's energy.
-- Don't play it safe. A slightly weird or honest reply beats a bland, correct one.
-- Use conversational imperfections: start with "And", "But", "Honestly", "Okay so", "Look" when it fits.
-- Use fragments and trail-offs: "I don't know, maybe that's just me..." is fine.
-- If they asked a question, actually answer it. Don't dodge.
-- If they shared something personal, acknowledge it genuinely.
-- Keep it short: 280 chars for X/Threads, 500 for Facebook.
-- No absolute predictions. No medical/financial advice. No self-promo links.
-- NO generic phrases: "Great question!" "Thanks for sharing!" "We appreciate your comment!" "Love this!"
-- One emoji max, only if it fits naturally.
-
-GOOD replies (English):
-- Comment: "Is Mercury retrograde really that bad?" → "Honestly? It's mostly overhyped. The real chaos comes from the shadow period. The two weeks before and after. That's when stuff actually breaks."
-- Comment: "This is so accurate for me as a Cancer moon 😭" → "Cancer moon hits different. The emotional memory is no joke. You probably remember how people made you feel 10 years ago."
-- Comment: "What does it mean if my Venus is in Scorpio?" → "Venus in Scorpio means you love like it's a matter of life and death. No casual dating. It's all or nothing, and you can spot a lie from across the room."
-
-GOOD replies (Ukrainian):
-- "Чесно? Це переважно перебільшено. Справжній хаос — у періоді тіні. Два тижні до і після. Тоді все реально ламається."
-- "Місяць у Раку — це окрема ліга. Емоційна пам'ять — не жарт, ти напевно пам'ятаєш, як люди змусили тебе почуватися 10 років тому."
-- "Венера у Скорпіоні — це кохання як питання життя і смерті. Жодних побачень 'подивимося як піде'. Або все, або нічого."
-
-GOOD replies (Russian):
-- "Честно? Это в основном преувеличено. Настоящий хаос — в периоде тени. Две недели до и после. Тогда всё реально ломается."
-- "Луна в Раке — это отдельная лига. Эмоциональная память — не шутка, ты наверное помнишь, как люди заставили тебя чувствовать себя 10 лет назад."
-- "Венера в Скорпионе — любовь как вопрос жизни и смерти. Никаких 'посмотрим, как пойдёт'. Либо всё, либо ничего."
-
-GOOD replies (Spanish):
-- "¿Honestamente? Está sobrevalorado. El verdadero caos está en el periodo de sombra. Dos semanas antes y después. Ahí es cuando todo se rompe."
-- "La Luna en Cáncer es otra liga. La memoria emocional no es broma, probablemente recuerdes cómo la gente te hizo sentir hace 10 años."
-
-GOOD replies (Italian):
-- "Onestamente? È stravvalutato. Il vero caos è nel periodo di ombra. Due settimane prima e dopo. È lì che si rompe tutto."
-- "La Luna nel Cancro è un'altra lega. La memoria emotiva non è uno scherzo, probabilmente ricordi come la gente ti ha fatto sentire 10 anni fa."
-
-BAD replies (forbidden — if you write these, you failed):
-- "Thank you for your comment! We appreciate your engagement!" (corporate bot)
-- "Great question! Mercury retrograde is a fascinating topic..." (AI filler)
-- "Love this! ✨✨✨" (generic + emoji spam)
-- Replying in English to a Ukrainian/Russian/Spanish/Italian comment (language mismatch)
-- "Check out our website for more!" (self-promo)
-
-Return JSON:
-{"action": "auto_reply" | "human_review", "reason": "why", "detectedLanguage": "en|ru|uk|es|it", "replyText": "the reply (in detectedLanguage)", "reviewReason": "why human review (if applicable)"}
-
-LANGUAGE DETECTION — DO NOT GUESS:
-- The detected language is ${detectedLanguage}. Set detectedLanguage to this exact value.
-- If you are unsure, still write in ${detectedLanguage}.
-- A missed language switch is worse than an extra one — commit to ${detectedLanguage}.`;
+    // Sprint P: prompt is loaded from Langfuse Prompt Management if available,
+    // with this inline string as fallback.
+    const systemPrompt = await this.getCompiledText(
+      'reply-decision',
+      { detectedLanguage, network: post.network },
+      REPLY_DECISION_PROMPT,
+    );
 
     // SEC3: the comment author + text are untrusted external input — sanitize
     // before interpolating so a comment can't inject instructions the model then
@@ -544,7 +549,7 @@ Network: ${post.network}
 Reply in EXACTLY the detected language (${detectedLanguage}). Do not switch languages mid-reply.`;
 
     try {
-      const response = await this.llmService!.generateChat(systemPrompt, userPrompt, { temperature: REPLIES_TEMPERATURE });
+      const response = await this.llmService.generateChat(systemPrompt, userPrompt, { temperature: REPLIES_TEMPERATURE });
 
       // Parse JSON response — LLM may wrap in markdown
       const jsonMatch = response.content.match(/\{[\s\S]*\}/);
@@ -626,7 +631,7 @@ Reply in EXACTLY the detected language (${detectedLanguage}). Do not switch lang
    */
   private async executeDecision(
     post: { id: string; network: string; postUrl: string | null; content: string },
-    comment: { id: string; commentId: string; author: string; text: string },
+    comment: { id: string; commentId: string; author: string; text: string; authorProfileUrl?: string | null },
     decision: ReplyDecision,
     stats: { postsChecked: number; commentsScraped: number; repliesPosted: number; humanReview: number },
   ): Promise<void> {
@@ -722,6 +727,21 @@ Reply in EXACTLY the detected language (${detectedLanguage}). Do not switch lang
         break;
       }
     }
+  }
+
+  /**
+   * Sprint P: fetch a compiled text prompt from PromptRegistry, or interpolate the
+   * inline fallback if PromptRegistry is unavailable (e.g. unit tests).
+   */
+  private async getCompiledText(
+    name: string,
+    variables: Record<string, string>,
+    fallback: string,
+  ): Promise<string> {
+    if (this.promptPort) {
+      return this.promptPort.getCompiledText(name, variables, fallback);
+    }
+    return interpolate(fallback, variables);
   }
 
   /**
@@ -877,4 +897,28 @@ Reply in EXACTLY the detected language (${detectedLanguage}). Do not switch lang
   isEnabled(): boolean {
     return this.enabled;
   }
+}
+
+/** 2.9.1: Normalize a social handle for comparison. */
+function normalizeHandle(handle: string): string {
+  return handle.toLowerCase().replace(/^@+/, '').trim();
+}
+
+/** 2.9.1: Extract a comparable handle from an author profile URL. */
+function extractHandleFromProfileUrl(url: string): string | null {
+  if (!url) return null;
+  const path = url.split('?')[0] ?? '';
+  const segments = path.split('/').filter((s) => s.length > 0);
+  const first = segments[0];
+  if (!first) return null;
+
+  // X: /handle or /handle/status/...; Threads: /@handle or /@handle/post/...; Facebook: /user/123
+  if (first === 'user') {
+    const second = segments[1];
+    return second ? decodeURIComponent(second).toLowerCase() : null;
+  }
+  if (first.startsWith('@')) {
+    return normalizeHandle(first);
+  }
+  return normalizeHandle(first);
 }

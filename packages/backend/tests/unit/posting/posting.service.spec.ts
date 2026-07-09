@@ -21,10 +21,11 @@ import { NotFoundException } from '@nestjs/common';
 import { PostStatus, SocialNetwork } from '@prisma/client';
 
 import { PostingService } from '../../../src/modules/posting/posting.service';
+import { PostEvents } from '../../../src/events/enums/post-events.enum';
 import {
   createMockBrowserPort,
   createMockRateLimitService,
-  createMockSseService,
+  createMockEventEmitter,
   createMockThreadProgressService,
 } from '../../mocks/index';
 
@@ -123,7 +124,7 @@ interface TestContext {
   warmupService: ReturnType<typeof createMockWarmupService>;
   accountsService: ReturnType<typeof createMockAccountsService>;
   rateLimitService: ReturnType<typeof createMockRateLimitService>;
-  sseService: ReturnType<typeof createMockSseService>;
+  eventEmitter: ReturnType<typeof createMockEventEmitter>;
   threadProgressService: ReturnType<typeof createMockThreadProgressService>;
   xPoster: ReturnType<typeof createMockPoster>;
   threadsPoster: ReturnType<typeof createMockPoster>;
@@ -137,7 +138,7 @@ function buildContext(): TestContext {
   const warmupService = createMockWarmupService();
   const accountsService = createMockAccountsService();
   const rateLimitService = createMockRateLimitService();
-  const sseService = createMockSseService();
+  const eventEmitter = createMockEventEmitter();
   const threadProgressService = createMockThreadProgressService();
   const xPoster = createMockPoster();
   const threadsPoster = createMockPoster();
@@ -154,7 +155,7 @@ function buildContext(): TestContext {
     warmupService as unknown,
     postsService as unknown,
     rateLimitService as unknown,
-    sseService as unknown,
+    eventEmitter as unknown,
     threadProgressService as unknown,
     xPoster as unknown,
     threadsPoster as unknown,
@@ -169,7 +170,7 @@ function buildContext(): TestContext {
     warmupService,
     accountsService,
     rateLimitService,
-    sseService,
+    eventEmitter,
     threadProgressService,
     xPoster,
     threadsPoster,
@@ -204,7 +205,7 @@ describe('MOD-03: PostingService', () => {
     // No rate limit check, no browser, no SSE
     expect(ctx.rateLimitService.checkRateLimit).not.toHaveBeenCalled();
     expect(ctx.browser.acquireContext).not.toHaveBeenCalled();
-    expect(ctx.sseService.publish).not.toHaveBeenCalled();
+    expect(ctx.eventEmitter.emit).not.toHaveBeenCalled();
   });
 
   it('UTC-043: postById() returns failure when post already POSTING (idempotency)', async () => {
@@ -317,14 +318,12 @@ describe('MOD-03: PostingService', () => {
     expect(postingCall[0]).toBe('post-5');
 
     // SSE publish called with POSTING event
-    const postingEvent = ctx.sseService.publish.mock.calls.find(
-      (c: unknown[]) => c[0]?.status === 'POSTING',
+    const postingEvent = ctx.eventEmitter.emit.mock.calls.find(
+      (c: unknown[]) => c[0] === PostEvents.POSTING_STARTED && c[1]?.postId === 'post-5',
     );
     expect(postingEvent).toBeDefined();
-    expect(postingEvent[0]).toMatchObject({
-      type: 'post_status',
+    expect(postingEvent[1]).toMatchObject({
       postId: 'post-5',
-      status: 'POSTING',
       network: 'X',
     });
   });
@@ -498,8 +497,8 @@ describe('MOD-03: PostingService', () => {
     expect(failedCall).toBeDefined();
 
     // SSE FAILED event emitted
-    const failedEvent = ctx.sseService.publish.mock.calls.find(
-      (c: unknown[]) => c[0]?.status === 'FAILED',
+    const failedEvent = ctx.eventEmitter.emit.mock.calls.find(
+      (c: unknown[]) => c[0] === PostEvents.FAILED && c[1]?.postId === 'post-unknown',
     );
     expect(failedEvent).toBeDefined();
   });
@@ -535,16 +534,14 @@ describe('MOD-03: PostingService', () => {
     expect(ctx.rateLimitService.recordPost).toHaveBeenCalledWith('X');
 
     // SSE POSTED event with url
-    const postedEvent = ctx.sseService.publish.mock.calls.find(
-      (c: unknown[]) => c[0]?.status === 'POSTED',
+    const postedEvent = ctx.eventEmitter.emit.mock.calls.find(
+      (c: unknown[]) => c[0] === PostEvents.POSTED && c[1]?.postId === 'post-success',
     );
     expect(postedEvent).toBeDefined();
-    expect(postedEvent[0]).toMatchObject({
-      type: 'post_status',
+    expect(postedEvent[1]).toMatchObject({
       postId: 'post-success',
-      status: 'POSTED',
       network: 'X',
-      url: 'https://x.com/user/status/123',
+      postUrl: 'https://x.com/user/status/123',
     });
   });
 
@@ -564,7 +561,7 @@ describe('MOD-03: PostingService', () => {
 
     const result = await ctx.service.postById('post-err');
 
-    expect(result).toEqual({ success: false, error: 'navigation timeout' });
+    expect(result).toEqual({ success: false, error: 'navigation timeout', retryable: false });
 
     // updateStatus called with FAILED + errorMessage
     const failedCall = ctx.postsService.updateStatus.mock.calls.find(
@@ -574,14 +571,13 @@ describe('MOD-03: PostingService', () => {
     expect(failedCall[1].errorMessage).toBe('navigation timeout');
 
     // SSE FAILED event
-    const failedEvent = ctx.sseService.publish.mock.calls.find(
-      (c: unknown[]) => c[0]?.status === 'FAILED',
+    const failedEvent = ctx.eventEmitter.emit.mock.calls.find(
+      (c: unknown[]) => c[0] === PostEvents.FAILED && c[1]?.postId === 'post-err',
     );
     expect(failedEvent).toBeDefined();
-    expect(failedEvent[0]).toMatchObject({
-      type: 'post_status',
+    expect(failedEvent[1]).toMatchObject({
       postId: 'post-err',
-      status: 'FAILED',
+      network: 'X',
       error: 'navigation timeout',
     });
 
@@ -591,7 +587,7 @@ describe('MOD-03: PostingService', () => {
 
   // ── postById() — Exception (session null) ──────────────────────────────────
 
-  it('UTC-053: postById() on exception (session null) catches, updates FAILED, emits SSE FAILED', async () => {
+  it('UTC-053: postById() on session null returns retryable deferral and emits FAILED(retryable=true)', async () => {
     ctx.postsService.findById.mockResolvedValue({
       ...APPROVED_POST_X,
       id: 'post-nosession',
@@ -603,19 +599,31 @@ describe('MOD-03: PostingService', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('No active session');
+    expect(result.retryable).toBe(true);
 
-    // FAILED status set
+    // No FAILED status update for a retryable deferral
     const failedCall = ctx.postsService.updateStatus.mock.calls.find(
       (c: unknown[]) => c[1]?.status === PostStatus.FAILED,
     );
-    expect(failedCall).toBeDefined();
+    expect(failedCall).toBeUndefined();
 
-    // SSE FAILED event
-    const failedEvent = ctx.sseService.publish.mock.calls.find(
-      (c: unknown[]) => c[0]?.status === 'FAILED',
+    // Post reverted to APPROVED so BullMQ can retry cleanly
+    const approvedCall = ctx.postsService.updateStatus.mock.calls.find(
+      (c: unknown[]) => c[1]?.status === PostStatus.APPROVED,
+    );
+    expect(approvedCall).toBeDefined();
+
+    // SSE FAILED event with retryable flag (UI distinguishes terminal vs. retry)
+    const failedEvent = ctx.eventEmitter.emit.mock.calls.find(
+      (c: unknown[]) => c[0] === PostEvents.FAILED,
     );
     expect(failedEvent).toBeDefined();
-    expect(failedEvent[0].error).toContain('No active session');
+    expect(failedEvent[1]).toMatchObject({
+      postId: 'post-nosession',
+      network: 'X',
+      error: expect.stringContaining('No active session'),
+      retryable: true,
+    });
 
     // recordPost NOT called
     expect(ctx.rateLimitService.recordPost).not.toHaveBeenCalled();
@@ -663,7 +671,7 @@ describe('MOD-03: PostingService', () => {
 
     const result = await ctx.service.postById('post-crash');
 
-    expect(result).toEqual({ success: false, error: 'browser crash' });
+    expect(result).toEqual({ success: false, error: 'browser crash', retryable: false });
 
     // FAILED status set
     const failedCall = ctx.postsService.updateStatus.mock.calls.find(
@@ -673,11 +681,11 @@ describe('MOD-03: PostingService', () => {
     expect(failedCall[1].errorMessage).toBe('browser crash');
 
     // SSE FAILED event
-    const failedEvent = ctx.sseService.publish.mock.calls.find(
-      (c: unknown[]) => c[0]?.status === 'FAILED',
+    const failedEvent = ctx.eventEmitter.emit.mock.calls.find(
+      (c: unknown[]) => c[0] === PostEvents.FAILED && c[1]?.postId === 'post-crash',
     );
     expect(failedEvent).toBeDefined();
-    expect(failedEvent[0].error).toBe('browser crash');
+    expect(failedEvent[1].error).toBe('browser crash');
   });
 
   // ── postAllApproved() — Batch Mode ─────────────────────────────────────────
@@ -910,8 +918,8 @@ describe('MOD-03: PostingService', () => {
     expect(replyPostedCalls).toHaveLength(3);
 
     // SSE POSTED events for root + 3 replies
-    const postedEvents = ctx.sseService.publish.mock.calls.filter(
-      (c: unknown[]) => c[0]?.status === 'POSTED',
+    const postedEvents = ctx.eventEmitter.emit.mock.calls.filter(
+      (c: unknown[]) => c[0] === PostEvents.POSTED,
     );
     expect(postedEvents.length).toBeGreaterThanOrEqual(4);
   });
@@ -1030,7 +1038,7 @@ describe('MOD-03: PostingService', () => {
     expect(ctx.browser.acquireContext).not.toHaveBeenCalled();
     expect(ctx.xPoster.post).not.toHaveBeenCalled();
     // No SSE events
-    expect(ctx.sseService.publish).not.toHaveBeenCalled();
+    expect(ctx.eventEmitter.emit).not.toHaveBeenCalled();
   });
 
   // ── Post not found ─────────────────────────────────────────────────────────
@@ -1060,30 +1068,26 @@ describe('MOD-03: PostingService', () => {
     await ctx.service.postById('post-sse');
 
     // SSE events published in order: POSTING → POSTED
-    const events = ctx.sseService.publish.mock.calls.map((c: unknown[]) => c[0]);
-    const statuses = events.map((e: any) => e.status);
+    const events = ctx.eventEmitter.emit.mock.calls.map((c: unknown[]) => c[1]);
+    const eventNames = ctx.eventEmitter.emit.mock.calls.map((c: unknown[]) => c[0]);
 
     // POSTING event comes before POSTED event
-    const postingIdx = statuses.indexOf('POSTING');
-    const postedIdx = statuses.indexOf('POSTED');
+    const postingIdx = eventNames.indexOf(PostEvents.POSTING_STARTED);
+    const postedIdx = eventNames.indexOf(PostEvents.POSTED);
     expect(postingIdx).toBeGreaterThanOrEqual(0);
     expect(postedIdx).toBeGreaterThan(postingIdx);
 
     // POSTING event has correct fields
     expect(events[postingIdx]).toMatchObject({
-      type: 'post_status',
       postId: 'post-sse',
-      status: 'POSTING',
       network: 'X',
     });
 
     // POSTED event has correct fields
     expect(events[postedIdx]).toMatchObject({
-      type: 'post_status',
       postId: 'post-sse',
-      status: 'POSTED',
       network: 'X',
-      url: 'https://x.com/user/status/sse',
+      postUrl: 'https://x.com/user/status/sse',
     });
   });
 
@@ -1102,19 +1106,18 @@ describe('MOD-03: PostingService', () => {
     await ctx.service.postById('post-sse-fail');
 
     // SSE events: POSTING → FAILED
-    const events = ctx.sseService.publish.mock.calls.map((c: unknown[]) => c[0]);
-    const statuses = events.map((e: any) => e.status);
+    const events = ctx.eventEmitter.emit.mock.calls.map((c: unknown[]) => c[1]);
+    const eventNames = ctx.eventEmitter.emit.mock.calls.map((c: unknown[]) => c[0]);
 
-    const postingIdx = statuses.indexOf('POSTING');
-    const failedIdx = statuses.indexOf('FAILED');
+    const postingIdx = eventNames.indexOf(PostEvents.POSTING_STARTED);
+    const failedIdx = eventNames.indexOf(PostEvents.FAILED);
     expect(postingIdx).toBeGreaterThanOrEqual(0);
     expect(failedIdx).toBeGreaterThan(postingIdx);
 
     // FAILED event has error field
     expect(events[failedIdx]).toMatchObject({
-      type: 'post_status',
       postId: 'post-sse-fail',
-      status: 'FAILED',
+      network: 'X',
       error: 'compose dialog failed',
     });
   });

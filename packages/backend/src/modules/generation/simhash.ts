@@ -35,7 +35,7 @@ function tokenize(text: string): string[] {
     .toLowerCase()
     .replace(/[^\w\s]/g, ' ')
     .split(/\s+/)
-    .filter((t) => t.length > 1);
+    .filter((t) => t.length > 1 || /^\d+$/.test(t));
 }
 
 /**

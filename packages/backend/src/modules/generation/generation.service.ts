@@ -15,6 +15,10 @@ import { TrendingScraperService } from '../trending/trending-scraper.service.js'
 import { LangfuseService, type LangfuseHandlerOptions } from '../../infrastructure/langfuse/langfuse.service.js';
 import { withLlmCallbacks } from '../../infrastructure/llm/llm.service.js';
 import { IPromptPort } from '../../domain/ports/prompt.port.js';
+import {
+  withPromptLabelContext,
+  getRecordedPromptLabels,
+} from '../../infrastructure/prompt/prompt-label-context.js';
 import { getEnabledNetworks } from '../../domain/enabled-networks.js';
 import {
   SocialNetwork,
@@ -24,19 +28,17 @@ import {
 } from '@prisma/client';
 import type { ContentTopic } from '@spa/shared';
 import { buildGenerationGraph, createInitialState, type GeneratedPost, type ProgressPublisher } from './generation.graph.js';
+import type { JudgeScores } from '@spa/shared';
 import { Command } from '@langchain/langgraph';
 import { simhash, isDuplicateHash } from './simhash.js';
 import { prioritizeTopics as prioritizeTopicsByFreshness } from './topic-prioritization.js';
 import { checkTrendSafety } from '../content-enhancements/trend-guardrail.js';
-import {
-  ContentPillarTracker,
-  classifyPillar,
-  type ContentPillar,
-} from '../content-enhancements/content-pillar.tracker.js';
+import { ContentPillarTracker } from '../content-enhancements/content-pillar.tracker.js';
 import { HookPerformanceBank } from '../content-enhancements/hook-performance-bank.js';
 import { VisualConceptService } from '../content-enhancements/visual-concept.service.js';
 import { ThreadDepthController } from '../content-enhancements/thread-depth.controller.js';
 import { ABVariantGenerator } from '../content-enhancements/ab-variant.generator.js';
+import { ABVariantService } from '../content-enhancements/ab-variant.service.js';
 
 /**
  * Generation service — uses LangGraph workflow for creating social post drafts.
@@ -57,6 +59,9 @@ import { ABVariantGenerator } from '../content-enhancements/ab-variant.generator
  * Saves drafts as Post (status=DRAFT). Operator reviews in UI before posting.
  */
 
+type CompiledGraph = ReturnType<ReturnType<typeof buildGenerationGraph>['compile']>;
+type AccountResult = Awaited<ReturnType<AccountsService['findByNetwork']>>;
+
 /**
  * Config object passed to `graph.invoke()`. Includes `callbacks` in the type
  * so we can attach Langfuse handlers without `as` casts.
@@ -71,7 +76,7 @@ interface GraphInvokeConfig {
 export class GenerationService {
   private readonly logger = new Logger(GenerationService.name);
   private brandVoice: string | null = null;
-  private compiledGraph: ReturnType<ReturnType<typeof buildGenerationGraph>['compile']> | null = null;
+  private compiledGraph: CompiledGraph | null = null;
   /** Active run cancellations — runId → AbortController */
   private readonly activeRuns = new Map<string, AbortController>();
   /** Languages for multilingual post generation (ISO 639-1 codes) */
@@ -94,6 +99,7 @@ export class GenerationService {
     @Optional() private readonly visualService?: VisualConceptService,
     @Optional() private readonly threadDepthController?: ThreadDepthController,
     @Optional() private readonly abGenerator?: ABVariantGenerator,
+    @Optional() private readonly abVariantService?: ABVariantService,
     @Optional() private readonly langfuse?: LangfuseService,
     @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
   ) {
@@ -114,7 +120,7 @@ export class GenerationService {
    * Lazy-compile the graph with the checkpoint saver and SSE progress publisher.
    * Done on first use (not constructor) to ensure Redis is connected.
    */
-  private getGraph() {
+  private getGraph(): CompiledGraph {
     if (!this.compiledGraph) {
       const progressPublisher: ProgressPublisher = (event) => {
         this.sseService.publish({
@@ -127,8 +133,9 @@ export class GenerationService {
       };
       // Q8: judge-gated refine loop threshold (0 disables the retry loop)
       const rawThreshold = Number(process.env.JUDGE_REFINE_THRESHOLD ?? '0.6');
-      const graphBuilder = buildGenerationGraph(this.llm, progressPublisher, this.hookBank, this.visualService, this.abGenerator, this.promptPort, {
+      const graphBuilder = buildGenerationGraph(this.llm, progressPublisher, this.hookBank, this.visualService, this.abGenerator, this.abVariantService, this.promptPort, {
         judgeRefineThreshold: Number.isFinite(rawThreshold) ? rawThreshold : 0.6,
+        getRecordedPromptLabels,
       });
       this.compiledGraph = graphBuilder.compile({ checkpointer: this.checkpointSaver });
       this.logger.log('LangGraph workflow compiled with Redis checkpoint saver + SSE progress (§10.3 parallel graph)');
@@ -144,6 +151,9 @@ export class GenerationService {
    * to the config, and wrap the invoke in AsyncLocalStorage so all
    * llm.generateChat() calls inside graph nodes nest under the trace.
    *
+   * Also wraps the invocation in a prompt-label context so PromptRegistry can
+   * record the exact Langfuse labels used for each prompt in this run.
+   *
    * When Langfuse is disabled (no LANGFUSE_PUBLIC_KEY), this is a plain
    * graph.invoke() with zero overhead.
    */
@@ -151,15 +161,88 @@ export class GenerationService {
     config: GraphInvokeConfig,
     handlerOpts: LangfuseHandlerOptions,
     input: Parameters<ReturnType<ReturnType<typeof buildGenerationGraph>['compile']>['invoke']>[0],
-  ): Promise<Record<string, unknown>> {
+  ): Promise<{ finalState: Record<string, unknown>; promptLabels: Record<string, { label: string; isFallback?: boolean }> }> {
     const handler = this.langfuse?.createHandler(handlerOpts);
     const callbacks = handler ? [handler] : [];
     if (callbacks.length > 0) {
       config.callbacks = callbacks;
     }
-    return withLlmCallbacks(callbacks, () =>
-      this.getGraph().invoke(input as never, config as never),
-    ) as Promise<Record<string, unknown>>;
+    return withPromptLabelContext(() =>
+      withLlmCallbacks(callbacks, async () => {
+        const finalState = await this.getGraph().invoke(input, config);
+        const promptLabels = getRecordedPromptLabels();
+        return { finalState, promptLabels };
+      }),
+    );
+  }
+
+  /**
+   * Build the llmMetadata JSON for a saved Post.
+   *
+   * promptVersion = the active PROMPT_VERSION (global label)
+   * promptLabels = map of promptName -> { label, isFallback } recorded during this run
+   */
+  private buildPostLlmMetadata(
+    genPost: GeneratedPost,
+    simhash: string,
+    promptLabels: Record<string, { label: string; isFallback?: boolean }>,
+    overrides: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    return {
+      model: genPost.model,
+      promptVersion: this.llm.getPromptVersion?.() ?? 'unknown',
+      promptLabels,
+      hook: genPost.hook,
+      hookTechnique: genPost.hookTechnique,
+      contentStyleId: genPost.contentStyleId,
+      humorMechanicId: genPost.humorMechanicId ?? null,
+      angleType: genPost.angle.split('—')[0]?.trim(),
+      simhash,
+      qualityScore: genPost.qualityScore,
+      judgeScores: genPost.judgeScores ?? null,
+      visualConcept: genPost.visualConcept ?? null,
+      abVariants: genPost.abVariants ?? null,
+      ...overrides,
+    };
+  }
+
+  /**
+   * Persist A/B variants for a generated post. Non-blocking — if the service is
+   * not available (e.g. tests), the post is still saved.
+   */
+  private async persistPostVariants(
+    postId: string,
+    genPost: GeneratedPost,
+    judgeScores?: JudgeScores,
+  ): Promise<void> {
+    if (!this.abVariantService) return;
+    try {
+      await this.abVariantService.createVariants(
+        postId,
+        genPost.network,
+        genPost.content,
+        genPost.abVariants ?? null,
+        judgeScores,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Failed to persist A/B variants for ${postId}: ${message}`);
+    }
+  }
+
+  private async persistPostVariantForContent(
+    postId: string,
+    network: SocialNetwork,
+    content: string,
+    judgeScores?: JudgeScores,
+  ): Promise<void> {
+    if (!this.abVariantService) return;
+    try {
+      await this.abVariantService.createVariants(postId, network, content, null, judgeScores);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Failed to persist default variant for ${postId}: ${message}`);
+    }
   }
 
   /**
@@ -385,6 +468,7 @@ export class GenerationService {
                     path: article.path,
                     topic: article.topic,
                     factIndex: factIdx,
+                    keywords: article.keywords,
                   },
                 },
               });
@@ -393,6 +477,13 @@ export class GenerationService {
           } catch (err) {
             this.logger.error(`F10: Failed to generate post for fact ${factIdx + 1} of "${article.topic}": ${(err as Error).message}`);
           }
+        }
+
+        // 2.8.1: Mark the source article as used after it has been consumed.
+        try {
+          await this.contentSourceService.markUsed(article);
+        } catch (err) {
+          this.logger.debug(`markUsed failed for article (non-blocking): ${(err as Error).message}`);
         }
       }
 
@@ -447,6 +538,7 @@ export class GenerationService {
           network: true,
           sourceRef: true,
           createdAt: true,
+          llmMetadata: true,
         },
         orderBy: { createdAt: 'desc' },
         take: postCount * 3, // Get more than needed — dedup by topic
@@ -489,6 +581,12 @@ export class GenerationService {
         sourceTopics.push(topicStr);
         this.logger.log(`F13: Recycling "${topicStr}" (original post: ${oldPost.id}, age: ${Math.round((Date.now() - oldPost.createdAt.getTime()) / (1000 * 60 * 60 * 24))} days)`);
 
+        const metadata = (oldPost.llmMetadata as Record<string, unknown> | null) ?? {};
+        if (metadata.recycled === true) {
+          this.logger.debug(`F13: post ${oldPost.id} already recycled — skipping`);
+          continue;
+        }
+
         try {
           // Create a synthetic topic for regeneration with "evergreen" angle
           const recycledTopic: ContentTopic = {
@@ -513,12 +611,20 @@ export class GenerationService {
                   type: 'recycle',
                   originalPostId: oldPost.id,
                   originalTopic: topicStr,
+                  topic: recycledTopic.topic,
+                  keywords: recycledTopic.keywords,
                   recycledAt: new Date().toISOString(),
                 },
               },
             });
           }
           postIds.push(...posts.map((p) => p.id));
+
+          // 2.8.3: Mark the original as recycled only after successful generation.
+          await this.prisma.post.update({
+            where: { id: oldPost.id },
+            data: { llmMetadata: { ...metadata, recycled: true, recycledAt: new Date().toISOString() } },
+          });
         } catch (err) {
           this.logger.error(`F13: Failed to recycle post ${oldPost.id} ("${topicStr}"): ${(err as Error).message}`);
         }
@@ -557,12 +663,13 @@ export class GenerationService {
       return null;
     }
 
-    // Mark the original as recycled (idempotent).
+    // 2.8.3: Do not mark the original as recycled until generation succeeds.
+    // Also guard against double-recycling.
     const metadata = (original.llmMetadata as Record<string, unknown> | null) ?? {};
-    await this.prisma.post.update({
-      where: { id: postId },
-      data: { llmMetadata: { ...metadata, recycled: true, recycledAt: new Date().toISOString() } },
-    });
+    if (metadata.recycled === true) {
+      this.logger.warn(`RC3: post ${postId} is already recycled`);
+      return null;
+    }
 
     const topicStr =
       original.sourceRef && typeof original.sourceRef === 'object' && 'topic' in original.sourceRef
@@ -595,11 +702,20 @@ export class GenerationService {
               type: 'recycle',
               originalPostId: original.id,
               originalTopic: topicStr,
+              topic: recycledTopic.topic,
+              keywords: recycledTopic.keywords,
               recycledAt: new Date().toISOString(),
             },
           },
         });
       }
+
+      // 2.8.3: Mark the original as recycled only after successful generation.
+      await this.prisma.post.update({
+        where: { id: postId },
+        data: { llmMetadata: { ...metadata, recycled: true, recycledAt: new Date().toISOString() } },
+      });
+
       await this.markRunCompleted(run.id, [topicStr]);
       this.logger.log(`RC3: recycled post ${postId} → ${posts.length} re-written draft(s) via graph`);
       return posts[0] ? { id: posts[0].id, status: PostStatus.DRAFT } : null;
@@ -629,7 +745,6 @@ export class GenerationService {
     // Q11 (N+1 fix): load each network's account ONCE and reuse the map in the
     // save loop below (previously findByNetwork was re-queried per generated
     // post); per-network checks run in parallel instead of sequentially.
-    type AccountResult = Awaited<ReturnType<AccountsService['findByNetwork']>>;
     const accountByNetwork = new Map<SocialNetwork, AccountResult>();
     const activeNetworks: SocialNetwork[] = [];
     const networkChecks = await Promise.all(
@@ -677,7 +792,7 @@ export class GenerationService {
     // Langfuse tracing: sessionId=runId groups all LLM calls across topics
     // in the same run. tags + traceMetadata enable filtering in the Langfuse UI.
     // promptNames links this trace to the Langfuse Prompt Management prompts used.
-    const finalState = await this.tracedGraphInvoke(
+    const { finalState, promptLabels } = await this.tracedGraphInvoke(
       config,
       {
         sessionId: runId,
@@ -735,45 +850,22 @@ export class GenerationService {
           type: topic.sourceType,
           path: topic.path,
           topic: topic.topic,
+          keywords: topic.keywords,
         },
-        llmMetadata: {
-          model: genPost.model,
-          promptVersion: this.llm.getPromptVersion?.() ?? '0.3.0', // Sprint J: from LlmService
-          hook: genPost.hook,
-          hookTechnique: genPost.hookTechnique, // P1: for performance tracking
-          contentStyleId: genPost.contentStyleId, // Anti-AI-detection style rotation
-          humorMechanicId: genPost.humorMechanicId ?? null, // Q5: humor mechanics rotation
-          angleType: genPost.angle.split('—')[0]?.trim(),
-          simhash: candidateHash, // B5: store hash for future dedup
-          qualityScore: genPost.qualityScore, // Sprint Q: LLM quality score (1-10)
-          judgeScores: genPost.judgeScores ?? null, // Stage 2: LLM-as-a-Judge scores
-          visualConcept: genPost.visualConcept ?? null, // P3: image concept for poster
-          abVariants: genPost.abVariants ?? null, // P7: A/B emoji/hashtag variants
-        } as Prisma.InputJsonValue,
+        llmMetadata: this.buildPostLlmMetadata(
+          genPost,
+          candidateHash,
+          genPost.promptLabels ?? promptLabels,
+        ) as Prisma.InputJsonValue,
       });
+
+      await this.persistPostVariants(post.id, genPost, genPost.judgeScores);
 
       savedPosts.push(post);
       recentHashes.push(candidateHash); // add to in-memory set for this run
       this.logger.debug(
         `Created draft post for ${genPost.network} (score: ${genPost.qualityScore ?? 'n/a'}/10): ${genPost.content.slice(0, 50)}...`,
       );
-
-      // P6: Record this post against its content pillar for rotation tracking.
-      // Graceful degradation: if the tracker is unavailable, skip recording.
-      if (this.pillarTracker) {
-        try {
-          // P6: Strip the injected `pillar:<name>` hint from keywords before
-          // classification — the hint is steering for the LLM, not a real
-          // keyword. Without this, classifyPillar() sees `pillar:educational`
-          // and falls through to the default (daily_weather), recording the
-          // wrong pillar for every steered post.
-          const cleanKeywords = topic.keywords.filter((k) => !k.startsWith('pillar:'));
-          const pillar: ContentPillar = classifyPillar(topic.topic, cleanKeywords);
-          await this.pillarTracker.recordPillar(pillar);
-        } catch (err) {
-          this.logger.debug(`P6: Pillar recording failed (non-blocking): ${(err as Error).message}`);
-        }
-      }
 
       // F2/P4: Multi-Stage Posting with Thread Depth Controller.
       // P4 replaces the fixed 2-post F2 with configurable thread depth (1-5).
@@ -822,15 +914,16 @@ export class GenerationService {
                           path: topic.path,
                           topic: topic.topic,
                         },
-                        llmMetadata: {
-                          model: genPost.model,
-                          promptVersion: '0.3.0-p4',
-                          hook: genPost.hook,
-                          angleType: 'continuation',
-                          simhash: simhash(cont.content),
-                          multiStage: true,
-                          threadDepth: plan.depth,
-                        },
+                        llmMetadata: this.buildPostLlmMetadata(
+                          genPost,
+                          simhash(cont.content),
+                          {},
+                          {
+                            angleType: 'continuation',
+                            multiStage: true,
+                            threadDepth: plan.depth,
+                          },
+                        ) as Prisma.InputJsonValue,
                       },
                       tx,
                       { emitEvent: false }, // H1: emit after the tx commits, not inside it
@@ -848,6 +941,12 @@ export class GenerationService {
                 this.postsService.emitDraftGenerated(cp.id, genPost.network);
               }
               savedPosts.push(...contPosts);
+              for (let i = 0; i < contPosts.length; i++) {
+                const cont = plan.continuations[i];
+                if (cont) {
+                  await this.persistPostVariantForContent(contPosts[i]!.id, genPost.network, cont.content, genPost.judgeScores);
+                }
+              }
             }
           } catch (err) {
             this.logger.warn(`P4: Thread planning failed, falling back to F2: ${(err as Error).message}`);
@@ -858,6 +957,14 @@ export class GenerationService {
           await this.fallbackF2Continuation(genPost, post, account, topic, runId, savedPosts);
         }
       }
+    }
+
+    // 2.8.1: Mark the source topic as used after it has been consumed by the
+    // generation graph. This is a no-op for filesystem-backed readers.
+    try {
+      await this.contentSourceService.markUsed(topic);
+    } catch (err) {
+      this.logger.debug(`markUsed failed (non-blocking): ${(err as Error).message}`);
     }
 
     return savedPosts;
@@ -896,15 +1003,17 @@ export class GenerationService {
             type: topic.sourceType,
             path: topic.path,
             topic: topic.topic,
+            keywords: topic.keywords,
           },
-          llmMetadata: {
-            model: genPost.model,
-            promptVersion: '0.3.0-f2',
-            hook: genPost.hook,
-            angleType: 'continuation',
-            simhash: simhash(continuationContent),
-            multiStage: true,
-          },
+          llmMetadata: this.buildPostLlmMetadata(
+            genPost,
+            simhash(continuationContent),
+            {},
+            {
+              angleType: 'continuation',
+              multiStage: true,
+            },
+          ) as Prisma.InputJsonValue,
         },
         tx,
         { emitEvent: false }, // H1: emit after the tx commits, not inside it
@@ -915,6 +1024,7 @@ export class GenerationService {
     // H1: emit DRAFT_GENERATED only AFTER the tx commits.
     this.postsService.emitDraftGenerated(continuationPost.id, genPost.network);
     savedPosts.push(continuationPost);
+    await this.persistPostVariantForContent(continuationPost.id, genPost.network, continuationContent, genPost.judgeScores);
   }
 
   /**
@@ -1275,6 +1385,14 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
     // Resume in background — don't block the API response
     void (async () => {
       const postIds: string[] = [];
+      // Pre-load accounts for all target networks once, then reuse in the loop.
+      const accountByNetwork = new Map<SocialNetwork, AccountResult>();
+      await Promise.all(
+        targetNetworks.map(async (network) => {
+          const account = await this.accountsService.findByNetwork(network);
+          accountByNetwork.set(network, account);
+        }),
+      );
       try {
         for (const topic of topics) {
           if (controller.signal.aborted) break;
@@ -1286,7 +1404,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
             };
             const initialState = createInitialState(topic, targetNetworks, brandVoice);
             // Langfuse tracing for resume — same sessionId as original run
-            const finalState = await this.tracedGraphInvoke(
+            const { finalState, promptLabels } = await this.tracedGraphInvoke(
               config,
               {
                 sessionId: runId,
@@ -1310,7 +1428,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
                 continue;
               }
 
-              const account = await this.accountsService.findByNetwork(genPost.network);
+              const account = accountByNetwork.get(genPost.network);
               if (!account) continue;
 
               const post = await this.postsService.create({
@@ -1318,14 +1436,14 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
                 network: genPost.network,
                 content: genPost.content,
                 generationRunId: runId,
-                sourceRef: { type: topic.sourceType, path: topic.path, topic: topic.topic },
-                llmMetadata: {
-                  model: genPost.model,
-                  promptVersion: this.llm.getPromptVersion?.() ?? '0.4.0-resume',
-                  hook: genPost.hook,
-                  simhash: candidateHash,
-                },
+                sourceRef: { type: topic.sourceType, path: topic.path, topic: topic.topic, keywords: topic.keywords },
+                llmMetadata: this.buildPostLlmMetadata(
+                  genPost,
+                  candidateHash,
+                  genPost.promptLabels ?? promptLabels,
+                ) as Prisma.InputJsonValue,
               });
+              await this.persistPostVariants(post.id, genPost, genPost.judgeScores);
               postIds.push(post.id);
               recentHashes.push(candidateHash);
             }
@@ -1385,7 +1503,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
     // The interrupt() call in human_review node will return this value.
     const resumePayload = { approved, edits };
     // Langfuse tracing for review resume — same sessionId as original run
-    const finalState = await this.tracedGraphInvoke(
+    const { finalState, promptLabels } = await this.tracedGraphInvoke(
       config,
       {
         sessionId: runId,
@@ -1395,6 +1513,16 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
       new Command({ resume: resumePayload }),
     );
     const generatedPosts = (finalState as { posts?: GeneratedPost[] }).posts ?? [];
+
+    // Pre-load accounts for the networks that actually produced posts.
+    const accountByNetwork = new Map<SocialNetwork, AccountResult>();
+    const postNetworks = [...new Set(generatedPosts.map((p) => p.network))];
+    await Promise.all(
+      postNetworks.map(async (network) => {
+        const account = await this.accountsService.findByNetwork(network);
+        accountByNetwork.set(network, account);
+      }),
+    );
 
     // Save the generated posts (same logic as generatePostsForTopic)
     const postIds: string[] = [];
@@ -1410,7 +1538,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
         continue;
       }
 
-      const account = await this.accountsService.findByNetwork(genPost.network);
+      const account = accountByNetwork.get(genPost.network);
       if (!account) continue;
 
       const post = await this.postsService.create({
@@ -1418,14 +1546,14 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
         network: genPost.network,
         content: genPost.content,
         generationRunId: runId,
-        sourceRef: { type: 'review', path: '', topic },
-        llmMetadata: {
-          model: genPost.model,
-          promptVersion: this.llm.getPromptVersion?.() ?? '0.4.0-review',
-          hook: genPost.hook,
-          simhash: candidateHash,
-        },
+        sourceRef: { type: 'review', path: '', topic, keywords: [] },
+        llmMetadata: this.buildPostLlmMetadata(
+          genPost,
+          candidateHash,
+          genPost.promptLabels ?? promptLabels,
+        ) as Prisma.InputJsonValue,
       });
+      await this.persistPostVariants(post.id, genPost, genPost.judgeScores);
       postIds.push(post.id);
       recentHashes.push(candidateHash);
     }

@@ -164,7 +164,7 @@ describe('Quality pass — generation graph', () => {
       refine: (idx) => `refined pass ${idx + 1}`,
       judge: (idx) => (idx === 0 ? JUDGE_LOW : JUDGE_LOW), // low BOTH times — retry must still stop after 1
     });
-    const compiled = buildGenerationGraph(llm, undefined, undefined, undefined, undefined, undefined, {
+    const compiled = buildGenerationGraph(llm, undefined, undefined, undefined, undefined, undefined, undefined, {
       judgeRefineThreshold: 0.6,
     }).compile();
     const state = await compiled.invoke(
@@ -184,7 +184,7 @@ describe('Quality pass — generation graph', () => {
       critique: () => 'Meh.\nSCORE: 5\nVERDICT: REVISE',
       judge: () => JUDGE_LOW,
     });
-    const compiled = buildGenerationGraph(llm, undefined, undefined, undefined, undefined, undefined, {
+    const compiled = buildGenerationGraph(llm, undefined, undefined, undefined, undefined, undefined, undefined, {
       judgeRefineThreshold: 0,
     }).compile();
     await compiled.invoke(

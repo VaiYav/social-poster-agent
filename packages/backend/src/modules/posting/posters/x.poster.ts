@@ -44,7 +44,7 @@ export class XPoster extends BasePoster {
     const X_CHAR_LIMIT = 280;
     if (content.length > X_CHAR_LIMIT) {
       this.logger.warn(`X content ${content.length} chars exceeds limit ${X_CHAR_LIMIT} — rejecting before browser session`);
-      return { error: `Content ${content.length} chars exceeds X limit ${X_CHAR_LIMIT}` };
+      return { error: `Content ${content.length} chars exceeds X limit ${X_CHAR_LIMIT}`, retryable: false };
     }
 
     const page = await context.newPage();
@@ -78,7 +78,7 @@ export class XPoster extends BasePoster {
       // isOnLoginPage now checks both URL and DOM login indicators (async)
       if (await this.isOnLoginPage(page)) {
         this.logger.warn(`X session expired — login page detected on compose`);
-        return { error: 'Not logged in — session expired, relogin needed' };
+        return { error: 'Not logged in — session expired, relogin needed', retryable: true };
       }
 
       // Detect shadowban/restriction before attempting to post
@@ -272,7 +272,7 @@ export class XPoster extends BasePoster {
         // to /home without posting, creating a false "URL changed" signal.
         this.logger.error(`X post button is disabled after all retries — DraftJS state not updated. Aborting.`);
         await this.screenshot(page, 'button-disabled-abort');
-        return { error: 'Post button is disabled — DraftJS state not updated after all text entry strategies' };
+        return { error: 'Post button is disabled — DraftJS state not updated after all text entry strategies', retryable: false };
       }
 
       // Submit the tweet — try multiple strategies in order:
@@ -656,7 +656,7 @@ export class XPoster extends BasePoster {
 
       // Check if logged in
       if (await this.isOnLoginPage(page)) {
-        return { error: 'Not logged in — session expired, relogin needed' };
+        return { error: 'Not logged in — session expired, relogin needed', retryable: true };
       }
 
       // Wait for the React app to mount — X uses a SPA that renders after domcontentloaded.
@@ -777,7 +777,7 @@ export class XPoster extends BasePoster {
       if (fbDisabled) {
         this.logger.error(`X fallback: post button disabled after fill() — DraftJS state not updated`);
         await this.screenshot(page, 'button-disabled-abort');
-        return { error: 'Post button is disabled — DraftJS state not updated (home page compose)' };
+        return { error: 'Post button is disabled — DraftJS state not updated (home page compose)', retryable: false };
       }
 
       let fbClickSuccess = false;
@@ -850,10 +850,10 @@ export class XPoster extends BasePoster {
         return { url: fallbackPermalink };
       }
       this.logger.warn(`X fallback: submitted but no verifiable permalink captured (${currentUrl}) — marking failed`);
-      return { error: 'submitted but no verifiable permalink captured' };
+      return { error: 'submitted but no verifiable permalink captured', retryable: false };
     } catch (err) {
       this.logger.error(`X fallback posting failed: ${(err as Error).message}`);
-      return { error: `X fallback failed: ${(err as Error).message}` };
+      return { error: `X fallback failed: ${(err as Error).message}`, retryable: false };
     }
   }
 

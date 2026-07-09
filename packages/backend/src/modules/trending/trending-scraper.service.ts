@@ -73,7 +73,7 @@ const X_TREND_SELECTORS: readonly string[] = [
   'aside[aria-label="Trending"] [data-testid="trend"]',  // Sidebar with aria-label
   'section[aria-label="Trending"] [data-testid="trend"]', // Section wrapper
   '[data-testid="trend"] > div > div > span',  // Deeper nesting
-  'div[role="link"] span:has-text("Trending")', // Text-based fallback
+  'div[role="link"] span',                      // Text-based fallback (was :has-text, invalid in browser)
   'aside a[href*="/explore/tabs/trending"]',   // Link to trending tab
 ];
 
@@ -131,6 +131,14 @@ export class TrendingScraperService implements OnModuleInit {
   private googleTrendsCache: { topics: ScrapedTrendingTopic[]; expiresAt: number } | null = null;
   private xTrendsCache: { topics: ScrapedTrendingTopic[]; expiresAt: number } | null = null;
 
+  // 2.9.5: Cache for the merged result (astro + Google Trends + X) to avoid
+  // repeated niche filtering and merging within the TTL window.
+  private mergedCache: {
+    key: string;
+    topics: MergedTrendingTopic[];
+    expiresAt: number;
+  } | null = null;
+
   /**
    * LLM relevance cache — avoids re-calling the LLM for the same topic across runs.
    * Key = lowercased topic, value = boolean (relevant to niche).
@@ -140,6 +148,7 @@ export class TrendingScraperService implements OnModuleInit {
   private readonly llmRelevanceCache = new Map<string, { value: boolean; expiresAt: number }>();
   private readonly llmCacheMaxSize = 1000;
   private readonly llmCacheTtlMs = 6 * 60 * 60 * 1000; // 6 hours — trends rotate, stale relevance is wrong
+  private readonly llmConcurrency: number;
 
   constructor(
     private readonly configService: ConfigService,
@@ -152,6 +161,8 @@ export class TrendingScraperService implements OnModuleInit {
     this.enabled = parseBool(this.configService.get<string>('TRENDING_SCRAPING_ENABLED', 'true'));
     this.xScrapeEnabled = parseBool(this.configService.get<string>('X_TRENDS_SCRAPING_ENABLED', 'true'));
     this.llmFilterEnabled = parseBool(this.configService.get<string>('TRENDING_LLM_FILTER_ENABLED', 'true'));
+    const rawConcurrency = Number(this.configService.get<string>('TRENDING_LLM_CONCURRENCY', '3'));
+    this.llmConcurrency = Number.isFinite(rawConcurrency) && rawConcurrency > 0 ? rawConcurrency : 3;
   }
 
   /**
@@ -421,11 +432,18 @@ export class TrendingScraperService implements OnModuleInit {
             // 1. First line of textContent (trend name is usually first)
             // 2. Look for specific trend name elements
             // 3. Fallback to full textContent
-            const trendName = el.querySelector('[data-testid="trendName"]')?.textContent?.trim()
+            let trendName = el.querySelector('[data-testid="trendName"]')?.textContent?.trim()
               || el.querySelector('span')?.textContent?.trim()
               || el.textContent?.trim()?.split('\n')[0]?.trim();
 
-            if (trendName && trendName.length > 0 && trendName.length < 200) {
+            if (!trendName) return;
+
+            // 2.9.4: The fallback `div[role="link"] span` may match UI labels like
+            // "Trending" or "What's happening" — skip those and keep looking.
+            const lower = trendName.toLowerCase();
+            if (lower === 'trending' || lower === "what's happening" || lower.includes('·')) return;
+
+            if (trendName.length > 0 && trendName.length < 200) {
               // Dedup by topic text
               if (!results.some((r) => r.topic === trendName)) {
                 results.push({ topic: trendName, rank: idx + 1 });
@@ -559,11 +577,10 @@ export class TrendingScraperService implements OnModuleInit {
     if (borderline.length === 0) return passed;
 
     // Batch LLM checks in parallel (limited concurrency to avoid rate limits)
-    const MAX_LLM_CONCURRENCY = 3;
     const llmResults: ScrapedTrendingTopic[] = [];
 
-    for (let i = 0; i < borderline.length; i += MAX_LLM_CONCURRENCY) {
-      const batch = borderline.slice(i, i + MAX_LLM_CONCURRENCY);
+    for (let i = 0; i < borderline.length; i += this.llmConcurrency) {
+      const batch = borderline.slice(i, i + this.llmConcurrency);
       const checks = await Promise.all(
         batch.map(async (t) => {
           const relevant = await this.isRelevantByLlm(t.topic);
@@ -598,6 +615,13 @@ export class TrendingScraperService implements OnModuleInit {
   async getMergedTrending(
     astroTopics: Array<{ topic: string; networks: string[] }>,
   ): Promise<MergedTrendingTopic[]> {
+    // 2.9.5: Cache the merged result by a stable key of astro topics.
+    const cacheKey = this.buildMergedCacheKey(astroTopics);
+    if (this.mergedCache && this.mergedCache.key === cacheKey && Date.now() < this.mergedCache.expiresAt) {
+      this.logger.debug(`Merged trends cache hit (${this.mergedCache.topics.length} topics)`);
+      return this.mergedCache.topics.slice(0, 20);
+    }
+
     const [rawGoogle, rawX] = await Promise.all([
       this.getGoogleTrends(20),
       this.getXTrends(20),
@@ -666,7 +690,26 @@ export class TrendingScraperService implements OnModuleInit {
     }
 
     // Sort by priority (highest first), then by rank
-    return Array.from(merged.values()).sort((a, b) => b.priority - a.priority);
+    const sorted = Array.from(merged.values()).sort((a, b) => b.priority - a.priority);
+
+    // 2.9.5: Cache the merged result.
+    this.mergedCache = {
+      key: cacheKey,
+      topics: sorted,
+      expiresAt: Date.now() + this.cacheTtlMs,
+    };
+
+    return sorted;
+  }
+
+  /**
+   * 2.9.5: Build a stable cache key from the astro topic list.
+   */
+  private buildMergedCacheKey(astroTopics: Array<{ topic: string; networks: string[] }>): string {
+    const normalized = astroTopics
+      .map((t) => ({ topic: t.topic.toLowerCase().trim(), networks: [...t.networks].sort() }))
+      .sort((a, b) => a.topic.localeCompare(b.topic));
+    return JSON.stringify(normalized);
   }
 
   // ── Cache management ──
@@ -675,6 +718,7 @@ export class TrendingScraperService implements OnModuleInit {
   invalidateCache(): void {
     this.googleTrendsCache = null;
     this.xTrendsCache = null;
+    this.mergedCache = null;
     this.llmRelevanceCache.clear();
   }
 

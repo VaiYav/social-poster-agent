@@ -1,6 +1,25 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { QueueFactory } from '../../infrastructure/queue/queue.factory';
 import { SocialNetwork } from '@prisma/client';
+import type { Job } from 'bullmq';
+
+/**
+ * Serializable view of a failed/queued job for the REST API.
+ * Exposes the fields the UI needs without leaking the full BullMQ Job object.
+ */
+export interface QueueJobDto {
+  id?: string | number;
+  name: string;
+  data: unknown;
+  failedReason?: string;
+  attemptsMade: number;
+  totalAttempts: number;
+  status: 'failed' | 'completed' | 'waiting' | 'active' | 'delayed' | 'unknown';
+  timestamp: number;
+  processedOn?: number;
+  finishedOn?: number;
+  returnValue?: unknown;
+}
 
 /**
  * Queue service — enqueue posting jobs to BullMQ.
@@ -23,8 +42,9 @@ export class QueueService {
     return this.queueFactory.getJobCounts(network);
   }
 
-  async getFailedJobs(network: SocialNetwork) {
-    return this.queueFactory.getFailedJobs(network);
+  async getFailedJobs(network: SocialNetwork): Promise<QueueJobDto[]> {
+    const jobs = await this.queueFactory.getFailedJobs(network);
+    return jobs.map((job) => this.toJobDto(job, 'failed'));
   }
 
   async pauseQueue(network: SocialNetwork): Promise<void> {
@@ -66,5 +86,21 @@ export class QueueService {
    */
   async clearCompleted(network: SocialNetwork): Promise<number> {
     return this.queueFactory.clearCompletedJobs(network);
+  }
+
+  private toJobDto(job: Job, status: QueueJobDto['status']): QueueJobDto {
+    return {
+      id: job.id,
+      name: job.name,
+      data: job.data,
+      failedReason: job.failedReason,
+      attemptsMade: job.attemptsMade ?? 0,
+      totalAttempts: job.opts?.attempts ?? 1,
+      status,
+      timestamp: job.timestamp,
+      processedOn: job.processedOn,
+      finishedOn: job.finishedOn,
+      returnValue: job.returnvalue,
+    };
   }
 }

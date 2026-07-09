@@ -52,9 +52,17 @@ const envSchema = Joi.object({
   // Sprint J: LLM circuit breaker + cache config
   LLM_CB_THRESHOLD: Joi.number().default(3),
   LLM_CB_COOLDOWN_MS: Joi.number().default(60000),
+  LLM_CB_TERMINAL_COOLDOWN_MS: Joi.number().default(6 * 60 * 60 * 1000),
   LLM_CACHE_TTL_MS: Joi.number().default(300000),
   LLM_CACHE_MAX_SIZE: Joi.number().default(100),
   CONTENT_CACHE_TTL_MS: Joi.number().default(120000),
+  // Sprint Q: per-provider rate-limit backoff
+  LLM_RATE_LIMIT_MAX_COOLDOWN_MS: Joi.number().default(2 * 60 * 60 * 1000),
+  LLM_RATE_LIMIT_BASE_BACKOFF_MS: Joi.number().default(10000),
+  LLM_RATE_LIMIT_STRIKE_WINDOW_MS: Joi.number().default(10 * 60 * 1000),
+  LLM_RATE_LIMIT_STRIKE_THRESHOLD: Joi.number().default(3),
+  LLM_RATE_LIMIT_STRIKE_PENALTY_MS: Joi.number().default(30 * 60 * 1000),
+  LLM_RATE_LIMIT_RETRY_AFTER_MAX_MS: Joi.number().default(10000),
   GROQ_API_KEY: Joi.string().allow('').default(''),
   GROQ_MODEL: Joi.string().default('llama-3.3-70b-versatile'),
   OPENROUTER_API_KEY: Joi.string().allow('').default(''),
@@ -101,6 +109,9 @@ const envSchema = Joi.object({
 
   // ── Feature flags ──
   ENGAGEMENT_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  // Engagement decision LLM temperature (default 0.8)
+  ENGAGEMENT_COMMENT_TEMPERATURE: Joi.number().min(0).max(2).default(0.8),
+  ENGAGEMENT_QUOTE_TEMPERATURE: Joi.number().min(0).max(2).default(0.8),
   // Auto-approve: when true, drafts are auto-approved and enqueued without human review
   AUTO_APPROVE_ENABLED: Joi.string().valid('true', 'false').default('false'),
   // ADR-006: Autonomous agent config
@@ -115,6 +126,7 @@ const envSchema = Joi.object({
   AUTO_APPROVE_MIN_SCORE: Joi.number().integer().min(1).max(10).default(7),
   AUTO_APPROVE_REVIEW_SCORE: Joi.number().integer().min(1).max(10).default(4),
   AUTO_APPROVE_REJECT_STREAK_ALERT: Joi.number().integer().min(1).default(3),
+  AUTO_APPROVE_MISSING_SCORE_FAIL_OPEN: Joi.string().valid('true', 'false').default('false'),
   // A1/BUG-12: AUTO_CHECK_MIN_QUALITY_SCORE retired — the score decision lives
   // solely in AutoApproveService (AUTO_APPROVE_MIN_SCORE / AUTO_APPROVE_REVIEW_SCORE).
   // A leftover value in the env is harmless (schema allows unknown keys).
@@ -147,6 +159,7 @@ const envSchema = Joi.object({
   LANGFUSE_BASE_URL: Joi.string().allow('').default(''),
   // Prompt version label for Langfuse Prompt Management. Defaults to 'latest'.
   // Set to a specific version (e.g. 'production') to pin all prompts to that label.
+  // Override per prompt with PROMPT_VERSION_<NAME> env vars (handled by PromptRegistry).
   PROMPT_VERSION: Joi.string().default('latest'),
 
   // ── Security ──
@@ -175,6 +188,8 @@ const envSchema = Joi.object({
   CREATE_RUNS_DIR: Joi.string().allow('').default(''),
   CONTENT_AGENT_PLATFORM_PATH: Joi.string().allow('').default(''),
   SITE_BLOG_PATH: Joi.string().allow('').default(''),
+  // Content Adapters Beyond CAP: JSON array of content sources (rss, api, cap_file, db)
+  CONTENT_SOURCES: Joi.string().allow('').default(''),
 
   // ── Topic generation (DB-backed content source) ──
   TOPIC_GENERATION_ENABLED: Joi.string().valid('true', 'false').default('true'),
@@ -194,6 +209,12 @@ const envSchema = Joi.object({
   PROXY_LIST: Joi.string().allow('').default(''),
   PROXY_GATEWAY_URL: Joi.string().allow('').default(''),
   PROXY_STICKY_MINUTES: Joi.number().integer().min(1).default(10),
+
+  // A/B testing (P7)
+  AB_VARIANTS_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  AB_TEST_LOOKBACK_DAYS: Joi.number().integer().min(1).default(30),
+  AB_TEST_MIN_SAMPLE_SIZE: Joi.number().integer().min(1).default(3),
+  AB_TEST_EXPLOITATION_WEIGHT: Joi.number().min(0).max(1).default(0.8),
 
   // Quote cards (F19)
   QUOTE_CARDS_ENABLED: Joi.string().valid('true', 'false').default('false'),

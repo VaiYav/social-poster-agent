@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Query, HttpCode, HttpStatus, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Query, HttpCode, HttpStatus, BadRequestException, ParseEnumPipe } from '@nestjs/common';
+import { SocialNetwork } from '@prisma/client';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { SessionsService } from './sessions.service';
 
@@ -20,7 +21,7 @@ export class SessionsController {
   @ApiOperation({ summary: 'Run health check on a session (verifies browser session is still valid)' })
   @ApiQuery({ name: 'network', required: true, enum: ['X', 'THREADS', 'FACEBOOK'] })
   @ApiResponse({ status: 200, description: 'Health check result' })
-  async healthCheck(@Query('network') network: 'X' | 'THREADS' | 'FACEBOOK') {
+  async healthCheck(@Query('network', new ParseEnumPipe(SocialNetwork)) network: SocialNetwork) {
     return this.sessionsService.healthCheck(network);
   }
 
@@ -38,7 +39,7 @@ export class SessionsController {
   @ApiResponse({ status: 200, description: 'Code stored successfully' })
   @ApiResponse({ status: 400, description: 'Missing network or code' })
   async submitVerifyCode(
-    @Query('network') network: 'X' | 'THREADS' | 'FACEBOOK',
+    @Query('network', new ParseEnumPipe(SocialNetwork)) network: SocialNetwork,
     @Query('code') code: string,
   ) {
     if (!network || !code) {

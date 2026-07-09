@@ -7,6 +7,7 @@
  * Source: packages/backend/src/modules/engagement/engagement-decision.service.ts
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { ConfigService } from '@nestjs/config';
 import { EngagementDecisionService } from '../../../src/modules/engagement/engagement-decision.service';
 import type { ILlmPort, LlmResponse } from '../../../src/domain/ports/llm.port';
 import type { PostContext } from '../../../src/domain/ports/engagement-decision.port';
@@ -46,9 +47,11 @@ function createPostContext(overrides: Partial<PostContext> = {}): PostContext {
 describe('EngagementDecisionService', () => {
   let service: EngagementDecisionService;
   let mockLlm: ILlmPort;
+  let configService: ConfigService;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    configService = { get: vi.fn().mockReturnValue(0.7) } as unknown as ConfigService;
   });
 
   // ── decideAction ──
@@ -57,7 +60,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: '{"action":"like","reason":"relevant to astrology","confidence":0.8}', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
 
     const decision = await service.decideAction(createPostContext());
     expect(decision.action).toBe('like');
@@ -67,7 +70,7 @@ describe('EngagementDecisionService', () => {
 
   it('ED-002: falls back to probabilistic decision when LLM returns invalid JSON', async () => {
     mockLlm = createMockLlm([{ content: 'not json at all', model: 'mock' }]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
 
     const decision = await service.decideAction(createPostContext());
     // Non-committal parsed default (scroll, confidence 0.3) triggers the fallback.
@@ -80,7 +83,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: '{"action":"invalid_action","reason":"test","confidence":0.5}', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
 
     const decision = await service.decideAction(createPostContext());
     // Invalid action parses as non-committal scroll (confidence 0.3) -> fallback
@@ -92,7 +95,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: '{"action":"scroll","reason":"meh","confidence":0.3}', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
 
     const decision = await service.decideAction(createPostContext());
     // Low-confidence non-engagement triggers the fallback distribution.
@@ -105,7 +108,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: '{"action":"like","reason":"good post","confidence":0.9}', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
 
     const decision = await service.decideAction(createPostContext({
       likesThisSession: 15,
@@ -118,7 +121,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: '{"action":"comment","reason":"great discussion","confidence":0.9,"commentText":"test"}', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
 
     const decision = await service.decideAction(createPostContext({
       commentsThisSession: 4,
@@ -132,7 +135,7 @@ describe('EngagementDecisionService', () => {
       { content: '{"action":"comment","reason":"relevant","confidence":0.8}', model: 'mock' },
       { content: 'Saturn return hit me too — completely reframed how I see delays.', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
 
     const decision = await service.decideAction(createPostContext());
     expect(decision.action).toBe('comment');
@@ -141,7 +144,7 @@ describe('EngagementDecisionService', () => {
   });
 
   it('ED-007: uses fallback decision when LLM is null', async () => {
-    service = new EngagementDecisionService(null as never);
+    service = new EngagementDecisionService(null as never, configService);
 
     const decision = await service.decideAction(createPostContext());
     // Fallback no longer returns comment/quote (requires LLM text)
@@ -155,7 +158,7 @@ describe('EngagementDecisionService', () => {
       generateChat: vi.fn().mockRejectedValue(new Error('API down')),
       getPromptVersion: vi.fn(),
     } as unknown as ILlmPort;
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
 
     const decision = await service.decideAction(createPostContext());
     expect(['scroll', 'read', 'like']).toContain(decision.action);
@@ -165,7 +168,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: '```json\n{"action":"read","reason":"interesting","confidence":0.7}\n```', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
 
     const decision = await service.decideAction(createPostContext());
     expect(decision.action).toBe('read');
@@ -178,7 +181,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: 'The Moon in Cancer energy is so real this week.', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
 
     const comment = await service.generateComment(createPostContext());
     expect(comment).toBe('The Moon in Cancer energy is so real this week.');
@@ -188,7 +191,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: 'Check out myzodiacai.com for your chart!', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
 
     const comment = await service.generateComment(createPostContext());
     // Forbidden comment → null (caller downgrades action, never posts fallback)
@@ -199,7 +202,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: 'Great post! Thanks for sharing.', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
 
     const comment = await service.generateComment(createPostContext());
     expect(comment).toBeNull();
@@ -209,14 +212,14 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: 'Interesting! https://bit.ly/something', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
 
     const comment = await service.generateComment(createPostContext());
     expect(comment).toBeNull();
   });
 
   it('ED-014: returns null when LLM is null (no generic fallback)', async () => {
-    service = new EngagementDecisionService(null as never);
+    service = new EngagementDecisionService(null as never, configService);
 
     const comment = await service.generateComment(createPostContext());
     expect(comment).toBeNull();
@@ -228,7 +231,7 @@ describe('EngagementDecisionService', () => {
       generateChat: vi.fn().mockRejectedValue(new Error('API down')),
       getPromptVersion: vi.fn(),
     } as unknown as ILlmPort;
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
 
     const comment = await service.generateComment(createPostContext());
     expect(comment).toBeNull();
@@ -240,7 +243,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: '[{"action":"like","reason":"good","confidence":0.9},{"action":"scroll","reason":"boring","confidence":0.6}]', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
 
     const contexts = [createPostContext(), createPostContext({ postText: 'Off-topic post' })];
     const decisions = await service.decideActionsBatch!(contexts);
@@ -253,7 +256,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: '[{"action":"scroll","reason":"test","confidence":0.5},{"action":"scroll","reason":"test","confidence":0.5}]', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
 
     const contexts = [createPostContext(), createPostContext()];
     await service.decideActionsBatch!(contexts);
@@ -264,7 +267,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: '[{"action":"like","reason":"good","confidence":0.9},{"action":"like","reason":"good","confidence":0.9}]', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
 
     const contexts = [
       createPostContext({ likesThisSession: 15, likesMaxPerSession: 15 }),
@@ -279,7 +282,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: '[{"action":"comment","reason":"good","confidence":0.9,"commentText":"test"}]', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
 
     const contexts = [createPostContext({ commentsThisSession: 4, commentsMaxPerSession: 4 })];
     const decisions = await service.decideActionsBatch!(contexts);
@@ -295,7 +298,7 @@ describe('EngagementDecisionService', () => {
         .mockResolvedValueOnce({ content: '{"action":"scroll","reason":"fallback","confidence":0.7}', model: 'mock' }), // individual call 2: confident scroll, stays scroll
       getPromptVersion: vi.fn(),
     } as unknown as ILlmPort;
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
 
     const contexts = [createPostContext(), createPostContext()];
     const decisions = await service.decideActionsBatch!(contexts);
@@ -305,7 +308,7 @@ describe('EngagementDecisionService', () => {
   });
 
   it('ED-021: batch decision uses fallback when LLM is null', async () => {
-    service = new EngagementDecisionService(null as never);
+    service = new EngagementDecisionService(null as never, configService);
 
     const contexts = [createPostContext(), createPostContext()];
     const decisions = await service.decideActionsBatch!(contexts);
@@ -319,7 +322,7 @@ describe('EngagementDecisionService', () => {
 
   it('ED-022: batch decision handles empty context array', async () => {
     mockLlm = createMockLlm();
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
 
     const decisions = await service.decideActionsBatch!([]);
     expect(decisions).toEqual([]);
@@ -330,7 +333,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: '```json\n[{"action":"read","reason":"interesting","confidence":0.7}]\n```', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
 
     const decisions = await service.decideActionsBatch!([createPostContext()]);
     expect(decisions[0]!.action).toBe('read');
@@ -349,7 +352,7 @@ describe('EngagementDecisionService', () => {
         .mockRejectedValueOnce(new Error('All LLM providers failed')),
       getPromptVersion: vi.fn(),
     } as unknown as ILlmPort;
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
 
     const decision = await service.decideAction(createPostContext());
     expect(decision.action).toBe('like');
@@ -364,7 +367,7 @@ describe('EngagementDecisionService', () => {
         .mockRejectedValueOnce(new Error('All LLM providers failed')),
       getPromptVersion: vi.fn(),
     } as unknown as ILlmPort;
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
 
     const decision = await service.decideAction(createPostContext({
       likesThisSession: 15,
@@ -381,7 +384,7 @@ describe('EngagementDecisionService', () => {
         .mockRejectedValueOnce(new Error('All LLM providers failed')),
       getPromptVersion: vi.fn(),
     } as unknown as ILlmPort;
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
 
     const decision = await service.decideAction(createPostContext());
     expect(decision.action).toBe('read');
@@ -396,7 +399,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: '{"language":"uk","comment":"Місяць у Раку — це реально."}', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
     const comment = await service.generateComment(createPostContext({ postText: 'Місяць у Раку сьогодні' }));
     expect(comment).toBe('Місяць у Раку — це реально.');
   });
@@ -405,7 +408,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: '{"language":"uk","comment":"Thanks for sharing this!"}', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
     const comment = await service.generateComment(createPostContext({ postText: 'Місяць у Раку' }));
     // Script mismatch → null (caller downgrades, never posts English on Ukrainian)
     expect(comment).toBeNull();
@@ -415,7 +418,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: '{"language":"ru","comment":"Love this post about astrology!"}', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
     const comment = await service.generateComment(createPostContext({ postText: 'Спасибо за пост' }));
     expect(comment).toBeNull();
   });
@@ -424,7 +427,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: '{"language":"en","comment":"Saturn return hit me at 28 too."}', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
     const comment = await service.generateComment(createPostContext());
     expect(comment).toBe('Saturn return hit me at 28 too.');
   });
@@ -433,7 +436,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: '{"language":"es","comment":"Saturno tarda 29.5 años. Y aun así te destroza."}', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
     const comment = await service.generateComment(createPostContext({ postText: 'Saturno en Aries hoy' }));
     expect(comment).toBe('Saturno tarda 29.5 años. Y aun así te destroza.');
   });
@@ -442,7 +445,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: '{"language":"it","comment":"Saturno impiega 29.5 anni. E ti distrugge lo stesso."}', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
     const comment = await service.generateComment(createPostContext({ postText: 'Saturno in Ariete oggi' }));
     expect(comment).toBe('Saturno impiega 29.5 anni. E ti distrugge lo stesso.');
   });
@@ -451,7 +454,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: '{"language":"en","comment":"Спасибо за пост"}', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
     const comment = await service.generateComment(createPostContext());
     expect(comment).toBeNull();
   });
@@ -460,7 +463,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: '{"language":"uk","comment":"Меркурий retrograde — це реально так."}', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
     const comment = await service.generateComment(createPostContext({ postText: 'Місяць у Раку' }));
     expect(comment).toBe('Меркурий retrograde — це реально так.');
   });
@@ -469,7 +472,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: 'The Moon in Cancer energy is so real this week.', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
     const comment = await service.generateComment(createPostContext());
     // No JSON → fallback to raw text, no language field → skip script validation
     expect(comment).toBe('The Moon in Cancer energy is so real this week.');
@@ -479,7 +482,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: '{"language":"uk","quote":"Great post about astrology!"}', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
     const quote = await service.generateQuoteText(createPostContext({ postText: 'Місяць у Раку' }));
     expect(quote).toBeNull();
   });
@@ -488,7 +491,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: '{"language":"ru","quote":"Сатурн вернулся в 28 — но никто не предупредил."}', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
     const quote = await service.generateQuoteText(createPostContext({ postText: 'Сатурн возвращается' }));
     expect(quote).toBe('Сатурн вернулся в 28 — но никто не предупредил.');
   });
@@ -497,7 +500,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: '{"language":"en-US","comment":"Saturn return is real."}', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
     const comment = await service.generateComment(createPostContext());
     expect(comment).toBe('Saturn return is real.');
   });
@@ -506,7 +509,7 @@ describe('EngagementDecisionService', () => {
     mockLlm = createMockLlm([
       { content: '{"language":"ru-RU","comment":"Thanks for the post!"}', model: 'mock' },
     ]);
-    service = new EngagementDecisionService(mockLlm);
+    service = new EngagementDecisionService(mockLlm, configService);
     const comment = await service.generateComment(createPostContext({ postText: 'Спасибо' }));
     expect(comment).toBeNull();
   });

@@ -1,6 +1,5 @@
 import { StateGraph, END, START, Annotation, interrupt } from '@langchain/langgraph';
 import type { ILlmPort } from '../../domain/ports/llm.port.js';
-import type { ContentTopic } from '@spa/shared';
 import { SocialNetwork } from '@prisma/client';
 import { Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
@@ -9,13 +8,24 @@ import type { HookPerformanceBank } from '../content-enhancements/hook-performan
 import { classifyHookTechnique, type HookTechnique } from '../content-enhancements/hook-performance-bank.js';
 import type { VisualConcept, VisualConceptService } from '../content-enhancements/visual-concept.service.js';
 import type { ABVariantPair, ABVariantGenerator } from '../content-enhancements/ab-variant.generator.js';
+import type { ABVariantService } from '../content-enhancements/ab-variant.service.js';
 import { pickContentStyle, getStylePromptGuidance, CONTENT_STYLES_BY_ID, type ContentStyle } from '../content-enhancements/content-style.rotation.js';
 import { getSlopListForPrompt } from '../content-enhancements/slop-lexicon.js';
 import { pickHumorMechanic, getHumorPromptGuidance, HUMOR_MECHANICS_BY_ID } from '../content-enhancements/humor-mechanics.js';
 import { buildHumanizeInstruction } from '../content-enhancements/humanizer-gate.js';
 import { getLanguageExamples } from '../content-enhancements/language-packs.js';
-import type { IPromptPort, CompiledChatPrompt } from '../../domain/ports/prompt.port.js';
+import type { IPromptPort } from '../../domain/ports/prompt.port.js';
+import type { ContentTopic, JudgeScores } from '@spa/shared';
+import { NETWORK_LIMITS } from '../posts/network-limits.js';
 import { JUDGE_SYSTEM_PROMPT, JUDGE_USER_PROMPT_TEMPLATE } from './prompts/judge-prompt.js';
+import {
+  localPromptPort,
+  RESEARCH_EXTRACT_PROMPT,
+  HOOK_GENERATION_PROMPT,
+  DRAFT_POST_PROMPT,
+  CRITIQUE_POST_PROMPT,
+  REFINE_POST_PROMPT,
+} from './prompts/fallback-prompts.js';
 
 const logger = new Logger('GenerationGraph');
 
@@ -122,18 +132,6 @@ interface NetworkResult {
   error?: string | null;
 }
 
-/** Stage 2: LLM-as-a-Judge evaluation result (0.0-1.0 per criterion). */
-export interface JudgeScores {
-  anti_ai_tone: number;
-  anti_ai_tone_reason: string;
-  hook_strength: number;
-  hook_strength_reason: string;
-  factual_accuracy: number;
-  factual_accuracy_reason: string;
-  character_limit: number;
-  character_limit_reason: string;
-}
-
 /** Output of the full graph — one entry per target network. */
 export interface GeneratedPost {
   network: SocialNetwork;
@@ -154,6 +152,8 @@ export interface GeneratedPost {
   visualConcept?: VisualConcept | null;
   /** P7: A/B emoji/hashtag variants — null when disabled or failed. */
   abVariants?: ABVariantPair | null;
+  /** Prompt labels used for this post — stored in Post.llmMetadata for A/B tracking. */
+  promptLabels?: Record<string, { label: string; isFallback?: boolean }>;
 }
 
 // ============================================================
@@ -210,17 +210,6 @@ export type GenerationStateType = typeof GenerationState.State;
 // ============================================================
 // Network config
 // ============================================================
-
-/**
- * Per-network character limits.
- * CONSTITUTION §11.3: FB ~63k chars max, but for marketing ≤500.
- * We enforce the marketing limit (500) — long FB posts get low engagement.
- */
-const NETWORK_LIMITS: Record<SocialNetwork, number> = {
-  [SocialNetwork.X]: 280,
-  [SocialNetwork.THREADS]: 500,
-  [SocialNetwork.FACEBOOK]: 500, // §11.3: marketing ≤500
-};
 
 /**
  * Q9: Target-length guidance per network (2026 platform research).
@@ -324,7 +313,7 @@ const NETWORK_PERSONA: Record<SocialNetwork, string> = {
 async function researchExtractNode(
   state: GenerationStateType,
   llm: ILlmPort,
-  promptPort?: IPromptPort,
+  promptPort: IPromptPort,
 ): Promise<Partial<GenerationStateType>> {
   // If facts already provided (from CAP run or article frontmatter), use them
   if (state.topic.facts.length > 0) {
@@ -343,41 +332,7 @@ async function researchExtractNode(
     outline: outlineStr,
   };
 
-  const fallback: CompiledChatPrompt = {
-    systemPrompt: `You're the person at the party who actually knows astrology — not the vague "Mercury retrograde means communication issues" kind, but the "Mercury was at 24° Gemini when it stationed retrograde and that's conjunct your natal Mercury so yes it's personal" kind.
-
-Extract 5-8 facts about the topic that would make someone stop scrolling and actually read.
-
-Each fact must be:
-- SPECIFIC. Not "Mars is energetic" but "Mars takes 687 days to orbit the Sun — almost 2 Earth years per Mars year."
-- SURPRISING or COUNTERINTUITIVE. If everyone already knows it, it's not a fact, it's a cliché.
-- VERIFIABLE. Real astronomical data, real astrological tradition. No made-up statistics.
-- 1-2 sentences max. Punchy. No filler.
-- Written as a statement, not a question.
-
-BAD facts (vague, boring, AI-sounding):
-- "Mercury retrograde affects communication."
-- "The Moon influences emotions."
-- "Saturn represents discipline."
-
-GOOD facts (specific, surprising, human):
-- "Saturn takes 29.5 years to orbit the Sun — so your Saturn return happens almost exactly once per Saturn year."
-- "Your Moon sign changes every 2.5 days. That's why two people born on the same day can have completely different emotional wiring."
-- "The Babylonians invented the zodiac 2,500 years ago, but they used 18 signs, not 12. The 12-sign system came later from the Greeks."
-
-Return ONLY the facts, one per line, numbered 1-8. No preamble.`,
-    userPrompt: `Topic: {topic}
-Keywords: {keywords}
-Category: {category}
-Outline:
-{outline}
-
-Key facts:`,
-  };
-
-  const { systemPrompt, userPrompt } = promptPort
-    ? await promptPort.getCompiledChat('research-extract', variables, fallback)
-    : fallback;
+  const { systemPrompt, userPrompt } = await promptPort.getCompiledChat('research-extract', variables, RESEARCH_EXTRACT_PROMPT);
 
   try {
     const response = await llm.generateChat(systemPrompt, userPrompt, { temperature: 0.7, role: 'facts' });
@@ -417,8 +372,8 @@ Key facts:`,
 async function hookGenerationNode(
   state: GenerationStateType,
   llm: ILlmPort,
-  hookBank?: HookPerformanceBank,
-  promptPort?: IPromptPort,
+  hookBank: HookPerformanceBank | undefined,
+  promptPort: IPromptPort,
 ): Promise<Partial<GenerationStateType>> {
   // Check cache first — avoids re-calling LLM for identical topics across runs.
   // Cache is keyed by topic + keywords + facts (the deterministic inputs).
@@ -461,58 +416,7 @@ async function hookGenerationNode(
     slopList: getSlopListForPrompt(state.language || 'en'),
   };
 
-  const fallback: CompiledChatPrompt = {
-    systemPrompt: `You are a real person who knows astrology deeply and is about to post about it. You're not a "social media writer." You're someone with opinions, experiences, and a phone.
-
-BRAND VOICE: {brandVoice}
-
-Write 3-5 hooks (opening lines) for posts about "{topic}".
-
-THE HOOK IS THE FIRST THING SOMEONE SEES WHILE SCROLLING AT 11PM.
-It needs to make them stop. Not because it's "engaging" but because it's specific, weird, or uncomfortably relatable.
-
-ANTI-AI RULES — CRITICAL:
-- Do NOT start with "Did you know" or "Discover" or "Unlock" or "Explore" — those scream bot.
-- BANNED words/phrases (AI tells for this language): {slopList}
-- Do NOT write hooks that sound like a Wikipedia intro or a horoscope column.
-- Do NOT use em dashes (—) — use periods, commas, or parentheses.
-- DO write like someone who just had a thought at 2am and needs to share it.
-- DO be specific, opinionated, sometimes weird. Bland = AI. Specific = human.
-- DO include personal stakes — "I" not "you" in at least one hook. What does this mean for YOU?
-
-Each hook MUST use a DIFFERENT technique:
-  1. A provocative question that makes you pause (not rhetorical, genuinely unsettling — you don't know the answer)
-  2. A bold claim that would start an argument at a dinner party
-  3. A counter-intuitive observation — "everyone thinks X, but actually Y"
-  4. (optional) A personal confession or story opener ("I didn't believe in X until..." or "I spent 3 hours on my chart last night and...")
-  5. (optional) A dry fact delivered deadpan — no hype, just "here's the thing" energy
-
-Vary the TONE across hooks: one sarcastic, one sincere, one deadpan, one curious, one slightly unhinged. If all hooks sound the same, you failed.
-
-GOOD hooks (these sound human):
-- "I've been staring at my Saturn return chart for 40 minutes and I think I need to lie down"
-- "Nobody talks about how annoying Mercury in Virgo is for texting. Everything becomes a draft."
-- "Hot take: your Moon sign matters more than your Sun sign and I will die on this hill"
-- "Spent $200 on a birth chart reading. The first thing she said was 'so, your dad...' and I knew it was over"
-- "The Sun takes 365 days. Your Moon sign changes every 2.5 days. And yet everyone leads with 'I'm a Leo'"
-
-BAD hooks (these sound like AI):
-- "Discover the hidden meaning behind your Moon sign"
-- "Astrology can be a powerful tool for self-discovery"
-- "Did you know that Saturn takes 29.5 years to orbit the Sun?"
-- "Let's explore what Mercury retrograde really means for you"
-
-Return ONLY the hooks, one per line, numbered 1-5. No quotes, no preamble.{performanceGuidance}`,
-    userPrompt: `Topic: {topic}
-Key facts: {facts}
-Keywords: {keywords}
-
-Hooks:`,
-  };
-
-  const { systemPrompt, userPrompt } = promptPort
-    ? await promptPort.getCompiledChat('hook-generation', variables, fallback)
-    : fallback;
+  const { systemPrompt, userPrompt } = await promptPort.getCompiledChat('hook-generation', variables, HOOK_GENERATION_PROMPT);
 
   let response;
   try {
@@ -592,7 +496,7 @@ function anglePerNetworkNode(state: GenerationStateType): Partial<GenerationStat
  * Create a draft generation node for a specific network.
  * Each network gets its own node so LangGraph can run them in parallel.
  */
-function makeDraftNode(network: SocialNetwork, promptPort?: IPromptPort) {
+function makeDraftNode(network: SocialNetwork, promptPort: IPromptPort) {
   return async function draftNode(
     state: GenerationStateType,
     llm: ILlmPort,
@@ -660,108 +564,7 @@ function makeDraftNode(network: SocialNetwork, promptPort?: IPromptPort) {
       langExamples: getLanguageExamples(lang),
     };
 
-    const fallback: CompiledChatPrompt = {
-      systemPrompt: `You are a real person. Not a brand. Not a content creator. Not "an AI assistant." A real, flawed, opinionated human who happens to know astrology really well and is posting on their personal account.
-
-You're not writing "content." You're writing the way you'd text a friend at 11pm about something that's been on your mind. Or the way you'd tweet a thought that hit you in the shower.
-
-BRAND VOICE: {brandVoice}
-
-{persona}
-{styleGuidance}{humorGuidance}
-
-Write a {network} post using the hook and angle provided. {lengthGuidance}
-
-LANGUAGE: Write this post in {langName}.{langInstruction}
-- Russian and Ukrainian are DIFFERENT languages. Do not mix them. Do not use Russian words in Ukrainian posts or vice versa.
-- Use natural, native-speaker phrasing — not translated-sounding text. Use slang, colloquialisms, and informal expressions natural to that language.
-- Do NOT use hashtags — they are deprioritized by all major platforms. Pure text only.{langExamples}
-
-THE #1 RULE — SOUND HUMAN, NOT AI:
-The biggest giveaway of AI text is "sterile certainty." AI never doubts itself, never shares a personal mess, never admits ignorance. Real humans do all of that constantly. Your posts must feel like they came from a person who:
-- Has been wrong before and knows it
-- Has specific memories, not generic "experiences"
-- Changes their mind mid-sentence sometimes
-- Has a body that gets tired, cold, hungry, restless
-- Has opinions they can't fully justify but hold anyway
-- Gets annoyed, excited, confused — not just "informed" and "empowering"
-
-HOW TO SOUND HUMAN — CONCRETE TECHNIQUES:
-
-1. VULNERABILITY — show doubt, imperfection, or a moment of being wrong:
-   BAD: "Saturn return is a powerful time of transformation."
-   GOOD: "I thought my Saturn return would be spiritual. Mostly I just cried in my car and changed jobs."
-
-2. SPECIFIC SENSORY DETAILS — not abstractions. "Cold steering wheel at 2am" beats "difficult night."
-   BAD: "Mercury retrograde affects communication."
-   GOOD: "Sent three texts I regret during Mercury retrograde. All at 1am. All to my ex."
-
-3. PERSONAL ANECDOTES — invent them. They don't need to be real, they need to FEEL real:
-   BAD: "Many people find astrology helpful for self-reflection."
-   GOOD: "My therapist asked why I keep checking Co-Star before our sessions. I didn't have a good answer."
-
-4. CONVERSATIONAL IMPERFECTIONS — talk like a real person talks:
-   - Start sentences with "And" or "But" or "Look" or "Honestly" or "Okay so"
-   - Use parentheticals: "(and yes, I know how that sounds)"
-   - Trail off sometimes: "I don't know, maybe that's just me but..."
-   - Self-correct: "Well, not exactly — more like..."
-   - Use "you know that feeling when..." (but only if it's genuinely specific)
-
-5. VARIED RHYTHM — mix short punchy sentences with longer flowing ones:
-   "Saturn takes 29.5 years. That's it. That's the whole Saturn return. And somehow it still wrecks you."
-
-6. OPINIONS WITHOUT HEDGING — have a take, even an unpopular one:
-   BAD: "Some people believe Mercury retrograde is challenging, while others see it as an opportunity."
-   GOOD: "Mercury retrograde isn't real. I said it. The astronomy doesn't support it and I'm tired of pretending."
-
-7. SHOW, DON'T TELL — don't say something is "powerful" or "transformative." Show the transformation:
-   BAD: "New Moon in Aries is a powerful time for new beginnings."
-   GOOD: "New Moon in Aries. I bought running shoes at 6am. I don't run. But Aries said GO so here we are."
-
-8. BE MORE CREATIVE — take a risk. The safe, generic take is the AI take.
-   - Start from an unexpected angle: the annoying part, the part nobody admits, the petty detail.
-   - Use a weird metaphor: "Saturn return feels like finally reading the terms and conditions you signed at 21."
-   - Include one line that makes you slightly nervous to post. If it feels too safe, rewrite it.
-   - Don't summarize the topic — react to it. Have a real thought.
-
-ANTI-AI RULES — CRITICAL (read these twice):
-- BANNED words/phrases for this language (instant AI tells): {slopList}
-- NEVER use em dashes (—) or en dashes (–). Use periods, commas, or parentheses instead.
-- NEVER start with "Did you know" or a rhetorical question that answers itself.
-- NEVER write a "hook → explanation → CTA" sandwich. That structure is a dead giveaway.
-- NEVER end with a neat conclusion or summary. Real posts don't have conclusions. They just... stop.
-- DO write like you're talking to one specific person, not "an audience."
-- DO use contractions. DO use sentence fragments. DO start sentences with "And" or "But."
-- STRUCTURE (burstiness): at least one sentence under 6 words. At least one over 20 (for longer posts). Never two consecutive sentences of similar length.
-- DO be specific. "Mercury in Gemini at 24°" beats "planetary movements." "Crying in your car at 2am" beats "emotional moments."
-- DO have an opinion. If the post could be written by ChatGPT with no personality, rewrite it.
-- DO include at least one concrete, specific detail — a time, a place, a body sensation, an object.
-
-TONE: Match the content style specified above. If it says sarcastic, be sarcastic. If serious, be serious. If playful, be playful. Do NOT default to "warm and informative" every time — that's the AI default and it's boring.
-
-Do NOT include any URLs, links, or hashtags. Hashtags are deprioritized by X/Threads/Facebook algorithms and 3+ triggers spam filters. Posts should be pure text only.
-Never use fear-mongering, absolute predictions, or medical/financial advice.
-Never ask for likes, comments, shares, tags, or follows.
-
-Return ONLY the post text. No preamble, no explanation, no "Here's your post:"`,
-      userPrompt: `Topic: {topic}
-Hook: {hook}
-Angle: {angle}
-Content style: {styleName} — {styleDescription}
-Key facts: {facts}
-Keywords: {keywords}
-Tone: {tone}
-Character limit: {charLimit}
-Do NOT include any URLs or links in the post.
-
-{outline}
-
-Post text (in "{styleName}" style):`,
-    };
-
-    const { systemPrompt, userPrompt } = promptPort
-      ? await promptPort.getCompiledChat('draft-post', variables, fallback)
-      : fallback;
+    const { systemPrompt, userPrompt } = await promptPort.getCompiledChat('draft-post', variables, DRAFT_POST_PROMPT);
 
     try {
       const response = await llm.generateChat(systemPrompt, userPrompt, { temperature: DRAFT_TEMPERATURE, role: 'draft' });
@@ -794,7 +597,7 @@ Post text (in "{styleName}" style):`,
 /**
  * Create a critique node for a specific network.
  */
-function makeCritiqueNode(network: SocialNetwork, promptPort?: IPromptPort) {
+function makeCritiqueNode(network: SocialNetwork, promptPort: IPromptPort) {
   return async function critiqueNode(
     state: GenerationStateType,
     llm: ILlmPort,
@@ -829,43 +632,7 @@ function makeCritiqueNode(network: SocialNetwork, promptPort?: IPromptPort) {
       slopList: getSlopListForPrompt(lang),
     };
 
-    const critiqueFallback = `Critique this {network} post as if you're a picky editor who hates AI-sounding content.
-
-Check these things:
-1. Is it within {charLimit} characters? (current: {draftLength})
-2. HUMAN CHECK — the most important: Does this sound like a real person wrote it at 11pm, or does it sound like ChatGPT? Look for:
-   - "Sterile certainty" (no doubt, no vulnerability, no personal mess) = AI
-   - Generic "experiences" instead of specific memories = AI
-   - Perfect structure (hook → explanation → conclusion) = AI
-   - No body, no senses, no objects, no time of day = AI
-   - "Empowering" or "transformative" or "powerful" = AI tell words
-   - Ends with a neat summary or conclusion = AI
-3. Does it use any banned AI words/phrases for this language? ({slopList}) Any em dashes (—)?
-4. No fear-mongering or absolute predictions?
-5. Does the first line grab you, or is it generic?
-6. No hashtags? (hashtags are deprioritized by algorithms and look spammy — posts should be pure text)
-7. Does it match the angle: "{angle}"?
-8. No engagement bait (asking for likes/comments/shares/tags/follows)?
-9. Does it have OPINION and PERSONALITY, or is it bland and "informative"?
-10. Does it have at least ONE concrete specific detail (a time, a place, a body sensation, an object)?
-
-Draft:
-"{draft}"
-
-{baitInstruction}
-Be honest. If it sounds like AI, say so. If it's bland, say so. If it has no personal voice, say so.
-
-End your critique with EXACTLY these two lines (each on its own line):
-SCORE: <number 1-10>
-VERDICT: <GOOD or REVISE>
-
-VERDICT: GOOD means "post as-is, no changes needed" — use it ONLY when there is nothing to fix.
-VERDICT: REVISE means the post needs a rewrite based on your critique.
-Where SCORE 10 = "I'd share this on my personal account and people would think I wrote it"; 7 = good enough to post; 5 = needs work; 3 = sounds like AI; 1 = unusable.`;
-
-    const critiquePrompt = promptPort
-      ? await promptPort.getCompiledText('critique-post', critiqueVariables, critiqueFallback)
-      : critiqueFallback;
+    const critiquePrompt = await promptPort.getCompiledText('critique-post', critiqueVariables, CRITIQUE_POST_PROMPT);
 
     try {
       const response = await llm.generateChat('', critiquePrompt, { temperature: 0.3, role: 'critique' });
@@ -914,7 +681,7 @@ Where SCORE 10 = "I'd share this on my personal account and people would think I
 /**
  * Create a refine node for a specific network.
  */
-function makeRefineNode(network: SocialNetwork, promptPort?: IPromptPort) {
+function makeRefineNode(network: SocialNetwork, promptPort: IPromptPort) {
   return async function refineNode(
     state: GenerationStateType,
     llm: ILlmPort,
@@ -976,32 +743,7 @@ function makeRefineNode(network: SocialNetwork, promptPort?: IPromptPort) {
       slopList: getSlopListForPrompt(lang),
     };
 
-    const refineFallback = `Rewrite this {network} post based on the critique. Make it sound MORE HUMAN and LESS like AI.
-
-Draft:
-"{draft}"
-
-Critique:
-{critique}
-{baitInstruction}
-Character limit: {charLimit}
-
-ANTI-AI RULES:
-- Kill any of these words/phrases if they appear: {slopList}
-- Remove ALL em dashes (—/–) — use periods, commas, or parentheses.
-- If it sounds like a horoscope column, rewrite it to sound like a person talking.
-- If it's bland and "informative," add opinion, personality, or a weird detail.
-- If the structure is "hook → explanation → CTA sandwich," break it up.
-- Use contractions. Use sentence fragments. Vary sentence length: at least one sentence under 6 words.
-- Do NOT sanitize the personality out. Keep the opinion, keep the joke, keep the mess.
-- Take a creative risk: include one specific, slightly odd detail or a take that feels honest rather than safe.
-- If the rewrite feels like it could have been generated by any AI, rewrite it again until it feels like one person's voice.
-
-Return ONLY the refined post text. No preamble.`;
-
-    const refinePrompt = promptPort
-      ? await promptPort.getCompiledText('refine-post', refineVariables, refineFallback)
-      : refineFallback;
+    const refinePrompt = await promptPort.getCompiledText('refine-post', refineVariables, REFINE_POST_PROMPT);
 
     try {
       const response = await llm.generateChat('', refinePrompt, { temperature: REFINE_TEMPERATURE, role: 'draft' });
@@ -1134,6 +876,7 @@ function makeABVariantNode(network: SocialNetwork) {
   return async function abVariantNode(
     state: GenerationStateType,
     abGenerator?: ABVariantGenerator,
+    abVariantService?: ABVariantService,
   ): Promise<Partial<GenerationStateType>> {
     const netResult = state.results[network];
     if (!netResult) return {};
@@ -1152,7 +895,15 @@ function makeABVariantNode(network: SocialNetwork) {
     if (!content) return {};
 
     try {
-      const variants = await abGenerator.generateVariants(content, network);
+      const topic = state.topic?.topic ?? content.slice(0, 50);
+      const priorWinner = abVariantService
+        ? await abVariantService.getWinnerForTopic(topic, network)
+        : null;
+
+      const variants = await abGenerator.generateVariants(content, network, {
+        topic,
+        priorWinner,
+      });
       return {
         results: {
           [network]: { ...netResult, abVariants: variants },
@@ -1160,7 +911,8 @@ function makeABVariantNode(network: SocialNetwork) {
       };
     } catch (err) {
       // P7: Per-network error isolation — variant generation failure is non-fatal
-      logger.debug(`ab_variant_${network} failed (non-blocking): ${(err as Error).message}`);
+      const message = err instanceof Error ? err.message : String(err);
+      logger.debug(`ab_variant_${network} failed (non-blocking): ${message}`);
       return {
         results: {
           [network]: { ...netResult, abVariants: null },
@@ -1181,7 +933,7 @@ function makeABVariantNode(network: SocialNetwork) {
  * The judge runs AFTER refine and BEFORE visual_concept. It's non-blocking —
  * if the judge LLM call fails, the post proceeds with undefined judgeScores.
  */
-function makeJudgeNode(network: SocialNetwork, promptPort?: IPromptPort, refineThreshold = 0.6) {
+function makeJudgeNode(network: SocialNetwork, promptPort: IPromptPort, refineThreshold = 0.6) {
   return async function judgeNode(
     state: GenerationStateType,
     llm: ILlmPort,
@@ -1215,16 +967,7 @@ function makeJudgeNode(network: SocialNetwork, promptPort?: IPromptPort, refineT
     };
 
     try {
-      const systemPrompt = promptPort
-        ? await promptPort.getCompiledChat('post-quality-judge', variables, judgeFallback)
-        : {
-            systemPrompt: JUDGE_SYSTEM_PROMPT.replace('{slopList}', variables.slopList),
-            userPrompt: JUDGE_USER_PROMPT_TEMPLATE
-              .replace('{postText}', content)
-              .replace('{network}', network)
-              .replace('{charLimit}', String(charLimit))
-              .replace('{facts}', factsText),
-          };
+      const systemPrompt = await promptPort.getCompiledChat('post-quality-judge', variables, judgeFallback);
 
       // Q7: cap raised 300 → 700. The old cap + "enumerate first" instruction
       // meant the model either skipped its reasoning or truncated the JSON.
@@ -1342,9 +1085,13 @@ function isPartialJudgeScores(value: unknown): value is Partial<JudgeScores> {
  * Node 7: save_to_db — collect all refined posts into final output.
  * (Actual DB save happens in GenerationService — this node just formats the output.)
  */
-function saveToDbNode(state: GenerationStateType): Partial<GenerationStateType> {
+function saveToDbNode(
+  state: GenerationStateType,
+  getRecordedPromptLabels?: () => Record<string, { label: string; isFallback?: boolean }>,
+): Partial<GenerationStateType> {
   const posts: GeneratedPost[] = [];
   const errors: string[] = [];
+  const promptLabels = getRecordedPromptLabels?.();
 
   for (const network of state.targetNetworks) {
     const netResult = state.results[network];
@@ -1372,6 +1119,7 @@ function saveToDbNode(state: GenerationStateType): Partial<GenerationStateType> 
       humorMechanicId: netResult.humorMechanicId,
       visualConcept: netResult.visualConcept ?? null,
       abVariants: netResult.abVariants ?? null,
+      promptLabels,
     });
   }
 
@@ -1460,7 +1208,8 @@ export function buildGenerationGraph(
   hookBank?: HookPerformanceBank,
   visualService?: VisualConceptService,
   abGenerator?: ABVariantGenerator,
-  promptPort?: IPromptPort,
+  abVariantService?: ABVariantService,
+  promptPort: IPromptPort = localPromptPort,
   options?: {
     /**
      * Q8: anti_ai_tone threshold below which the judge routes the post back
@@ -1468,6 +1217,12 @@ export function buildGenerationGraph(
      * Set to 0 to disable the retry loop.
      */
     judgeRefineThreshold?: number;
+    /**
+     * Callback that returns the prompt labels recorded during this graph run.
+     * Injected by the orchestrator so the graph does not depend on the
+     * infrastructure label context directly.
+     */
+    getRecordedPromptLabels?: () => Record<string, { label: string; isFallback?: boolean }>;
   },
 ) {
   const logger = new Logger('GenerationGraph');
@@ -1522,11 +1277,11 @@ export function buildGenerationGraph(
     .addNode('visual_concept_threads', withProgress('visual_concept_threads', (s) => makeVisualConceptNode(SocialNetwork.THREADS)(s, visualService)))
     .addNode('visual_concept_facebook', withProgress('visual_concept_facebook', (s) => makeVisualConceptNode(SocialNetwork.FACEBOOK)(s, visualService)))
     // P7: Step 6.6: parallel ab_variant per network (no-op when disabled)
-    .addNode('ab_variant_x', withProgress('ab_variant_x', (s) => makeABVariantNode(SocialNetwork.X)(s, abGenerator)))
-    .addNode('ab_variant_threads', withProgress('ab_variant_threads', (s) => makeABVariantNode(SocialNetwork.THREADS)(s, abGenerator)))
-    .addNode('ab_variant_facebook', withProgress('ab_variant_facebook', (s) => makeABVariantNode(SocialNetwork.FACEBOOK)(s, abGenerator)))
+    .addNode('ab_variant_x', withProgress('ab_variant_x', (s) => makeABVariantNode(SocialNetwork.X)(s, abGenerator, abVariantService)))
+    .addNode('ab_variant_threads', withProgress('ab_variant_threads', (s) => makeABVariantNode(SocialNetwork.THREADS)(s, abGenerator, abVariantService)))
+    .addNode('ab_variant_facebook', withProgress('ab_variant_facebook', (s) => makeABVariantNode(SocialNetwork.FACEBOOK)(s, abGenerator, abVariantService)))
     // Step 7: save_to_db (collect outputs)
-    .addNode('save_to_db', withProgress('save_to_db', (s) => saveToDbNode(s)))
+    .addNode('save_to_db', withProgress('save_to_db', (s) => saveToDbNode(s, options?.getRecordedPromptLabels)))
     // Sprint I: HITL review node (no-op when humanReview=false)
     .addNode('human_review', withProgress('human_review', (s) => humanReviewNode(s)))
     // Edges: linear through step 3

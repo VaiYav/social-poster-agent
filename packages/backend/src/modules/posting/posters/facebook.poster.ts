@@ -34,7 +34,7 @@ export class FacebookPoster extends BasePoster {
     _threadItems?: string[],
   ): Promise<PostResult> {
     if (!this.pageSlug) {
-      return { error: 'SOCIAL_FACEBOOK_PAGE_SLUG not configured' };
+      return { error: 'SOCIAL_FACEBOOK_PAGE_SLUG not configured', retryable: false };
     }
 
     const page = await context.newPage();
@@ -48,7 +48,7 @@ export class FacebookPoster extends BasePoster {
       // Check if logged in
       if (await this.isOnLoginPage(page)) {
         this.logger.warn(`Facebook session expired — login page detected`);
-        return { error: 'Not logged in — session expired, relogin needed' };
+        return { error: 'Not logged in — session expired, relogin needed', retryable: true };
       }
 
       // Detect shadowban/restriction before attempting to post

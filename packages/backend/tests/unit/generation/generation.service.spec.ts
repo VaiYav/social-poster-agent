@@ -116,6 +116,7 @@ function createMockContentSourceService(topics: ContentTopic[] = [TOPIC_1, TOPIC
     getTopics: vi.fn().mockResolvedValue(topics),
     readBriefs: vi.fn().mockResolvedValue(topics.filter((t) => t.sourceType === 'brief')),
     readArticles: vi.fn().mockResolvedValue(topics.filter((t) => t.sourceType === 'article')),
+    markUsed: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -615,20 +616,13 @@ describe('GenerationService', () => {
       expect(posts.create).toHaveBeenCalled();
     });
 
-    it('UTC-219: pillar recorded after post creation', async () => {
+    it('UTC-219: source topic is marked used after post creation', async () => {
       contentSource.getTopics.mockResolvedValue([TOPIC_1]);
-      const pillarTracker = createMockPillarTracker();
       mockInvoke.mockResolvedValue({ posts: [genPost(SocialNetwork.X, 'Post')], facts: [] });
 
-      const svc = new GenerationService(
-        llm, contentSource as any, accounts as any, posts as any,
-        prisma as any, checkpoint as any, sse as any,
-        undefined, undefined, pillarTracker as any,
-      );
+      await service.generate(1);
 
-      await svc.generate(1);
-
-      expect(pillarTracker.recordPillar).toHaveBeenCalled();
+      expect(contentSource.markUsed).toHaveBeenCalled();
     });
   });
 

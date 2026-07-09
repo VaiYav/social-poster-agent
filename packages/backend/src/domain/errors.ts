@@ -123,6 +123,19 @@ export class NetworkError extends SpaError {
 }
 
 /**
+ * Transient retryable error — the operation can be retried later.
+ * Used for non-network deferrals (rate limit, warm-up, paused flow, session recovery).
+ */
+export class RetryableError extends SpaError {
+  readonly code = 'RETRYABLE';
+  readonly retryable = true;
+
+  constructor(network: SocialNetwork, message: string, opts?: { screenshotPath?: string; cause?: unknown }) {
+    super(message, network, opts);
+  }
+}
+
+/**
  * Validation error — post was submitted but didn't appear on profile.
  * NOT retryable — something went wrong (compose dialog didn't open, text not entered,
  * or post was silently rejected). Need to investigate via screenshots.

@@ -83,14 +83,13 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn('Lifecycle operation in progress — start skipped');
       return;
     }
-    if (this.running) {
+    if (this.running || this.graphPromise) {
       this.logger.warn('Orchestrator already running');
       return;
     }
 
     this.lifecycleLock = true;
     try {
-      this.running = true;
       this.stopRequested = false;
       this.currentCycle = 0;
       this.logger.log('Orchestrator starting...');
@@ -116,8 +115,21 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
       }
       const compiledGraph = graphBuilder.compile(compileOpts) as AnyCompiledGraph;
 
-      // Run graph in background
-      this.graphPromise = this.runGraphLoop(compiledGraph);
+      // Run graph in background; set promise BEFORE running=true so stop() cannot
+      // observe a running graph without a promise to wait on.
+      const promise = this.runGraphLoop(compiledGraph);
+      this.graphPromise = promise;
+      this.running = true;
+
+      // 2.6.3: clean up the promise when the loop actually exits so a subsequent
+      // start() cannot start a second loop while the old one is still stopping.
+      promise.catch(() => {});
+      promise.finally(() => {
+        this.graphPromise = null;
+        if (this.running) {
+          this.running = false;
+        }
+      }).catch(() => {});
 
       this.logger.log('Orchestrator started');
     } finally {
@@ -130,22 +142,21 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn('Lifecycle operation in progress — stop skipped');
       return;
     }
-    if (!this.running) return;
+    if (!this.running && !this.graphPromise) return;
 
     this.lifecycleLock = true;
     try {
       this.stopRequested = true;
       this.logger.log('Orchestrator stop requested...');
 
-      // Abort any in-progress sleep
+      // Abort any in-progress sleep so the loop can check stopRequested
       this.sleepAbort?.abort();
 
-      // Wait for graph to exit (should happen within current sleep cycle)
+      // 2.6.3: wait for the graph loop to actually exit before declaring stopped.
+      // The start() promise cleanup handles the normal exit path; this awaits it
+      // explicitly so stop() cannot return while runGraphLoop is still running.
       if (this.graphPromise) {
-        await Promise.race([
-          this.graphPromise,
-          new Promise((r) => setTimeout(r, 10_000)), // max 10s wait
-        ]).catch(() => void 0);
+        await this.graphPromise.catch(() => void 0);
       }
 
       this.running = false;
@@ -162,19 +173,39 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Reset checkpoint — allows a fresh start without resuming old state.
-   * Deletes the Redis checkpoint key for the orchestrator thread.
+   * Deletes only the orchestrator thread's checkpoint keys (pointer + per-checkpoint + writes).
+   * Uses SCAN instead of KEYS to avoid blocking Redis with a global pattern.
    */
   async resetCheckpoint(): Promise<void> {
     try {
-      // RedisCheckpointSaver stores under a prefix; delete all matching keys
-      const keys = await this.redis.keys(`${CHECKPOINT_KEY_PREFIX}*`);
+      const patterns = [
+        `${CHECKPOINT_KEY_PREFIX}:${THREAD_ID}`,
+        `${CHECKPOINT_KEY_PREFIX}:${THREAD_ID}:*`,
+        `${CHECKPOINT_KEY_PREFIX}:writes:${THREAD_ID}:*`,
+      ];
+      const keys: string[] = [];
+      for (const pattern of patterns) {
+        const found = await this.scanKeys(pattern);
+        keys.push(...found);
+      }
       if (keys.length > 0) {
         await this.redis.del(...keys);
-        this.logger.log(`Checkpoint reset — deleted ${keys.length} key(s)`);
+        this.logger.log(`Checkpoint reset — deleted ${keys.length} key(s) for thread ${THREAD_ID}`);
       }
     } catch (err) {
       this.logger.warn(`Checkpoint reset failed: ${(err as Error).message}`);
     }
+  }
+
+  private async scanKeys(pattern: string, count = 100): Promise<string[]> {
+    const found: string[] = [];
+    let cursor = '0';
+    do {
+      const [next, batch] = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', count);
+      cursor = next;
+      found.push(...batch);
+    } while (cursor !== '0');
+    return found;
   }
 
   // ── Graph Loop ───────────────────────────────────────────────────────────

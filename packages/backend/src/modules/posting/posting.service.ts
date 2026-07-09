@@ -1,11 +1,11 @@
 import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { IBrowserPort } from '../../domain/ports/browser.port.js';
 import { AccountsService } from '../accounts/accounts.service';
 import { SessionsService } from '../sessions/sessions.service';
 import { WarmupService } from '../sessions/warmup.service.js';
 import { PostsService } from '../posts/posts.service';
 import { RateLimitService } from '../rate-limit/rate-limit.service.js';
-import { SseService } from '../../infrastructure/sse/sse.service.js';
 import { QueueFactory } from '../../infrastructure/queue/queue.factory.js';
 import { ThreadProgressService } from './thread-progress.service.js';
 import { FlowControlService } from '../flow-control/flow-control.service.js';
@@ -13,11 +13,15 @@ import { XPoster } from './posters/x.poster';
 import { ThreadsPoster } from './posters/threads.poster';
 import { FacebookPoster } from './posters/facebook.poster';
 import type { PostResult } from './posters/base.poster.js';
-import { PostStatus, SocialNetwork } from '@prisma/client';
+import { Post, PostStatus, SocialNetwork } from '@prisma/client';
+import { PostEvents } from '../../events/enums/post-events.enum.js';
 import { withRetry } from '../../domain/retry.js';
 import { CircuitBreakerRegistry, CircuitOpenError } from '../../domain/circuit-breaker.js';
-import { SpaError } from '../../domain/errors.js';
+import { RetryableError, SpaError } from '../../domain/errors.js';
 import { isNetworkEnabled } from '../../domain/enabled-networks.js';
+import { ContentPillarTracker } from '../content-enhancements/content-pillar.tracker.js';
+import { ABVariantService } from '../content-enhancements/ab-variant.service.js';
+import type { SourceRef } from '@spa/shared';
 
 /**
  * Posting service — orchestrates browser-based posting.
@@ -40,6 +44,20 @@ export class PostingService {
   private readonly logger = new Logger(PostingService.name);
   private readonly circuitBreakers: CircuitBreakerRegistry = new CircuitBreakerRegistry();
 
+  /**
+   * Determine whether a posting failure should be retried by the queue worker.
+   * Respects explicit `retryable` flags on SpaErrors/PostResults, falls back to
+   * false for generic Errors, and treats known transient deferrals
+   * (rate limits, warm-up, paused flow, session recovery) as retryable.
+   */
+  private isRetryableError(err: unknown, result?: PostResult): boolean {
+    if (result?.retryable !== undefined) return result.retryable;
+    if (err instanceof SpaError) return err.retryable;
+    const message = (err as Error | undefined)?.message ?? String(err);
+    if (/session expired.*deferred retry/i.test(message)) return true;
+    return false;
+  }
+
   constructor(
     @Inject(IBrowserPort) private readonly browser: IBrowserPort,
     private readonly accountsService: AccountsService,
@@ -47,34 +65,73 @@ export class PostingService {
     private readonly warmupService: WarmupService,
     private readonly postsService: PostsService,
     private readonly rateLimitService: RateLimitService,
-    private readonly sseService: SseService,
+    private readonly eventEmitter: EventEmitter2,
     private readonly threadProgressService: ThreadProgressService,
     private readonly xPoster: XPoster,
     private readonly threadsPoster: ThreadsPoster,
     private readonly facebookPoster: FacebookPoster,
     @Optional() private readonly queueFactory?: QueueFactory,
     @Optional() private readonly flowControl?: FlowControlService,
+    @Optional() private readonly pillarTracker?: ContentPillarTracker,
+    @Optional() private readonly abVariantService?: ABVariantService,
   ) {}
+
+  /**
+   * 2.8.2: Record a successfully posted draft against its content pillar.
+   * Non-blocking — pillar tracking is not a posting dependency.
+   */
+  private async recordPostPillar(post: { sourceRef: unknown; content: string }): Promise<void> {
+    if (!this.pillarTracker) return;
+    const sourceRef = post.sourceRef as SourceRef | null | undefined;
+    const topic = sourceRef?.topic ?? sourceRef?.originalTopic ?? post.content;
+    const keywords = sourceRef?.keywords ?? [];
+    try {
+      await this.pillarTracker.recordPost(topic, keywords);
+    } catch (err) {
+      this.logger.debug(`P6: Pillar recording failed (non-blocking): ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * P7: Resolve the A/B variant that should be used for a post. Returns the
+   * selected content and records the selection in PostVariant. Non-blocking.
+   */
+  private async resolveVariant(postId: string, network: SocialNetwork, content: string): Promise<string> {
+    if (!this.abVariantService) return content;
+    try {
+      const selected = await this.abVariantService.selectAndApplyVariant(postId, network, content);
+      return selected.content;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`A/B variant resolution failed for ${postId}: ${message}`);
+      return content;
+    }
+  }
+
+  private async recordVariantPosted(postId: string): Promise<void> {
+    if (!this.abVariantService) return;
+    await this.abVariantService.recordPosted(postId, new Date()).catch(() => {});
+  }
 
   async postById(postId: string): Promise<{ success: boolean; url?: string; error?: string; retryable?: boolean }> {
     const post = await this.postsService.findById(postId);
 
     // Network gating — skip posts for disabled networks (e.g. Facebook)
     if (!isNetworkEnabled(post.network)) {
-      this.logger.warn(`Post ${postId} is for ${post.network as string} — network disabled, marking as SKIPPED`);
+      this.logger.warn(`Post ${postId} is for ${post.network} — network disabled, marking as SKIPPED`);
       await this.postsService.updateStatus(postId, {
         status: PostStatus.FAILED,
-        errorMessage: `Network ${post.network as string} is disabled (ENABLED_NETWORKS)`,
+        errorMessage: `Network ${post.network} is disabled (ENABLED_NETWORKS)`,
       }).catch(() => {});
       // Config-level, not transient — retrying can never succeed, so don't burn the
       // full postingMaxRetries budget on it (see queue.module.ts worker).
-      return { success: false, error: `Network ${post.network as string} is disabled`, retryable: false };
+      return { success: false, error: `Network ${post.network} is disabled`, retryable: false };
     }
 
     // ADR-006: Flow control — skip if posting is paused (crisis mode)
     if (this.flowControl && await this.flowControl.isPaused('posting')) {
       this.logger.warn(`Posting flow is paused — deferring post ${postId}`);
-      throw new Error('Posting flow is paused — job will retry when resumed');
+      throw new RetryableError(post.network, 'Posting flow is paused — job will retry when resumed');
     }
 
     // Idempotent — don't post if already posted/posting
@@ -107,30 +164,32 @@ export class PostingService {
       throw new NotFoundException(`Post ${postId} is not approved (status: ${post.status})`);
     }
 
+    // P7: A/B variant selection — before posting, decide which variant (a/b/default/custom)
+    // goes live. Updates the post content if the post is still the original base text.
+    post.content = await this.resolveVariant(postId, post.network, post.content);
+
     // G-3: Rate limit check — if not allowed, defer (throw for BullMQ retry)
-    const networkKey = post.network as string;
+    const networkKey = String(post.network);
     const rateCheck = await this.rateLimitService.checkRateLimit(networkKey);
     if (!rateCheck.allowed) {
       this.logger.warn(`Rate limited for ${networkKey}: ${rateCheck.reason}`);
       // Throw so BullMQ retries with backoff — the rate window will have passed by then
-      throw new Error(`Rate limited: ${rateCheck.reason}`);
+      throw new RetryableError(post.network, `Rate limited: ${rateCheck.reason}`);
     }
 
     // F20: Warm-up check — skip posting if account is in browse-only warm-up phase
     const canPost = await this.warmupService.canPost(post.accountId);
     if (!canPost) {
       this.logger.warn(`Account ${post.accountId} is in warm-up (browse-only) — deferring post ${postId}`);
-      throw new Error('Account in warm-up phase (browse-only) — posting deferred');
+      throw new RetryableError(post.network, 'Account in warm-up phase (browse-only) — posting deferred');
     }
 
     // Mark as POSTING
     await this.postsService.updateStatus(postId, { status: PostStatus.POSTING });
 
     // G-4: SSE event — POSTING
-    await this.sseService.publish({
-      type: 'post_status',
+    this.eventEmitter.emit(PostEvents.POSTING_STARTED, {
       postId,
-      status: 'POSTING',
       network: networkKey,
     });
 
@@ -147,7 +206,7 @@ export class PostingService {
       // refreshSessionsCron performs the controlled re-login.
       const session = await this.sessionsService.getOrCreateSession(post.network, { deferFormLogin: true });
       if (!session) {
-        throw new Error(`No active session for ${post.network} — auto-login deferred or failed (will retry)`);
+        throw new RetryableError(post.network, `No active session for ${post.network} — auto-login deferred or failed (will retry)`);
       }
 
       // Acquire browser context from pool (reuses idle contexts, waits if at capacity)
@@ -164,7 +223,7 @@ export class PostingService {
       // P0-H2: Persist per-reply progress to ThreadProgress table so a crash
       // mid-thread leaves a recoverable record of which replies were posted.
       const threadItems: string[] = [];
-      let threadPosts: Array<{ id: string; content: string; threadPosition: number }> = [];
+      let threadPosts: Post[] = [];
       if (post.threadId && post.threadPosition === 0) {
         threadPosts = await this.postsService.findThreadContinuations(post.threadId);
         threadItems.push(...threadPosts.map((p) => p.content));
@@ -207,8 +266,10 @@ export class PostingService {
             return this.threadsPoster.post(context!, this.browser, post.content, threadItems.length > 0 ? threadItems : undefined);
           case SocialNetwork.FACEBOOK:
             return this.facebookPoster.post(context!, this.browser, post.content);
-          default:
-            throw new Error(`Unknown network: ${post.network as string}`);
+          default: {
+            const _exhaustive: never = post.network;
+            throw new Error(`Unknown network: ${String(_exhaustive)}`);
+          }
         }
       };
 
@@ -380,7 +441,7 @@ export class PostingService {
           }
           // Reset status to APPROVED so the retry can pick it up cleanly
           await this.postsService.updateStatus(postId, { status: PostStatus.APPROVED }).catch(() => {});
-          throw new Error(`Session expired — deferred retry pending: ${lastRecoveryError}`);
+          throw new RetryableError(post.network, `Session expired — deferred retry pending: ${lastRecoveryError}`);
         }
       }
 
@@ -391,21 +452,29 @@ export class PostingService {
       }
 
       if (result.error) {
+        const retryable = this.isRetryableError(undefined, result);
+
+        // Retryable poster errors (e.g. transient network failures) must not mark the
+        // post FAILED. Revert to APPROVED so the next BullMQ attempt can retry cleanly.
+        if (retryable) {
+          await this.postsService.updateStatus(postId, { status: PostStatus.APPROVED });
+          throw new RetryableError(post.network, result.error);
+        }
+
         await this.postsService.updateStatus(postId, {
           status: PostStatus.FAILED,
           errorMessage: result.error,
         });
 
-        // G-4: SSE event — FAILED
-        await this.sseService.publish({
-          type: 'post_status',
+        // G-4: SSE event — FAILED (terminal)
+        this.eventEmitter.emit(PostEvents.FAILED, {
           postId,
-          status: 'FAILED',
           network: networkKey,
           error: result.error,
+          retryable: false,
         });
 
-        return { success: false, error: result.error };
+        return { success: false, error: result.error, retryable: false };
       }
 
       // Validate post URL — reject homepage URLs (post likely didn't publish correctly)
@@ -420,15 +489,14 @@ export class PostingService {
             postUrl: result.url,
           });
 
-          await this.sseService.publish({
-            type: 'post_status',
+          this.eventEmitter.emit(PostEvents.FAILED, {
             postId,
-            status: 'FAILED',
             network: networkKey,
             error: errorMsg,
+            retryable: false,
           });
 
-          return { success: false, error: errorMsg };
+          return { success: false, error: errorMsg, retryable: false };
         }
       }
 
@@ -436,6 +504,12 @@ export class PostingService {
         status: PostStatus.POSTED,
         postUrl: result.url,
       });
+
+      // P7: Record the selected variant's outcome timestamp.
+      await this.recordVariantPosted(postId);
+
+      // 2.8.2: Record the root post against its pillar (only after POSTED).
+      await this.recordPostPillar(post);
 
       // P0-H2: If this was a thread root with continuations, mark them individually
       // based on per-reply results. Previously all continuations were marked POSTED
@@ -446,19 +520,21 @@ export class PostingService {
           if (!cp) continue;
           const replyResult = result.threadReplyResults[i];
           if (replyResult?.success) {
+            await this.resolveVariant(cp.id, post.network, cp.content);
             await this.postsService.updateStatus(cp.id, {
               status: PostStatus.POSTED,
               postUrl: result.url,
             });
-            await this.sseService.publish({
-              type: 'post_status',
+            await this.recordVariantPosted(cp.id);
+            this.eventEmitter.emit(PostEvents.POSTED, {
               postId: cp.id,
-              status: 'POSTED',
               network: networkKey,
-              url: result.url,
+              postUrl: result.url,
             });
             // P0-H2: Persist per-reply success for crash recovery
             await this.threadProgressService.markReplyPosted(postId, cp.id, result.url ?? '');
+            // 2.8.2: Record continuation post against its pillar (only after POSTED).
+            await this.recordPostPillar(cp);
           } else {
             // P0-H2: Mark failed replies individually
             const replyError = replyResult?.error ?? 'Thread reply failed';
@@ -466,12 +542,11 @@ export class PostingService {
               status: PostStatus.FAILED,
               errorMessage: replyError,
             });
-            await this.sseService.publish({
-              type: 'post_status',
+            this.eventEmitter.emit(PostEvents.FAILED, {
               postId: cp.id,
-              status: 'FAILED',
               network: networkKey,
               error: replyError,
+              retryable: false,
             });
             // P0-H2: Persist per-reply failure for crash recovery
             await this.threadProgressService.markReplyFailed(postId, cp.id, replyError);
@@ -486,19 +561,21 @@ export class PostingService {
         // Fallback: no per-reply results (shouldn't happen with updated posters)
         const continuationPosts = await this.postsService.findThreadContinuations(post.threadId);
         for (const cp of continuationPosts) {
+          await this.resolveVariant(cp.id, post.network, cp.content);
           await this.postsService.updateStatus(cp.id, {
             status: PostStatus.POSTED,
             postUrl: result.url,
           });
-          await this.sseService.publish({
-            type: 'post_status',
+          await this.recordVariantPosted(cp.id);
+          this.eventEmitter.emit(PostEvents.POSTED, {
             postId: cp.id,
-            status: 'POSTED',
             network: networkKey,
-            url: result.url,
+            postUrl: result.url,
           });
           // P0-H2: Persist per-reply success for crash recovery
           await this.threadProgressService.markReplyPosted(postId, cp.id, result.url ?? '');
+          // 2.8.2: Record continuation post against its pillar (only after POSTED).
+          await this.recordPostPillar(cp);
         }
         this.logger.log(`P0-2: Marked ${continuationPosts.length} continuation post(s) as POSTED for thread ${post.threadId}`);
       }
@@ -507,12 +584,10 @@ export class PostingService {
       await this.rateLimitService.recordPost(networkKey);
 
       // G-4: SSE event — POSTED
-      await this.sseService.publish({
-        type: 'post_status',
+      this.eventEmitter.emit(PostEvents.POSTED, {
         postId,
-        status: 'POSTED',
         network: networkKey,
-        url: result.url,
+        postUrl: result.url,
       });
 
       this.logger.log(`Post ${postId} posted successfully to ${post.network as string}`);
@@ -520,23 +595,31 @@ export class PostingService {
     } catch (err) {
       // P0-H1: Preserve SpaError retry semantics — don't wrap in generic Error.
       // Previously all errors became generic Error, losing SpaError retry info.
+      const retryable = this.isRetryableError(err);
       const message = (err as Error).message;
       this.logger.error(`Posting failed for ${postId}: ${message}`);
-      await this.postsService.updateStatus(postId, {
-        status: PostStatus.FAILED,
-        errorMessage: message,
-      });
 
-      // G-4: SSE event — FAILED
-      await this.sseService.publish({
-        type: 'post_status',
+      // Terminal failures mark the post FAILED; retryable deferrals revert to APPROVED
+      // so the next BullMQ attempt can reprocess cleanly. In both cases we emit a FAILED
+      // event with retryable in the payload so the UI can distinguish terminal vs. retry.
+      if (retryable) {
+        await this.postsService.updateStatus(postId, { status: PostStatus.APPROVED }).catch(() => {});
+      } else {
+        await this.postsService.updateStatus(postId, {
+          status: PostStatus.FAILED,
+          errorMessage: message,
+        }).catch(() => {});
+      }
+
+      // G-4: SSE event — FAILED (retryable flag tells UI whether this will be retried)
+      this.eventEmitter.emit(PostEvents.FAILED, {
         postId,
-        status: 'FAILED',
         network: networkKey,
         error: message,
+        retryable,
       });
 
-      return { success: false, error: message };
+      return { success: false, error: message, retryable };
     } finally {
       // Sprint K: Release context back to pool for reuse (instead of closing).
       // P0-H1: Guaranteed cleanup regardless of outcome — prevents context leaks.
@@ -709,14 +792,6 @@ export class PostingService {
         `F2: Enqueued continuation ${cont.id} (position ${cont.threadPosition}) → ${rootPost.network} (delay: ${Math.round(delay / 60000)}min)`,
       );
     }
-
-    // SSE event — multi-stage scheduled
-    await this.sseService.publish({
-      type: 'post_status',
-      postId: rootPostId,
-      status: 'APPROVED',
-      network: rootPost.network,
-    });
 
     this.logger.log(
       `F2: Multi-stage thread scheduled — root ${rootPostId} + ${scheduled} continuations (delay: ${delayMs / 60000}min apart)`,

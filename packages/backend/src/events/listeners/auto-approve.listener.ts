@@ -26,7 +26,6 @@ import { ConfigService } from '@nestjs/config';
 import { PostStatus, SocialNetwork } from '@prisma/client';
 import { IPostingQueuePort } from '../../domain/ports/posting-queue.port.js';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { PostsService } from '../../modules/posts/posts.service';
 import { PostEvents } from '../enums/post-events.enum';
 import { parseBool } from '../../infrastructure/config/parse-bool';
 
@@ -36,7 +35,6 @@ export class AutoApproveListener {
   private readonly enabled: boolean;
 
   constructor(
-    private readonly postsService: PostsService,
     private readonly prisma: PrismaService,
     private readonly moduleRef: ModuleRef,
     configService: ConfigService,

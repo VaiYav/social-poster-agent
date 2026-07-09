@@ -20,6 +20,7 @@ import { BrowserModule } from '../../infrastructure/browser/browser.module';
 import { LlmModule } from '../../infrastructure/llm/llm.module';
 import { SseModule } from '../../infrastructure/sse/sse.module';
 import { QueueModule as QueueInfraModule } from '../../infrastructure/queue/queue.module';
+import { FlowControlModule } from '../flow-control/flow-control.module';
 import { IRepliesMonitorPort } from '../orchestrator/ports';
 
 @Module({
@@ -33,6 +34,7 @@ import { IRepliesMonitorPort } from '../orchestrator/ports';
     LlmModule,
     SseModule,
     QueueInfraModule, // RP1: QueueFactory for scheduling delayed auto-reply jobs
+    FlowControlModule,
   ],
   providers: [
     RepliesMonitorService,
@@ -60,6 +62,7 @@ export class RepliesModule {
         SseModule,
         QueueInfraModule, // RP1: QueueFactory for scheduling delayed auto-reply jobs
         engagementModule,
+        FlowControlModule,
       ],
       providers: [
         RepliesMonitorService,

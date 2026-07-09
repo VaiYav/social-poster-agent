@@ -20,6 +20,7 @@
  * See big-bang.integration.spec.ts for full explanation.
  */
 import 'reflect-metadata';
+import { defineParamtypes, restoreAllDesignParamtypes } from '../helpers/restore-paramtypes';
 import { TopicGenerationService } from '../../src/infrastructure/content/topic-generation.service';
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -30,7 +31,6 @@ import { AutoApproveService } from '../../src/modules/autonomy/auto-approve.serv
 import { AutonomousRunnerService } from '../../src/modules/autonomy/autonomous-runner.service';
 import { FlowControlService } from '../../src/modules/flow-control/flow-control.service';
 import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service';
-import { NotificationsModule } from '../../src/infrastructure/notifications/notifications.module';
 import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service';
 import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator';
 import { ThreadDepthController } from '../../src/modules/content-enhancements/thread-depth.controller';
@@ -66,14 +66,6 @@ import { QueueFactory } from '../../src/infrastructure/queue/queue.factory';
 import { EncryptionService } from '../../src/infrastructure/crypto/encryption.service';
 import { TrendingScraperService } from '../../src/modules/trending/trending-scraper.service';
 import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint';
-
-// Modules
-import { PostingModule } from '../../src/modules/posting/posting.module';
-import { BrowserModule } from '../../src/infrastructure/browser/browser.module';
-import { PostsModule } from '../../src/modules/posts/posts.module';
-import { SessionsModule } from '../../src/modules/sessions/sessions.module';
-import { RateLimitModule } from '../../src/modules/rate-limit/rate-limit.module';
-import { PrismaModule } from '../../src/infrastructure/prisma/prisma.module';
 
 // Services
 import { PostingService } from '../../src/modules/posting/posting.service';
@@ -237,142 +229,7 @@ vi.mock('@langchain/openai', () => ({
   __esModule: true,
 }));
 
-// ── Metadata restoration (esbuild compatibility) ────────────────────────────
-
-function defineParamtypes(target: unknown, types: unknown[]): void {
-  // Always set — esbuild doesn't emit design:paramtypes, and we need the
-  // latest constructor signature even if a previous test file set older metadata
-  Reflect.defineMetadata('design:paramtypes', types, target);
-}
-
-function restoreAllDesignParamtypes(): void {
-  // Infrastructure
-  defineParamtypes(LlmService, [ConfigService]);
-  defineParamtypes(ContentReader, [ConfigService]);
-  defineParamtypes(BrowserFactory, [ConfigService]);
-  defineParamtypes(AutoCheckService, [ConfigService, PrismaService]);
-  defineParamtypes(AutoApproveService, [ConfigService, PrismaService, SseService, AutoCheckService]);
-  defineParamtypes(AutonomousRunnerService, [ConfigService, PrismaService, SseService, FlowControlService, AutoApproveService, ModuleRef, Object]);
-  // Auth (JWT cookie auth)
-  defineParamtypes(AuthService, [PrismaService, JwtService, ConfigService]);
-  defineParamtypes(AuthController, [AuthService, ConfigService]);
-  defineParamtypes(JwtAuthGuard, [JwtService, ConfigService]);
-  defineParamtypes(AutoApproveListener, [PostsService, PrismaService, ModuleRef, ConfigService, Object]);
-  defineParamtypes(SseService, [ConfigService, Object, Object]);
-  defineParamtypes(RedisCheckpointSaver, [ConfigService]);
-  defineParamtypes(QueueFactory, [ConfigService, DiscordNotificationService]);
-  defineParamtypes(EncryptionService, [ConfigService]);
-  defineParamtypes(DiscordNotificationService, [ConfigService]);
-
-  // Module classes with constructor DI
-  defineParamtypes(SseModule, [SseService]);
-  defineParamtypes(QueueModule, [QueueFactory, PostingService, ModuleRef, ConfigService]);
-
-  // Accounts
-  defineParamtypes(AccountsService, [PrismaService, ConfigService, WarmupService]);
-  defineParamtypes(AccountsController, [AccountsService]);
-
-  // Content source
-  defineParamtypes(ContentSourceService, [ContentReader]);
-  defineParamtypes(ContentSourceController, [ContentSourceService]);
-
-  // Generation — 14 params: 7 required + 7 @Optional()
-  defineParamtypes(GenerationService, [
-    Object, // @Inject(ILlmPort)
-    ContentSourceService,
-    AccountsService,
-    PostsService,
-    PrismaService,
-    RedisCheckpointSaver,
-    SseService,
-    Object, // @Optional() TrendingService
-    Object, // @Optional() TrendingScraperService
-    Object, // @Optional() ContentPillarTracker
-    Object, // @Optional() HookPerformanceBank
-    Object, // @Optional() VisualConceptService
-    Object, // @Optional() ThreadDepthController
-    Object, // @Optional() ABVariantGenerator
-  ]);
-  defineParamtypes(GenerationController, [GenerationService]);
-  defineParamtypes(CronService, [GenerationService, AccountsService, ConfigService]);
-
-  // Posts
-  defineParamtypes(PostsService, [PrismaService, EventEmitter2]);
-  defineParamtypes(MetricsScraperService, [PrismaService, SseService, SchedulerRegistry, Object]);
-  defineParamtypes(PostsController, [PostsService, Object]);
-
-  // Posting — @Inject(IBrowserPort) param is Object
-  defineParamtypes(PostingService, [
-    Object,
-    AccountsService,
-    SessionsService,
-    WarmupService,
-    PostsService,
-    RateLimitService,
-    SseService,
-    ThreadProgressService,
-    XPoster,
-    ThreadsPoster,
-    FacebookPoster,
-    Object, // @Optional() QueueFactory
-  ]);
-  defineParamtypes(PostingController, [PostingService]);
-  defineParamtypes(FacebookPoster, [Object, ConfigService]); // [IBrowserPort, ConfigService]
-  defineParamtypes(XPoster, [Object]); // [IBrowserPort]
-  defineParamtypes(ThreadsPoster, [Object]); // [IBrowserPort]
-  defineParamtypes(XEngager, [Object]); // [IBrowserPort]
-  defineParamtypes(ThreadsEngager, [Object]); // [IBrowserPort]
-  defineParamtypes(FacebookEngager, [Object, ConfigService]); // [IBrowserPort, ConfigService]
-  defineParamtypes(BrowsingSessionService, [PrismaService, SessionsService, Object, ConfigService, SseService, RateLimitService, XEngager, ThreadsEngager, FacebookEngager, HumanBehaviorEngine, TargetingService, Object]);
-  defineParamtypes(EngagementService, [PrismaService, SessionsService, Object, SseService, RateLimitService, XEngager, ThreadsEngager, FacebookEngager]);
-  defineParamtypes(EngagementController, [EngagementService]);
-  defineParamtypes(HumanBehaviorEngine, [PrismaService, Object, SseService, RateLimitService, Object]);
-  defineParamtypes(TargetingService, [ConfigService]);
-  defineParamtypes(EngagementSchedulerService, [ConfigService, QueueFactory]);
-
-  // Sessions — @Inject(IBrowserPort) param is Object
-  defineParamtypes(SessionsService, [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService]);
-  defineParamtypes(WarmupService, [PrismaService, ConfigService]);
-  defineParamtypes(SessionsController, [SessionsService]);
-
-  // Rate limit
-  defineParamtypes(RateLimitService, [ConfigService, Object]);
-
-  // Events
-  defineParamtypes(EventsController, [SseService]);
-  defineParamtypes(AutoApproveListener, [PostsService, PrismaService, ModuleRef, ConfigService, Object]);
-  defineParamtypes(SseEventListener, [SseService]);
-
-  // Queue
-  defineParamtypes(QueueService, [QueueFactory]);
-  defineParamtypes(QueueController, [QueueService]);
-
-  // Health
-  defineParamtypes(HealthController, [PrismaService, Object]);
-
-  // Content Enhancements
-  defineParamtypes(VisualConceptService, [ConfigService, Object]);
-  defineParamtypes(ABVariantGenerator, [ConfigService, Object]);
-  defineParamtypes(ThreadDepthController, [ConfigService, Object]);
-  defineParamtypes(ContentPillarTracker, [Object]);
-  defineParamtypes(HookPerformanceBank, [Object, PrismaService]);
-
-  // Replies
-  defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object, Object]);
-
-  // Sprint O: New Features
-  defineParamtypes(CaptchaSolverService, [ConfigService]);
-  defineParamtypes(ProxyRotationService, [ConfigService]);
-  defineParamtypes(AnalyticsService, [PrismaService]);
-  defineParamtypes(AnalyticsController, [AnalyticsService]);
-  defineParamtypes(RecyclingService, [PrismaService, GenerationService]);
-  defineParamtypes(RecyclingController, [RecyclingService]);
-  defineParamtypes(QuoteCardService, [ConfigService]);
-  defineParamtypes(QuoteCardController, [QuoteCardService]);
-  // Quality pass: TopicGenerationService was added to AppModule without a restore
-  // entry — esbuild-stripped paramtypes made configService undefined at boot.
-  defineParamtypes(TopicGenerationService, [PrismaService, ConfigService, SchedulerRegistry, LlmService]);
-}
+// ── Metadata restoration (esbuild compatibility) — now provided by ../helpers/restore-paramtypes.ts
 
 // ── Mock helpers ─────────────────────────────────────────────────────────────
 
@@ -525,7 +382,7 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
       getMergedTrends: () => Promise.resolve([]),
       getCacheStatus: () => Promise.resolve({ googleTrends: null, xTrends: null }),
     })
-    .overrideProvider(SseEventListener).useValue({ handleDraftGenerated: () => {}, handleApproved: () => {}, handlePostingStarted: () => {}, handlePosted: () => {}, handleFailed: () => {} }).compile();
+    .compile();
 
     sseService = moduleRef.get(SseService);
     rateLimitService = moduleRef.get(RateLimitService);

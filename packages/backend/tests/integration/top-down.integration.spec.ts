@@ -29,8 +29,9 @@
  * Source: CONSTITUTION.md §14 (Testing) — test case IDs are inline
  */
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { restoreAllDesignParamtypes } from '../helpers/restore-paramtypes';
 import { TopicGenerationService } from '../../src/infrastructure/content/topic-generation.service';
-import { SchedulerRegistry } from '@nestjs/schedule';
+import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitter2, EventEmitterModule } from '@nestjs/event-emitter';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { ModuleRef } from '@nestjs/core';
@@ -155,6 +156,13 @@ vi.mock('node:fs/promises', () => ({
   readFile: fsMocks.readFile,
 }));
 
+// node:fs — ContentModule uses existsSync to choose between filesystem (ContentReader)
+// and DB-backed (DbContentReader) IContentPort implementations. ITC-027 needs the
+// fs path so the real ContentReader runs against the mocked node:fs/promises.
+vi.mock('node:fs', () => ({
+  existsSync: vi.fn().mockReturnValue(true),
+}));
+
 // ── Real source imports (after vi.mock is hoisted) ───────────────────────────
 import 'reflect-metadata';
 import { PrismaService } from '../../src/infrastructure/prisma/prisma.service';
@@ -203,62 +211,7 @@ import { ConfigService } from '@nestjs/config';
 import { createMockPrismaService, createMockBrowserPort } from '../mocks/index';
 import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER, RedisModule } from '../../src/infrastructure/redis/redis.module';
 
-// ── DI metadata shim ─────────────────────────────────────────────────────────
-// vitest transpiles via esbuild which does NOT emit `design:paramtypes` metadata,
-// so NestJS DI-by-type fails (it injects `undefined` instead of resolving the
-// provider). We attach the metadata explicitly for every class that is instantiated
-// through NestJS DI with type-based constructor injection. For params annotated
-// with @Inject(token) we place the token in the corresponding slot so resolution
-// works whether or not esbuild preserves the parameter decorator.
-// (Pattern established by tests/unit/health.controller.spec.ts.)
-Reflect.defineMetadata('design:paramtypes', [ConfigService], LlmService);
-Reflect.defineMetadata('design:paramtypes', [ConfigService], ContentReader);
-Reflect.defineMetadata('design:paramtypes', [ContentReader], ContentSourceService);
-Reflect.defineMetadata('design:paramtypes', [ContentSourceService], ContentSourceController);
-Reflect.defineMetadata('design:paramtypes', [ConfigService, Object], RedisCheckpointSaver);
-Reflect.defineMetadata('design:paramtypes', [PrismaService, ConfigService, Object], AccountsService);
-Reflect.defineMetadata('design:paramtypes', [AccountsService], AccountsController);
-Reflect.defineMetadata('design:paramtypes', [PrismaService, EventEmitter2], PostsService);
-Reflect.defineMetadata('design:paramtypes', [PostsService], PostsController);
-// GenerationService: 14 params — 7 required + 7 @Optional()
-Reflect.defineMetadata(
-  'design:paramtypes',
-  [ILlmPort, ContentSourceService, AccountsService, PostsService, PrismaService, RedisCheckpointSaver, SseService, Object, Object, Object, Object, Object, Object, Object],
-  GenerationService,
-);
-Reflect.defineMetadata('design:paramtypes', [GenerationService], GenerationController);
-Reflect.defineMetadata('design:paramtypes', [GenerationService, AccountsService, ConfigService], CronService);
-Reflect.defineMetadata('design:paramtypes', [ConfigService, DiscordNotificationService], QueueFactory);
-Reflect.defineMetadata('design:paramtypes', [QueueFactory], QueueService);
-Reflect.defineMetadata('design:paramtypes', [QueueService], QueueController);
-Reflect.defineMetadata(
-  'design:paramtypes',
-  [PrismaService, AccountsService, IBrowserPort, ConfigService, EncryptionService, DiscordNotificationService],
-  SessionsService,
-);
-Reflect.defineMetadata('design:paramtypes', [SessionsService], SessionsController);
-Reflect.defineMetadata('design:paramtypes', [ConfigService, Object, Object], SseService);
-// Modules with constructor injection also need paramtype metadata for DI.
-Reflect.defineMetadata('design:paramtypes', [SseService], SseModule);
-Reflect.defineMetadata('design:paramtypes', [QueueFactory, PostingService, ModuleRef, ConfigService], QueueModule);
-Reflect.defineMetadata('design:paramtypes', [ConfigService, Object], RateLimitService);
-Reflect.defineMetadata('design:paramtypes', [PrismaService, Object], HealthController);
-Reflect.defineMetadata('design:paramtypes', [ConfigService], BrowserFactory);
-Reflect.defineMetadata('design:paramtypes', [ConfigService], EncryptionService);
-Reflect.defineMetadata('design:paramtypes', [ConfigService], DiscordNotificationService);
-Reflect.defineMetadata('design:paramtypes', [PostingService], PostingController);
-Reflect.defineMetadata('design:paramtypes', [IBrowserPort], XPoster);
-Reflect.defineMetadata('design:paramtypes', [IBrowserPort], ThreadsPoster);
-Reflect.defineMetadata('design:paramtypes', [IBrowserPort, ConfigService], FacebookPoster);
-// ContentEnhancementsModule services — needed since GenerationModule now imports it
-Reflect.defineMetadata('design:paramtypes', [ConfigService, ILlmPort], VisualConceptService);
-Reflect.defineMetadata('design:paramtypes', [ConfigService, ILlmPort], ABVariantGenerator);
-Reflect.defineMetadata('design:paramtypes', [ConfigService, ILlmPort], ThreadDepthController);
-Reflect.defineMetadata('design:paramtypes', [Object], ContentPillarTracker);
-Reflect.defineMetadata('design:paramtypes', [Object, PrismaService], HookPerformanceBank);
-// Quality pass: TopicGenerationService was added to AppModule without a restore
-// entry — esbuild-stripped paramtypes made configService undefined at boot.
-Reflect.defineMetadata('design:paramtypes', [PrismaService, ConfigService, SchedulerRegistry, LlmService], TopicGenerationService);
+restoreAllDesignParamtypes();
 
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -396,9 +349,12 @@ async function buildGenerationModule(opts: {
       RedisModule, // Sprint L: Global module — provides SHARED_REDIS via mocked ioredis factory
       NotificationsModule, // Global — provides DiscordNotificationService
       EventEmitterModule.forRoot(),
+      ScheduleModule.forRoot(), // provides SchedulerRegistry for SessionsService
       GenerationModule,
     ],
   })
+    .overrideProvider(PrismaService)
+    .useValue(opts.prisma)
     .overrideProvider(ILlmPort)
     .useValue(opts.llm)
     // Sprint I: Mock SseService — GenerationService now publishes progress events
@@ -419,7 +375,7 @@ async function buildGenerationModule(opts: {
     // TopicGenerationService needs SchedulerRegistry (global ScheduleModule.forRoot()
     // in prod) — irrelevant to these integration cases, so mock it out.
     .overrideProvider(TopicGenerationService)
-    .useValue({});
+    .useValue({})
 
   if (opts.contentReader) {
     builder.overrideProvider(ContentReader).useValue(opts.contentReader);
@@ -449,9 +405,12 @@ async function buildQueueModule(opts: {
       RedisModule, // Sprint L: Global module — provides SHARED_REDIS via mocked ioredis factory
       NotificationsModule, // Global — provides DiscordNotificationService
       EventEmitterModule.forRoot(),
+      ScheduleModule.forRoot(), // provides SchedulerRegistry for SessionsService
       QueueModule,
     ],
   })
+    .overrideProvider(PrismaService)
+    .useValue(opts.prisma)
     .overrideProvider(PostingService)
     .useValue(opts.postingService)
     .overrideProvider(IBrowserPort)
@@ -537,8 +496,8 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     const runId = await gen.generate(1, [SocialNetwork.X]);
 
     expect(runId).toBe('run-001');
-    // 1 topic × 1 network = 1 post → 4 LLM calls (hook, draft, critique, refine)
-    expect(llm.generateChat).toHaveBeenCalledTimes(4);
+    // 1 topic × 1 network = 1 post → 5 LLM calls (hook, draft, critique, refine, judge)
+    expect(llm.generateChat).toHaveBeenCalledTimes(5);
     // A DRAFT post was created via the real PostsService → PrismaService
     expect(prisma.post.create).toHaveBeenCalledTimes(1);
     const createArg = prisma.post.create.mock.calls[0]![0];
@@ -614,7 +573,7 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     await gen.generate(1, [SocialNetwork.X]);
 
     // Dedup check was invoked through the real PostsService
-    expect(spy).toHaveBeenCalledWith('/blog/venus.md', SocialNetwork.X);
+    expect(spy).toHaveBeenCalledWith('/blog/venus.md', SocialNetwork.X, 14);
     // No new post created because a duplicate already exists for X
     expect(prisma.post.create).not.toHaveBeenCalled();
   });
@@ -739,10 +698,10 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     expect(addArgs[0]).toBe('post');
     expect(addArgs[1]).toEqual({ postId: 'post-016', network: SocialNetwork.X });
 
-    // Job options: jobId = postId (idempotency), attempts = 3, exponential backoff
+    // Job options: jobId = postId (idempotency), attempts = 8 (BULLMQ_POSTING_MAX_RETRIES default), exponential backoff
     const opts = addArgs[2] as { jobId: string; attempts: number; backoff: { type: string; delay: number } };
     expect(opts.jobId).toBe('post-016');
-    expect(opts.attempts).toBe(3);
+    expect(opts.attempts).toBe(8);
     expect(opts.backoff.type).toBe('exponential');
   });
 
@@ -777,9 +736,9 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     expect(runId).toBe('run-026');
     // 3 topics × 3 networks = 9 DRAFT posts
     expect(prisma.post.create).toHaveBeenCalledTimes(9);
-    // 3 topics × 10 LLM calls = 30 generateChat calls
-    // (per topic: 1 hook + 3 drafts + 3 critiques + 3 refines)
-    expect(llm.generateChat).toHaveBeenCalledTimes(30);
+    // 3 topics × 13 LLM calls = 39 generateChat calls
+    // (per topic: 1 hook + 3 drafts + 3 critiques + 3 refines + 3 judges)
+    expect(llm.generateChat).toHaveBeenCalledTimes(39);
 
     // Verify all three networks are represented in created posts
     const networks = prisma.post.create.mock.calls.map(
@@ -952,8 +911,8 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     })) as { posts?: Array<{ content?: string }>; results?: Record<string, { refined?: string; critique?: string }> };
 
     const callsAfterResume = (llm.generateChat as ReturnType<typeof vi.fn>).mock.calls.length;
-    // Only 2 NEW LLM calls (critique + refine) — completed nodes were skipped
-    expect(callsAfterResume - callsBeforeResume).toBe(2);
+    // 3 NEW LLM calls (critique + refine + judge) — completed nodes were skipped
+    expect(callsAfterResume - callsBeforeResume).toBe(3);
 
     // Final state has posts produced by the resumed nodes
     expect(finalState.posts).toBeDefined();

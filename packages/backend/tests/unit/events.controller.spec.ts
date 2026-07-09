@@ -16,12 +16,13 @@ import type { Request, Response } from 'express';
 import { EventEmitter } from 'node:events';
 import { createMockSseService } from '../mocks/index';
 import { createControllerTestingModule } from '../helpers/nest';
+import { defineParamtypes, restoreAllDesignParamtypes } from '../helpers/restore-paramtypes';
 import { EventsController } from '../../src/modules/events/events.controller';
 import { SseService } from '../../src/infrastructure/sse/sse.service';
 
 // vitest transpiles via esbuild which does NOT emit `design:paramtypes` metadata,
 // so NestJS DI-by-type fails. We attach it explicitly to the controller class.
-Reflect.defineMetadata('design:paramtypes', [SseService], EventsController);
+defineParamtypes(EventsController, [SseService]);
 
 describe('EventsController (MOD-07 — SSE supplement)', () => {
   let sseService: ReturnType<typeof createMockSseService>;

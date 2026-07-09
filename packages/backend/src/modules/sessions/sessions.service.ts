@@ -15,6 +15,14 @@ import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
 import { EmailReaderService } from '../../infrastructure/email/email-reader.service.js';
 
+/** Thrown when an auto-login attempt fails in an expected way (wrong credentials, captcha, 2FA, etc.). */
+class AutoLoginFailedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AutoLoginFailedError';
+  }
+}
+
 /**
  * Session manager — persistent browser sessions via Playwright storageState.
  *
@@ -227,12 +235,25 @@ export class SessionsService implements OnModuleInit {
           // non-blocking
         }
         this.lastFormLoginAt.set(network, Date.now());
-        return await breaker.execute(() => this.autoLogin(network));
+        return await breaker.execute(async () => {
+          const session = await this.autoLogin(network);
+          if (!session) {
+            // Treat a null result as a failure so the circuit breaker records it.
+            throw new AutoLoginFailedError(`Auto-login failed for ${network}`);
+          }
+          return session;
+        });
       } catch (err) {
+        // Circuit open or auto-login failed in an expected way — both result in no usable session.
         if (err instanceof CircuitOpenError) {
           this.logger.warn(`Login circuit tripped for ${network}: ${err.message}`);
           return null;
         }
+        if (err instanceof AutoLoginFailedError) {
+          this.logger.error(`Login failed for ${network}: ${(err as Error).message}`);
+          return null;
+        }
+        // Unexpected error (e.g. DB connection lost) — propagate to caller.
         throw err;
       }
     } finally {
@@ -389,6 +410,10 @@ export class SessionsService implements OnModuleInit {
         }
       } catch {}
       return null;
+    } finally {
+      if (context) {
+        await context.close().catch(() => void 0);
+      }
     }
   }
 
@@ -1191,6 +1216,10 @@ export class SessionsService implements OnModuleInit {
         }
       } catch {}
       return null;
+    } finally {
+      if (context) {
+        await context.close().catch(() => void 0);
+      }
     }
   }
 
@@ -1388,6 +1417,18 @@ export class SessionsService implements OnModuleInit {
       return { healthy: true, message: 'Session active' };
     } catch (err) {
       this.logger.error(`Health check failed for ${network}: ${(err as Error).message}`);
+      // 2.4.2: navigation errors (e.g. timeout, net::ERR_*) should expire the session
+      // so getOrCreateSession will attempt a fresh login instead of reusing a broken one.
+      if (session) {
+        try {
+          await this.prisma.session.update({
+            where: { id: session.id },
+            data: { status: SessionStatus.EXPIRED },
+          });
+        } catch {
+          // best-effort — health check failure already logged above
+        }
+      }
       return { healthy: false, message: `Health check error: ${(err as Error).message}` };
     } finally {
       // Always close page and release context back to pool

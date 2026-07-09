@@ -73,6 +73,10 @@ export interface SourceRef {
   path: string;
   topic?: string;
   factIndex?: number;
+  keywords?: string[];
+  originalTopic?: string;
+  originalPostId?: string;
+  recycledAt?: string;
 }
 
 export interface LlmMetadata {
@@ -96,4 +100,17 @@ export interface RateLimitConfig {
   maxPostsPerDay: number;
   maxPostsPerWeek: number;
   minDelayBetweenPostsMs: number;
+}
+
+/** Stage 2: LLM-as-a-Judge evaluation scores (0.0-1.0 per criterion). */
+export interface JudgeScores {
+  [key: string]: number | string;
+  anti_ai_tone: number;
+  anti_ai_tone_reason: string;
+  hook_strength: number;
+  hook_strength_reason: string;
+  factual_accuracy: number;
+  factual_accuracy_reason: string;
+  character_limit: number;
+  character_limit_reason: string;
 }

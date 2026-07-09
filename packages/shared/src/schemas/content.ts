@@ -118,3 +118,19 @@ export const ContentTopicSchema = z.object({
   language: z.string().default('en'),
 });
 export type ContentTopic = z.infer<typeof ContentTopicSchema>;
+
+// ============================================================
+// Content source configuration — used by Content Adapters Beyond CAP
+// ============================================================
+
+export const ContentSourceConfigSchema = z.object({
+  sourceType: z.string().min(1),
+  name: z.string().optional(),
+  enabled: z.boolean().default(true),
+  priority: z.number().optional(),
+  config: z.record(z.unknown()).default({}),
+});
+export type ContentSourceConfig = z.infer<typeof ContentSourceConfigSchema>;
+
+export const ContentSourcesConfigSchema = z.array(ContentSourceConfigSchema);
+export type ContentSourcesConfig = z.infer<typeof ContentSourcesConfigSchema>;

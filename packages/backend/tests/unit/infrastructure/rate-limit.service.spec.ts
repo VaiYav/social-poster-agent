@@ -62,8 +62,8 @@ describe('RateLimitService (MOD-05 — Infrastructure Adapters)', () => {
 
   // ── UTC-076 ──
   it('UTC-076: checkRateLimit() allows post when under daily limit and interval OK', async () => {
-    // checkRateLimit uses redis.get (read-only): daily='0', weekly='0', interval=null
-    mockRedis.get.mockResolvedValue(null);
+    // checkRateLimit uses redis.mget (read-only): daily='0', weekly='0', interval=null
+    mockRedis.mget.mockResolvedValue(['0', '0', null]);
 
     const result = await service.checkRateLimit('X');
 
@@ -73,9 +73,7 @@ describe('RateLimitService (MOD-05 — Infrastructure Adapters)', () => {
   // ── UTC-077 ──
   it('UTC-077: checkRateLimit() blocks post when daily count reaches limit (boundary: count = limit)', async () => {
     // X daily limit is 50; daily count = 50 → blocked (>= check)
-    mockRedis.get
-      .mockResolvedValueOnce('50') // daily key
-      .mockResolvedValueOnce('0'); // weekly key
+    mockRedis.mget.mockResolvedValue(['50', '0', null]);
 
     const result = await service.checkRateLimit('X');
 
@@ -86,10 +84,7 @@ describe('RateLimitService (MOD-05 — Infrastructure Adapters)', () => {
   // ── UTC-078 ──
   it('UTC-078: checkRateLimit() allows post when daily count is under limit (boundary: count = limit-1)', async () => {
     // X daily limit is 50; daily count = 49 → allowed
-    mockRedis.get
-      .mockResolvedValueOnce('49') // daily key
-      .mockResolvedValueOnce('0')  // weekly key
-      .mockResolvedValueOnce(null); // interval key — no last post
+    mockRedis.mget.mockResolvedValue(['49', '0', null]);
 
     const result = await service.checkRateLimit('X');
 
@@ -100,10 +95,7 @@ describe('RateLimitService (MOD-05 — Infrastructure Adapters)', () => {
   it('UTC-079: checkRateLimit() blocks post when minimum interval not elapsed', async () => {
     // 1 minute ago — X needs 5 min (300000ms)
     const oneMinAgo = (Date.now() - 60_000).toString();
-    mockRedis.get
-      .mockResolvedValueOnce('0')       // daily key
-      .mockResolvedValueOnce('0')       // weekly key
-      .mockResolvedValueOnce(oneMinAgo); // interval key
+    mockRedis.mget.mockResolvedValue(['0', '0', oneMinAgo]);
 
     const result = await service.checkRateLimit('X');
 
@@ -116,10 +108,7 @@ describe('RateLimitService (MOD-05 — Infrastructure Adapters)', () => {
   it('UTC-080: checkRateLimit() allows post when minimum interval has elapsed', async () => {
     // 301 seconds ago — X needs 300 seconds (300000ms)
     const overFiveMinAgo = (Date.now() - 301_000).toString();
-    mockRedis.get
-      .mockResolvedValueOnce('0')            // daily key
-      .mockResolvedValueOnce('0')            // weekly key
-      .mockResolvedValueOnce(overFiveMinAgo); // interval key
+    mockRedis.mget.mockResolvedValue(['0', '0', overFiveMinAgo]);
 
     const result = await service.checkRateLimit('X');
 
@@ -157,9 +146,7 @@ describe('RateLimitService (MOD-05 — Infrastructure Adapters)', () => {
   // ── UTC-083 ──
   it('UTC-083: checkRateLimit() uses default daily limit (1) for unknown network', async () => {
     // Unknown network — default limit is 1
-    mockRedis.get
-      .mockResolvedValueOnce('1')  // daily key — count=1 >= limit=1
-      .mockResolvedValueOnce('0'); // weekly key
+    mockRedis.mget.mockResolvedValue(['1', '0', null]); // daily key — count=1 >= limit=1
 
     const result = await service.checkRateLimit('UNKNOWN');
 

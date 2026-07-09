@@ -14,14 +14,15 @@ import { PostStatus, SocialNetwork } from '@prisma/client';
 
 import { AutoApproveService } from '../../../src/modules/autonomy/auto-approve.service';
 
-function build(opts: { enabled?: boolean; checkPassed?: boolean; status?: PostStatus } = {}) {
-  const { enabled = true, checkPassed = true, status = PostStatus.DRAFT } = opts;
+function build(opts: { enabled?: boolean; checkPassed?: boolean; status?: PostStatus; failOpenMissingScore?: boolean } = {}) {
+  const { enabled = true, checkPassed = true, status = PostStatus.DRAFT, failOpenMissingScore = false } = opts;
 
   const cfg: Record<string, unknown> = {
     AUTO_APPROVE_ENABLED: enabled ? 'true' : 'false',
     AUTO_APPROVE_MIN_SCORE: 7,
     AUTO_APPROVE_REVIEW_SCORE: 4,
     AUTO_APPROVE_REJECT_STREAK_ALERT: 3,
+    AUTO_APPROVE_MISSING_SCORE_FAIL_OPEN: failOpenMissingScore ? 'true' : 'false',
   };
   const configService = { get: vi.fn((k: string, d?: unknown) => cfg[k] ?? d) };
 
@@ -80,8 +81,17 @@ describe('AutoApproveService.evaluate (A1/BUG-12 — single decision-gate)', () 
     expect(writtenStatus(prisma)).toBe(PostStatus.REJECTED);
   });
 
-  it('missing score + enabled → AUTO_APPROVE (AutoCheck passed, safe to publish)', async () => {
+  it('missing score + enabled → HUMAN_REVIEW (fail-closed) by default', async () => {
     const { service, prisma } = build();
+    const res = await service.evaluate(...evalArgs(undefined));
+
+    expect(res.decision).toBe('HUMAN_REVIEW');
+    expect(res.reason).toMatch(/Missing quality score.*human review/i);
+    expect(writtenStatus(prisma)).toBe(PostStatus.DRAFT);
+  });
+
+  it('missing score + enabled + fail-open → AUTO_APPROVE (AutoCheck passed, safe to publish)', async () => {
+    const { service, prisma } = build({ failOpenMissingScore: true });
     const res = await service.evaluate(...evalArgs(undefined));
 
     expect(res.decision).toBe('AUTO_APPROVE');

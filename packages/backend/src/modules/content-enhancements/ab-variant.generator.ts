@@ -23,12 +23,19 @@
  * Env-gated: only active when AB_VARIANTS_ENABLED=true.
  * When disabled, the graph produces a single refined post (original behavior).
  */
-
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ILlmPort } from '../../domain/ports/llm.port.js';
 import { SocialNetwork } from '@prisma/client';
 import { parseBool } from '../../infrastructure/config/parse-bool';
+import { NETWORK_LIMITS } from '../posts/network-limits.js';
+
+export interface GenerateVariantsOptions {
+  /** Topic string used for logging and prior-winner lookup. */
+  topic?: string;
+  /** Historical winner for this topic, if known. */
+  priorWinner?: 'a' | 'b' | null;
+}
 
 /**
  * A single A/B variant.
@@ -56,13 +63,6 @@ export interface ABVariantPair {
   winner: 'a' | 'b' | null;
 }
 
-/** Per-network character limits (mirrors generation.graph NETWORK_LIMITS). */
-const NETWORK_LIMITS: Record<SocialNetwork, number> = {
-  [SocialNetwork.X]: 280,
-  [SocialNetwork.THREADS]: 500,
-  [SocialNetwork.FACEBOOK]: 500,
-};
-
 @Injectable()
 export class ABVariantGenerator {
   private readonly logger = new Logger(ABVariantGenerator.name);
@@ -88,24 +88,29 @@ export class ABVariantGenerator {
    *
    * @param content  Refined post text (the base for variants)
    * @param network  Target network (affects char limit)
+   * @param options  Optional topic and prior winner hint
    * @returns Variant pair, or null when disabled
    */
   async generateVariants(
     content: string,
     network: SocialNetwork,
+    options?: GenerateVariantsOptions,
   ): Promise<ABVariantPair | null> {
     if (!this.enabled) return null;
 
     if (this.llm) {
       try {
-        return await this.llmGenerateVariants(content, network);
+        return await this.llmGenerateVariants(content, network, options);
       } catch (err) {
-        this.logger.debug(`P7: LLM variant generation failed: ${(err as Error).message} — using heuristic`);
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.debug(
+          `P7: LLM variant generation failed for ${options?.topic ?? 'unknown'}: ${message} — using heuristic`,
+        );
       }
     }
 
     // Heuristic fallback — adjust emoji/hashtag count deterministically
-    return this.heuristicVariants(content);
+    return this.heuristicVariants(content, options);
   }
 
   /**
@@ -114,10 +119,19 @@ export class ABVariantGenerator {
   private async llmGenerateVariants(
     content: string,
     network: SocialNetwork,
+    options?: GenerateVariantsOptions,
   ): Promise<ABVariantPair> {
     if (!this.llm) throw new Error('LLM unavailable');
 
-    const charLimit = NETWORK_LIMITS[network]!;
+    const charLimit = NETWORK_LIMITS[network];
+    const priorWinner = options?.priorWinner;
+
+    let winnerHint = '';
+    if (priorWinner === 'a') {
+      winnerHint = `\nPrior winner for this topic is the "Clean/Minimal" style. Lean the baseline slightly toward that style while still producing a valid variant B.`;
+    } else if (priorWinner === 'b') {
+      winnerHint = `\nPrior winner for this topic is the "Expressive/Rich" style. Lean the baseline slightly toward that style while still producing a valid variant A.`;
+    }
 
     const systemPrompt = `You are a social media copywriter for My Zodiac AI, an AI-powered astrology platform.
 Brand voice: mystical-but-grounded, accessible, human. Never use AI-cliché words (delve, unlock, discover, empowering, transformative).
@@ -140,12 +154,14 @@ Both variants must:
   - NOT ask for likes/comments/shares (engagement bait)
   - NOT include hashtags, URLs, or links
   - Be distinct in style (not just emoji count)
+  ${winnerHint}
 
 Return ONLY the two variants in this format:
 A: <variant A text>
 B: <variant B text>`;
 
-    const userPrompt = `Base post:
+    const userPrompt = `Topic: ${options?.topic ?? 'general'}
+Base post:
 "${content}"
 
 Generate A/B variants:`;
@@ -199,21 +215,26 @@ Generate A/B variants:`;
    * Variant A: strips all emojis/hashtags (clean text only)
    * Variant B: adds 1-2 cosmic emojis, strips hashtags
    */
-  private heuristicVariants(content: string): ABVariantPair {
+  private heuristicVariants(content: string, options?: GenerateVariantsOptions): ABVariantPair {
+    const priorWinner = options?.priorWinner;
+
     // Variant A: strip to minimal — no emojis, no hashtags
     const variantA = content
-      .replace(/(\s*#[a-zA-Z0-9_]+\s*)/g, ' ') // remove all hashtags
+      .replace(/(\s*#[\p{L}\p{N}_]+\s*)/gu, ' ') // remove all hashtags (Unicode-aware)
       .replace(/(\s*[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}✨🌙🔮⭐💫🌟]+\s*)/gu, ' ') // remove all emojis
       .replace(/\s+/g, ' ')
       .trim();
 
     // Variant B: add cosmic emojis if missing, strip hashtags
     const cosmicEmojis = [' ✨', ' 🌙', ' 🔮'];
-    let variantB = content.replace(/(\s*#[a-zA-Z0-9_]+\s*)/g, ' ').replace(/\s+/g, ' ').trim();
-    if (countEmojis(variantB) < 2) {
+    let variantB = content.replace(/(\s*#[\p{L}\p{N}_]+\s*)/gu, ' ').replace(/\s+/g, ' ').trim();
+
+    const minBEmojis = priorWinner === 'b' ? 3 : 2;
+    if (countEmojis(variantB) < minBEmojis) {
       // Add 1-2 emojis at natural break points (end of sentences)
       const sentences = variantB.split(/(?<=[.!?])\s/);
-      for (let i = 0; i < Math.min(sentences.length - 1, 2); i++) {
+      const slots = Math.min(sentences.length - 1, minBEmojis - countEmojis(variantB));
+      for (let i = 0; i < Math.max(slots, 1); i++) {
         const emojiIdx = i % cosmicEmojis.length;
         sentences[i] = sentences[i]!.trimEnd() + cosmicEmojis[emojiIdx]!;
       }
@@ -251,6 +272,7 @@ function countEmojis(text: string): number {
  * Count hashtags in a string.
  */
 function countHashtags(text: string): number {
-  const matches = text.match(/#[a-zA-Z0-9_]+/g);
+  // 2.8.5: Unicode-aware regex so Cyrillic, Arabic, etc. hashtags are counted.
+  const matches = text.match(/#[\p{L}\p{N}_]+/gu);
   return matches?.length ?? 0;
 }

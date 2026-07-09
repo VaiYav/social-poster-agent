@@ -48,7 +48,7 @@ export class WarmupService {
       data: {
         accountId,
         storageState: { cookies: [], origins: [] },
-        status: 'WARMUP' as SessionStatus,
+        status: SessionStatus.WARMUP,
       },
     });
 
@@ -112,7 +112,7 @@ export class WarmupService {
 
     // Update WARMUP sessions to ACTIVE
     await this.prisma.session.updateMany({
-      where: { accountId, status: 'WARMUP' as SessionStatus },
+      where: { accountId, status: SessionStatus.WARMUP },
       data: { status: SessionStatus.ACTIVE },
     });
 

@@ -45,7 +45,6 @@ import { FacebookPoster } from '../../src/modules/posting/posters/facebook.poste
 import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { RateLimitService } from '../../src/modules/rate-limit/rate-limit.service';
-import { HealthMonitorService } from '../../src/modules/health-monitor/health-monitor.service';
 import { CronService } from '../../src/modules/generation/cron.service';
 import { WarmupService } from '../../src/modules/sessions/warmup.service';
 import { QueueService } from '../../src/modules/queue/queue.service';
@@ -55,8 +54,7 @@ import { PostsController } from '../../src/modules/posts/posts.controller';
 import { PostingController } from '../../src/modules/posting/posting.controller';
 import { ModuleRef } from '@nestjs/core';
 import { createMockLlmPort, createMockBrowserPort, createMockPrismaService } from '../mocks/index';
-import { restoreSprintOParamtypes } from '../helpers/sprint-o-paramtypes';
-import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER } from '../../src/infrastructure/redis/redis.module';
+import { restoreAllDesignParamtypes } from '../helpers/restore-paramtypes';
 import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service';
 import { AutoApproveListener } from '../../src/events/listeners/auto-approve.listener';
 import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service';
@@ -175,14 +173,6 @@ vi.mock('@langchain/openai', () => ({
   })),
 }));
 
-// ── esbuild paramtypes restoration ──────────────────────────────────────────
-function defineParamtypes(target: unknown, types: unknown[]): void {
-  Reflect.defineMetadata('design:paramtypes', types, target as object);
-}
-
-function restoreParamtypes(cls: unknown, types: unknown[]): void {
-  Reflect.defineMetadata('design:paramtypes', types, cls as object);
-}
 
 describe('E2E Sprint D: Full Flow — generate → approve → post', () => {
   let app: INestApplication;
@@ -341,116 +331,7 @@ describe('E2E Sprint D: Full Flow — generate → approve → post', () => {
 
     // Restore paramtypes for esbuild (esbuild doesn't emit design:paramtypes)
     // Always set — previous test files may have set older metadata
-    defineParamtypes(BrowserFactory, [ConfigService]);
-    defineParamtypes(LlmService, [ConfigService]);
-    defineParamtypes(ContentReader, [ConfigService]);
-    defineParamtypes(SseService, [ConfigService, Object, Object]);
-    defineParamtypes(RedisCheckpointSaver, [ConfigService, Object]);
-    defineParamtypes(QueueFactory, [ConfigService, DiscordNotificationService]);
-    defineParamtypes(EncryptionService, [ConfigService]);
-    defineParamtypes(DiscordNotificationService, [ConfigService]);
-
-    // Module classes with constructor DI
-    defineParamtypes(SseModule, [SseService]);
-    defineParamtypes(QueueModule, [QueueFactory, PostingService, ModuleRef, ConfigService]);
-
-    // Accounts
-    defineParamtypes(AccountsService, [PrismaService, ConfigService, WarmupService]);
-    defineParamtypes(AccountsController, [AccountsService]);
-
-    // Content source
-    defineParamtypes(ContentSourceService, [ContentReader]);
-    defineParamtypes(ContentSourceController, [ContentSourceService]);
-
-    // Generation — 14 params: 7 required + 7 @Optional()
-    defineParamtypes(GenerationService, [
-      Object, // @Inject(ILlmPort)
-      ContentSourceService,
-      AccountsService,
-      PostsService,
-      PrismaService,
-      RedisCheckpointSaver,
-      SseService,
-      Object, // @Optional() TrendingService
-      Object, // @Optional() TrendingScraperService
-      Object, // @Optional() ContentPillarTracker
-      Object, // @Optional() HookPerformanceBank
-      Object, // @Optional() VisualConceptService
-      Object, // @Optional() ThreadDepthController
-      Object, // @Optional() ABVariantGenerator
-    ]);
-    defineParamtypes(GenerationController, [GenerationService]);
-    defineParamtypes(CronService, [GenerationService, AccountsService, ConfigService]);
-
-    // Posts
-    defineParamtypes(PostsService, [PrismaService, EventEmitter2]);
-    defineParamtypes(MetricsScraperService, [PrismaService, SseService, SchedulerRegistry, Object]);
-    defineParamtypes(PostsController, [PostsService, Object]);
-
-    // Posting — @Inject(IBrowserPort) param is Object
-    defineParamtypes(PostingService, [
-      Object,
-      AccountsService,
-      SessionsService,
-      WarmupService,
-      PostsService,
-      RateLimitService,
-      SseService,
-      ThreadProgressService,
-      XPoster,
-      ThreadsPoster,
-      FacebookPoster,
-      Object, // @Optional() QueueFactory
-    ]);
-    defineParamtypes(PostingController, [PostingService]);
-    defineParamtypes(FacebookPoster, [Object, ConfigService]);
-    defineParamtypes(XPoster, [Object]);
-    defineParamtypes(ThreadsPoster, [Object]);
-    defineParamtypes(XEngager, [Object]);
-    defineParamtypes(ThreadsEngager, [Object]);
-    defineParamtypes(FacebookEngager, [Object, ConfigService]);
-    defineParamtypes(BrowsingSessionService, [PrismaService, SessionsService, Object, ConfigService, SseService, RateLimitService, XEngager, ThreadsEngager, FacebookEngager, HumanBehaviorEngine, TargetingService, Object]);
-    defineParamtypes(EngagementService, [PrismaService, SessionsService, Object, SseService, RateLimitService, XEngager, ThreadsEngager, FacebookEngager]);
-    defineParamtypes(EngagementController, [EngagementService]);
-    defineParamtypes(HumanBehaviorEngine, [PrismaService, Object, SseService, RateLimitService, Object]);
-    defineParamtypes(TargetingService, [ConfigService]);
-    defineParamtypes(EngagementSchedulerService, [ConfigService, QueueFactory]);
-
-    // Sessions — @Inject(IBrowserPort) param is Object
-    defineParamtypes(SessionsService, [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService]);
-    defineParamtypes(WarmupService, [PrismaService, ConfigService]);
-    defineParamtypes(SessionsController, [SessionsService]);
-
-    // Rate limit
-    defineParamtypes(RateLimitService, [ConfigService, Object]);
-
-    // Events
-    defineParamtypes(EventsController, [SseService]);
-    defineParamtypes(AutoApproveListener, [PostsService, PrismaService, ModuleRef, ConfigService, Object]);
-    defineParamtypes(SseEventListener, [SseService]);
-
-    // Queue
-    defineParamtypes(QueueService, [QueueFactory]);
-    defineParamtypes(QueueController, [QueueService]);
-
-    // Health
-    defineParamtypes(HealthController, [PrismaService, Object]);
-
-    // Content Enhancements
-    defineParamtypes(VisualConceptService, [ConfigService, Object]);
-    defineParamtypes(ABVariantGenerator, [ConfigService, Object]);
-    defineParamtypes(ThreadDepthController, [ConfigService, Object]);
-    defineParamtypes(ContentPillarTracker, [Object]);
-    defineParamtypes(HookPerformanceBank, [Object, PrismaService]);
-
-    // Replies
-    defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object, Object]);
-  // Quality pass: TopicGenerationService was added to AppModule without a restore
-  // entry — esbuild-stripped paramtypes made configService undefined at boot.
-  defineParamtypes(TopicGenerationService, [PrismaService, ConfigService, SchedulerRegistry, LlmService]);
-
-    // Sprint O: Restore paramtypes for new feature modules
-    await restoreSprintOParamtypes(defineParamtypes, PrismaService);
+    await restoreAllDesignParamtypes();
 
     // Mock QueueFactory (no-op — no BullMQ worker polling, but with queue control methods)
     const queueFactory = {
@@ -517,7 +398,7 @@ describe('E2E Sprint D: Full Flow — generate → approve → post', () => {
         getMergedTrends: () => Promise.resolve([]),
         getCacheStatus: () => Promise.resolve({ googleTrends: null, xTrends: null }),
       })
-      .overrideProvider(SseEventListener).useValue({ handleDraftGenerated: () => {}, handleApproved: () => {}, handlePostingStarted: () => {}, handlePosted: () => {}, handleFailed: () => {} }).compile();
+      .compile();
 
     app = moduleRef.createNestApplication();
     app.setGlobalPrefix('api/v1');
