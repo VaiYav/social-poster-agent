@@ -17,14 +17,14 @@ export interface PromptLabelEntry {
   isFallback?: boolean;
 }
 
-const promptLabelStorage = new AsyncLocalStorage<PromptLabelEntry[]>();
+const promptLabelStorage = new AsyncLocalStorage<Map<string, PromptLabelEntry>>();
 
 /**
  * Run a function with a fresh prompt-label store. All getCompiledChat/Text
  * calls inside `fn` will append their resolved labels to the store.
  */
 export function withPromptLabelContext<T>(fn: () => Promise<T>): Promise<T> {
-  return promptLabelStorage.run([], fn);
+  return promptLabelStorage.run(new Map<string, PromptLabelEntry>(), fn);
 }
 
 /**
@@ -39,23 +39,17 @@ export function recordPromptLabel(
   const store = promptLabelStorage.getStore();
   if (!store) return;
 
-  const existing = store.find((entry) => entry.name === name);
-  if (existing) {
-    existing.label = label;
-    existing.isFallback = isFallback;
-  } else {
-    store.push({ name, label, isFallback });
-  }
+  store.set(name, { name, label, isFallback });
 }
 
 /**
  * Get the map of promptName -> { label, isFallback } recorded in this context.
  */
 export function getRecordedPromptLabels(): Record<string, { label: string; isFallback?: boolean }> {
-  const store = promptLabelStorage.getStore() ?? [];
+  const store = promptLabelStorage.getStore() ?? new Map<string, PromptLabelEntry>();
   const map: Record<string, { label: string; isFallback?: boolean }> = {};
-  for (const entry of store) {
-    map[entry.name] = { label: entry.label, isFallback: entry.isFallback };
+  for (const [name, { label, isFallback }] of store) {
+    map[name] = { label, isFallback };
   }
   return map;
 }

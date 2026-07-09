@@ -95,7 +95,10 @@ export class PromptRegistry implements IPromptPort {
       const result = await this.fetchChatPrompt(name, sdkFallback, resolvedLabel)
       if (result) {
         try {
-          const compiled = result.prompt.compile(variables) as unknown[]
+          const compiled = result.prompt.compile(variables)
+          if (!Array.isArray(compiled)) {
+            throw new Error(`Expected array from chat prompt compile, got ${typeof compiled}`)
+          }
           const messages = compiled.filter(isChatMessage)
           const systemMsg = messages.find((m) => m.role === 'system')
           const userMsg = messages.find((m) => m.role === 'user')
@@ -241,11 +244,12 @@ export class PromptRegistry implements IPromptPort {
     return chain
   }
 
-  private async fetchChatPrompt(
+  private async fetchWithLabelChain<T extends { isFallback: boolean }, F>(
     name: string,
-    sdkFallback: { role: string; content: string }[] | undefined,
+    sdkFallback: F | undefined,
     resolvedLabel: string,
-  ): Promise<{ prompt: { compile(vars: Record<string, string>): unknown }; label: string; isFallback: boolean } | undefined> {
+    fetcher: (label: string, fallback: F | undefined) => Promise<T | undefined>,
+  ): Promise<{ prompt: T; label: string; isFallback: boolean } | undefined> {
     if (!this.langfuse) return undefined
     const chain = this.buildLabelChain(resolvedLabel)
     for (let i = 0; i < chain.length; i++) {
@@ -253,9 +257,9 @@ export class PromptRegistry implements IPromptPort {
       const isLast = i === chain.length - 1
       const fallback = isLast ? sdkFallback : undefined
       try {
-        const prompt = await this.langfuse.getChatPrompt(name, fallback, label)
-        if (prompt && (!prompt.isFallback || isLast)) {
-          return { prompt, label, isFallback: prompt.isFallback }
+        const result = await fetcher(label, fallback)
+        if (result && (!result.isFallback || isLast)) {
+          return { prompt: result, label, isFallback: result.isFallback }
         }
       } catch (err) {
         this.logger.warn(`Langfuse fetch failed for "${name}" (label: ${label}): ${getErrorMessage(err)}`)
@@ -264,27 +268,30 @@ export class PromptRegistry implements IPromptPort {
     return undefined
   }
 
+  private async fetchChatPrompt(
+    name: string,
+    sdkFallback: { role: string; content: string }[] | undefined,
+    resolvedLabel: string,
+  ): Promise<{ prompt: { compile(vars: Record<string, string>): unknown }; label: string; isFallback: boolean } | undefined> {
+    return this.fetchWithLabelChain(
+      name,
+      sdkFallback,
+      resolvedLabel,
+      async (label, fallback) => this.langfuse!.getChatPrompt(name, fallback, label),
+    )
+  }
+
   private async fetchTextPrompt(
     name: string,
     sdkFallback: string | undefined,
     resolvedLabel: string,
   ): Promise<{ prompt: { compile(vars: Record<string, string>): unknown }; label: string; isFallback: boolean } | undefined> {
-    if (!this.langfuse) return undefined
-    const chain = this.buildLabelChain(resolvedLabel)
-    for (let i = 0; i < chain.length; i++) {
-      const label = chain[i]!
-      const isLast = i === chain.length - 1
-      const fallback = isLast ? sdkFallback : undefined
-      try {
-        const prompt = await this.langfuse.getTextPrompt(name, fallback, label)
-        if (prompt && (!prompt.isFallback || isLast)) {
-          return { prompt, label, isFallback: prompt.isFallback }
-        }
-      } catch (err) {
-        this.logger.warn(`Langfuse fetch failed for "${name}" (label: ${label}): ${getErrorMessage(err)}`)
-      }
-    }
-    return undefined
+    return this.fetchWithLabelChain(
+      name,
+      sdkFallback,
+      resolvedLabel,
+      async (label, fallback) => this.langfuse!.getTextPrompt(name, fallback, label),
+    )
   }
 }
 

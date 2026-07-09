@@ -57,6 +57,9 @@ import { ABVariantGenerator } from '../content-enhancements/ab-variant.generator
  * Saves drafts as Post (status=DRAFT). Operator reviews in UI before posting.
  */
 
+type CompiledGraph = ReturnType<ReturnType<typeof buildGenerationGraph>['compile']>;
+type AccountResult = Awaited<ReturnType<AccountsService['findByNetwork']>>;
+
 /**
  * Config object passed to `graph.invoke()`. Includes `callbacks` in the type
  * so we can attach Langfuse handlers without `as` casts.
@@ -71,7 +74,7 @@ interface GraphInvokeConfig {
 export class GenerationService {
   private readonly logger = new Logger(GenerationService.name);
   private brandVoice: string | null = null;
-  private compiledGraph: ReturnType<ReturnType<typeof buildGenerationGraph>['compile']> | null = null;
+  private compiledGraph: CompiledGraph | null = null;
   /** Active run cancellations — runId → AbortController */
   private readonly activeRuns = new Map<string, AbortController>();
   /** Languages for multilingual post generation (ISO 639-1 codes) */
@@ -114,7 +117,7 @@ export class GenerationService {
    * Lazy-compile the graph with the checkpoint saver and SSE progress publisher.
    * Done on first use (not constructor) to ensure Redis is connected.
    */
-  private getGraph() {
+  private getGraph(): CompiledGraph {
     if (!this.compiledGraph) {
       const progressPublisher: ProgressPublisher = (event) => {
         this.sseService.publish({
@@ -162,7 +165,7 @@ export class GenerationService {
     }
     return withPromptLabelContext(() =>
       withLlmCallbacks(callbacks, async () => {
-        const finalState = await this.getGraph().invoke(input as never, config as never);
+        const finalState = await this.getGraph().invoke(input, config);
         const promptLabels = getRecordedPromptLabels();
         return { finalState, promptLabels };
       }),
@@ -699,7 +702,6 @@ export class GenerationService {
     // Q11 (N+1 fix): load each network's account ONCE and reuse the map in the
     // save loop below (previously findByNetwork was re-queried per generated
     // post); per-network checks run in parallel instead of sequentially.
-    type AccountResult = Awaited<ReturnType<AccountsService['findByNetwork']>>;
     const accountByNetwork = new Map<SocialNetwork, AccountResult>();
     const activeNetworks: SocialNetwork[] = [];
     const networkChecks = await Promise.all(
@@ -1331,6 +1333,14 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
     // Resume in background — don't block the API response
     void (async () => {
       const postIds: string[] = [];
+      // Pre-load accounts for all target networks once, then reuse in the loop.
+      const accountByNetwork = new Map<SocialNetwork, AccountResult>();
+      await Promise.all(
+        targetNetworks.map(async (network) => {
+          const account = await this.accountsService.findByNetwork(network);
+          accountByNetwork.set(network, account);
+        }),
+      );
       try {
         for (const topic of topics) {
           if (controller.signal.aborted) break;
@@ -1366,7 +1376,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
                 continue;
               }
 
-              const account = await this.accountsService.findByNetwork(genPost.network);
+              const account = accountByNetwork.get(genPost.network);
               if (!account) continue;
 
               const post = await this.postsService.create({
@@ -1451,6 +1461,16 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
     );
     const generatedPosts = (finalState as { posts?: GeneratedPost[] }).posts ?? [];
 
+    // Pre-load accounts for the networks that actually produced posts.
+    const accountByNetwork = new Map<SocialNetwork, AccountResult>();
+    const postNetworks = [...new Set(generatedPosts.map((p) => p.network))];
+    await Promise.all(
+      postNetworks.map(async (network) => {
+        const account = await this.accountsService.findByNetwork(network);
+        accountByNetwork.set(network, account);
+      }),
+    );
+
     // Save the generated posts (same logic as generatePostsForTopic)
     const postIds: string[] = [];
     const recentHashes = await this.loadRecentPostHashes(topic);
@@ -1465,7 +1485,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
         continue;
       }
 
-      const account = await this.accountsService.findByNetwork(genPost.network);
+      const account = accountByNetwork.get(genPost.network);
       if (!account) continue;
 
       const post = await this.postsService.create({
