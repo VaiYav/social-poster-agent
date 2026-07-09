@@ -29,8 +29,9 @@
  * Source: CONSTITUTION.md §14 (Testing) — test case IDs are inline
  */
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { restoreAllDesignParamtypes } from '../helpers/restore-paramtypes';
 import { TopicGenerationService } from '../../src/infrastructure/content/topic-generation.service';
-import { SchedulerRegistry } from '@nestjs/schedule';
+import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitter2, EventEmitterModule } from '@nestjs/event-emitter';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { ModuleRef } from '@nestjs/core';
@@ -210,7 +211,7 @@ import { ConfigService } from '@nestjs/config';
 import { createMockPrismaService, createMockBrowserPort } from '../mocks/index';
 import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER, RedisModule } from '../../src/infrastructure/redis/redis.module';
 
-// ── DI metadata shim ─────────────────────────────────────────────────────────
+/*
 // vitest transpiles via esbuild which does NOT emit `design:paramtypes` metadata,
 // so NestJS DI-by-type fails (it injects `undefined` instead of resolving the
 // provider). We attach the metadata explicitly for every class that is instantiated
@@ -265,7 +266,8 @@ Reflect.defineMetadata('design:paramtypes', [Object], ContentPillarTracker);
 Reflect.defineMetadata('design:paramtypes', [Object, PrismaService], HookPerformanceBank);
 // Quality pass: TopicGenerationService was added to AppModule without a restore
 // entry — esbuild-stripped paramtypes made configService undefined at boot.
-Reflect.defineMetadata('design:paramtypes', [PrismaService, ConfigService, SchedulerRegistry, LlmService], TopicGenerationService);
+*/
+restoreAllDesignParamtypes();
 
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -403,6 +405,7 @@ async function buildGenerationModule(opts: {
       RedisModule, // Sprint L: Global module — provides SHARED_REDIS via mocked ioredis factory
       NotificationsModule, // Global — provides DiscordNotificationService
       EventEmitterModule.forRoot(),
+      ScheduleModule.forRoot(), // provides SchedulerRegistry for SessionsService
       GenerationModule,
     ],
   })
@@ -428,7 +431,7 @@ async function buildGenerationModule(opts: {
     // TopicGenerationService needs SchedulerRegistry (global ScheduleModule.forRoot()
     // in prod) — irrelevant to these integration cases, so mock it out.
     .overrideProvider(TopicGenerationService)
-    .useValue({});
+    .useValue({})
 
   if (opts.contentReader) {
     builder.overrideProvider(ContentReader).useValue(opts.contentReader);
@@ -458,6 +461,7 @@ async function buildQueueModule(opts: {
       RedisModule, // Sprint L: Global module — provides SHARED_REDIS via mocked ioredis factory
       NotificationsModule, // Global — provides DiscordNotificationService
       EventEmitterModule.forRoot(),
+      ScheduleModule.forRoot(), // provides SchedulerRegistry for SessionsService
       QueueModule,
     ],
   })

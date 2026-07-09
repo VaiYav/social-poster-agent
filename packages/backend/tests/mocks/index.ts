@@ -388,6 +388,59 @@ export function createMockQueueService() {
   };
 }
 
+// ── QueueFactory Mock ──
+
+import type { QueueFactory } from '../../src/infrastructure/queue/queue.factory';
+
+export function createMockQueueFactory(): QueueFactory {
+  return {
+    createQueue: vi.fn().mockReturnValue({
+      add: vi.fn(),
+      close: vi.fn(),
+      getJobCounts: vi.fn().mockResolvedValue({ waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 }),
+      getFailed: vi.fn().mockResolvedValue([]),
+      isPaused: vi.fn().mockResolvedValue(false),
+      pause: vi.fn(),
+      resume: vi.fn(),
+    }),
+    createWorker: vi.fn().mockReturnValue({ close: vi.fn() }),
+    registerWorker: vi.fn(),
+    closeAll: vi.fn(),
+    enqueuePosting: vi.fn().mockResolvedValue(undefined),
+    getJobCounts: vi.fn().mockResolvedValue({ waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 }),
+    getFailedJobs: vi.fn().mockResolvedValue([]),
+    pauseQueue: vi.fn().mockResolvedValue(undefined),
+    resumeQueue: vi.fn().mockResolvedValue(undefined),
+    isQueuePaused: vi.fn().mockResolvedValue(false),
+  } as unknown as QueueFactory;
+}
+
+// ── Email Reader Service Mock ──
+
+export function createMockEmailReaderService() {
+  return {
+    fetchVerificationCode: vi.fn().mockResolvedValue(null),
+    pollForVerificationCode: vi.fn().mockResolvedValue(null),
+  };
+}
+
+// ── Scheduler Registry Mock ──
+
+export function createMockSchedulerRegistry() {
+  return {
+    addCronJob: vi.fn(),
+    deleteCronJob: vi.fn(),
+    getCronJob: vi.fn(),
+    addTimeout: vi.fn(),
+    deleteTimeout: vi.fn(),
+    getTimeout: vi.fn(),
+    addInterval: vi.fn(),
+    deleteInterval: vi.fn(),
+    getInterval: vi.fn(),
+    doesExist: vi.fn().mockReturnValue(false),
+  };
+}
+
 // ── Checkpoint Saver Mock ──
 
 export function createMockCheckpointSaver() {

@@ -33,6 +33,7 @@
  * @nestjs/testing DI works as intended with the FULL AppModule.
  */
 import 'reflect-metadata';
+import { restoreAllDesignParamtypes, defineParamtypes } from '../helpers/restore-paramtypes';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { TestingModule } from '@nestjs/testing';
@@ -303,6 +304,7 @@ vi.mock('@langchain/openai', () => ({
 // esbuild does not emit `design:paramtypes`; restore it for every project
 // class that has constructor DI so @nestjs/testing can wire the FULL AppModule.
 
+/* esbuild metadata is now restored from ../helpers/restore-paramtypes
 function defineParamtypes(target: unknown, types: unknown[]): void {
   // Always set — esbuild doesn't emit design:paramtypes, and we need the
   // latest constructor signature even if a previous test file set older metadata
@@ -467,7 +469,7 @@ function restoreAllDesignParamtypes(): void {
   defineParamtypes(AuthService, [PrismaService, JwtService, ConfigService]);
   defineParamtypes(AuthController, [AuthService, ConfigService]);
   defineParamtypes(JwtAuthGuard, [JwtService, ConfigService]);
-}
+} */
 
 // ── Mock helpers ─────────────────────────────────────────────────────────────
 

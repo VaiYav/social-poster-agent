@@ -27,9 +27,9 @@
  * `Reflect.defineMetadata` so @nestjs/testing DI works as intended.
  */
 import 'reflect-metadata';
-import { TopicGenerationService } from '../../src/infrastructure/content/topic-generation.service';
+import { restoreAllDesignParamtypes } from '../helpers/restore-paramtypes';
 import { SchedulerRegistry } from '@nestjs/schedule';
-import { LlmService } from '../../src/infrastructure/llm/llm.service';
+import { EmailReaderService } from '../../src/infrastructure/email/email-reader.service.js';
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { TestingModule } from '@nestjs/testing';
@@ -52,7 +52,7 @@ import { EncryptionService } from '../../src/infrastructure/crypto/encryption.se
 import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service.js';
 import { IBrowserPort } from '../../src/domain/ports/browser.port.js';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { createMockPrismaService, createMockEncryptionService } from '../mocks/index';
+import { createMockPrismaService, createMockEncryptionService, createMockEmailReaderService, createMockSchedulerRegistry } from '../mocks/index';
 import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER } from '../../src/infrastructure/redis/redis.module';
 
 // ── ioredis mock (hoisted) ───────────────────────────────────────────────────
@@ -248,6 +248,7 @@ function createIntegrationPrismaService() {
 
 // ── Metadata restoration (esbuild compatibility) ────────────────────────────
 
+/*
 function restoreDesignParamtypes(): void {
   // PostingService: (@Inject(IBrowserPort), AccountsService, SessionsService,
   //   WarmupService, PostsService, RateLimitService, SseService,
@@ -288,6 +289,7 @@ function restoreDesignParamtypes(): void {
   // entry — esbuild-stripped paramtypes made configService undefined at boot.
   Reflect.defineMetadata('design:paramtypes', [PrismaService, ConfigService, SchedulerRegistry, LlmService], TopicGenerationService);
 }
+*/
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -378,7 +380,7 @@ async function buildTestingModule(
     configOverrides?: Record<string, unknown>;
   } = {},
 ): Promise<TestContext> {
-  restoreDesignParamtypes();
+  restoreAllDesignParamtypes();
 
   const mockPage = createMockPage(opts.pageOpts);
   const mockContext = createMockContext(mockPage);
@@ -453,6 +455,8 @@ async function buildTestingModule(
       { provide: SHARED_REDIS, useValue: mockSharedRedis },
       { provide: SHARED_REDIS_SUBSCRIBER, useValue: mockSharedRedis },
       { provide: SHARED_REDIS_PUBLISHER, useValue: mockSharedRedis },
+      { provide: EmailReaderService, useValue: createMockEmailReaderService() },
+      { provide: SchedulerRegistry, useValue: createMockSchedulerRegistry() },
     ],
   }).compile();
 

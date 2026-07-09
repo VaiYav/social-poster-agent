@@ -93,7 +93,7 @@ import { QueueController } from '../../src/modules/queue/queue.controller';
 import { AccountsController } from '../../src/modules/accounts/accounts.controller';
 import { SessionsController } from '../../src/modules/sessions/sessions.controller';
 import { EventsController } from '../../src/modules/events/events.controller';
-import { restoreSprintOParamtypes } from '../helpers/sprint-o-paramtypes';
+import { restoreAllDesignParamtypes } from '../helpers/restore-paramtypes';
 import { clearHookCache } from '../../src/modules/generation/generation.graph';
 
 const mockRedis = {
@@ -129,122 +129,7 @@ const mockRedis = {
   zcard: vi.fn().mockResolvedValue(0),
 };
 
-// ── Paramtypes fix for vitest esbuild metadata loss ──
-function defineParamtypes(target: unknown, types: unknown[]): void {
-  Reflect.defineMetadata('design:paramtypes', types, target);
-}
-
-function restoreAllParamtypes(): void {
-  // Always set — esbuild doesn't emit design:paramtypes, and we need the
-  // latest constructor signature even if a previous test file set older metadata
-  defineParamtypes(BrowserFactory, [ConfigService]);
-  defineParamtypes(LlmService, [ConfigService]);
-  defineParamtypes(ContentReader, [ConfigService]);
-  defineParamtypes(SseService, [ConfigService, Object, Object]);
-  defineParamtypes(RedisCheckpointSaver, [ConfigService, Object]);
-  defineParamtypes(QueueFactory, [ConfigService, DiscordNotificationService]);
-  defineParamtypes(EncryptionService, [ConfigService]);
-  defineParamtypes(DiscordNotificationService, [ConfigService]);
-
-  // Module classes with constructor DI
-  defineParamtypes(SseModule, [SseService]);
-  defineParamtypes(QueueModule, [QueueFactory, PostingService, ModuleRef, ConfigService]);
-
-  // Accounts
-  defineParamtypes(AccountsService, [PrismaService, ConfigService, WarmupService]);
-  defineParamtypes(AccountsController, [AccountsService]);
-
-  // Content source
-  defineParamtypes(ContentSourceService, [ContentReader]);
-  defineParamtypes(ContentSourceController, [ContentSourceService]);
-
-  // Generation — 14 params: 7 required + 7 @Optional()
-  defineParamtypes(GenerationService, [
-    Object, // @Inject(ILlmPort)
-    ContentSourceService,
-    AccountsService,
-    PostsService,
-    PrismaService,
-    RedisCheckpointSaver,
-    SseService,
-    Object, // @Optional() TrendingService
-    Object, // @Optional() TrendingScraperService
-    Object, // @Optional() ContentPillarTracker
-    Object, // @Optional() HookPerformanceBank
-    Object, // @Optional() VisualConceptService
-    Object, // @Optional() ThreadDepthController
-    Object, // @Optional() ABVariantGenerator
-  ]);
-  defineParamtypes(GenerationController, [GenerationService]);
-  defineParamtypes(CronService, [GenerationService, AccountsService, ConfigService]);
-
-  // Posts
-  defineParamtypes(PostsService, [PrismaService, EventEmitter2]);
-  defineParamtypes(MetricsScraperService, [PrismaService, SseService, SchedulerRegistry, Object]);
-  defineParamtypes(PostsController, [PostsService, Object]);
-
-  // Posting — @Inject(IBrowserPort) param is Object
-  defineParamtypes(PostingService, [
-    Object,
-    AccountsService,
-    SessionsService,
-    WarmupService,
-    PostsService,
-    RateLimitService,
-    SseService,
-    ThreadProgressService,
-    XPoster,
-    ThreadsPoster,
-    FacebookPoster,
-    Object, // @Optional() QueueFactory
-  ]);
-  defineParamtypes(PostingController, [PostingService]);
-  defineParamtypes(FacebookPoster, [Object, ConfigService]);
-  defineParamtypes(XPoster, [Object]);
-  defineParamtypes(ThreadsPoster, [Object]);
-  defineParamtypes(XEngager, [Object]);
-  defineParamtypes(ThreadsEngager, [Object]);
-  defineParamtypes(FacebookEngager, [Object, ConfigService]);
-  defineParamtypes(BrowsingSessionService, [PrismaService, SessionsService, Object, ConfigService, SseService, RateLimitService, XEngager, ThreadsEngager, FacebookEngager, HumanBehaviorEngine, TargetingService, Object]);
-  defineParamtypes(EngagementService, [PrismaService, SessionsService, Object, SseService, RateLimitService, XEngager, ThreadsEngager, FacebookEngager]);
-  defineParamtypes(EngagementController, [EngagementService]);
-  defineParamtypes(HumanBehaviorEngine, [PrismaService, Object, SseService, RateLimitService, Object]);
-  defineParamtypes(TargetingService, [ConfigService]);
-  defineParamtypes(EngagementSchedulerService, [ConfigService, QueueFactory]);
-
-  // Sessions — @Inject(IBrowserPort) param is Object
-  defineParamtypes(SessionsService, [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService]);
-  defineParamtypes(WarmupService, [PrismaService, ConfigService]);
-  defineParamtypes(SessionsController, [SessionsService]);
-
-  // Rate limit
-  defineParamtypes(RateLimitService, [ConfigService, Object]);
-
-  // Events
-  defineParamtypes(EventsController, [SseService]);
-  defineParamtypes(AutoApproveListener, [PrismaService, ModuleRef, ConfigService, Object]);
-  defineParamtypes(SseEventListener, [SseService]);
-
-  // Queue
-  defineParamtypes(QueueService, [QueueFactory]);
-  defineParamtypes(QueueController, [QueueService]);
-
-  // Health
-  defineParamtypes(HealthController, [PrismaService, Object]);
-
-  // Content Enhancements
-  defineParamtypes(VisualConceptService, [ConfigService, Object]);
-  defineParamtypes(ABVariantGenerator, [ConfigService, Object]);
-  defineParamtypes(ThreadDepthController, [ConfigService, Object]);
-  defineParamtypes(ContentPillarTracker, [Object]);
-  defineParamtypes(HookPerformanceBank, [Object, PrismaService]);
-
-  // Replies
-  defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object, Object, Object, Object]);
-  // Quality pass: TopicGenerationService was added to AppModule without a restore
-  // entry — esbuild-stripped paramtypes made configService undefined at boot.
-  defineParamtypes(TopicGenerationService, [PrismaService, ConfigService, SchedulerRegistry, LlmService]);
-}
+// ── Paramtypes fix for vitest esbuild metadata loss — now provided by ../helpers/restore-paramtypes.ts
 
 describe('E2E: Posting flow with mocked browser', () => {
   let app: INestApplication;
@@ -253,8 +138,7 @@ describe('E2E: Posting flow with mocked browser', () => {
   let browserPort: ReturnType<typeof createMockBrowserPort>;
 
   beforeAll(async () => {
-    restoreAllParamtypes();
-    await restoreSprintOParamtypes(defineParamtypes, PrismaService);
+    await restoreAllDesignParamtypes();
     prisma = createMockPrismaService();
     browserPort = createMockBrowserPort();
 

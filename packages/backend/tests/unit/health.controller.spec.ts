@@ -15,13 +15,14 @@ import 'reflect-metadata';
 import { ConfigService } from '@nestjs/config';
 import { createMockPrismaService } from '../mocks/index';
 import { createControllerTestingModule } from '../helpers/nest';
+import { defineParamtypes, restoreAllDesignParamtypes } from '../helpers/restore-paramtypes';
 import { HealthController } from '../../src/modules/health/health.controller';
 import { PrismaService } from '../../src/infrastructure/prisma/prisma.service';
 import { SHARED_REDIS } from '../../src/infrastructure/redis/redis.module';
 
 // vitest transpiles via esbuild which does NOT emit `design:paramtypes` metadata,
 // so NestJS DI-by-type fails. We attach it explicitly to the controller class.
-Reflect.defineMetadata('design:paramtypes', [PrismaService, Object], HealthController);
+defineParamtypes(HealthController, [PrismaService, Object]);
 
 // Sprint L: Redis is now injected via SHARED_REDIS token instead of created locally.
 // Mock the shared Redis instance.

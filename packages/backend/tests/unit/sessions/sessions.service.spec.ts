@@ -33,6 +33,7 @@ import { DiscordNotificationService } from '../../../src/infrastructure/notifica
 import { IBrowserPort } from '../../../src/domain/ports/browser.port.js';
 import { SHARED_REDIS } from '../../../src/infrastructure/redis/redis.module.js';
 import { EmailReaderService } from '../../../src/infrastructure/email/email-reader.service.js';
+import { defineParamtypes, restoreAllDesignParamtypes } from '../../helpers/restore-paramtypes';
 import {
   createMockPrismaService,
   createMockBrowserPort,
@@ -199,10 +200,9 @@ async function buildModule(opts: {
   const discord = { sendAlert: vi.fn().mockResolvedValue(undefined), critical: vi.fn().mockResolvedValue(undefined), warning: vi.fn().mockResolvedValue(undefined), info: vi.fn().mockResolvedValue(undefined) } as unknown as DiscordNotificationService;
 
   // Restore design:paramtypes — always set (esbuild doesn't emit them)
-  Reflect.defineMetadata(
-    'design:paramtypes',
-    [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService, Object, EmailReaderService],
+  defineParamtypes(
     SessionsService,
+    [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService, Object, EmailReaderService],
   );
 
   const module = await Test.createTestingModule({
@@ -257,10 +257,9 @@ describe('MOD-04: SessionsService', () => {
     // The @Inject(IBrowserPort) token at index 2 overrides whatever is here.
     // Always set — esbuild doesn't emit design:paramtypes, and stale metadata
     // from other test files must be overwritten.
-    Reflect.defineMetadata(
-      'design:paramtypes',
-      [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService, Object, EmailReaderService, SchedulerRegistry],
+    defineParamtypes(
       SessionsService,
+      [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService, Object, EmailReaderService, SchedulerRegistry],
     );
 
     const encryption = createMockEncryptionService();
