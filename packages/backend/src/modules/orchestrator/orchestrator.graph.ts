@@ -219,7 +219,11 @@ function calculateAdaptiveSleep(action: Action, world: WorldState): number {
     return 60_000;
   }
 
-  // WAIT + idle → normal idle
+  // WAIT + idle → respect the requested sleep duration, default to 2 min
+  const requestedMs = Number(action.params?.sleepMs);
+  if (Number.isFinite(requestedMs) && requestedMs > 0) {
+    return requestedMs;
+  }
   return 120_000;
 }
 

@@ -66,24 +66,35 @@ export class LlmDecisionService {
     });
     const callbacks = handler ? [handler] : undefined;
 
-    const result = await Promise.race([
-      this.llm.generateChat(systemPrompt, userPrompt, {
-        temperature: 0.3,
-        maxTokens: 200,
-        callbacks,
-      }),
-      this.timeout(),
-    ]);
+    const controller = new AbortController();
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        controller.abort();
+        reject(new Error('LLM timeout'));
+      }, this.llmTimeoutMs);
+    });
+
+    const llmPromise = this.llm.generateChat(systemPrompt, userPrompt, {
+      temperature: 0.3,
+      maxTokens: 200,
+      callbacks,
+      signal: controller.signal,
+    });
+
+    // 2.6.4: clear the timeout and suppress the LLM promise rejection when the
+    // timeout wins. The original llmPromise is still observed by Promise.race.
+    llmPromise
+      .finally(() => {
+        if (timeoutId) clearTimeout(timeoutId);
+      })
+      .catch(() => {});
+
+    const result = await Promise.race([llmPromise, timeoutPromise]);
 
     const action = this.parseLlmResponse(result.content);
     this.logger.debug(`LLM decision: ${action.type}:${action.network} — ${action.reason}`);
     return action;
-  }
-
-  private timeout(): Promise<never> {
-    return new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('LLM timeout')), this.llmTimeoutMs),
-    );
   }
 
   private parseLlmResponse(text: string): Action {

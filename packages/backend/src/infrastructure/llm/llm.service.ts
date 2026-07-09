@@ -772,7 +772,13 @@ export class LlmService implements ILlmPort, OnModuleInit {
         let lastErr: unknown;
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
           try {
-            const response = await model.invoke(messages, callbacks.length > 0 ? { callbacks } : undefined);
+            const invokeConfig: { callbacks?: BaseCallbackHandler[]; signal?: AbortSignal } = {};
+            if (callbacks.length > 0) invokeConfig.callbacks = callbacks;
+            if (options?.signal) invokeConfig.signal = options.signal;
+            const response = await model.invoke(
+              messages,
+              Object.keys(invokeConfig).length > 0 ? invokeConfig : undefined,
+            );
             const content =
               typeof response.content === 'string'
                 ? response.content
@@ -807,6 +813,10 @@ export class LlmService implements ILlmPort, OnModuleInit {
             return llmResponse;
           } catch (err) {
             lastErr = err;
+            // 2.6.4: if the caller aborted, stop retrying immediately and propagate
+            if (options?.signal?.aborted) {
+              throw err;
+            }
             if (!this.isRateLimitError(err)) {
               break; // non-429 → fail over immediately
             }

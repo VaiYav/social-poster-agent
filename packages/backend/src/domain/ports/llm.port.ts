@@ -30,6 +30,11 @@ export interface GenerateOptions {
    * Handlers with undefined entries are filtered out by the implementation.
    */
   callbacks?: BaseCallbackHandler[];
+  /**
+   * AbortSignal to cancel the in-flight LLM request.
+   * Passed to LangChain's model.invoke() so the underlying HTTP request is aborted.
+   */
+  signal?: AbortSignal;
 }
 
 export interface LlmResponse {
