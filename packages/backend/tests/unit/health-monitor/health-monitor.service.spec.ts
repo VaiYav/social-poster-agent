@@ -283,7 +283,7 @@ describe('HealthMonitorService (F21 — Health Monitor + B3 Reconciliation)', ()
     expect(ctx.queueService.enqueuePosting).not.toHaveBeenCalled();
   });
 
-  it('B3-007: runReconciliation() re-enqueues when existing job is completed/failed', async () => {
+  it('B3-007: runReconciliation() deduplicates completed/failed jobs', async () => {
     const stuckPost = {
       id: 'post-completed',
       network: SocialNetwork.FACEBOOK,
@@ -298,8 +298,9 @@ describe('HealthMonitorService (F21 — Health Monitor + B3 Reconciliation)', ()
 
     const result = await ctx.service.runReconciliation();
 
-    expect(result.requeued).toBe(1);
-    expect(ctx.queueService.enqueuePosting).toHaveBeenCalledWith('post-completed', SocialNetwork.FACEBOOK);
+    expect(result.requeued).toBe(0);
+    expect(result.deduplicated).toBe(1);
+    expect(ctx.queueService.enqueuePosting).not.toHaveBeenCalled();
   });
 
   it('B3-008: runReconciliation() publishes SSE reconciliation_requeue event on re-enqueue', async () => {
@@ -760,11 +761,13 @@ describe('HealthMonitorService (F21 — Health Monitor + B3 Reconciliation)', ()
   });
 
   it('BR-002: checkBanRecovery() returns false when ban is recent (< 24h)', async () => {
+    const justNow = new Date();
     ctx.prisma.session.findFirst.mockResolvedValue({
       id: 'sess-1',
       accountId: 'acc-1',
       status: SessionStatus.BANNED,
-      createdAt: new Date(), // just now
+      createdAt: justNow,
+      updatedAt: justNow, // 2.5.1: ban age is based on updatedAt
     });
 
     const result = await ctx.service.checkBanRecovery('acc-1');
@@ -779,6 +782,7 @@ describe('HealthMonitorService (F21 — Health Monitor + B3 Reconciliation)', ()
       accountId: 'acc-1',
       status: SessionStatus.BANNED,
       createdAt: twoDaysAgo,
+      updatedAt: twoDaysAgo,
     });
     ctx.prisma.post.count.mockResolvedValue(3); // 3 recent failures
 
@@ -794,6 +798,7 @@ describe('HealthMonitorService (F21 — Health Monitor + B3 Reconciliation)', ()
       accountId: 'acc-1',
       status: SessionStatus.BANNED,
       createdAt: twoDaysAgo,
+      updatedAt: twoDaysAgo,
     });
     ctx.prisma.post.count.mockResolvedValue(0); // no recent failures
 
@@ -815,15 +820,16 @@ describe('HealthMonitorService (F21 — Health Monitor + B3 Reconciliation)', ()
 
   it('BR-005: recoverBannedSessions() checks all banned sessions and returns counts', async () => {
     const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    const justNow = new Date();
     ctx.prisma.session.findMany.mockResolvedValue([
-      { id: 'sess-1', accountId: 'acc-1', status: SessionStatus.BANNED, createdAt: twoDaysAgo, account: { network: SocialNetwork.X } },
-      { id: 'sess-2', accountId: 'acc-2', status: SessionStatus.BANNED, createdAt: new Date(), account: { network: SocialNetwork.THREADS } },
+      { id: 'sess-1', accountId: 'acc-1', status: SessionStatus.BANNED, createdAt: twoDaysAgo, updatedAt: twoDaysAgo, account: { network: SocialNetwork.X } },
+      { id: 'sess-2', accountId: 'acc-2', status: SessionStatus.BANNED, createdAt: justNow, updatedAt: justNow, account: { network: SocialNetwork.THREADS } },
     ]);
     // First session: recoverable (no recent failures)
     // Second session: not recoverable (recent ban)
     ctx.prisma.session.findFirst
-      .mockResolvedValueOnce({ id: 'sess-1', accountId: 'acc-1', status: SessionStatus.BANNED, createdAt: twoDaysAgo })
-      .mockResolvedValueOnce({ id: 'sess-2', accountId: 'acc-2', status: SessionStatus.BANNED, createdAt: new Date() });
+      .mockResolvedValueOnce({ id: 'sess-1', accountId: 'acc-1', status: SessionStatus.BANNED, createdAt: twoDaysAgo, updatedAt: twoDaysAgo })
+      .mockResolvedValueOnce({ id: 'sess-2', accountId: 'acc-2', status: SessionStatus.BANNED, createdAt: justNow, updatedAt: justNow });
     ctx.prisma.post.count.mockResolvedValue(0);
 
     const result = await ctx.service.recoverBannedSessions();

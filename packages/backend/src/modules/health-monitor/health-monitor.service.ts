@@ -121,60 +121,68 @@ export class HealthMonitorService implements OnModuleInit {
 
     const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000);
 
-    // Process all posts in parallel — each post is independent
-    const results = await Promise.all(
-      approvedPosts.map(async (post) => {
-        // Post is stuck if it was approved MORE than 10 minutes ago
-        const stuckSince = post.approvedAt ?? post.createdAt;
-        if (stuckSince > tenMinAgo) {
-          return 'skipped' as const;
-        }
+    // 2.5.3: process sequentially to avoid 1000 parallel Redis calls;
+    // also deduplicate completed/failed jobs so we don't re-enqueue terminal jobs.
+    let requeued = 0;
+    let skipped = 0;
+    let deduplicated = 0;
 
-        // P0-H5: Check if BullMQ already has this job (active, waiting, or delayed)
-        try {
-          const queue = this.queueFactory.getQueue(post.network, 'posting');
-          const existingJob = await queue.getJob(post.id);
-          if (existingJob) {
-            const state = await existingJob.getState();
-            if (state === 'active' || state === 'waiting' || state === 'delayed') {
-              this.logger.warn(
-                `Reconciliation: post ${post.id} already has a ${state} job in BullMQ — skipping (dedup)`,
-              );
-              return 'deduplicated' as const;
-            }
+    for (const post of approvedPosts) {
+      // Post is stuck if it was approved MORE than 10 minutes ago
+      const stuckSince = post.approvedAt ?? post.createdAt;
+      if (stuckSince > tenMinAgo) {
+        skipped += 1;
+        continue;
+      }
+
+      // P0-H5: Check if BullMQ already has this job
+      try {
+        const queue = this.queueFactory.getQueue(post.network, 'posting');
+        const existingJob = await queue.getJob(post.id);
+        if (existingJob) {
+          const state = await existingJob.getState();
+          if (
+            state === 'active' ||
+            state === 'waiting' ||
+            state === 'delayed' ||
+            state === 'completed' ||
+            state === 'failed'
+          ) {
+            this.logger.warn(
+              `Reconciliation: post ${post.id} already has a ${state} job in BullMQ — skipping (dedup)`,
+            );
+            deduplicated += 1;
+            continue;
           }
-        } catch (queueErr) {
-          this.logger.debug(
-            `Reconciliation: could not check queue state for post ${post.id}: ${(queueErr as Error).message}`,
-          );
         }
-
-        this.logger.warn(
-          `Reconciliation: post ${post.id} (${post.network}) stuck in APPROVED for >10min — re-enqueuing`,
+      } catch (queueErr) {
+        this.logger.debug(
+          `Reconciliation: could not check queue state for post ${post.id}: ${(queueErr as Error).message}`,
         );
+      }
 
-        try {
-          await this.queueService.enqueuePosting(post.id, post.network);
-        } catch (err) {
-          this.logger.error(
-            `Reconciliation: failed to re-enqueue post ${post.id}: ${(err as Error).message}`,
-          );
-          return 'skipped' as const;
-        }
+      this.logger.warn(
+        `Reconciliation: post ${post.id} (${post.network}) stuck in APPROVED for >10min — re-enqueuing`,
+      );
 
-        await this.sseService.publish({
-          type: 'reconciliation_requeue',
-          postId: post.id,
-          network: post.network,
-        });
+      try {
+        await this.queueService.enqueuePosting(post.id, post.network);
+      } catch (err) {
+        this.logger.error(
+          `Reconciliation: failed to re-enqueue post ${post.id}: ${(err as Error).message}`,
+        );
+        skipped += 1;
+        continue;
+      }
 
-        return 'requeued' as const;
-      }),
-    );
+      await this.sseService.publish({
+        type: 'reconciliation_requeue',
+        postId: post.id,
+        network: post.network,
+      });
 
-    const requeued = results.filter((r) => r === 'requeued').length;
-    const skipped = results.filter((r) => r === 'skipped').length;
-    const deduplicated = results.filter((r) => r === 'deduplicated').length;
+      requeued += 1;
+    }
 
     this.logger.log(
       `Reconciliation complete: ${requeued} requeued, ${skipped} skipped, ${deduplicated} deduplicated`,
@@ -322,7 +330,7 @@ export class HealthMonitorService implements OnModuleInit {
   /**
    * Run a full health check — called by cron and manually via API.
    */
-  async runHealthCheck(): Promise<HealthReport> {
+  async runHealthCheck(opts: { emitAlerts?: boolean } = { emitAlerts: true }): Promise<HealthReport> {
     this.logger.log('Running health check...');
 
     const [sessionHealth, postHealth, queueHealth] = await Promise.all([
@@ -367,19 +375,21 @@ export class HealthMonitorService implements OnModuleInit {
       });
     }
 
-    // Emit SSE alerts + Discord notifications
-    for (const alert of report.alerts) {
-      await this.sseService.publish({
-        type: 'health_alert',
-        severity: alert.severity, // P1-6: use dedicated severity field, not postId
-        error: alert.message,
-      });
+    // Emit SSE alerts + Discord notifications (unless called from getDashboard)
+    if (opts.emitAlerts) {
+      for (const alert of report.alerts) {
+        await this.sseService.publish({
+          type: 'health_alert',
+          severity: alert.severity, // P1-6: use dedicated severity field, not postId
+          error: alert.message,
+        });
 
-      // Send critical/warning alerts to Discord
-      if (alert.severity === 'critical') {
-        await this.discord.critical('Health Alert', alert.message);
-      } else if (alert.severity === 'warning') {
-        await this.discord.warning('Health Alert', alert.message);
+        // Send critical/warning alerts to Discord
+        if (alert.severity === 'critical') {
+          await this.discord.critical('Health Alert', alert.message);
+        } else if (alert.severity === 'warning') {
+          await this.discord.warning('Health Alert', alert.message);
+        }
       }
     }
 
@@ -516,7 +526,7 @@ export class HealthMonitorService implements OnModuleInit {
    * Get dashboard data — combines health report with current state.
    */
   async getDashboard(): Promise<HealthReport & { summary: HealthSummary }> {
-    const report = await this.runHealthCheck();
+    const report = await this.runHealthCheck({ emitAlerts: false });
 
     const summary: HealthSummary = {
       totalAlerts: report.alerts.length,
@@ -546,7 +556,9 @@ export class HealthMonitorService implements OnModuleInit {
 
     // For now, we do a time-based recovery check:
     // If the ban was more than 24h ago and no recent failures, try reactivation.
-    const banAgeMs = Date.now() - session.createdAt.getTime();
+    // Use updatedAt (when the session was last marked BANNED) instead of createdAt
+    // so a recently-banned old session is not reactivated prematurely.
+    const banAgeMs = Date.now() - session.updatedAt.getTime();
     const RECOVERY_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24h
 
     if (banAgeMs < RECOVERY_THRESHOLD_MS) {

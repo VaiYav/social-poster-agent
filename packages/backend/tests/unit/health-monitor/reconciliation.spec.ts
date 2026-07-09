@@ -227,27 +227,28 @@ describe('B3: Reconciliation — runReconciliation()', () => {
     expect(mockQueueService.enqueuePosting).not.toHaveBeenCalled();
   });
 
-  it('B3-REC-007: re-enqueues when existing job is completed (not active/waiting/delayed)', async () => {
+  it('B3-REC-007: deduplicates when existing job is completed (not active/waiting/delayed)', async () => {
     const { post, job } = makePostWithJob('post-done', SocialNetwork.X, 'completed');
     mockPrisma.post.findMany.mockResolvedValue([post]);
     mockQueue.getJob.mockResolvedValue(job);
 
     const result = await ctx.service.runReconciliation();
 
-    expect(result.requeued).toBe(1);
-    expect(result.deduplicated).toBe(0);
-    expect(mockQueueService.enqueuePosting).toHaveBeenCalledWith('post-done', SocialNetwork.X);
+    expect(result.requeued).toBe(0);
+    expect(result.deduplicated).toBe(1);
+    expect(mockQueueService.enqueuePosting).not.toHaveBeenCalled();
   });
 
-  it('B3-REC-008: re-enqueues when existing job is failed (not active/waiting/delayed)', async () => {
+  it('B3-REC-008: deduplicates when existing job is failed (not active/waiting/delayed)', async () => {
     const { post, job } = makePostWithJob('post-failed-job', SocialNetwork.X, 'failed');
     mockPrisma.post.findMany.mockResolvedValue([post]);
     mockQueue.getJob.mockResolvedValue(job);
 
     const result = await ctx.service.runReconciliation();
 
-    expect(result.requeued).toBe(1);
-    expect(mockQueueService.enqueuePosting).toHaveBeenCalledWith('post-failed-job', SocialNetwork.X);
+    expect(result.requeued).toBe(0);
+    expect(result.deduplicated).toBe(1);
+    expect(mockQueueService.enqueuePosting).not.toHaveBeenCalled();
   });
 
   // ── 4. Skips posts that are already POSTED ──
