@@ -451,7 +451,7 @@ function restoreAllDesignParamtypes(): void {
   defineParamtypes(RecyclingController, [RecyclingService]);
   defineParamtypes(QuoteCardService, [ConfigService]);
   defineParamtypes(QuoteCardController, [QuoteCardService]);
-  defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, LlmService, Object, EngagementService, Object]);
+  defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, LlmService, Object, EngagementService, Object, Object]);
   defineParamtypes(HumanBehaviorEngine, [PrismaService, Object, SseService, RateLimitService, Object]);
   defineParamtypes(TargetingService, [ConfigService]);
   defineParamtypes(EngagementSchedulerService, [ConfigService, QueueFactory]);

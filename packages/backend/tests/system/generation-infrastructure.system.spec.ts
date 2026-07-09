@@ -389,7 +389,7 @@ function restoreAllDesignParamtypes(): void {
   defineParamtypes(HookPerformanceBank, [Object, PrismaService]);
 
   // Replies
-  defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object, Object]);
+  defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object, Object, Object]);
  }
 
 // ── Test controller (CLS correlationId verification for STC-047) ─────────────

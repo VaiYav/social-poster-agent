@@ -444,7 +444,7 @@ describe('E2E Sprint D: HITL Flow — generate → approve → post', () => {
     defineParamtypes(HookPerformanceBank, [Object, PrismaService]);
 
     // Replies
-    defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object, Object]);
+    defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object, Object, Object]);
   // Quality pass: TopicGenerationService was added to AppModule without a restore
   // entry — esbuild-stripped paramtypes made configService undefined at boot.
   defineParamtypes(TopicGenerationService, [PrismaService, ConfigService, SchedulerRegistry, LlmService]);
