@@ -29,7 +29,6 @@ import { AutoApproveService } from '../../src/modules/autonomy/auto-approve.serv
 import { AutonomousRunnerService } from '../../src/modules/autonomy/autonomous-runner.service';
 import { FlowControlService } from '../../src/modules/flow-control/flow-control.service';
 import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service';
-import { NotificationsModule } from '../../src/infrastructure/notifications/notifications.module';
 import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service';
 import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator';
 import { ThreadDepthController } from '../../src/modules/content-enhancements/thread-depth.controller';
@@ -100,15 +99,6 @@ import { ContentSourceController } from '../../src/modules/content-source/conten
 import { QueueService } from '../../src/modules/queue/queue.service';
 import { QueueController } from '../../src/modules/queue/queue.controller';
 import { EventsController } from '../../src/modules/events/events.controller';
-// Sprint O: New Features
-import { CaptchaSolverService } from '../../src/infrastructure/captcha/captcha-solver.service';
-import { ProxyRotationService } from '../../src/infrastructure/proxy/proxy-rotation.service';
-import { AnalyticsService } from '../../src/modules/analytics/analytics.service';
-import { AnalyticsController } from '../../src/modules/analytics/analytics.controller';
-import { RecyclingService } from '../../src/modules/recycling/recycling.service';
-import { RecyclingController } from '../../src/modules/recycling/recycling.controller';
-import { QuoteCardService } from '../../src/modules/quote-cards/quote-card.service';
-import { QuoteCardController } from '../../src/modules/quote-cards/quote-card.controller';
 import { HealthController } from '../../src/modules/health/health.controller';
 import { AuthService } from '../../src/modules/auth/auth.service';
 import { AuthController } from '../../src/modules/auth/auth.controller';
@@ -389,7 +379,7 @@ function restoreAllDesignParamtypes(): void {
   defineParamtypes(HookPerformanceBank, [Object, PrismaService]);
 
   // Replies
-  defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object, Object, Object]);
+  defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object, Object, Object, Object]);
  }
 
 // ── Test controller (CLS correlationId verification for STC-047) ─────────────

@@ -30,7 +30,6 @@ import { AutoApproveService } from '../../src/modules/autonomy/auto-approve.serv
 import { AutonomousRunnerService } from '../../src/modules/autonomy/autonomous-runner.service';
 import { FlowControlService } from '../../src/modules/flow-control/flow-control.service';
 import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service';
-import { NotificationsModule } from '../../src/infrastructure/notifications/notifications.module';
 import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service';
 import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator';
 import { ThreadDepthController } from '../../src/modules/content-enhancements/thread-depth.controller';
@@ -66,14 +65,6 @@ import { QueueFactory } from '../../src/infrastructure/queue/queue.factory';
 import { EncryptionService } from '../../src/infrastructure/crypto/encryption.service';
 import { TrendingScraperService } from '../../src/modules/trending/trending-scraper.service';
 import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint';
-
-// Modules
-import { PostingModule } from '../../src/modules/posting/posting.module';
-import { BrowserModule } from '../../src/infrastructure/browser/browser.module';
-import { PostsModule } from '../../src/modules/posts/posts.module';
-import { SessionsModule } from '../../src/modules/sessions/sessions.module';
-import { RateLimitModule } from '../../src/modules/rate-limit/rate-limit.module';
-import { PrismaModule } from '../../src/infrastructure/prisma/prisma.module';
 
 // Services
 import { PostingService } from '../../src/modules/posting/posting.service';
@@ -358,7 +349,7 @@ function restoreAllDesignParamtypes(): void {
   defineParamtypes(HookPerformanceBank, [Object, PrismaService]);
 
   // Replies
-  defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object, Object, Object]);
+  defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object, Object, Object, Object]);
 
   // Sprint O: New Features
   defineParamtypes(CaptchaSolverService, [ConfigService]);

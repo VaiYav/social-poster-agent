@@ -33,7 +33,7 @@
  * @nestjs/testing DI works as intended with the FULL AppModule.
  */
 import 'reflect-metadata';
-import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { TestingModule } from '@nestjs/testing';
 import { INestApplication, Controller, Get, Logger } from '@nestjs/common'
@@ -145,7 +145,7 @@ import { DecisionEngineService } from '../../src/modules/orchestrator/decision-e
 import { EmailReaderService } from '../../src/infrastructure/email/email-reader.service.js';
 
 import { createMockLlmPort, createMockBrowserPort, createMockPrismaService } from '../mocks/index';
-import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER, RedisModule } from '../../src/infrastructure/redis/redis.module';
+import { RedisModule } from '../../src/infrastructure/redis/redis.module';
 
 // ── ioredis mock (hoisted) ───────────────────────────────────────────────────
 // A shared Map-backed store so RateLimitService.checkRateLimit / recordPost
@@ -451,7 +451,7 @@ function restoreAllDesignParamtypes(): void {
   defineParamtypes(RecyclingController, [RecyclingService]);
   defineParamtypes(QuoteCardService, [ConfigService]);
   defineParamtypes(QuoteCardController, [QuoteCardService]);
-  defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, LlmService, Object, EngagementService, Object, Object]);
+  defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, LlmService, Object, EngagementService, Object, Object, Object]);
   defineParamtypes(HumanBehaviorEngine, [PrismaService, Object, SseService, RateLimitService, Object]);
   defineParamtypes(TargetingService, [ConfigService]);
   defineParamtypes(EngagementSchedulerService, [ConfigService, QueueFactory]);

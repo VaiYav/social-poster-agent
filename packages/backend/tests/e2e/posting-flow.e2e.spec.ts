@@ -54,7 +54,6 @@ import { CronService } from '../../src/modules/generation/cron.service';
 import { WarmupService } from '../../src/modules/sessions/warmup.service';
 import { QueueService } from '../../src/modules/queue/queue.service';
 import { QueueModule } from '../../src/modules/queue/queue.module';
-import { QueueModule as QueueInfraModule } from '../../src/infrastructure/queue/queue.module';
 import { PostsService } from '../../src/modules/posts/posts.service';
 import { PostsController } from '../../src/modules/posts/posts.controller';
 import { PostingController } from '../../src/modules/posting/posting.controller';
@@ -241,7 +240,7 @@ function restoreAllParamtypes(): void {
   defineParamtypes(HookPerformanceBank, [Object, PrismaService]);
 
   // Replies
-  defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object, Object, Object]);
+  defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object, Object, Object, Object]);
   // Quality pass: TopicGenerationService was added to AppModule without a restore
   // entry — esbuild-stripped paramtypes made configService undefined at boot.
   defineParamtypes(TopicGenerationService, [PrismaService, ConfigService, SchedulerRegistry, LlmService]);

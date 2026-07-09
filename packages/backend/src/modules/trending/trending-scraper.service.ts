@@ -148,6 +148,7 @@ export class TrendingScraperService implements OnModuleInit {
   private readonly llmRelevanceCache = new Map<string, { value: boolean; expiresAt: number }>();
   private readonly llmCacheMaxSize = 1000;
   private readonly llmCacheTtlMs = 6 * 60 * 60 * 1000; // 6 hours — trends rotate, stale relevance is wrong
+  private readonly llmConcurrency: number;
 
   constructor(
     private readonly configService: ConfigService,
@@ -160,6 +161,8 @@ export class TrendingScraperService implements OnModuleInit {
     this.enabled = parseBool(this.configService.get<string>('TRENDING_SCRAPING_ENABLED', 'true'));
     this.xScrapeEnabled = parseBool(this.configService.get<string>('X_TRENDS_SCRAPING_ENABLED', 'true'));
     this.llmFilterEnabled = parseBool(this.configService.get<string>('TRENDING_LLM_FILTER_ENABLED', 'true'));
+    const rawConcurrency = Number(this.configService.get<string>('TRENDING_LLM_CONCURRENCY', '3'));
+    this.llmConcurrency = Number.isFinite(rawConcurrency) && rawConcurrency > 0 ? rawConcurrency : 3;
   }
 
   /**
@@ -574,11 +577,10 @@ export class TrendingScraperService implements OnModuleInit {
     if (borderline.length === 0) return passed;
 
     // Batch LLM checks in parallel (limited concurrency to avoid rate limits)
-    const MAX_LLM_CONCURRENCY = 3;
     const llmResults: ScrapedTrendingTopic[] = [];
 
-    for (let i = 0; i < borderline.length; i += MAX_LLM_CONCURRENCY) {
-      const batch = borderline.slice(i, i + MAX_LLM_CONCURRENCY);
+    for (let i = 0; i < borderline.length; i += this.llmConcurrency) {
+      const batch = borderline.slice(i, i + this.llmConcurrency);
       const checks = await Promise.all(
         batch.map(async (t) => {
           const relevant = await this.isRelevantByLlm(t.topic);

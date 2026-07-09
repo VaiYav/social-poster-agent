@@ -18,7 +18,7 @@ import 'reflect-metadata';
 import { TopicGenerationService } from '../../src/infrastructure/content/topic-generation.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SseEventListener } from '../../src/events/listeners/sse-event.listener';
-import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
@@ -46,7 +46,6 @@ import { FacebookPoster } from '../../src/modules/posting/posters/facebook.poste
 import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { RateLimitService } from '../../src/modules/rate-limit/rate-limit.service';
-import { HealthMonitorService } from '../../src/modules/health-monitor/health-monitor.service';
 import { CronService } from '../../src/modules/generation/cron.service';
 import { WarmupService } from '../../src/modules/sessions/warmup.service';
 import { QueueService } from '../../src/modules/queue/queue.service';
@@ -57,7 +56,6 @@ import { PostingController } from '../../src/modules/posting/posting.controller'
 import { ModuleRef } from '@nestjs/core';
 import { createMockLlmPort, createMockBrowserPort, createMockPrismaService } from '../mocks/index';
 import { restoreSprintOParamtypes } from '../helpers/sprint-o-paramtypes';
-import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER } from '../../src/infrastructure/redis/redis.module';
 import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service';
 import { AutoApproveListener } from '../../src/events/listeners/auto-approve.listener';
 import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service';
@@ -86,7 +84,6 @@ import { SessionsService } from '../../src/modules/sessions/sessions.service';
 import { PostingService } from '../../src/modules/posting/posting.service';
 import { AccountsService } from '../../src/modules/accounts/accounts.service';
 import { MetricsScraperService } from '../../src/modules/analytics/metrics-scraper.service';
-import { clearHookCache } from '../../src/modules/generation/generation.graph';
 
 // ── ioredis mock (Map-backed shared store) ──────────────────────────────────
 const { sharedRedisStore } = vi.hoisted(() => ({
@@ -444,7 +441,7 @@ describe('E2E Sprint D: SSE Real-Time Updates — generate → approve → post'
     defineParamtypes(HookPerformanceBank, [Object, PrismaService]);
 
     // Replies
-    defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object, Object, Object]);
+    defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object, Object, Object, Object]);
   // Quality pass: TopicGenerationService was added to AppModule without a restore
   // entry — esbuild-stripped paramtypes made configService undefined at boot.
   defineParamtypes(TopicGenerationService, [PrismaService, ConfigService, SchedulerRegistry, LlmService]);

@@ -46,7 +46,6 @@ import { ThreadsPoster } from '../../src/modules/posting/posters/threads.poster'
 import { FacebookPoster } from '../../src/modules/posting/posters/facebook.poster';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { RateLimitService } from '../../src/modules/rate-limit/rate-limit.service';
-import { HealthMonitorService } from '../../src/modules/health-monitor/health-monitor.service';
 import { CronService } from '../../src/modules/generation/cron.service';
 import { WarmupService } from '../../src/modules/sessions/warmup.service';
 import { QueueService } from '../../src/modules/queue/queue.service';
@@ -55,7 +54,6 @@ import { PostsService } from '../../src/modules/posts/posts.service';
 import { PostsController } from '../../src/modules/posts/posts.controller';
 import { createMockLlmPort, createMockBrowserPort, createMockPrismaService } from '../mocks/index';
 import { restoreSprintOParamtypes } from '../helpers/sprint-o-paramtypes';
-import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER } from '../../src/infrastructure/redis/redis.module';
 import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service';
 import { AutoApproveListener } from '../../src/events/listeners/auto-approve.listener';
 import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service';
@@ -436,7 +434,7 @@ describe('E2E Smoke: generate → approve → post', () => {
     defineParamtypes(HookPerformanceBank, [Object, PrismaService]);
 
     // Replies
-    defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object, Object, Object]);
+    defineParamtypes(RepliesMonitorService, [PrismaService, ConfigService, AccountsService, SessionsService, SchedulerRegistry, DiscordNotificationService, SseService, Object, Object, Object, Object, Object, Object]);
   // Quality pass: TopicGenerationService was added to AppModule without a restore
   // entry — esbuild-stripped paramtypes made configService undefined at boot.
   defineParamtypes(TopicGenerationService, [PrismaService, ConfigService, SchedulerRegistry, LlmService]);
