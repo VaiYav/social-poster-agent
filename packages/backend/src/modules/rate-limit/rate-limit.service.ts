@@ -2,6 +2,7 @@ import { Injectable, Logger, Inject, type OnModuleInit, type OnModuleDestroy } f
 import { ConfigService } from '@nestjs/config';
 import IORedis from 'ioredis';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
+import { parseBool } from '../../infrastructure/config/parse-bool.js';
 
 /**
  * Rate limiter — Redis-based sliding window per network.
@@ -38,15 +39,17 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
   private readonly interactionDailyLimits: Record<string, number>;
   private readonly interactionWeeklyLimits: Record<string, number>;
   private readonly interactionMinIntervalMs: number;
+  private readonly failClosed: boolean;
 
   constructor(
     private readonly configService: ConfigService,
     @Inject(SHARED_REDIS) private readonly redis: IORedis,
   ) {
     this.prefix = this.configService.get<string>('RATE_LIMIT_PREFIX', 'spa:ratelimit');
+    this.failClosed = parseBool(this.configService.get<string>('RATE_LIMIT_FAIL_CLOSED', 'false'));
 
     // Global min delay between posts (env: RATE_LIMIT_MIN_DELAY_MS, default 5 min)
-    const globalMinDelay = this.configService.get<number>('RATE_LIMIT_MIN_DELAY_MS', 300_000);
+    const globalMinDelay = this.parseNumericConfig('RATE_LIMIT_MIN_DELAY_MS', 300_000);
 
     const networks = ['X', 'THREADS', 'FACEBOOK'] as const;
 
@@ -56,12 +59,12 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
 
     for (const net of networks) {
       // Read env vars matching .env.example: RATE_LIMIT_{NET}_MAX_PER_DAY
-      this.dailyLimits[net] = this.configService.get<number>(
+      this.dailyLimits[net] = this.parseNumericConfig(
         `RATE_LIMIT_${net}_MAX_PER_DAY`,
         1, // constitution §8 default: 1 post/day
       );
 
-      this.weeklyLimits[net] = this.configService.get<number>(
+      this.weeklyLimits[net] = this.parseNumericConfig(
         `RATE_LIMIT_${net}_MAX_PER_WEEK`,
         5, // constitution §7 RateLimitConfig default: 5/week
       );
@@ -74,9 +77,9 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     // likes to 1/day and killed the per-session budget). The human-behavior engine
     // paces actions itself, so the interaction min-interval defaults to 0.
     const intDaily = (action: string, def: number) =>
-      Number(this.configService.get<string>(`RATE_LIMIT_INTERACTION_${action.toUpperCase()}_MAX_PER_DAY`)) || def;
+      this.parseNumericConfig(`RATE_LIMIT_INTERACTION_${action.toUpperCase()}_MAX_PER_DAY`, def);
     const intWeekly = (action: string, def: number) =>
-      Number(this.configService.get<string>(`RATE_LIMIT_INTERACTION_${action.toUpperCase()}_MAX_PER_WEEK`)) || def;
+      this.parseNumericConfig(`RATE_LIMIT_INTERACTION_${action.toUpperCase()}_MAX_PER_WEEK`, def);
     this.interactionDailyLimits = {
       like: intDaily('like', 60),
       comment: intDaily('comment', 20),
@@ -94,7 +97,7 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
       quote: intWeekly('quote', 25),
     };
     this.interactionMinIntervalMs =
-      Number(this.configService.get<string>('RATE_LIMIT_INTERACTION_MIN_DELAY_MS')) || 0;
+      this.parseNumericConfig('RATE_LIMIT_INTERACTION_MIN_DELAY_MS', 0);
   }
 
   /**
@@ -134,6 +137,29 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Atomically read multiple string keys. Uses MGET when the Redis client supports it;
+   * otherwise falls back to parallel GETs (for older test mocks).
+   */
+  private async getMultiple(keys: string[]): Promise<(string | null)[]> {
+    if (typeof this.redis?.mget === 'function') {
+      return this.redis.mget(keys);
+    }
+    const values = await Promise.all(keys.map((k) => this.redis!.get(k)));
+    return values as (string | null)[];
+  }
+
+  /**
+   * Parse a numeric config value from ConfigService, treating empty string as unset
+   * and preserving `0` as a valid value.
+   */
+  private parseNumericConfig(key: string, fallback: number): number {
+    const raw = this.configService.get<string>(key);
+    if (raw === undefined || raw === '') return fallback;
+    const parsed = Number(raw);
+    return Number.isNaN(parsed) ? fallback : parsed;
+  }
+
+  /**
    * Check if a post is allowed under the rate limit for this network.
    * Returns { allowed, reason } — if not allowed, caller should defer.
    *
@@ -142,6 +168,13 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
    */
   async checkRateLimit(network: string): Promise<{ allowed: boolean; reason?: string }> {
     if (!this.redis) {
+      // 2.7.3: optionally fail-closed when Redis is unavailable
+      if (this.failClosed) {
+        return {
+          allowed: false,
+          reason: 'Redis unavailable — rate limit check failed closed',
+        };
+      }
       return { allowed: true, reason: 'Redis not connected — rate limit bypassed' };
     }
 
@@ -154,8 +187,12 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
 
     const { daily: dailyLimit, weekly: weeklyLimit, intervalMs } = this.resolveLimits(network);
 
+    // 2.7.1: use a single MGET so daily/weekly/interval are read atomically.
+    // Fall back to individual GETs for older test mocks that don't expose mget.
+    const [dailyStr, weeklyStr, intervalStr] = await this.getMultiple([dailyKey, weeklyKey, intervalKey]);
+
     // Check daily limit (read-only — don't increment yet)
-    const dailyCount = parseInt((await this.redis.get(dailyKey)) ?? '0', 10);
+    const dailyCount = parseInt(dailyStr ?? '0', 10);
     if (dailyCount >= dailyLimit) {
       return {
         allowed: false,
@@ -164,7 +201,7 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Check weekly limit
-    const weeklyCount = parseInt((await this.redis.get(weeklyKey)) ?? '0', 10);
+    const weeklyCount = parseInt(weeklyStr ?? '0', 10);
     if (weeklyCount >= weeklyLimit) {
       return {
         allowed: false,
@@ -173,9 +210,8 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Check minimum interval (0 = no interval gate; engine paces interactions)
-    const lastPostTs = await this.redis.get(intervalKey);
-    if (lastPostTs && intervalMs > 0) {
-      const elapsed = now - parseInt(lastPostTs, 10);
+    if (intervalStr && intervalMs > 0) {
+      const elapsed = now - parseInt(intervalStr, 10);
       if (elapsed < intervalMs) {
         const waitMs = intervalMs - elapsed;
         return {

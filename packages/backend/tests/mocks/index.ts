@@ -276,6 +276,7 @@ export function createMockRedis() {
     }),
     lrange: vi.fn((key: string) => Promise.resolve(lists.get(key) ?? [])),
     get: vi.fn((key: string) => Promise.resolve(store.get(key) ?? null)),
+    mget: vi.fn((keys: string[]) => Promise.resolve(keys.map((k: string) => store.get(k) ?? null))),
     set: vi.fn((key: string, val: string) => {
       store.set(key, val);
       return Promise.resolve('OK');
