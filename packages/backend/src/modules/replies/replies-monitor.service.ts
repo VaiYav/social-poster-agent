@@ -43,7 +43,7 @@ import { EngagementService } from '../engagement/engagement.service.js';
 import { QueueFactory } from '../../infrastructure/queue/queue.factory.js';
 import { FlowControlService } from '../flow-control/flow-control.service.js';
 import { PostStatus, SocialNetwork, CommentStatus } from '@prisma/client';
-import type { Page } from '../../domain/ports/browser-primitives';
+import type { Locator, Page } from '../../domain/ports/browser-primitives';
 import { parseBool } from '../../infrastructure/config/parse-bool';
 import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 import { matchesScript, normalizeLanguage } from '../../infrastructure/util/script-check.js';
@@ -147,7 +147,9 @@ export class RepliesMonitorService implements OnModuleInit {
 
       for (const post of posts) {
         try {
-          const comments = await this.scrapeComments(post.network as SocialNetwork, post.postUrl!, post.content);
+          if (!post.postUrl) continue;
+
+          const comments = await this.scrapeComments(post.network as SocialNetwork, post.postUrl, post.content);
           stats.postsChecked++;
           stats.commentsScraped += comments.length;
 
@@ -356,7 +358,7 @@ export class RepliesMonitorService implements OnModuleInit {
    * 2.9.1: Extract the author's profile URL from a comment element.
    * This is more reliable than the display name for self-reply detection.
    */
-  private async extractAuthorProfileUrl(el: any, network: SocialNetwork): Promise<string | null> {
+  private async extractAuthorProfileUrl(el: Locator, network: SocialNetwork): Promise<string | null> {
     try {
       switch (network) {
         case SocialNetwork.X:
@@ -514,6 +516,11 @@ export class RepliesMonitorService implements OnModuleInit {
     // RP6: deterministic pre-detection of the comment language. The LLM still
     // echoes the language in the response, but it now starts from a ground-truth
     // label instead of guessing on short, ambiguous social text.
+    if (!this.llmService) {
+      this.logger.warn('LlmService not available — skipping comment (will retry next cycle)');
+      return { action: 'skip', reason: 'LLM service not available — will retry next cycle' };
+    }
+
     const detectedLanguage = detectLanguage(comment.text);
 
     const systemPrompt = `You manage social media for an astrology app. Someone commented on your post. You need to:
@@ -597,7 +604,7 @@ Network: ${post.network}
 Reply in EXACTLY the detected language (${detectedLanguage}). Do not switch languages mid-reply.`;
 
     try {
-      const response = await this.llmService!.generateChat(systemPrompt, userPrompt, { temperature: REPLIES_TEMPERATURE });
+      const response = await this.llmService.generateChat(systemPrompt, userPrompt, { temperature: REPLIES_TEMPERATURE });
 
       // Parse JSON response — LLM may wrap in markdown
       const jsonMatch = response.content.match(/\{[\s\S]*\}/);
@@ -942,14 +949,16 @@ function extractHandleFromProfileUrl(url: string): string | null {
   if (!url) return null;
   const path = url.split('?')[0] ?? '';
   const segments = path.split('/').filter((s) => s.length > 0);
-  if (segments.length === 0) return null;
+  const first = segments[0];
+  if (!first) return null;
 
   // X: /handle or /handle/status/...; Threads: /@handle or /@handle/post/...; Facebook: /user/123
-  if (segments[0] === 'user' && segments[1]) {
-    return decodeURIComponent(segments[1]!).toLowerCase();
+  if (first === 'user') {
+    const second = segments[1];
+    return second ? decodeURIComponent(second).toLowerCase() : null;
   }
-  if (segments[0]!.startsWith('@')) {
-    return normalizeHandle(segments[0]!);
+  if (first.startsWith('@')) {
+    return normalizeHandle(first);
   }
-  return normalizeHandle(segments[0]!);
+  return normalizeHandle(first);
 }
