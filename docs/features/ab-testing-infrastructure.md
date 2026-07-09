@@ -2,84 +2,84 @@
 
 ## Status
 
-Backlog / proposal. Some building blocks exist; the feedback loop is missing.
+**Implemented.** The `PostVariant` model, persistence, metrics capture, `/analytics/ab-tests` endpoint, and the full feedback loop are in place. The only remaining work is optional calibration logging (item 4 below).
 
 ## Problem
 
-The generation graph already produces `abVariants` (emoji/hashtag variants) and `judgeScores` (LLM-as-a-Judge evaluation), and both are stored in `Post.llmMetadata` as JSON. However, there is no closed loop that compares the *actual* performance of variants (operator approve/reject, post engagement, posting success) against the predicted judge scores. The system therefore cannot learn which variants perform better in production.
+The generation graph produces `abVariants` (emoji/hashtag variants) and `judgeScores` (LLM-as-a-Judge evaluation). The infrastructure now uses the *actual* performance of variants (operator approve/reject, post engagement, posting success) to influence future generation via a weighted selection and a prior-winner hint. The remaining optional work is calibration logging (item 4).
 
 ## Current state
 
-- `ab-variant.generator.ts` produces A/B variants per network after `visual_concept`.
-- `judge-prompt.ts` / `makeJudgeNode()` in `generation.graph.ts` produces `anti_ai_tone`, `hook_strength`, `factual_accuracy`, `character_limit` scores.
-- `Post.llmMetadata` in `prisma/schema.prisma` holds `{ model, tokens, cost, promptVersion, angleType }` plus the new fields `abVariants` and `judgeScores` (JSON).
-- `analytics.service.ts` can read `postedAt` and `PostMetrics`, but it does not join variants/judge scores with real-world outcomes.
-- No API/UI surface for operators to view test results or to force a "winning" variant.
+- `prisma/schema.prisma` has a `PostVariant` table that stores `a`/`b`/`base`/`default`/`custom` variants, `judgeScores`, `selected`, `postedAt`, and engagement metrics.
+- `ABVariantGenerator` produces `a`/`b` emoji variants after the `refine` step.
+- `ABVariantService` creates variants, selects the one to post, records `postedAt` after posting, and updates per-variant metrics from `MetricsScraperService`.
+- `MetricsScraperService` pushes scraped engagement metrics into `PostVariant`.
+- `ABTestService` aggregates posted variants by `topic + network` and computes a winner via `GET /analytics/ab-tests`.
+- `GenerationService` persists variants after `graph.invoke()` returns.
+- `PostingService` calls `ABVariantService.selectAndApplyVariant()` before posting.
+- `AnalyticsController` exposes `/analytics/ab-tests`.
+- `ABTest` / `ABTestVariant` / `ABTestQuery` schemas live in `@spa/shared`.
 
-<ref_snippet file="/Users/valentinyakovlev/projects/agents/social-poster-agent/packages/backend/src/modules/generation/generation.graph.ts" lines="1123-1130" />
+<ref_snippet file="/Users/valentinyakovlev/projects/agents/social-poster-agent/packages/backend/prisma/schema.prisma" lines="227-247" />
 
-## Proposed feature
+## Remaining work
 
-1. **Variant registry in the DB.** Add a `PostVariant` relation (or extend `Post.llmMetadata` with strongly-typed fields):
-   - `variantId`, `postId`, `network`, `variantLabel` (A/B), `content`, `judgeScores`, `selected` boolean.
-   - When a post is generated, persist all variants, not only the one that was eventually posted.
-2. **Outcome capture.**
-   - `PostingService` records which variant was selected and the final `postUrl`.
-   - `AutoApproveService` / `PostsService.approve` records whether the post was approved or rejected (label as "rejected variant").
-   - `MetricsScraperService` pulls engagement metrics per `postId` and joins with the variant that was live.
-3. **Win computation service.** `AnalyticsService` or a new `ABTestService` computes, per `runId`/topic, which variant had better outcomes (approval rate, likes, reposts, comments, post success). Confidence interval / Bayesian bandit optional.
-4. **Feedback into generation.** `ABVariantGenerator` and `judgeNode` receive a "prior winner" hint for recurring topics, or the system can automatically skew the generator toward the winning style (temperature, emoji density, hashtag count).
-5. **Operator dashboard.** A new endpoint `/analytics/ab-tests` listing active and historical tests with winner, sample size, lift, confidence.
+1. ✅ **Close the selection feedback loop.** `ABVariantService.selectAndApplyVariant()` now looks up the historical winner for `topic + network` and uses a weighted selection (`AB_TEST_EXPLOITATION_WEIGHT`, default 80% winner / 20% challenger) while still preserving exploration.
+2. ✅ **Prior-winner hint in generation.** `ABVariantGenerator.generateVariants()` accepts `topic` and `priorWinner` options, and the `ab_variant_*` graph node passes the historical winner from `ABVariantService.getWinnerForTopic()`.
+3. ✅ **Operator UI for A/B tests.** `Analytics.vue` exposes a new A/B Tests section that calls `/analytics/ab-tests` with day/network filters and a refresh button.
+4. **(Optional) Calibration logging.** Compare `judgeScores.anti_ai_tone` / `hook_strength` with operator approve/reject and engagement to judge the judge.
 
-## Data model changes
+## Data model
+
+No new schema changes. The existing `PostVariant` model already captures everything:
 
 ```prisma
 model PostVariant {
-  id        String   @id @default(cuid())
-  postId    String
-  post      Post     @relation(fields: [postId], references: [id])
-  network   String
-  label     String   // e.g. "A" | "B"
-  content   String
+  id          String        @id @default(uuid())
+  postId      String
+  post        Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  network     SocialNetwork
+  label       String        // 'a', 'b', 'base', 'default', 'custom'
+  content     String
   judgeScores Json?
-  selected  Boolean  @default(false)
-  postedAt  DateTime?
-  metricsAt DateTime?
-  likes     Int?
-  replies   Int?
-  reposts   Int?
+  selected    Boolean       @default(false)
+  postedAt    DateTime?
+  metricsAt   DateTime?
+  likes       Int?
+  comments    Int?
+  shares      Int?
   impressions Int?
-  createdAt DateTime @default(now())
+  createdAt   DateTime      @default(now())
 
   @@index([postId, network])
   @@index([network, selected, postedAt])
 }
 ```
 
-Alternative: keep everything in `Post.llmMetadata` JSON if schema churn is undesirable.
-
 ## Integration points
 
-- `modules/generation/generation.service.ts` — persist variants after graph returns.
-- `modules/posting/posting.service.ts` — mark the selected variant, capture `postUrl`.
-- `modules/autonomy/auto-approve.service.ts` / `posts.service.ts` — record rejections.
-- `modules/analytics/metrics-scraper.service.ts` — per-variant metrics.
-- `modules/analytics/analytics.service.ts` — AB test aggregation.
-- `packages/shared` — new `PostVariantSchema` and DTOs.
+- `modules/content-enhancements/ab-variant.service.ts` — selection + winner lookup.
+- `modules/content-enhancements/ab-variant.generator.ts` — prior-winner hint.
+- `modules/content-enhancements/ab-test.utils.ts` — shared `extractTopic` / `computeVariantStats` / `pickWinner` helpers.
+- `modules/generation/generation.graph.ts` — `ab_variant_*` node passes topic to generator.
+- `modules/generation/generation.service.ts` — already wires `ABVariantService` and `ABVariantGenerator`.
+- `modules/analytics/ab-test.service.ts` — aggregate reporting.
+- `packages/ui/src/views/Analytics.vue` — A/B tests UI section.
 
 ## Open questions / risks
 
 - Will variant B sometimes violate platform character limits when posted? Need guardrails.
 - How long is the feedback window? Engagement can arrive hours/days later; `MetricsScraper` runs daily.
 - Should the judge LLM be retrained/calibrated against operator decisions? Start with correlation logging only.
-- UI needs new screens; backend can expose endpoints first.
+- The `topic` key is extracted from `post.sourceRef.topic` (or `originalTopic` / `title` for recycled posts). Topic drift or inconsistent `sourceRef` can split the A/B sample across multiple topic keys.
 
 ## Effort estimate
 
-**M–L** (2–4 weeks). The largest work is the DB schema, the outcome-capture plumbing, and the operator dashboard UI.
+**S–M** (2–5 days). The largest pieces (DB schema, outcome capture, aggregation endpoint) are already done. The remaining work is the feedback loop, generator hint, and UI.
 
 ## Related reviews
 
-- `content-enhancements.md` (ABVariantGenerator, VisualConceptService)
+- `content-enhancements.md` (`ABVariantGenerator`, `VisualConceptService`)
 - `infrastructure-llm.md` (LLM-as-a-Judge)
-- `analytics.md` (MetricsScraper, daily stats)
+- `analytics.md` (`MetricsScraper`, daily stats)
+- `prompt-versioning-langfuse.md` (prompt labels can be joined with A/B outcomes later)

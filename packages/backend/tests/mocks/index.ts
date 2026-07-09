@@ -232,6 +232,9 @@ export function createMockPrismaService() {
     post: {
       ...createModelMock(),
     },
+    postVariant: {
+      ...createModelMock(),
+    },
     postThread: {
       ...createModelMock(),
     },
@@ -245,6 +248,9 @@ export function createMockPrismaService() {
       ...createModelMock(),
     },
     browsingSession: {
+      ...createModelMock(),
+    },
+    contentSource: {
       ...createModelMock(),
     },
     $connect: vi.fn(),
@@ -317,6 +323,14 @@ export function createMockSseService() {
     removeClient: vi.fn(),
     broadcast: vi.fn(),
     getActiveClientCount: vi.fn().mockReturnValue(0),
+  };
+}
+
+// ── EventEmitter2 Mock ──
+
+export function createMockEventEmitter() {
+  return {
+    emit: vi.fn().mockReturnValue(true),
   };
 }
 

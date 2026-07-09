@@ -211,62 +211,6 @@ import { ConfigService } from '@nestjs/config';
 import { createMockPrismaService, createMockBrowserPort } from '../mocks/index';
 import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER, RedisModule } from '../../src/infrastructure/redis/redis.module';
 
-/*
-// vitest transpiles via esbuild which does NOT emit `design:paramtypes` metadata,
-// so NestJS DI-by-type fails (it injects `undefined` instead of resolving the
-// provider). We attach the metadata explicitly for every class that is instantiated
-// through NestJS DI with type-based constructor injection. For params annotated
-// with @Inject(token) we place the token in the corresponding slot so resolution
-// works whether or not esbuild preserves the parameter decorator.
-// (Pattern established by tests/unit/health.controller.spec.ts.)
-Reflect.defineMetadata('design:paramtypes', [ConfigService], LlmService);
-Reflect.defineMetadata('design:paramtypes', [ConfigService], ContentReader);
-Reflect.defineMetadata('design:paramtypes', [ContentReader], ContentSourceService);
-Reflect.defineMetadata('design:paramtypes', [ContentSourceService], ContentSourceController);
-Reflect.defineMetadata('design:paramtypes', [ConfigService, Object], RedisCheckpointSaver);
-Reflect.defineMetadata('design:paramtypes', [PrismaService, ConfigService, Object], AccountsService);
-Reflect.defineMetadata('design:paramtypes', [AccountsService], AccountsController);
-Reflect.defineMetadata('design:paramtypes', [PrismaService, EventEmitter2], PostsService);
-Reflect.defineMetadata('design:paramtypes', [PostsService], PostsController);
-// GenerationService: 14 params — 7 required + 7 @Optional()
-Reflect.defineMetadata(
-  'design:paramtypes',
-  [ILlmPort, ContentSourceService, AccountsService, PostsService, PrismaService, RedisCheckpointSaver, SseService, Object, Object, Object, Object, Object, Object, Object],
-  GenerationService,
-);
-Reflect.defineMetadata('design:paramtypes', [GenerationService], GenerationController);
-Reflect.defineMetadata('design:paramtypes', [GenerationService, AccountsService, ConfigService], CronService);
-Reflect.defineMetadata('design:paramtypes', [ConfigService, DiscordNotificationService], QueueFactory);
-Reflect.defineMetadata('design:paramtypes', [QueueFactory], QueueService);
-Reflect.defineMetadata('design:paramtypes', [QueueService], QueueController);
-Reflect.defineMetadata(
-  'design:paramtypes',
-  [PrismaService, AccountsService, IBrowserPort, ConfigService, EncryptionService, DiscordNotificationService],
-  SessionsService,
-);
-Reflect.defineMetadata('design:paramtypes', [SessionsService], SessionsController);
-Reflect.defineMetadata('design:paramtypes', [ConfigService, Object, Object], SseService);
-// Modules with constructor injection also need paramtype metadata for DI.
-Reflect.defineMetadata('design:paramtypes', [SseService], SseModule);
-Reflect.defineMetadata('design:paramtypes', [QueueFactory, PostingService, ModuleRef, ConfigService], QueueModule);
-Reflect.defineMetadata('design:paramtypes', [ConfigService, Object], RateLimitService);
-Reflect.defineMetadata('design:paramtypes', [PrismaService, Object], HealthController);
-Reflect.defineMetadata('design:paramtypes', [ConfigService], BrowserFactory);
-Reflect.defineMetadata('design:paramtypes', [ConfigService], EncryptionService);
-Reflect.defineMetadata('design:paramtypes', [ConfigService], DiscordNotificationService);
-Reflect.defineMetadata('design:paramtypes', [PostingService], PostingController);
-Reflect.defineMetadata('design:paramtypes', [IBrowserPort], XPoster);
-Reflect.defineMetadata('design:paramtypes', [IBrowserPort], ThreadsPoster);
-Reflect.defineMetadata('design:paramtypes', [IBrowserPort, ConfigService], FacebookPoster);
-// ContentEnhancementsModule services — needed since GenerationModule now imports it
-Reflect.defineMetadata('design:paramtypes', [ConfigService, ILlmPort], VisualConceptService);
-Reflect.defineMetadata('design:paramtypes', [ConfigService, ILlmPort], ABVariantGenerator);
-Reflect.defineMetadata('design:paramtypes', [ConfigService, ILlmPort], ThreadDepthController);
-Reflect.defineMetadata('design:paramtypes', [Object], ContentPillarTracker);
-Reflect.defineMetadata('design:paramtypes', [Object, PrismaService], HookPerformanceBank);
-// Quality pass: TopicGenerationService was added to AppModule without a restore
-// entry — esbuild-stripped paramtypes made configService undefined at boot.
-*/
 restoreAllDesignParamtypes();
 
 

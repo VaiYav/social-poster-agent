@@ -40,6 +40,7 @@ export class AutoApproveService {
   private readonly autoApproveThreshold: number;  // ≥ this → auto-approve
   private readonly humanReviewThreshold: number;   // ≥ this → human review
   private readonly rejectStreakAlertLimit: number;
+  private readonly failOpenMissingScore: boolean;
 
   constructor(
     private readonly configService: ConfigService,
@@ -51,6 +52,9 @@ export class AutoApproveService {
     this.autoApproveThreshold = this.configService.get<number>('AUTO_APPROVE_MIN_SCORE', 7);
     this.humanReviewThreshold = this.configService.get<number>('AUTO_APPROVE_REVIEW_SCORE', 4);
     this.rejectStreakAlertLimit = this.configService.get<number>('AUTO_APPROVE_REJECT_STREAK_ALERT', 3);
+    this.failOpenMissingScore = parseBool(
+      this.configService.get<string>('AUTO_APPROVE_MISSING_SCORE_FAIL_OPEN', 'false'),
+    );
   }
 
   /**
@@ -106,17 +110,22 @@ export class AutoApproveService {
     }
 
     // AU2: Missing quality score — critique or judge LLM call failed (429/etc).
-    // Previously fail-closed to HUMAN_REVIEW, but in fully autonomous mode this
-    // blocks all posts when the LLM is rate-limited. If AutoCheck passed (no
-    // bait, no char-limit, no forbidden phrases, no SimHash dup), the content is
-    // safe to publish — auto-approve with a conservative default score.
+    // Default is fail-closed to HUMAN_REVIEW so that a missing score does not
+    // auto-approve low-quality content. For fully autonomous deployments where
+    // the operator accepts the risk, set AUTO_APPROVE_MISSING_SCORE_FAIL_OPEN=true
+    // to auto-approve with the threshold score when AutoCheck passed.
     if (qualityScore === undefined || qualityScore === null) {
-      const defaultScore = this.autoApproveThreshold; // assume "good enough" — AutoCheck already filtered unsafe content
-      this.logger.warn(
-        `Missing quality score for ${postId} — AutoCheck passed, auto-approving with default score ${defaultScore}`,
-      );
-      return this.makeDecision(postId, 'AUTO_APPROVE', defaultScore, checkResult,
-        `Missing quality score — AutoCheck passed, auto-approved with default score ${defaultScore}`);
+      if (this.enabled && this.failOpenMissingScore) {
+        const defaultScore = this.autoApproveThreshold; // assume "good enough" — AutoCheck already filtered unsafe content
+        this.logger.warn(
+          `Missing quality score for ${postId} — AutoCheck passed, auto-approving with default score ${defaultScore}`,
+        );
+        return this.makeDecision(postId, 'AUTO_APPROVE', defaultScore, checkResult,
+          `Missing quality score — AutoCheck passed, auto-approved with default score ${defaultScore}`);
+      }
+
+      return this.makeDecision(postId, 'HUMAN_REVIEW', null, checkResult,
+        'Missing quality score — flagged for human review');
     }
 
     const score = qualityScore;

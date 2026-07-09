@@ -29,4 +29,19 @@ export interface IContentPort {
    * 2.8.1: Mark a topic as used so it is not reused in the next generation cycle.
    */
   markUsed(topic: ContentTopic): Promise<void>;
+
+  /**
+   * List all configured content sources and their health status.
+   */
+  getSources?(): Promise<{ sourceType: string; ok: boolean; error?: string }[]>;
+
+  /**
+   * Health check across all content sources.
+   */
+  healthCheck?(): Promise<{ ok: boolean; errors: string[] }>;
+
+  /**
+   * Invalidate any cached topic list.
+   */
+  invalidateCache?(): void;
 }

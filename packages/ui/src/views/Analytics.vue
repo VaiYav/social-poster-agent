@@ -9,6 +9,7 @@ import LoadingSpinner from '../components/LoadingSpinner.vue';
 import ErrorState from '../components/ErrorState.vue';
 import NetworkIcon from '../components/NetworkIcon.vue';
 import { BarChart, DoughnutChart } from '../components/charts';
+import type { ABTest, ABTestVariant } from '@spa/shared';
 
 const api = useApi();
 const toast = useToast();
@@ -48,6 +49,12 @@ const topPosts = ref<TopPost[]>([]);
 const hookPerformance = ref<HookPerformanceStats | null>(null);
 const selectedNetwork = ref<'X' | 'THREADS' | 'FACEBOOK'>('X');
 
+const abTests = ref<ABTest[]>([]);
+const abTestsLoading = ref(true);
+const abTestsError = ref<string | null>(null);
+const abDays = ref(30);
+const abNetwork = ref<'ALL' | 'X' | 'THREADS' | 'FACEBOOK'>('ALL');
+
 const HOOK_TECHNIQUE_LABELS: Record<string, string> = {
   question: 'Question',
   bold: 'Bold',
@@ -69,13 +76,16 @@ async function loadAnalytics() {
     topPosts.value = topRes.data;
     hookPerformance.value = hookRes.data;
   } catch (err) {
-    error.value = (err as Error).message ?? 'Failed to load analytics';
+    error.value = errorMessage(err) ?? 'Failed to load analytics';
   } finally {
     loading.value = false;
   }
 }
 
-onMounted(loadAnalytics);
+onMounted(() => {
+  loadAnalytics();
+  loadAbTests();
+});
 
 async function refreshHookStats() {
   try {
@@ -87,8 +97,27 @@ async function refreshHookStats() {
   }
 }
 
+async function loadAbTests() {
+  abTestsLoading.value = true;
+  abTestsError.value = null;
+  try {
+    const params: Record<string, string | number> = { days: abDays.value };
+    if (abNetwork.value !== 'ALL') params.network = abNetwork.value;
+    const res = await api.get<ABTest[]>('/analytics/ab-tests', { params });
+    abTests.value = res.data;
+  } catch (err) {
+    abTestsError.value = errorMessage(err) ?? 'Failed to load A/B tests';
+  } finally {
+    abTestsLoading.value = false;
+  }
+}
+
 function formatDate(date: string): string {
   return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 // Chart data: 7-day posting activity
@@ -291,6 +320,101 @@ const statIcons = {
 
         <div v-if="hookPerformance && hookPerformance.lastUpdated" class="mt-3 text-xs text-text-muted">
           Last updated: {{ new Date(hookPerformance.lastUpdated).toLocaleString() }}
+        </div>
+      </Card>
+
+      <!-- A/B Tests -->
+      <Card>
+        <template #header>
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <BarChart3 class="h-5 w-5 text-primary" />
+              <div>
+                <h2 class="text-lg font-semibold text-text-primary">A/B Tests</h2>
+                <p class="text-sm text-text-secondary">Variant performance by topic and network</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-3">
+              <select
+                v-model="abDays"
+                class="h-9 rounded-md border border-border bg-surface-elevated px-3 text-sm text-text-primary"
+                @change="loadAbTests"
+              >
+                <option :value="7">7 days</option>
+                <option :value="30">30 days</option>
+                <option :value="90">90 days</option>
+              </select>
+              <select
+                v-model="abNetwork"
+                class="h-9 rounded-md border border-border bg-surface-elevated px-3 text-sm text-text-primary"
+                @change="loadAbTests"
+              >
+                <option value="ALL">All networks</option>
+                <option value="X">X</option>
+                <option value="THREADS">Threads</option>
+                <option value="FACEBOOK">Facebook</option>
+              </select>
+              <Button size="sm" variant="outline" @click="loadAbTests">
+                <RefreshCw class="mr-1 h-3.5 w-3.5" />
+                Refresh
+              </Button>
+            </div>
+          </div>
+        </template>
+
+        <LoadingSpinner v-if="abTestsLoading" />
+        <ErrorState v-else-if="abTestsError" :message="abTestsError" />
+        <div v-else-if="abTests.length === 0" class="py-12 text-center text-text-muted">
+          <Activity class="mx-auto mb-3 h-10 w-10 opacity-40" />
+          <p>No A/B tests found for this period.</p>
+        </div>
+        <div v-else class="space-y-4">
+          <div
+            v-for="test in abTests"
+            :key="test.testId"
+            class="rounded-lg border border-border p-4"
+          >
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <NetworkIcon :network="test.network" />
+                <h3 class="font-medium text-text-primary">{{ test.topic }}</h3>
+              </div>
+              <Badge v-if="test.winner" variant="success">{{ test.winner }} winning</Badge>
+              <Badge v-else variant="neutral">No winner</Badge>
+            </div>
+            <div class="mt-2 text-sm text-text-secondary">
+              {{ test.totalPosts }} posts
+              <span v-if="test.firstPostedAt && test.lastPostedAt">
+                · {{ formatDate(test.firstPostedAt) }} – {{ formatDate(test.lastPostedAt) }}
+              </span>
+            </div>
+            <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div
+                v-for="variant in test.variants"
+                :key="variant.label"
+                class="rounded bg-surface-elevated p-3"
+              >
+                <div class="flex items-center justify-between">
+                  <span class="font-semibold text-text-primary">Variant {{ variant.label.toUpperCase() }}</span>
+                  <span class="text-xs text-text-muted">n={{ variant.sampleSize }}</span>
+                </div>
+                <div class="mt-2 grid grid-cols-3 gap-2 text-xs text-text-muted">
+                  <div>
+                    <span class="block font-medium text-text-primary">{{ variant.avgEngagement.toFixed(1) }}</span>
+                    engagement
+                  </div>
+                  <div>
+                    <span class="block font-medium text-text-primary">{{ variant.avgLikes.toFixed(1) }}</span>
+                    likes
+                  </div>
+                  <div v-if="variant.avgImpressions !== null">
+                    <span class="block font-medium text-text-primary">{{ variant.avgImpressions.toFixed(0) }}</span>
+                    impressions
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </Card>
 

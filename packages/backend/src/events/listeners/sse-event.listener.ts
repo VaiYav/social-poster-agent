@@ -20,108 +20,61 @@ export class SseEventListener {
 
   constructor(private readonly sseService: SseService) {}
 
-  @OnEvent(PostEvents.DRAFT_GENERATED)
-  async handleDraftGenerated(payload: { postId: string; network: string }): Promise<void> {
+  /**
+   * Publish a standard post lifecycle event to SSE.
+   * Optional extra fields (url, error, retryable) are forwarded when present.
+   * NEVER rethrow — the event bus must continue.
+   */
+  private async publishPostStatus(
+    status: string,
+    payload: { postId: string; network: string; postUrl?: string; error?: string; retryable?: boolean },
+  ): Promise<void> {
     try {
       await this.sseService.publish({
         type: 'post_status',
+        status,
         postId: payload.postId,
-        status: 'DRAFT',
         network: payload.network,
+        url: payload.postUrl,
+        error: payload.error,
+        retryable: payload.retryable,
       });
     } catch (err) {
       this.logger.error(
-        `SSE publish failed for ${payload.postId} (DRAFT): ${(err as Error).message}`,
+        `SSE publish failed for ${payload.postId} (${status}): ${(err as Error).message}`,
       );
       // NEVER rethrow — event bus must continue
     }
+  }
+
+  @OnEvent(PostEvents.DRAFT_GENERATED)
+  async handleDraftGenerated(payload: { postId: string; network: string }): Promise<void> {
+    return this.publishPostStatus('DRAFT', payload);
   }
 
   @OnEvent(PostEvents.APPROVED)
   async handleApproved(payload: { postId: string; network: string }): Promise<void> {
-    try {
-      await this.sseService.publish({
-        type: 'post_status',
-        postId: payload.postId,
-        status: 'APPROVED',
-        network: payload.network,
-      });
-    } catch (err) {
-      this.logger.error(
-        `SSE publish failed for ${payload.postId} (APPROVED): ${(err as Error).message}`,
-      );
-      // NEVER rethrow — event bus must continue
-    }
+    return this.publishPostStatus('APPROVED', payload);
   }
 
   @OnEvent(PostEvents.POSTING_STARTED)
   async handlePostingStarted(payload: { postId: string; network: string }): Promise<void> {
-    try {
-      await this.sseService.publish({
-        type: 'post_status',
-        postId: payload.postId,
-        status: 'POSTING',
-        network: payload.network,
-      });
-    } catch (err) {
-      this.logger.error(
-        `SSE publish failed for ${payload.postId} (POSTING): ${(err as Error).message}`,
-      );
-      // NEVER rethrow — event bus must continue
-    }
+    return this.publishPostStatus('POSTING', payload);
   }
 
   @OnEvent(PostEvents.POSTED)
   async handlePosted(payload: { postId: string; network: string; postUrl?: string }): Promise<void> {
-    try {
-      await this.sseService.publish({
-        type: 'post_status',
-        postId: payload.postId,
-        status: 'POSTED',
-        network: payload.network,
-        url: payload.postUrl,
-      });
-    } catch (err) {
-      this.logger.error(
-        `SSE publish failed for ${payload.postId} (POSTED): ${(err as Error).message}`,
-      );
-      // NEVER rethrow — event bus must continue
-    }
+    return this.publishPostStatus('POSTED', payload);
   }
 
   @OnEvent(PostEvents.FAILED)
-  async handleFailed(payload: { postId: string; network: string; error?: string }): Promise<void> {
-    try {
-      await this.sseService.publish({
-        type: 'post_status',
-        postId: payload.postId,
-        status: 'FAILED',
-        network: payload.network,
-        error: payload.error,
-      });
-    } catch (err) {
-      this.logger.error(
-        `SSE publish failed for ${payload.postId} (FAILED): ${(err as Error).message}`,
-      );
-      // NEVER rethrow — event bus must continue
-    }
+  async handleFailed(payload: { postId: string; network: string; error?: string; retryable?: boolean }): Promise<void> {
+    return this.publishPostStatus('FAILED', payload);
   }
 
   @OnEvent(PostEvents.REJECTED)
   async handleRejected(payload: { postId: string; network: string }): Promise<void> {
-    try {
-      await this.sseService.publish({
-        type: 'post_status',
-        postId: payload.postId,
-        status: 'REJECTED',
-        network: payload.network,
-      });
-    } catch (err) {
-      this.logger.error(
-        `SSE publish failed for ${payload.postId} (REJECTED): ${(err as Error).message}`,
-      );
-      // NEVER rethrow — event bus must continue
-    }
+    return this.publishPostStatus('REJECTED', payload);
   }
 
   @OnEvent(OrchestratorEvents.CYCLE_END)

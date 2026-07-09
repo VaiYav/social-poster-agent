@@ -10,6 +10,7 @@ import {
   CreateRunReportSchema,
   type ContentTopic,
 } from '@spa/shared';
+import type { IContentAdapter } from './adapters/content-adapter.interface.js';
 
 // Re-export for backward compatibility (other modules may import from here)
 export { BriefSchema, ArticleFrontmatterSchema, TopicQueueSchema, CreateRunReportSchema, type ContentTopic };
@@ -19,7 +20,10 @@ export { BriefSchema, ArticleFrontmatterSchema, TopicQueueSchema, CreateRunRepor
 // ============================================================
 
 @Injectable()
-export class ContentReader {
+export class ContentReader implements IContentAdapter {
+  readonly sourceType = 'cap_file';
+  lastError: string | null = null;
+
   private readonly logger = new Logger(ContentReader.name);
   private readonly capPath: string;
   private readonly blogPath: string;
@@ -302,5 +306,66 @@ export class ContentReader {
    */
   async markUsed(_topic: ContentTopic): Promise<void> {
     this.logger.debug(`ContentReader: markUsed is a no-op for filesystem topics`);
+  }
+
+  canHandle(sourceType: string): boolean {
+    return ['brief', 'article', 'topic', 'create_run'].includes(sourceType);
+  }
+
+  async fetchTopics(limit = 5, since?: Date): Promise<ContentTopic[]> {
+    const topics = await this.getTopics(limit);
+    return since ? topics.filter((t) => t.publishedAt && t.publishedAt >= since) : topics;
+  }
+
+  async fetchArticle(path: string): Promise<ContentTopic | null> {
+    try {
+      if (path.endsWith('.md')) {
+        const raw = await readFile(path, 'utf-8');
+        const { data: frontmatter } = matter(raw);
+        const parsed = ArticleFrontmatterSchema.parse(frontmatter);
+        return {
+          sourceType: 'article',
+          path,
+          topic: parsed.title,
+          keywords: parsed.seo?.keywords ?? parsed.tags.slice(0, 5),
+          facts: parsed.answerCapsule?.keyPoints ?? [],
+          category: parsed.tags[0] ?? 'general',
+          publishedAt: parsed.date ? new Date(parsed.date) : undefined,
+          language: 'en',
+        };
+      }
+      if (path.endsWith('brief.json')) {
+        const raw = await readFile(path, 'utf-8');
+        const parsed = BriefSchema.parse(JSON.parse(raw));
+        const fileStat = await fsStat(path);
+        return {
+          sourceType: 'brief',
+          path,
+          topic: parsed.topic,
+          keywords: parsed.target_queries.slice(0, 5),
+          facts: parsed.outline.flatMap((o) => o.entities.slice(0, 3)),
+          outline: parsed.outline.map((o) => ({ heading: o.heading, entities: o.entities })),
+          category: parsed.outline[0]?.heading ?? 'general',
+          publishedAt: fileStat.mtime,
+          language: 'en',
+        };
+      }
+      this.lastError = `Unsupported article path: ${path}`;
+      return null;
+    } catch (err) {
+      this.lastError = (err as Error).message;
+      return null;
+    }
+  }
+
+  async healthCheck(): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const runsDir = join(this.capPath, 'runs');
+      await access(runsDir);
+      return { ok: true };
+    } catch (err) {
+      this.lastError = (err as Error).message;
+      return { ok: false, error: this.lastError };
+    }
   }
 }

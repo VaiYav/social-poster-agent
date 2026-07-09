@@ -11,6 +11,8 @@ import { PrismaService } from '../../src/infrastructure/prisma/prisma.service';
 import { BrowserFactory } from '../../src/infrastructure/browser/browser.factory';
 import { LlmService } from '../../src/infrastructure/llm/llm.service';
 import { ContentReader } from '../../src/infrastructure/content/content-reader';
+import { DbContentReader } from '../../src/infrastructure/content/db-content-reader';
+import { ContentAdapterRegistry } from '../../src/infrastructure/content/adapters/content-adapter.registry.js';
 import { SseService } from '../../src/infrastructure/sse/sse.service';
 import { EncryptionService } from '../../src/infrastructure/crypto/encryption.service.js';
 import { SseModule } from '../../src/infrastructure/sse/sse.module';
@@ -63,6 +65,7 @@ import { RateLimitService } from '../../src/modules/rate-limit/rate-limit.servic
 // Engagement
 import { EngagementService } from '../../src/modules/engagement/engagement.service';
 import { EngagementController } from '../../src/modules/engagement/engagement.controller';
+import { EngagementDecisionService } from '../../src/modules/engagement/engagement-decision.service';
 import { BrowsingSessionService } from '../../src/modules/engagement/browsing-session.service';
 import { XEngager } from '../../src/modules/engagement/engagers/x.engager';
 import { ThreadsEngager } from '../../src/modules/engagement/engagers/threads.engager';
@@ -100,6 +103,7 @@ import { RepliesController } from '../../src/modules/replies/replies.controller'
 // Content enhancements
 import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service.js';
 import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator.js';
+import { ABVariantService } from '../../src/modules/content-enhancements/ab-variant.service.js';
 import { ThreadDepthController } from '../../src/modules/content-enhancements/thread-depth.controller.js';
 import { ContentPillarTracker } from '../../src/modules/content-enhancements/content-pillar.tracker.js';
 import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook-performance-bank.js';
@@ -117,6 +121,7 @@ import { ProxyRotationService } from '../../src/infrastructure/proxy/proxy-rotat
 import { AnalyticsService } from '../../src/modules/analytics/analytics.service';
 import { AnalyticsController } from '../../src/modules/analytics/analytics.controller';
 import { MetricsScraperService } from '../../src/modules/analytics/metrics-scraper.service';
+import { ABTestService } from '../../src/modules/analytics/ab-test.service';
 import { RecyclingService } from '../../src/modules/recycling/recycling.service';
 import { RecyclingController } from '../../src/modules/recycling/recycling.controller';
 import { QuoteCardService } from '../../src/modules/quote-cards/quote-card.service';
@@ -154,6 +159,8 @@ export function restoreAllDesignParamtypes(): void {
   defineParamtypes(PrismaService, []);
   defineParamtypes(LlmService, [ConfigService, Object]); // Object = IPromptPort (@Optional @Inject)
   defineParamtypes(ContentReader, [ConfigService]);
+  defineParamtypes(DbContentReader, [PrismaService]);
+  defineParamtypes(ContentAdapterRegistry, [ConfigService, Object]); // Object = CONTENT_ADAPTERS (@Inject)
   defineParamtypes(BrowserFactory, [ConfigService]);
   defineParamtypes(SseService, [ConfigService, Object, Object]); // Object = SHARED_REDIS_SUBSCRIBER / PUBLISHER
   defineParamtypes(RedisCheckpointSaver, [ConfigService, Object]); // Object = SHARED_REDIS
@@ -177,7 +184,7 @@ export function restoreAllDesignParamtypes(): void {
   defineParamtypes(ContentSourceController, [ContentSourceService]);
 
   // ── Generation ───────────────────────────────────────────────────────────
-  // 16 params: 7 required + 9 @Optional()
+  // 17 params: 7 required + 10 @Optional()
   defineParamtypes(GenerationService, [
     Object, // @Inject(ILlmPort)
     ContentSourceService,
@@ -193,6 +200,7 @@ export function restoreAllDesignParamtypes(): void {
     Object, // @Optional() VisualConceptService
     Object, // @Optional() ThreadDepthController
     Object, // @Optional() ABVariantGenerator
+    Object, // @Optional() ABVariantService
     LangfuseService, // @Optional() langfuse
     Object, // @Optional() @Inject(IPromptPort)
   ]);
@@ -212,7 +220,7 @@ export function restoreAllDesignParamtypes(): void {
     WarmupService,
     PostsService,
     RateLimitService,
-    SseService,
+    EventEmitter2,
     ThreadProgressService,
     XPoster,
     ThreadsPoster,
@@ -220,6 +228,7 @@ export function restoreAllDesignParamtypes(): void {
     Object, // @Optional() QueueFactory
     Object, // @Optional() FlowControlService
     Object, // @Optional() ContentPillarTracker
+    Object, // @Optional() ABVariantService
   ]);
   defineParamtypes(PostingController, [PostingService]);
   defineParamtypes(XPoster, [Object]); // @Inject(IBrowserPort)
@@ -275,6 +284,7 @@ export function restoreAllDesignParamtypes(): void {
   ]);
   defineParamtypes(EngagementController, [EngagementService]);
   defineParamtypes(HumanBehaviorEngine, [PrismaService, Object, SseService, RateLimitService, Object]); // Object = IBrowserPort, IEngagementDecisionPort
+  defineParamtypes(EngagementDecisionService, [Object, ConfigService]); // Object = @Inject(ILlmPort)
   defineParamtypes(TargetingService, [ConfigService]);
   defineParamtypes(EngagementSchedulerService, [ConfigService, QueueFactory, SchedulerRegistry]);
 
@@ -342,6 +352,7 @@ export function restoreAllDesignParamtypes(): void {
   defineParamtypes(ABVariantGenerator, [ConfigService, Object]); // Object = @Optional() ILlmPort
   defineParamtypes(ThreadDepthController, [ConfigService, Object]); // Object = @Optional() ILlmPort
   defineParamtypes(ContentPillarTracker, [Object]); // Object = @Inject(SHARED_REDIS)
+  defineParamtypes(ABVariantService, [ConfigService, PrismaService]);
   defineParamtypes(HookPerformanceBank, [Object, PrismaService]); // Object = @Inject(SHARED_REDIS), PrismaService @Optional()
 
   // ── Orchestrator ─────────────────────────────────────────────────────────
@@ -362,8 +373,9 @@ export function restoreAllDesignParamtypes(): void {
   defineParamtypes(CaptchaSolverService, [ConfigService]);
   defineParamtypes(ProxyRotationService, [ConfigService]);
   defineParamtypes(AnalyticsService, [PrismaService]);
-  defineParamtypes(AnalyticsController, [AnalyticsService]);
-  defineParamtypes(MetricsScraperService, [PrismaService, SseService, SchedulerRegistry, Object]); // Object = @Optional() @Inject(IBrowserPort)
+  defineParamtypes(ABTestService, [PrismaService]);
+  defineParamtypes(AnalyticsController, [AnalyticsService, MetricsScraperService, ABTestService, Object]); // Object = @Optional() HookPerformanceBank
+  defineParamtypes(MetricsScraperService, [PrismaService, SseService, SchedulerRegistry, Object, Object]); // Object = @Optional() @Inject(IBrowserPort), Object = @Optional() ABVariantService
   defineParamtypes(RecyclingService, [PrismaService, GenerationService, SchedulerRegistry]);
   defineParamtypes(RecyclingController, [RecyclingService]);
   defineParamtypes(QuoteCardService, [ConfigService]);

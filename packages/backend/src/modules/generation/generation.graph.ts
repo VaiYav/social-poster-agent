@@ -1,6 +1,5 @@
 import { StateGraph, END, START, Annotation, interrupt } from '@langchain/langgraph';
 import type { ILlmPort } from '../../domain/ports/llm.port.js';
-import type { ContentTopic } from '@spa/shared';
 import { SocialNetwork } from '@prisma/client';
 import { Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
@@ -9,12 +8,15 @@ import type { HookPerformanceBank } from '../content-enhancements/hook-performan
 import { classifyHookTechnique, type HookTechnique } from '../content-enhancements/hook-performance-bank.js';
 import type { VisualConcept, VisualConceptService } from '../content-enhancements/visual-concept.service.js';
 import type { ABVariantPair, ABVariantGenerator } from '../content-enhancements/ab-variant.generator.js';
+import type { ABVariantService } from '../content-enhancements/ab-variant.service.js';
 import { pickContentStyle, getStylePromptGuidance, CONTENT_STYLES_BY_ID, type ContentStyle } from '../content-enhancements/content-style.rotation.js';
 import { getSlopListForPrompt } from '../content-enhancements/slop-lexicon.js';
 import { pickHumorMechanic, getHumorPromptGuidance, HUMOR_MECHANICS_BY_ID } from '../content-enhancements/humor-mechanics.js';
 import { buildHumanizeInstruction } from '../content-enhancements/humanizer-gate.js';
 import { getLanguageExamples } from '../content-enhancements/language-packs.js';
 import type { IPromptPort } from '../../domain/ports/prompt.port.js';
+import type { ContentTopic, JudgeScores } from '@spa/shared';
+import { NETWORK_LIMITS } from '../posts/network-limits.js';
 import { JUDGE_SYSTEM_PROMPT, JUDGE_USER_PROMPT_TEMPLATE } from './prompts/judge-prompt.js';
 import {
   localPromptPort,
@@ -130,18 +132,6 @@ interface NetworkResult {
   error?: string | null;
 }
 
-/** Stage 2: LLM-as-a-Judge evaluation result (0.0-1.0 per criterion). */
-export interface JudgeScores {
-  anti_ai_tone: number;
-  anti_ai_tone_reason: string;
-  hook_strength: number;
-  hook_strength_reason: string;
-  factual_accuracy: number;
-  factual_accuracy_reason: string;
-  character_limit: number;
-  character_limit_reason: string;
-}
-
 /** Output of the full graph — one entry per target network. */
 export interface GeneratedPost {
   network: SocialNetwork;
@@ -220,17 +210,6 @@ export type GenerationStateType = typeof GenerationState.State;
 // ============================================================
 // Network config
 // ============================================================
-
-/**
- * Per-network character limits.
- * CONSTITUTION §11.3: FB ~63k chars max, but for marketing ≤500.
- * We enforce the marketing limit (500) — long FB posts get low engagement.
- */
-const NETWORK_LIMITS: Record<SocialNetwork, number> = {
-  [SocialNetwork.X]: 280,
-  [SocialNetwork.THREADS]: 500,
-  [SocialNetwork.FACEBOOK]: 500, // §11.3: marketing ≤500
-};
 
 /**
  * Q9: Target-length guidance per network (2026 platform research).
@@ -897,6 +876,7 @@ function makeABVariantNode(network: SocialNetwork) {
   return async function abVariantNode(
     state: GenerationStateType,
     abGenerator?: ABVariantGenerator,
+    abVariantService?: ABVariantService,
   ): Promise<Partial<GenerationStateType>> {
     const netResult = state.results[network];
     if (!netResult) return {};
@@ -915,7 +895,15 @@ function makeABVariantNode(network: SocialNetwork) {
     if (!content) return {};
 
     try {
-      const variants = await abGenerator.generateVariants(content, network);
+      const topic = state.topic?.topic ?? content.slice(0, 50);
+      const priorWinner = abVariantService
+        ? await abVariantService.getWinnerForTopic(topic, network)
+        : null;
+
+      const variants = await abGenerator.generateVariants(content, network, {
+        topic,
+        priorWinner,
+      });
       return {
         results: {
           [network]: { ...netResult, abVariants: variants },
@@ -923,7 +911,8 @@ function makeABVariantNode(network: SocialNetwork) {
       };
     } catch (err) {
       // P7: Per-network error isolation — variant generation failure is non-fatal
-      logger.debug(`ab_variant_${network} failed (non-blocking): ${(err as Error).message}`);
+      const message = err instanceof Error ? err.message : String(err);
+      logger.debug(`ab_variant_${network} failed (non-blocking): ${message}`);
       return {
         results: {
           [network]: { ...netResult, abVariants: null },
@@ -1219,6 +1208,7 @@ export function buildGenerationGraph(
   hookBank?: HookPerformanceBank,
   visualService?: VisualConceptService,
   abGenerator?: ABVariantGenerator,
+  abVariantService?: ABVariantService,
   promptPort: IPromptPort = localPromptPort,
   options?: {
     /**
@@ -1287,9 +1277,9 @@ export function buildGenerationGraph(
     .addNode('visual_concept_threads', withProgress('visual_concept_threads', (s) => makeVisualConceptNode(SocialNetwork.THREADS)(s, visualService)))
     .addNode('visual_concept_facebook', withProgress('visual_concept_facebook', (s) => makeVisualConceptNode(SocialNetwork.FACEBOOK)(s, visualService)))
     // P7: Step 6.6: parallel ab_variant per network (no-op when disabled)
-    .addNode('ab_variant_x', withProgress('ab_variant_x', (s) => makeABVariantNode(SocialNetwork.X)(s, abGenerator)))
-    .addNode('ab_variant_threads', withProgress('ab_variant_threads', (s) => makeABVariantNode(SocialNetwork.THREADS)(s, abGenerator)))
-    .addNode('ab_variant_facebook', withProgress('ab_variant_facebook', (s) => makeABVariantNode(SocialNetwork.FACEBOOK)(s, abGenerator)))
+    .addNode('ab_variant_x', withProgress('ab_variant_x', (s) => makeABVariantNode(SocialNetwork.X)(s, abGenerator, abVariantService)))
+    .addNode('ab_variant_threads', withProgress('ab_variant_threads', (s) => makeABVariantNode(SocialNetwork.THREADS)(s, abGenerator, abVariantService)))
+    .addNode('ab_variant_facebook', withProgress('ab_variant_facebook', (s) => makeABVariantNode(SocialNetwork.FACEBOOK)(s, abGenerator, abVariantService)))
     // Step 7: save_to_db (collect outputs)
     .addNode('save_to_db', withProgress('save_to_db', (s) => saveToDbNode(s, options?.getRecordedPromptLabels)))
     // Sprint I: HITL review node (no-op when humanReview=false)

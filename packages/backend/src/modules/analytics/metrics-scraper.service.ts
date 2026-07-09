@@ -33,6 +33,7 @@ import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 import type { IMetricsSource, PostMetricsData } from './metrics-sources/metrics-source.port.js';
 import { ThreadsInsightsSource } from './metrics-sources/threads-insights.source.js';
 import { FacebookInsightsSource } from './metrics-sources/facebook-insights.source.js';
+import { ABVariantService } from '../content-enhancements/ab-variant.service.js';
 
 export interface ScrapedMetrics {
   likes: number;
@@ -51,6 +52,7 @@ export class MetricsScraperService implements OnModuleInit {
     private readonly sseService: SseService,
     private readonly schedulerRegistry: SchedulerRegistry,
     @Inject(IBrowserPort) @Optional() private readonly browser?: IBrowserPort,
+    @Optional() private readonly abVariantService?: ABVariantService,
   ) {}
 
   // AN1: per-network metrics sources, built lazily from env tokens. A network with
@@ -153,11 +155,18 @@ export class MetricsScraperService implements OnModuleInit {
             ...(metrics.impressions != null ? { impressions: metrics.impressions } : {}),
           },
         });
+
+        // P7: Push the latest metrics onto the selected A/B variant.
+        if (this.abVariantService) {
+          await this.abVariantService.updateMetrics(post.id, metrics).catch(() => {});
+        }
+
         collected++;
         this.logger.debug(`F6: Collected metrics for ${post.id} — likes: ${metrics.likes}, comments: ${metrics.comments}, shares: ${metrics.shares}`);
       } catch (err) {
         failed++;
-        this.logger.warn(`F6: Failed to scrape metrics for ${post.id}: ${(err as Error).message}`);
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`F6: Failed to scrape metrics for ${post.id}: ${message}`);
       }
 
       // Human-like delay between page loads

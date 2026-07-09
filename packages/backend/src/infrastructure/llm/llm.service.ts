@@ -17,6 +17,8 @@ interface LlmProviderConfig {
   model: string;
   apiKey: string;
   baseURL?: string;
+  /** Whether this provider is considered free-tier for the UI model picker. */
+  free: boolean;
   temperature: number;
   /**
    * Whether this provider/model accepts a `temperature` parameter.
@@ -58,6 +60,8 @@ interface ProviderSpec {
   /** Env var that holds the model name. */
   modelEnv: string;
   defaultModel: string;
+  /** Whether this provider is considered free-tier for the UI model picker. */
+  free?: boolean;
   /** OpenAI-compatible base URL, or a function to compute it from config. */
   baseURL?: string | ((config: ConfigService) => string);
   /** If true, include the provider even when keyEnv is empty. */
@@ -85,6 +89,7 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     keyEnv: 'GROQ_API_KEY',
     modelEnv: 'GROQ_MODEL',
     defaultModel: 'llama-3.3-70b-versatile',
+    free: true,
     baseURL: 'https://api.groq.com/openai/v1',
   },
   // 2. OpenRouter — FREE models available
@@ -93,6 +98,7 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     keyEnv: 'OPENROUTER_API_KEY',
     modelEnv: 'OPENROUTER_MODEL',
     defaultModel: 'meta-llama/llama-3.3-70b-instruct:free',
+    free: true,
     baseURL: 'https://openrouter.ai/api/v1',
   },
   // 3. DeepSeek — cheap
@@ -101,6 +107,7 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     keyEnv: 'DEEPSEEK_API_KEY',
     modelEnv: 'DEEPSEEK_MODEL',
     defaultModel: 'deepseek-chat',
+    free: false,
     baseURL: 'https://api.deepseek.com',
   },
   // 4. Cerebras — FREE, fast
@@ -111,6 +118,7 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     keyEnv: 'CEREBRAS_API_KEY',
     modelEnv: 'CEREBRAS_MODEL',
     defaultModel: 'gpt-oss-120b',
+    free: true,
     baseURL: 'https://api.cerebras.ai/v1',
   },
   // 4.5 Anthropic — strong creative/multilingual backstop via the
@@ -121,6 +129,7 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     keyEnv: 'ANTHROPIC_API_KEY',
     modelEnv: 'ANTHROPIC_MODEL',
     defaultModel: 'claude-haiku-4-5',
+    free: false,
     baseURL: 'https://api.anthropic.com/v1/',
   },
   // 5. OpenAI — paid overflow (may be quota-limited)
@@ -132,6 +141,7 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     keyEnv: 'OPENAI_API_KEY',
     modelEnv: 'OPENAI_MODEL',
     defaultModel: 'gpt-5-nano',
+    free: false,
     customize: (_config, model, defaultTimeout) => {
       const isReasoningModel = REASONING_MODEL_PATTERN.test(model);
       return {
@@ -146,6 +156,7 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     keyEnv: 'GOOGLE_API_KEY',
     modelEnv: 'GOOGLE_MODEL',
     defaultModel: 'gemini-2.5-flash',
+    free: true,
     baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
   },
   // 7. NVIDIA NIM — free ~40 req/min, general multilingual (OpenAI-compatible)
@@ -154,6 +165,7 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     keyEnv: 'NVIDIA_API_KEY',
     modelEnv: 'NVIDIA_MODEL',
     defaultModel: 'meta/llama-3.3-70b-instruct',
+    free: true,
     baseURL: 'https://integrate.api.nvidia.com/v1',
   },
   // 8. SambaNova — FREE 20M tokens/day, no credit card, OpenAI-compatible
@@ -163,6 +175,7 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     keyEnv: 'SAMBANOVA_API_KEY',
     modelEnv: 'SAMBANOVA_MODEL',
     defaultModel: 'Meta-Llama-3.3-70B-Instruct',
+    free: true,
     baseURL: 'https://api.sambanova.ai/v1',
   },
   // 9. GitHub Models — FREE 150 RPD, no credit card, OpenAI-compatible
@@ -172,6 +185,7 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     keyEnv: 'GITHUB_TOKEN',
     modelEnv: 'GITHUB_MODEL',
     defaultModel: 'meta-llama/Llama-3.3-70B-Instruct',
+    free: true,
     baseURL: 'https://models.inference.ai.azure.com',
   },
   // 10. xAI Grok — $25 free credits on signup, no credit card, OpenAI-compatible
@@ -180,6 +194,7 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     keyEnv: 'XAI_API_KEY',
     modelEnv: 'XAI_MODEL',
     defaultModel: 'grok-4.1-fast',
+    free: false,
     baseURL: 'https://api.x.ai/v1',
   },
   // 11. Mistral AI — Free mode, no credit card, OpenAI-compatible
@@ -189,6 +204,7 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     keyEnv: 'MISTRAL_API_KEY',
     modelEnv: 'MISTRAL_MODEL',
     defaultModel: 'mistral-small-latest',
+    free: true,
     baseURL: 'https://api.mistral.ai/v1',
   },
   // 12. Hugging Face Inference Providers — $0.10/mo free, auto-failover, OpenAI-compatible
@@ -198,6 +214,7 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     keyEnv: 'HF_TOKEN',
     modelEnv: 'HF_MODEL',
     defaultModel: 'meta-llama/Llama-3.3-70B-Instruct',
+    free: true,
     baseURL: 'https://router.huggingface.co/v1',
   },
   // 13. Together AI — $25 free credits, no credit card, OpenAI-compatible
@@ -207,6 +224,7 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     keyEnv: 'TOGETHER_API_KEY',
     modelEnv: 'TOGETHER_MODEL',
     defaultModel: 'meta-llama/Llama-3.3-70B-Instruct-Turbo-Free',
+    free: false,
     baseURL: 'https://api.together.ai/v1',
   },
   // 14. Cohere — Trial key: 1000 calls/mo, 20 RPM, no credit card
@@ -216,6 +234,7 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     keyEnv: 'COHERE_API_KEY',
     modelEnv: 'COHERE_MODEL',
     defaultModel: 'command-r7b',
+    free: true,
     baseURL: 'https://api.cohere.ai/v1',
   },
   // 15. Ollama — local, last resort (no API key needed)
@@ -223,6 +242,7 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     name: 'ollama',
     modelEnv: 'OLLAMA_DEFAULT_MODEL',
     defaultModel: 'gemma4',
+    free: true,
     baseURL: (config) => `${config.get<string>('OLLAMA_URL', 'http://localhost:11434')}/v1`,
     alwaysInclude: true,
     defaultApiKey: 'ollama',
@@ -361,7 +381,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
     return this.providers.map((p) => ({
       provider: p.name,
       model: p.model,
-      free: p.name !== 'openai' && p.name !== 'anthropic',
+      free: p.free,
     }));
   }
 
@@ -390,6 +410,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
         model,
         apiKey,
         baseURL,
+        free: def.free ?? true,
         temperature: defaultTemp,
         supportsTemperature: custom.supportsTemperature ?? true,
         timeout: custom.timeout ?? defaultTimeout,

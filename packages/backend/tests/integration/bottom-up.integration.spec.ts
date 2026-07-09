@@ -84,29 +84,6 @@ vi.mock('ioredis', () => {
   };
 });
 
-// ── esbuild decorator metadata restoration ──
-/*
-function restoreParamtypes(cls: unknown, types: unknown[]) {
-  if (Reflect.getMetadata('design:paramtypes', cls) == null) {
-    Reflect.defineMetadata('design:paramtypes', types, cls);
-  }
-}
-
-restoreParamtypes(PostsService, [PrismaService, EventEmitter2]);
-// Quality pass: SessionsService grew Discord/SHARED_REDIS/EmailReader/SchedulerRegistry
-// params — the stale 5-entry restore left `discord` undefined at boot.
-restoreParamtypes(SessionsService, [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService, Object, EmailReaderService, SchedulerRegistry]);
-restoreParamtypes(EncryptionService, [ConfigService]);
-restoreParamtypes(RateLimitService, [ConfigService]);
-restoreParamtypes(SseService, [ConfigService]);
-restoreParamtypes(AccountsService, [PrismaService, ConfigService]);
-// ContentSourceService injects @Inject(IContentPort) — token decorator wins, slot is Object
-restoreParamtypes(ContentSourceService, [Object]);
-restoreParamtypes(HealthController, [PrismaService, ConfigService]);
-restoreParamtypes(EventsController, [SseService]);
-// Quality pass: TopicGenerationService was added to AppModule without a restore
-// entry — esbuild-stripped paramtypes made configService undefined at boot.
-restoreParamtypes(TopicGenerationService, [PrismaService, ConfigService, SchedulerRegistry, LlmService]);*/
 restoreAllDesignParamtypes();
 
 // ── Mock ConfigService ──

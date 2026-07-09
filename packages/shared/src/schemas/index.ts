@@ -162,3 +162,39 @@ export const SseEventSchema = z.object({
   timestamp: z.string().optional(),
 });
 export type SseEvent = z.infer<typeof SseEventSchema>;
+
+// ============================================================
+// A/B Testing schemas
+// ============================================================
+
+export const ABTestQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(365).default(30),
+  network: z.enum(['X', 'THREADS', 'FACEBOOK']).optional(),
+  minSampleSize: z.coerce.number().int().min(0).default(0),
+});
+export type ABTestQuery = z.infer<typeof ABTestQuerySchema>;
+
+export const ABTestVariantSchema = z.object({
+  label: z.string(),
+  sampleSize: z.number().int(),
+  avgLikes: z.number(),
+  avgComments: z.number(),
+  avgShares: z.number(),
+  avgImpressions: z.number().nullable(),
+  avgEngagement: z.number(),
+  avgAntiAiTone: z.number().nullable(),
+  avgHookStrength: z.number().nullable(),
+});
+export type ABTestVariant = z.infer<typeof ABTestVariantSchema>;
+
+export const ABTestSchema = z.object({
+  testId: z.string(),
+  topic: z.string(),
+  network: z.string(),
+  totalPosts: z.number().int(),
+  variants: z.array(ABTestVariantSchema),
+  winner: z.string().nullable(),
+  firstPostedAt: z.string().nullable(),
+  lastPostedAt: z.string().nullable(),
+});
+export type ABTest = z.infer<typeof ABTestSchema>;

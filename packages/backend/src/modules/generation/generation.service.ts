@@ -28,6 +28,7 @@ import {
 } from '@prisma/client';
 import type { ContentTopic } from '@spa/shared';
 import { buildGenerationGraph, createInitialState, type GeneratedPost, type ProgressPublisher } from './generation.graph.js';
+import type { JudgeScores } from '@spa/shared';
 import { Command } from '@langchain/langgraph';
 import { simhash, isDuplicateHash } from './simhash.js';
 import { prioritizeTopics as prioritizeTopicsByFreshness } from './topic-prioritization.js';
@@ -37,6 +38,7 @@ import { HookPerformanceBank } from '../content-enhancements/hook-performance-ba
 import { VisualConceptService } from '../content-enhancements/visual-concept.service.js';
 import { ThreadDepthController } from '../content-enhancements/thread-depth.controller.js';
 import { ABVariantGenerator } from '../content-enhancements/ab-variant.generator.js';
+import { ABVariantService } from '../content-enhancements/ab-variant.service.js';
 
 /**
  * Generation service — uses LangGraph workflow for creating social post drafts.
@@ -97,6 +99,7 @@ export class GenerationService {
     @Optional() private readonly visualService?: VisualConceptService,
     @Optional() private readonly threadDepthController?: ThreadDepthController,
     @Optional() private readonly abGenerator?: ABVariantGenerator,
+    @Optional() private readonly abVariantService?: ABVariantService,
     @Optional() private readonly langfuse?: LangfuseService,
     @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
   ) {
@@ -130,7 +133,7 @@ export class GenerationService {
       };
       // Q8: judge-gated refine loop threshold (0 disables the retry loop)
       const rawThreshold = Number(process.env.JUDGE_REFINE_THRESHOLD ?? '0.6');
-      const graphBuilder = buildGenerationGraph(this.llm, progressPublisher, this.hookBank, this.visualService, this.abGenerator, this.promptPort, {
+      const graphBuilder = buildGenerationGraph(this.llm, progressPublisher, this.hookBank, this.visualService, this.abGenerator, this.abVariantService, this.promptPort, {
         judgeRefineThreshold: Number.isFinite(rawThreshold) ? rawThreshold : 0.6,
         getRecordedPromptLabels,
       });
@@ -201,6 +204,45 @@ export class GenerationService {
       abVariants: genPost.abVariants ?? null,
       ...overrides,
     };
+  }
+
+  /**
+   * Persist A/B variants for a generated post. Non-blocking — if the service is
+   * not available (e.g. tests), the post is still saved.
+   */
+  private async persistPostVariants(
+    postId: string,
+    genPost: GeneratedPost,
+    judgeScores?: JudgeScores,
+  ): Promise<void> {
+    if (!this.abVariantService) return;
+    try {
+      await this.abVariantService.createVariants(
+        postId,
+        genPost.network,
+        genPost.content,
+        genPost.abVariants ?? null,
+        judgeScores,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Failed to persist A/B variants for ${postId}: ${message}`);
+    }
+  }
+
+  private async persistPostVariantForContent(
+    postId: string,
+    network: SocialNetwork,
+    content: string,
+    judgeScores?: JudgeScores,
+  ): Promise<void> {
+    if (!this.abVariantService) return;
+    try {
+      await this.abVariantService.createVariants(postId, network, content, null, judgeScores);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Failed to persist default variant for ${postId}: ${message}`);
+    }
   }
 
   /**
@@ -817,6 +859,8 @@ export class GenerationService {
         ) as Prisma.InputJsonValue,
       });
 
+      await this.persistPostVariants(post.id, genPost, genPost.judgeScores);
+
       savedPosts.push(post);
       recentHashes.push(candidateHash); // add to in-memory set for this run
       this.logger.debug(
@@ -897,6 +941,12 @@ export class GenerationService {
                 this.postsService.emitDraftGenerated(cp.id, genPost.network);
               }
               savedPosts.push(...contPosts);
+              for (let i = 0; i < contPosts.length; i++) {
+                const cont = plan.continuations[i];
+                if (cont) {
+                  await this.persistPostVariantForContent(contPosts[i]!.id, genPost.network, cont.content, genPost.judgeScores);
+                }
+              }
             }
           } catch (err) {
             this.logger.warn(`P4: Thread planning failed, falling back to F2: ${(err as Error).message}`);
@@ -974,6 +1024,7 @@ export class GenerationService {
     // H1: emit DRAFT_GENERATED only AFTER the tx commits.
     this.postsService.emitDraftGenerated(continuationPost.id, genPost.network);
     savedPosts.push(continuationPost);
+    await this.persistPostVariantForContent(continuationPost.id, genPost.network, continuationContent, genPost.judgeScores);
   }
 
   /**
@@ -1392,6 +1443,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
                   genPost.promptLabels ?? promptLabels,
                 ) as Prisma.InputJsonValue,
               });
+              await this.persistPostVariants(post.id, genPost, genPost.judgeScores);
               postIds.push(post.id);
               recentHashes.push(candidateHash);
             }
@@ -1501,6 +1553,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
           genPost.promptLabels ?? promptLabels,
         ) as Prisma.InputJsonValue,
       });
+      await this.persistPostVariants(post.id, genPost, genPost.judgeScores);
       postIds.push(post.id);
       recentHashes.push(candidateHash);
     }

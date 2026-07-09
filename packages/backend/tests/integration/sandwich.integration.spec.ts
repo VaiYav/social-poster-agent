@@ -51,7 +51,8 @@ import { PrismaService } from '../../src/infrastructure/prisma/prisma.service';
 import { EncryptionService } from '../../src/infrastructure/crypto/encryption.service.js';
 import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service.js';
 import { IBrowserPort } from '../../src/domain/ports/browser.port.js';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { SseEventListener } from '../../src/events/listeners/sse-event.listener.js';
 import { createMockPrismaService, createMockEncryptionService, createMockEmailReaderService, createMockSchedulerRegistry } from '../mocks/index';
 import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER } from '../../src/infrastructure/redis/redis.module';
 
@@ -246,50 +247,6 @@ function createIntegrationPrismaService() {
   return prisma;
 }
 
-// ── Metadata restoration (esbuild compatibility) ────────────────────────────
-
-/*
-function restoreDesignParamtypes(): void {
-  // PostingService: (@Inject(IBrowserPort), AccountsService, SessionsService,
-  //   WarmupService, PostsService, RateLimitService, SseService,
-  //   ThreadProgressService, XPoster, ThreadsPoster, FacebookPoster,
-  //   @Optional() QueueFactory, @Optional() FlowControlService, @Optional() ContentPillarTracker)
-    Reflect.defineMetadata(
-      'design:paramtypes',
-      [Object, AccountsService, SessionsService, WarmupService, PostsService, RateLimitService, SseService, ThreadProgressService, XPoster, ThreadsPoster, FacebookPoster, Object, Object, Object],
-      PostingService,
-    );
-  // SessionsService: (PrismaService, AccountsService, @Inject(IBrowserPort), ConfigService, EncryptionService, DiscordNotificationService)
-    Reflect.defineMetadata(
-      'design:paramtypes',
-      [PrismaService, AccountsService, Object, ConfigService, EncryptionService, DiscordNotificationService],
-      SessionsService,
-    );
-  // WarmupService: (PrismaService, ConfigService)
-    Reflect.defineMetadata(
-      'design:paramtypes',
-      [PrismaService, ConfigService],
-      WarmupService,
-    );
-  // AccountsService: (PrismaService, ConfigService, @Optional() WarmupService)
-    Reflect.defineMetadata('design:paramtypes', [PrismaService, ConfigService, WarmupService], AccountsService);
-  // PostsService: (PrismaService, EventEmitter2)
-    Reflect.defineMetadata('design:paramtypes', [PrismaService, EventEmitter2], PostsService);
-  // RateLimitService: (ConfigService, @Inject(SHARED_REDIS) IORedis)
-    Reflect.defineMetadata('design:paramtypes', [ConfigService, Object], RateLimitService);
-  // SseService: (ConfigService, @Inject(SHARED_REDIS_SUBSCRIBER), @Inject(SHARED_REDIS_PUBLISHER))
-    Reflect.defineMetadata('design:paramtypes', [ConfigService, Object, Object], SseService);
-  // FacebookPoster: (IBrowserPort, ConfigService)
-    Reflect.defineMetadata('design:paramtypes', [IBrowserPort, ConfigService], FacebookPoster);
-  // XPoster: (IBrowserPort)
-    Reflect.defineMetadata('design:paramtypes', [IBrowserPort], XPoster);
-  // ThreadsPoster: (IBrowserPort)
-    Reflect.defineMetadata('design:paramtypes', [IBrowserPort], ThreadsPoster);
-  // Quality pass: TopicGenerationService was added to AppModule without a restore
-  // entry — esbuild-stripped paramtypes made configService undefined at boot.
-  Reflect.defineMetadata('design:paramtypes', [PrismaService, ConfigService, SchedulerRegistry, LlmService], TopicGenerationService);
-}
-*/
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -428,6 +385,9 @@ async function buildTestingModule(
   } as unknown;
 
   const moduleRef = await Test.createTestingModule({
+    imports: [
+      EventEmitterModule.forRoot(), // EDA: real event bus so SseEventListener is registered
+    ],
     providers: [
       // Real service classes — real DI wiring
       PostingService,
@@ -437,6 +397,7 @@ async function buildTestingModule(
       AccountsService,
       RateLimitService,
       SseService,
+      SseEventListener, // bridges PostEvents -> SseService.publish
       ThreadProgressService,
       XPoster,
       ThreadsPoster,
@@ -449,8 +410,6 @@ async function buildTestingModule(
       { provide: EncryptionService, useValue: createMockEncryptionService() },
       // DiscordNotificationService: mock (SessionsService now depends on it)
       { provide: DiscordNotificationService, useValue: { critical: vi.fn().mockResolvedValue(undefined), warning: vi.fn().mockResolvedValue(undefined), info: vi.fn().mockResolvedValue(undefined), sendAlert: vi.fn().mockResolvedValue(undefined) } },
-      // EDA: Mock EventEmitter2 (no real event bus needed in tests)
-      { provide: EventEmitter2, useValue: { emit: vi.fn() } },
       // Sprint L: Provide SHARED_REDIS tokens directly (RedisModule not imported)
       { provide: SHARED_REDIS, useValue: mockSharedRedis },
       { provide: SHARED_REDIS_SUBSCRIBER, useValue: mockSharedRedis },
@@ -746,8 +705,9 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
 
   // ── ITC-023: Posting → SSE (FAILED Event on Poster Error) ─────────────────
 
-  it('ITC-023: SSE FAILED event published when poster returns error — post marked FAILED with errorMessage', async () => {
+  it('ITC-023: SSE FAILED(retryable=true) event published when poster returns retryable error — post reverted to APPROVED', async () => {
     // Arrange: make XPoster fail by having page.goto throw "Navigation timeout"
+    // (Navigation timeouts are classified as retryable network errors.)
     ctx.mockPage.goto.mockRejectedValue(new Error('Navigation timeout'));
     ctx.prisma.post.findUnique.mockResolvedValue({ ...APPROVED_POST_X, id: 'post-023' });
 
@@ -767,7 +727,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
       network: 'X',
     });
 
-    // Assert: SSE FAILED event published with error message
+    // Assert: SSE FAILED event published with retryable flag
     const failedEvent = publishSpy.mock.calls.find((c: unknown[]) => c[0]?.status === 'FAILED');
     expect(failedEvent).toBeDefined();
     expect(failedEvent[0]).toMatchObject({
@@ -775,20 +735,25 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
       postId: 'post-023',
       status: 'FAILED',
       network: 'X',
+      retryable: true,
     });
     expect(failedEvent[0].error).toContain('Navigation timeout');
 
-    // Assert: result is failure with error
+    // Assert: result is failure with retryable error
     expect(result.success).toBe(false);
     expect(result.error).toContain('Navigation timeout');
+    expect(result.retryable).toBe(true);
 
-    // Assert: post status = FAILED in DB with errorMessage
+    // Assert: post status reverted to APPROVED (not FAILED) so BullMQ can retry
     const failedUpdate = ctx.prisma.post.update.mock.calls.find(
       (c: unknown[]) => c[0]?.data?.status === PostStatus.FAILED,
     );
-    expect(failedUpdate).toBeDefined();
-    expect(failedUpdate[0].where.id).toBe('post-023');
-    expect(failedUpdate[0].data.errorMessage).toContain('Navigation timeout');
+    expect(failedUpdate).toBeUndefined();
+    const approvedUpdate = ctx.prisma.post.update.mock.calls.find(
+      (c: unknown[]) => c[0]?.data?.status === PostStatus.APPROVED,
+    );
+    expect(approvedUpdate).toBeDefined();
+    expect(approvedUpdate[0].where.id).toBe('post-023');
 
     // Assert: recordPost NOT called (only on success) — no interval key in Redis
     expect(redisStore.has('spa:ratelimit:X:interval')).toBe(false);
@@ -796,8 +761,8 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
 
   // ── ITC-024: Posting → SSE (FAILED Event on Exception) ────────────────────
 
-  it('ITC-024: SSE FAILED event published when posting throws exception (no session) — post marked FAILED with "No active session"', async () => {
-    // Arrange: no account → getOrCreateSession returns null → throws
+  it('ITC-024: SSE FAILED(retryable=true) event published when no session — post reverted to APPROVED', async () => {
+    // Arrange: no account → getOrCreateSession returns null → throws RetryableError
     ctx.prisma.socialAccount.findFirst.mockResolvedValue(null);
     ctx.prisma.post.findUnique.mockResolvedValue({ ...APPROVED_POST_X, id: 'post-024' });
 
@@ -810,6 +775,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
     // Assert: exception caught, returns failure
     expect(result.success).toBe(false);
     expect(result.error).toContain('No active session');
+    expect(result.retryable).toBe(true);
 
     // Assert: SSE POSTING event was published (before the exception in try block)
     const postingEvent = publishSpy.mock.calls.find((c: unknown[]) => c[0]?.status === 'POSTING');
@@ -821,7 +787,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
       network: 'X',
     });
 
-    // Assert: SSE FAILED event published with "No active session" error
+    // Assert: SSE FAILED event published with retryable flag
     const failedEvent = publishSpy.mock.calls.find((c: unknown[]) => c[0]?.status === 'FAILED');
     expect(failedEvent).toBeDefined();
     expect(failedEvent[0]).toMatchObject({
@@ -829,16 +795,20 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
       postId: 'post-024',
       status: 'FAILED',
       network: 'X',
+      retryable: true,
     });
     expect(failedEvent[0].error).toContain('No active session');
 
-    // Assert: post status = FAILED with "No active session" error
+    // Assert: post reverted to APPROVED (not FAILED) so BullMQ can retry
     const failedUpdate = ctx.prisma.post.update.mock.calls.find(
       (c: unknown[]) => c[0]?.data?.status === PostStatus.FAILED,
     );
-    expect(failedUpdate).toBeDefined();
-    expect(failedUpdate[0].where.id).toBe('post-024');
-    expect(failedUpdate[0].data.errorMessage).toContain('No active session');
+    expect(failedUpdate).toBeUndefined();
+    const approvedUpdate = ctx.prisma.post.update.mock.calls.find(
+      (c: unknown[]) => c[0]?.data?.status === PostStatus.APPROVED,
+    );
+    expect(approvedUpdate).toBeDefined();
+    expect(approvedUpdate[0].where.id).toBe('post-024');
 
     // Assert: POSTING status was set before the exception
     const postingUpdate = ctx.prisma.post.update.mock.calls.find(

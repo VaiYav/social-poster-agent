@@ -9,6 +9,7 @@
 // and engagement budget.
 
 import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ILlmPort } from '../../domain/ports/llm.port.js';
 import {
   IEngagementDecisionPort,
@@ -31,14 +32,19 @@ import {
 import { matchesScript, normalizeLanguage } from '../../infrastructure/util/script-check.js';
 import { detectLanguage } from '../../infrastructure/util/language-detector.js';
 
-const ENGAGEMENT_COMMENT_TEMPERATURE = Number(process.env.ENGAGEMENT_COMMENT_TEMPERATURE ?? 0.8);
-const ENGAGEMENT_QUOTE_TEMPERATURE = Number(process.env.ENGAGEMENT_QUOTE_TEMPERATURE ?? 0.8);
-
 @Injectable()
 export class EngagementDecisionService implements IEngagementDecisionPort {
   private readonly logger = new Logger(EngagementDecisionService.name);
+  private readonly commentTemperature: number;
+  private readonly quoteTemperature: number;
 
-  constructor(@Inject(ILlmPort) @Optional() private readonly llm: ILlmPort) {}
+  constructor(
+    @Inject(ILlmPort) @Optional() private readonly llm: ILlmPort,
+    private readonly configService: ConfigService,
+  ) {
+    this.commentTemperature = Number(this.configService.get('ENGAGEMENT_COMMENT_TEMPERATURE', 0.8));
+    this.quoteTemperature = Number(this.configService.get('ENGAGEMENT_QUOTE_TEMPERATURE', 0.8));
+  }
 
   /**
    * Decide what action to take for a post, given the context.
@@ -70,24 +76,8 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       }
 
       // Budget enforcement — even if LLM says "like" / "comment" / "repost" / "quote", respect the budget
-      if (decision.action === 'like' && context.likesThisSession >= context.likesMaxPerSession) {
-        this.logger.debug(`LLM said 'like' but budget exhausted — downgrading to 'read'`);
-        return { action: 'read', reason: 'Like budget exhausted', confidence: 0.8 };
-      }
-      if (decision.action === 'comment' && context.commentsThisSession >= context.commentsMaxPerSession) {
-        this.logger.debug(`LLM said 'comment' but budget exhausted — downgrading to 'read'`);
-        return { action: 'read', reason: 'Comment budget exhausted', confidence: 0.8 };
-      }
-      const repostsMax = context.repostsMaxPerSession ?? 0;
-      if (decision.action === 'repost' && (context.repostsThisSession ?? 0) >= repostsMax) {
-        this.logger.debug(`LLM said 'repost' but budget exhausted — downgrading to 'read'`);
-        return { action: 'read', reason: 'Repost budget exhausted', confidence: 0.8 };
-      }
-      const quotesMax = context.quotesMaxPerSession ?? 0;
-      if (decision.action === 'quote' && (context.quotesThisSession ?? 0) >= quotesMax) {
-        this.logger.debug(`LLM said 'quote' but budget exhausted — downgrading to 'read'`);
-        return { action: 'read', reason: 'Quote budget exhausted', confidence: 0.8 };
-      }
+      const budgetOverride = this.enforceBudget(decision, context);
+      if (budgetOverride) return budgetOverride;
 
       // If LLM decided 'comment' but didn't provide commentText, generate it.
       // If generation fails (returns null), downgrade to like (or read if like
@@ -158,25 +148,8 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       // Budget enforcement per-post (same logic as decideAction)
       return decisions.map((decision, i) => {
         const ctx = contexts[i]!;
-
-        if (decision.action === 'like' && ctx.likesThisSession >= ctx.likesMaxPerSession) {
-          this.logger.debug(`Batch: LLM said 'like' but budget exhausted — downgrading to 'read'`);
-          return { action: 'read' as const, reason: 'Like budget exhausted', confidence: 0.8 };
-        }
-        if (decision.action === 'comment' && ctx.commentsThisSession >= ctx.commentsMaxPerSession) {
-          this.logger.debug(`Batch: LLM said 'comment' but budget exhausted — downgrading to 'read'`);
-          return { action: 'read' as const, reason: 'Comment budget exhausted', confidence: 0.8 };
-        }
-        if (decision.action === 'repost' && (ctx.repostsThisSession ?? 0) >= (ctx.repostsMaxPerSession ?? 0)) {
-          this.logger.debug(`Batch: LLM said 'repost' but budget exhausted — downgrading to 'read'`);
-          return { action: 'read' as const, reason: 'Repost budget exhausted', confidence: 0.8 };
-        }
-        if (decision.action === 'quote' && (ctx.quotesThisSession ?? 0) >= (ctx.quotesMaxPerSession ?? 0)) {
-          this.logger.debug(`Batch: LLM said 'quote' but budget exhausted — downgrading to 'read'`);
-          return { action: 'read' as const, reason: 'Quote budget exhausted', confidence: 0.8 };
-        }
-
-        return decision;
+        const budgetOverride = this.enforceBudget(decision, ctx);
+        return budgetOverride ?? decision;
       });
     } catch (err) {
       this.logger.warn(`LLM batch decision failed, falling back to individual: ${(err as Error).message.slice(0, 100)}`);
@@ -204,7 +177,7 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       const response = await this.llm.generateChat(
         systemPrompt,
         userPrompt,
-        { temperature: ENGAGEMENT_COMMENT_TEMPERATURE, maxTokens: 150 },
+        { temperature: this.commentTemperature, maxTokens: 150 },
       );
 
       const { language, comment } = parseCommentResponse(response.content);
@@ -217,23 +190,7 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       // Post-validation: verify the comment's script matches the detected language.
       // Catches the #1 bot tell — commenting in English on a non-English post.
       // If the LLM echoed a different language code, trust the deterministic detector.
-      const outputLanguage = language === detectedLanguage ? language : detectedLanguage;
-      if (language !== detectedLanguage) {
-        this.logger.warn(
-          `Comment language mismatch: LLM said ${language}, detector said ${detectedLanguage} — using ${outputLanguage}`,
-        );
-      }
-      if (!this.validateScriptMatch(comment, outputLanguage, 'comment')) {
-        return null;
-      }
-
-      // Validate comment — reject if it contains forbidden patterns
-      if (this.isForbiddenComment(comment)) {
-        this.logger.warn(`LLM generated forbidden comment, returning null: "${comment.slice(0, 80)}"`);
-        return null;
-      }
-
-      return comment;
+      return this.validateGeneratedText(comment, language, detectedLanguage, 'comment');
     } catch (err) {
       this.logger.warn(`LLM comment generation failed, returning null: ${(err as Error).message.slice(0, 100)}`);
       return null;
@@ -258,7 +215,7 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       const response = await this.llm.generateChat(
         systemPrompt,
         userPrompt,
-        { temperature: ENGAGEMENT_COMMENT_TEMPERATURE, maxTokens: 150 },
+        { temperature: this.quoteTemperature, maxTokens: 150 },
       );
 
       const { language, quote } = parseQuoteResponse(response.content);
@@ -270,22 +227,7 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
 
       // Post-validation: verify the quote's script matches the detected language.
       // Trust the deterministic detector if the LLM echoed a different code.
-      const outputLanguage = language === detectedLanguage ? language : detectedLanguage;
-      if (language !== detectedLanguage) {
-        this.logger.warn(
-          `Quote language mismatch: LLM said ${language}, detector said ${detectedLanguage} — using ${outputLanguage}`,
-        );
-      }
-      if (!this.validateScriptMatch(quote, outputLanguage, 'quote')) {
-        return null;
-      }
-
-      if (this.isForbiddenComment(quote)) {
-        this.logger.warn(`LLM generated forbidden quote, returning null: "${quote.slice(0, 80)}"`);
-        return null;
-      }
-
-      return quote;
+      return this.validateGeneratedText(quote, language, detectedLanguage, 'quote');
     } catch (err) {
       this.logger.warn(`LLM quote generation failed, returning null: ${(err as Error).message.slice(0, 100)}`);
       return null;
@@ -348,5 +290,55 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       `${kind[0]!.toUpperCase() + kind.slice(1)} script mismatch: language=${lang}, ${kind}="${text.slice(0, 60)}" — returning null`,
     );
     return false;
+  }
+
+  /**
+   * Shared post-processing for LLM-generated comment/quote text.
+   * Validates language script and forbidden patterns in one place.
+   */
+  private validateGeneratedText(
+    text: string,
+    language: string | undefined,
+    detectedLanguage: string,
+    kind: 'comment' | 'quote',
+  ): string | null {
+    const outputLanguage = language === detectedLanguage ? language : detectedLanguage;
+    if (language !== detectedLanguage) {
+      this.logger.warn(
+        `${kind[0]!.toUpperCase() + kind.slice(1)} language mismatch: LLM said ${language}, detector said ${detectedLanguage} — using ${outputLanguage}`,
+      );
+    }
+    if (!this.validateScriptMatch(text, outputLanguage, kind)) {
+      return null;
+    }
+    if (this.isForbiddenComment(text)) {
+      this.logger.warn(`LLM generated forbidden ${kind}, returning null: "${text.slice(0, 80)}"`);
+      return null;
+    }
+    return text;
+  }
+
+  /**
+   * Enforce per-session engagement budget for a single decision.
+   * Returns a downgraded 'read' decision if the chosen action is over budget.
+   */
+  private enforceBudget(decision: ActionDecision, context: PostContext): ActionDecision | null {
+    if (decision.action === 'like' && context.likesThisSession >= context.likesMaxPerSession) {
+      this.logger.debug(`LLM said 'like' but budget exhausted — downgrading to 'read'`);
+      return { action: 'read', reason: 'Like budget exhausted', confidence: 0.8 };
+    }
+    if (decision.action === 'comment' && context.commentsThisSession >= context.commentsMaxPerSession) {
+      this.logger.debug(`LLM said 'comment' but budget exhausted — downgrading to 'read'`);
+      return { action: 'read', reason: 'Comment budget exhausted', confidence: 0.8 };
+    }
+    if (decision.action === 'repost' && (context.repostsThisSession ?? 0) >= (context.repostsMaxPerSession ?? 0)) {
+      this.logger.debug(`LLM said 'repost' but budget exhausted — downgrading to 'read'`);
+      return { action: 'read', reason: 'Repost budget exhausted', confidence: 0.8 };
+    }
+    if (decision.action === 'quote' && (context.quotesThisSession ?? 0) >= (context.quotesMaxPerSession ?? 0)) {
+      this.logger.debug(`LLM said 'quote' but budget exhausted — downgrading to 'read'`);
+      return { action: 'read', reason: 'Quote budget exhausted', confidence: 0.8 };
+    }
+    return null;
   }
 }

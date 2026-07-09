@@ -6,6 +6,8 @@ import { Controller, Get, Post, Query, Param, HttpCode, HttpStatus, Optional } f
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { AnalyticsService } from './analytics.service';
 import { MetricsScraperService } from './metrics-scraper.service';
+import { ABTestService } from './ab-test.service';
+import { ABTestQuerySchema, type ABTestQuery } from '../../domain/dtos';
 import { HookPerformanceBank } from '../content-enhancements/hook-performance-bank';
 
 @ApiTags('analytics')
@@ -14,6 +16,7 @@ export class AnalyticsController {
   constructor(
     private readonly analyticsService: AnalyticsService,
     private readonly metricsScraper: MetricsScraperService,
+    private readonly abTestService: ABTestService,
     @Optional() private readonly hookBank?: HookPerformanceBank,
   ) {}
 
@@ -42,6 +45,23 @@ export class AnalyticsController {
   @ApiOperation({ summary: 'F6: Get metrics time-series history for a post' })
   getPostMetricsHistory(@Param('postId') postId: string) {
     return this.metricsScraper.getMetricsHistory(postId);
+  }
+
+  @Get('ab-tests')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'P7: Get A/B test results by topic and network' })
+  @ApiQuery({ name: 'days', required: false, type: Number, description: 'Lookback period in days (default: 30, max: 365)' })
+  @ApiQuery({ name: 'network', required: false, enum: ['X', 'THREADS', 'FACEBOOK'], description: 'Filter by social network' })
+  @ApiQuery({ name: 'minSampleSize', required: false, type: Number, description: 'Minimum samples for a variant to be eligible as winner (default: 0)' })
+  @ApiResponse({ status: 200, description: 'A/B test results with per-variant engagement averages' })
+  async getAbTests(@Query() rawQuery: unknown) {
+    const query = this.parseAbTestQuery(rawQuery);
+    return this.abTestService.getAbTests(query);
+  }
+
+  private parseAbTestQuery(rawQuery: unknown): ABTestQuery {
+    const { days, network, minSampleSize } = ABTestQuerySchema.parse(rawQuery);
+    return { days, network, minSampleSize };
   }
 
   @Post('scrape')

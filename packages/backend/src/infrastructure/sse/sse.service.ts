@@ -147,6 +147,8 @@ export class SseService implements OnModuleDestroy {
     sleepMs?: number;
     success?: boolean;
     duration?: number;
+    // MOD-03: retryable flag for terminal vs. retryable posting failures
+    retryable?: boolean;
   }): Promise<void> {
     if (!this.publisher) return;
     await this.publisher.publish(this.channel, JSON.stringify(event));

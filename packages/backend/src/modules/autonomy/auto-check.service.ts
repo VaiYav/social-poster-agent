@@ -23,6 +23,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { SocialNetwork } from '@prisma/client';
 import { detectEngagementBait } from '../content-enhancements/engagement-bait.detector.js';
 import { simhash, isDuplicateHash } from '../generation/simhash.js';
+import { NETWORK_LIMITS } from '../posts/network-limits.js';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 
 export interface CheckResult {
@@ -36,12 +37,6 @@ export interface AutoCheckResult {
   checks: CheckResult[];
   rejectionReason?: string;
 }
-
-const NETWORK_LIMITS: Record<SocialNetwork, number> = {
-  [SocialNetwork.X]: 280,
-  [SocialNetwork.THREADS]: 500,
-  [SocialNetwork.FACEBOOK]: 500,
-};
 
 // Forbidden phrases from brand-voice.md (fear-mongering, absolute predictions, medical/financial advice)
 const FORBIDDEN_PATTERNS: RegExp[] = [

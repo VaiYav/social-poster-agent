@@ -22,6 +22,12 @@ export {
   type PaginationMeta,
   ApiErrorSchema,
   type ApiError,
+  ABTestQuerySchema,
+  type ABTestQuery,
+  ABTestSchema,
+  type ABTest,
+  ABTestVariantSchema,
+  type ABTestVariant,
 } from '@spa/shared';
 
 // Domain enums — re-export from @spa/shared
