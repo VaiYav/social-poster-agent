@@ -251,10 +251,11 @@ function createIntegrationPrismaService() {
 function restoreDesignParamtypes(): void {
   // PostingService: (@Inject(IBrowserPort), AccountsService, SessionsService,
   //   WarmupService, PostsService, RateLimitService, SseService,
-  //   ThreadProgressService, XPoster, ThreadsPoster, FacebookPoster, @Optional() QueueFactory)
+  //   ThreadProgressService, XPoster, ThreadsPoster, FacebookPoster,
+  //   @Optional() QueueFactory, @Optional() FlowControlService, @Optional() ContentPillarTracker)
     Reflect.defineMetadata(
       'design:paramtypes',
-      [Object, AccountsService, SessionsService, WarmupService, PostsService, RateLimitService, SseService, ThreadProgressService, XPoster, ThreadsPoster, FacebookPoster, Object],
+      [Object, AccountsService, SessionsService, WarmupService, PostsService, RateLimitService, SseService, ThreadProgressService, XPoster, ThreadsPoster, FacebookPoster, Object, Object, Object],
       PostingService,
     );
   // SessionsService: (PrismaService, AccountsService, @Inject(IBrowserPort), ConfigService, EncryptionService, DiscordNotificationService)

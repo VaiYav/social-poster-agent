@@ -28,11 +28,7 @@ import { Command } from '@langchain/langgraph';
 import { simhash, isDuplicateHash } from './simhash.js';
 import { prioritizeTopics as prioritizeTopicsByFreshness } from './topic-prioritization.js';
 import { checkTrendSafety } from '../content-enhancements/trend-guardrail.js';
-import {
-  ContentPillarTracker,
-  classifyPillar,
-  type ContentPillar,
-} from '../content-enhancements/content-pillar.tracker.js';
+import { ContentPillarTracker } from '../content-enhancements/content-pillar.tracker.js';
 import { HookPerformanceBank } from '../content-enhancements/hook-performance-bank.js';
 import { VisualConceptService } from '../content-enhancements/visual-concept.service.js';
 import { ThreadDepthController } from '../content-enhancements/thread-depth.controller.js';
@@ -385,6 +381,7 @@ export class GenerationService {
                     path: article.path,
                     topic: article.topic,
                     factIndex: factIdx,
+                    keywords: article.keywords,
                   },
                 },
               });
@@ -393,6 +390,13 @@ export class GenerationService {
           } catch (err) {
             this.logger.error(`F10: Failed to generate post for fact ${factIdx + 1} of "${article.topic}": ${(err as Error).message}`);
           }
+        }
+
+        // 2.8.1: Mark the source article as used after it has been consumed.
+        try {
+          await this.contentSourceService.markUsed(article);
+        } catch (err) {
+          this.logger.debug(`markUsed failed for article (non-blocking): ${(err as Error).message}`);
         }
       }
 
@@ -447,6 +451,7 @@ export class GenerationService {
           network: true,
           sourceRef: true,
           createdAt: true,
+          llmMetadata: true,
         },
         orderBy: { createdAt: 'desc' },
         take: postCount * 3, // Get more than needed — dedup by topic
@@ -489,6 +494,12 @@ export class GenerationService {
         sourceTopics.push(topicStr);
         this.logger.log(`F13: Recycling "${topicStr}" (original post: ${oldPost.id}, age: ${Math.round((Date.now() - oldPost.createdAt.getTime()) / (1000 * 60 * 60 * 24))} days)`);
 
+        const metadata = (oldPost.llmMetadata as Record<string, unknown> | null) ?? {};
+        if (metadata.recycled === true) {
+          this.logger.debug(`F13: post ${oldPost.id} already recycled — skipping`);
+          continue;
+        }
+
         try {
           // Create a synthetic topic for regeneration with "evergreen" angle
           const recycledTopic: ContentTopic = {
@@ -513,12 +524,20 @@ export class GenerationService {
                   type: 'recycle',
                   originalPostId: oldPost.id,
                   originalTopic: topicStr,
+                  topic: recycledTopic.topic,
+                  keywords: recycledTopic.keywords,
                   recycledAt: new Date().toISOString(),
                 },
               },
             });
           }
           postIds.push(...posts.map((p) => p.id));
+
+          // 2.8.3: Mark the original as recycled only after successful generation.
+          await this.prisma.post.update({
+            where: { id: oldPost.id },
+            data: { llmMetadata: { ...metadata, recycled: true, recycledAt: new Date().toISOString() } },
+          });
         } catch (err) {
           this.logger.error(`F13: Failed to recycle post ${oldPost.id} ("${topicStr}"): ${(err as Error).message}`);
         }
@@ -557,12 +576,13 @@ export class GenerationService {
       return null;
     }
 
-    // Mark the original as recycled (idempotent).
+    // 2.8.3: Do not mark the original as recycled until generation succeeds.
+    // Also guard against double-recycling.
     const metadata = (original.llmMetadata as Record<string, unknown> | null) ?? {};
-    await this.prisma.post.update({
-      where: { id: postId },
-      data: { llmMetadata: { ...metadata, recycled: true, recycledAt: new Date().toISOString() } },
-    });
+    if (metadata.recycled === true) {
+      this.logger.warn(`RC3: post ${postId} is already recycled`);
+      return null;
+    }
 
     const topicStr =
       original.sourceRef && typeof original.sourceRef === 'object' && 'topic' in original.sourceRef
@@ -595,11 +615,20 @@ export class GenerationService {
               type: 'recycle',
               originalPostId: original.id,
               originalTopic: topicStr,
+              topic: recycledTopic.topic,
+              keywords: recycledTopic.keywords,
               recycledAt: new Date().toISOString(),
             },
           },
         });
       }
+
+      // 2.8.3: Mark the original as recycled only after successful generation.
+      await this.prisma.post.update({
+        where: { id: postId },
+        data: { llmMetadata: { ...metadata, recycled: true, recycledAt: new Date().toISOString() } },
+      });
+
       await this.markRunCompleted(run.id, [topicStr]);
       this.logger.log(`RC3: recycled post ${postId} → ${posts.length} re-written draft(s) via graph`);
       return posts[0] ? { id: posts[0].id, status: PostStatus.DRAFT } : null;
@@ -735,6 +764,7 @@ export class GenerationService {
           type: topic.sourceType,
           path: topic.path,
           topic: topic.topic,
+          keywords: topic.keywords,
         },
         llmMetadata: {
           model: genPost.model,
@@ -757,23 +787,6 @@ export class GenerationService {
       this.logger.debug(
         `Created draft post for ${genPost.network} (score: ${genPost.qualityScore ?? 'n/a'}/10): ${genPost.content.slice(0, 50)}...`,
       );
-
-      // P6: Record this post against its content pillar for rotation tracking.
-      // Graceful degradation: if the tracker is unavailable, skip recording.
-      if (this.pillarTracker) {
-        try {
-          // P6: Strip the injected `pillar:<name>` hint from keywords before
-          // classification — the hint is steering for the LLM, not a real
-          // keyword. Without this, classifyPillar() sees `pillar:educational`
-          // and falls through to the default (daily_weather), recording the
-          // wrong pillar for every steered post.
-          const cleanKeywords = topic.keywords.filter((k) => !k.startsWith('pillar:'));
-          const pillar: ContentPillar = classifyPillar(topic.topic, cleanKeywords);
-          await this.pillarTracker.recordPillar(pillar);
-        } catch (err) {
-          this.logger.debug(`P6: Pillar recording failed (non-blocking): ${(err as Error).message}`);
-        }
-      }
 
       // F2/P4: Multi-Stage Posting with Thread Depth Controller.
       // P4 replaces the fixed 2-post F2 with configurable thread depth (1-5).
@@ -860,6 +873,14 @@ export class GenerationService {
       }
     }
 
+    // 2.8.1: Mark the source topic as used after it has been consumed by the
+    // generation graph. This is a no-op for filesystem-backed readers.
+    try {
+      await this.contentSourceService.markUsed(topic);
+    } catch (err) {
+      this.logger.debug(`markUsed failed (non-blocking): ${(err as Error).message}`);
+    }
+
     return savedPosts;
   }
 
@@ -896,6 +917,7 @@ export class GenerationService {
             type: topic.sourceType,
             path: topic.path,
             topic: topic.topic,
+            keywords: topic.keywords,
           },
           llmMetadata: {
             model: genPost.model,
@@ -1318,7 +1340,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
                 network: genPost.network,
                 content: genPost.content,
                 generationRunId: runId,
-                sourceRef: { type: topic.sourceType, path: topic.path, topic: topic.topic },
+                sourceRef: { type: topic.sourceType, path: topic.path, topic: topic.topic, keywords: topic.keywords },
                 llmMetadata: {
                   model: genPost.model,
                   promptVersion: this.llm.getPromptVersion?.() ?? '0.4.0-resume',
@@ -1418,7 +1440,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
         network: genPost.network,
         content: genPost.content,
         generationRunId: runId,
-        sourceRef: { type: 'review', path: '', topic },
+        sourceRef: { type: 'review', path: '', topic, keywords: [] },
         llmMetadata: {
           model: genPost.model,
           promptVersion: this.llm.getPromptVersion?.() ?? '0.4.0-review',

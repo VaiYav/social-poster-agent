@@ -73,6 +73,10 @@ export interface SourceRef {
   path: string;
   topic?: string;
   factIndex?: number;
+  keywords?: string[];
+  originalTopic?: string;
+  originalPostId?: string;
+  recycledAt?: string;
 }
 
 export interface LlmMetadata {

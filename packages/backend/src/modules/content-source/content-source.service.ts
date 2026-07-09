@@ -25,4 +25,11 @@ export class ContentSourceService {
   async getArticles(limit = 10): Promise<ContentTopic[]> {
     return this.contentPort.readArticles(limit);
   }
+
+  /**
+   * 2.8.1: Mark a topic as used so it is not reused in the next generation cycle.
+   */
+  async markUsed(topic: ContentTopic): Promise<void> {
+    return this.contentPort.markUsed(topic);
+  }
 }

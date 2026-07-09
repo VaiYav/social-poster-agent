@@ -251,6 +251,7 @@ function countEmojis(text: string): number {
  * Count hashtags in a string.
  */
 function countHashtags(text: string): number {
-  const matches = text.match(/#[a-zA-Z0-9_]+/g);
+  // 2.8.5: Unicode-aware regex so Cyrillic, Arabic, etc. hashtags are counted.
+  const matches = text.match(/#[\p{L}\p{N}_]+/gu);
   return matches?.length ?? 0;
 }

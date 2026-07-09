@@ -9,7 +9,7 @@ import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { PostStatus } from '@prisma/client';
-import { simhash, hammingDistance } from '../generation/simhash.js';
+import { simhash, isDuplicateAgainstCorpus } from '../generation/simhash.js';
 import { GenerationService } from '../generation/generation.service.js';
 import { parseBool } from '../../infrastructure/config/parse-bool.js';
 import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
@@ -51,11 +51,9 @@ export class RecyclingService implements OnModuleInit {
     });
 
     // Filter out posts that are too similar to recent posts
+    // 2.8.4: Use the same SimHash threshold as GenerationService (isDuplicateAgainstCorpus).
     const recentHashes = await this.loadRecentHashes();
-    const recyclable = posts.filter((post) => {
-      const hash = simhash(post.content);
-      return !recentHashes.some((existing) => hammingDistance(hash, existing) <= 5);
-    });
+    const recyclable = posts.filter((post) => !isDuplicateAgainstCorpus(post.content, recentHashes));
 
     return recyclable.slice(0, limit);
   }

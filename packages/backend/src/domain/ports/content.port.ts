@@ -24,4 +24,9 @@ export interface IContentPort {
    * Read articles from content/blog/en/*.md (fallback source).
    */
   readArticles(limit?: number): Promise<ContentTopic[]>;
+
+  /**
+   * 2.8.1: Mark a topic as used so it is not reused in the next generation cycle.
+   */
+  markUsed(topic: ContentTopic): Promise<void>;
 }

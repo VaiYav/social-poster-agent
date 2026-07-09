@@ -81,11 +81,15 @@ export class AnalyticsService {
 
     const posts = await this.prisma.post.findMany({
       where: {
-        createdAt: { gte: startDate },
         status: { in: [PostStatus.POSTED, PostStatus.FAILED] },
+        OR: [
+          { status: PostStatus.POSTED, postedAt: { gte: startDate } },
+          { status: PostStatus.FAILED, createdAt: { gte: startDate } },
+        ],
       },
       select: {
         status: true,
+        postedAt: true,
         createdAt: true,
       },
     });
@@ -94,7 +98,10 @@ export class AnalyticsService {
     const byDate = new Map<string, { posted: number; failed: number }>();
 
     for (const post of posts) {
-      const dateStr = post.createdAt.toISOString().split('T')[0]!;
+      // 2.8.6: POSTED uses `postedAt`; FAILED falls back to `createdAt` (no failedAt column).
+      const eventDate = post.status === PostStatus.POSTED ? post.postedAt : post.createdAt;
+      if (!eventDate) continue;
+      const dateStr = eventDate.toISOString().split('T')[0]!;
       const entry = byDate.get(dateStr) ?? { posted: 0, failed: 0 };
       if (post.status === PostStatus.POSTED) entry.posted++;
       if (post.status === PostStatus.FAILED) entry.failed++;
@@ -118,19 +125,43 @@ export class AnalyticsService {
    * Get top performing posts (by engagement if available, otherwise by recency).
    */
   async getTopPosts(limit = 10): Promise<{ id: string; network: string; content: string; postedAt: Date | null; postUrl: string | null }[]> {
+    // 2.8.7: Sort by engagement (likes + comments + shares) using the latest metrics record.
     const posts = await this.prisma.post.findMany({
       where: { status: PostStatus.POSTED },
-      orderBy: { postedAt: 'desc' },
-      take: limit,
+      take: limit * 5,
       select: {
         id: true,
         network: true,
         content: true,
         postedAt: true,
         postUrl: true,
+        metrics: {
+          orderBy: { collectedAt: 'desc' },
+          take: 1,
+          select: { likes: true, comments: true, shares: true },
+        },
       },
     });
 
-    return posts;
+    const scored = posts.map((post) => {
+      const latest = post.metrics[0];
+      const engagement = (latest?.likes ?? 0) + (latest?.comments ?? 0) + (latest?.shares ?? 0);
+      return { post, engagement };
+    });
+
+    const topScored = scored
+      .sort((a, b) => {
+        if (b.engagement !== a.engagement) return b.engagement - a.engagement;
+        return (b.post.postedAt?.getTime() ?? 0) - (a.post.postedAt?.getTime() ?? 0);
+      })
+      .slice(0, limit);
+
+    return topScored.map(({ post }) => ({
+      id: post.id,
+      network: post.network,
+      content: post.content,
+      postedAt: post.postedAt,
+      postUrl: post.postUrl,
+    }));
   }
 }

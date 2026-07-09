@@ -176,9 +176,13 @@ export class ContentPillarTracker {
    */
   async recordPillar(pillar: ContentPillar): Promise<void> {
     const key = `${PILLAR_KEY_PREFIX}:${pillar}:count`;
-    await this.redis.incr(key);
-    // Refresh TTL on every increment so the window rolls forward
-    await this.redis.expire(key, WINDOW_SECONDS);
+    const count = await this.redis.incr(key);
+    // 2.8.2: Only set TTL on the FIRST write. Refreshing TTL on every
+    // increment turned the "7-day rolling window" into "7 days since the
+    // most recent post", which overcounts old posts when posting restarts.
+    if (count === 1) {
+      await this.redis.expire(key, WINDOW_SECONDS);
+    }
     this.logger.debug(`P6: Recorded post for pillar "${pillar}"`);
   }
 

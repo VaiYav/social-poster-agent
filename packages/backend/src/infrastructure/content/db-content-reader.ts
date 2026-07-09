@@ -53,10 +53,15 @@ export class DbContentReader {
   }
 
   /**
-   * Mark a topic as used (so it's not repeated in the next generation cycle).
+   * 2.8.1: Mark a topic as used (so it's not repeated in the next generation cycle).
    */
-  async markUsed(topicId: string): Promise<void> {
-    const id = topicId.startsWith('db:') ? topicId.slice(3) : topicId;
+  async markUsed(topic: ContentTopic): Promise<void> {
+    const topicId = topic.path;
+    if (!topicId.startsWith('db:')) {
+      // Not a DB-backed topic (e.g. synthetic recycle topic) — nothing to mark.
+      return;
+    }
+    const id = topicId.slice(3);
     await this.prisma.topic.update({
       where: { id },
       data: { status: 'used', usedAt: new Date() },

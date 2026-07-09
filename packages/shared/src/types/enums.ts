@@ -47,6 +47,8 @@ export const ContentSourceTypeSchema = {
   ARTICLE: 'article',
   TOPIC: 'topic',
   CREATE_RUN: 'create_run',
+  RECYCLE: 'recycle',
+  REVIEW: 'review',
 } as const;
 export type ContentSourceType =
   (typeof ContentSourceTypeSchema)[keyof typeof ContentSourceTypeSchema];

@@ -295,4 +295,12 @@ export class ContentReader {
   invalidateCache(): void {
     this.topicsCache = null;
   }
+
+  /**
+   * 2.8.1: Mark a topic as used so it is not reused in the next generation cycle.
+   * For the filesystem reader this is a no-op; persistence is not meaningful here.
+   */
+  async markUsed(_topic: ContentTopic): Promise<void> {
+    this.logger.debug(`ContentReader: markUsed is a no-op for filesystem topics`);
+  }
 }

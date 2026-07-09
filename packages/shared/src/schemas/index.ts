@@ -16,10 +16,14 @@ export const CreatePostDtoSchema = z.object({
   threadPosition: z.number().int().min(0).default(0),
   sourceRef: z
     .object({
-      type: z.enum(['brief', 'article', 'topic', 'create_run']),
+      type: z.enum(['brief', 'article', 'topic', 'create_run', 'recycle', 'review']),
       path: z.string(),
       topic: z.string().optional(),
       factIndex: z.number().int().optional(),
+      keywords: z.array(z.string()).optional(),
+      originalTopic: z.string().optional(),
+      originalPostId: z.string().optional(),
+      recycledAt: z.string().optional(),
     })
     .optional(),
 });

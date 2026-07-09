@@ -13,11 +13,13 @@ import { XPoster } from './posters/x.poster';
 import { ThreadsPoster } from './posters/threads.poster';
 import { FacebookPoster } from './posters/facebook.poster';
 import type { PostResult } from './posters/base.poster.js';
-import { PostStatus, SocialNetwork } from '@prisma/client';
+import { Post, PostStatus, SocialNetwork } from '@prisma/client';
 import { withRetry } from '../../domain/retry.js';
 import { CircuitBreakerRegistry, CircuitOpenError } from '../../domain/circuit-breaker.js';
 import { SpaError } from '../../domain/errors.js';
 import { isNetworkEnabled } from '../../domain/enabled-networks.js';
+import { ContentPillarTracker } from '../content-enhancements/content-pillar.tracker.js';
+import type { SourceRef } from '@spa/shared';
 
 /**
  * Posting service — orchestrates browser-based posting.
@@ -67,7 +69,24 @@ export class PostingService {
     private readonly facebookPoster: FacebookPoster,
     @Optional() private readonly queueFactory?: QueueFactory,
     @Optional() private readonly flowControl?: FlowControlService,
+    @Optional() private readonly pillarTracker?: ContentPillarTracker,
   ) {}
+
+  /**
+   * 2.8.2: Record a successfully posted draft against its content pillar.
+   * Non-blocking — pillar tracking is not a posting dependency.
+   */
+  private async recordPostPillar(post: { sourceRef: unknown; content: string }): Promise<void> {
+    if (!this.pillarTracker) return;
+    const sourceRef = post.sourceRef as SourceRef | null | undefined;
+    const topic = sourceRef?.topic ?? sourceRef?.originalTopic ?? post.content;
+    const keywords = sourceRef?.keywords ?? [];
+    try {
+      await this.pillarTracker.recordPost(topic, keywords);
+    } catch (err) {
+      this.logger.debug(`P6: Pillar recording failed (non-blocking): ${(err as Error).message}`);
+    }
+  }
 
   async postById(postId: string): Promise<{ success: boolean; url?: string; error?: string; retryable?: boolean }> {
     const post = await this.postsService.findById(postId);
@@ -177,7 +196,7 @@ export class PostingService {
       // P0-H2: Persist per-reply progress to ThreadProgress table so a crash
       // mid-thread leaves a recoverable record of which replies were posted.
       const threadItems: string[] = [];
-      let threadPosts: Array<{ id: string; content: string; threadPosition: number }> = [];
+      let threadPosts: Post[] = [];
       if (post.threadId && post.threadPosition === 0) {
         threadPosts = await this.postsService.findThreadContinuations(post.threadId);
         threadItems.push(...threadPosts.map((p) => p.content));
@@ -450,6 +469,9 @@ export class PostingService {
         postUrl: result.url,
       });
 
+      // 2.8.2: Record the root post against its pillar (only after POSTED).
+      await this.recordPostPillar(post);
+
       // P0-H2: If this was a thread root with continuations, mark them individually
       // based on per-reply results. Previously all continuations were marked POSTED
       // atomically — but if some replies failed, those should be marked FAILED.
@@ -472,6 +494,8 @@ export class PostingService {
             });
             // P0-H2: Persist per-reply success for crash recovery
             await this.threadProgressService.markReplyPosted(postId, cp.id, result.url ?? '');
+            // 2.8.2: Record continuation post against its pillar (only after POSTED).
+            await this.recordPostPillar(cp);
           } else {
             // P0-H2: Mark failed replies individually
             const replyError = replyResult?.error ?? 'Thread reply failed';
@@ -512,6 +536,8 @@ export class PostingService {
           });
           // P0-H2: Persist per-reply success for crash recovery
           await this.threadProgressService.markReplyPosted(postId, cp.id, result.url ?? '');
+          // 2.8.2: Record continuation post against its pillar (only after POSTED).
+          await this.recordPostPillar(cp);
         }
         this.logger.log(`P0-2: Marked ${continuationPosts.length} continuation post(s) as POSTED for thread ${post.threadId}`);
       }
