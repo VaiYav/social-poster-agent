@@ -552,7 +552,8 @@ describe('E2E Sprint D: Session Health Check — generate → approve → post',
 
   it('E2E-D3-2: POST /sessions/health-check triggers health check', async () => {
     const res = await request(app.getHttpServer())
-      .post('/api/v1/sessions/health-check');
+      .post('/api/v1/sessions/health-check')
+      .query({ network: 'X' });
 
     expect(res.status).toBe(200);
     // Health check returns session health results
