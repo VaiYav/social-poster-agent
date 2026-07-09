@@ -132,6 +132,7 @@ export class GenerationService {
       const rawThreshold = Number(process.env.JUDGE_REFINE_THRESHOLD ?? '0.6');
       const graphBuilder = buildGenerationGraph(this.llm, progressPublisher, this.hookBank, this.visualService, this.abGenerator, this.promptPort, {
         judgeRefineThreshold: Number.isFinite(rawThreshold) ? rawThreshold : 0.6,
+        getRecordedPromptLabels,
       });
       this.compiledGraph = graphBuilder.compile({ checkpointer: this.checkpointSaver });
       this.logger.log('LangGraph workflow compiled with Redis checkpoint saver + SSE progress (§10.3 parallel graph)');

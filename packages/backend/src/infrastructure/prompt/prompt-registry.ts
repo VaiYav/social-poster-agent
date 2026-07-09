@@ -5,6 +5,7 @@ import type { IPromptPort, IPromptFallbackProvider, CompiledChatPrompt } from '.
 import { PROMPT_FALLBACK_PROVIDERS } from '../../domain/ports/prompt.port.js'
 import { getErrorMessage } from '../common/error-utils.js'
 import { recordPromptLabel } from './prompt-label-context.js'
+import { interpolate, toMustache } from '../../domain/prompt-interpolation.js'
 
 /**
  * PromptRegistry — facade for prompt management.
@@ -296,28 +297,6 @@ export class PromptRegistry implements IPromptPort {
 }
 
 // ── Utility functions ──────────────────────────────────────────────────────
-
-/**
- * Simple {var} interpolation for local fallback prompts.
- * Langfuse uses {{double-brace}} Mustache syntax; local fallbacks use
- * {single-brace}. This replaces {var} with the corresponding value.
- */
-export function interpolate(template: string, variables: Record<string, string>): string {
-  return template.replace(/\{(\w+)\}/g, (match, key: string): string => {
-    if (!(key in variables)) return match
-    const val = variables[key]
-    return val !== undefined ? val : match
-  })
-}
-
-/**
- * Convert {single-brace} placeholders to {{double-brace}} Mustache syntax.
- * Used when passing local fallback prompts (which use {var}) to the Langfuse
- * SDK (which uses {{var}} Mustache). Leaves existing {{var}} untouched.
- */
-function toMustache(template: string): string {
-  return template.replace(/(?<!\{)\{(\w+)\}(?!\})/g, '{{$1}}')
-}
 
 /**
  * Type guard: filter Langfuse `compile()` results to resolved chat messages.

@@ -45,7 +45,7 @@ import { FlowControlService } from '../flow-control/flow-control.service.js';
 import { PostStatus, SocialNetwork, CommentStatus } from '@prisma/client';
 import type { Locator, Page } from '../../domain/ports/browser-primitives';
 import { IPromptPort } from '../../domain/ports/prompt.port.js';
-import { interpolate } from '../../infrastructure/prompt/prompt-registry.js';
+import { interpolate } from '../../domain/prompt-interpolation.js';
 import { REPLY_DECISION_PROMPT } from './prompts/reply-decision.prompt.js';
 import { parseBool } from '../../infrastructure/config/parse-bool';
 import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
