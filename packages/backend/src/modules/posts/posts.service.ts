@@ -156,14 +156,9 @@ export class PostsService {
       data: updateData,
     });
 
-    // Emit domain events for EDA decoupling
-    if (dto.status === PostStatus.POSTED) {
-      this.eventEmitter.emit(PostEvents.POSTED, { postId: id, network: post.network, postUrl: dto.postUrl });
-    } else if (dto.status === PostStatus.FAILED) {
-      this.eventEmitter.emit(PostEvents.FAILED, { postId: id, network: post.network, error: dto.errorMessage });
-    } else if (dto.status === PostStatus.POSTING) {
-      this.eventEmitter.emit(PostEvents.POSTING_STARTED, { postId: id, network: post.network });
-    }
+    // PostingService publishes SSE directly for POSTING/POSTED/FAILED; we do not
+    // emit those domain events here to avoid duplicate post_status SSE events.
+    // DRAFT/APPROVED/REJECTED are emitted by create/approve/reject.
 
     return updated;
   }

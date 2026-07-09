@@ -525,7 +525,7 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
       getMergedTrends: () => Promise.resolve([]),
       getCacheStatus: () => Promise.resolve({ googleTrends: null, xTrends: null }),
     })
-    .overrideProvider(SseEventListener).useValue({ handleDraftGenerated: () => {}, handleApproved: () => {}, handlePostingStarted: () => {}, handlePosted: () => {}, handleFailed: () => {} }).compile();
+    .compile();
 
     sseService = moduleRef.get(SseService);
     rateLimitService = moduleRef.get(RateLimitService);

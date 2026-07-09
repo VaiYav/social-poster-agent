@@ -525,7 +525,7 @@ describe('E2E Sprint D: Session Health Check — generate → approve → post',
         getMergedTrends: () => Promise.resolve([]),
         getCacheStatus: () => Promise.resolve({ googleTrends: null, xTrends: null }),
       })
-      .overrideProvider(SseEventListener).useValue({ handleDraftGenerated: () => {}, handleApproved: () => {}, handlePostingStarted: () => {}, handlePosted: () => {}, handleFailed: () => {} }).compile();
+      .compile();
 
     app = moduleRef.createNestApplication();
     app.setGlobalPrefix('api/v1');

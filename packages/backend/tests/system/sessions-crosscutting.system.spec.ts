@@ -793,7 +793,7 @@ async function buildFullAppModule(): Promise<FullAppResult> {
       getMergedTrends: () => Promise.resolve([]),
       getCacheStatus: () => Promise.resolve({ googleTrends: null, xTrends: null }),
     })
-    .overrideProvider(SseEventListener).useValue({ handleDraftGenerated: () => {}, handleApproved: () => {}, handlePostingStarted: () => {}, handlePosted: () => {}, handleFailed: () => {} }).compile();
+    .compile();
 
   return { moduleRef, prisma, browserPort, contentReader, queueFactory, mockXPoster, mockThreadsPoster, mockFacebookPoster };
 }

@@ -582,7 +582,7 @@ async function buildAndStartApp(): Promise<void> {
       getMergedTrends: () => Promise.resolve([]),
       getCacheStatus: () => Promise.resolve({ googleTrends: null, xTrends: null }),
     })
-    .overrideProvider(SseEventListener).useValue({ handleDraftGenerated: () => {}, handleApproved: () => {}, handlePostingStarted: () => {}, handlePosted: () => {}, handleFailed: () => {} }).compile();
+    .compile();
 
   app = moduleRef.createNestApplication();
   app.setGlobalPrefix('api/v1');

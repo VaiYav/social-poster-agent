@@ -72,6 +72,13 @@ describe('SseEventListener (ARCH-001 — event bus safety)', () => {
       expectedStatus: 'FAILED',
       extra: { error: 'boom' },
     },
+    {
+      name: 'handleRejected',
+      event: PostEvents.REJECTED,
+      handler: 'handleRejected',
+      payload: basePayload,
+      expectedStatus: 'REJECTED',
+    },
   ];
 
   it.each(cases)(

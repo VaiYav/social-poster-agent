@@ -21,9 +21,9 @@ export class SseEventListener {
   constructor(private readonly sseService: SseService) {}
 
   @OnEvent(PostEvents.DRAFT_GENERATED)
-  handleDraftGenerated(payload: { postId: string; network: string }): void {
+  async handleDraftGenerated(payload: { postId: string; network: string }): Promise<void> {
     try {
-      this.sseService.publish({
+      await this.sseService.publish({
         type: 'post_status',
         postId: payload.postId,
         status: 'DRAFT',
@@ -38,9 +38,9 @@ export class SseEventListener {
   }
 
   @OnEvent(PostEvents.APPROVED)
-  handleApproved(payload: { postId: string; network: string }): void {
+  async handleApproved(payload: { postId: string; network: string }): Promise<void> {
     try {
-      this.sseService.publish({
+      await this.sseService.publish({
         type: 'post_status',
         postId: payload.postId,
         status: 'APPROVED',
@@ -55,9 +55,9 @@ export class SseEventListener {
   }
 
   @OnEvent(PostEvents.POSTING_STARTED)
-  handlePostingStarted(payload: { postId: string; network: string }): void {
+  async handlePostingStarted(payload: { postId: string; network: string }): Promise<void> {
     try {
-      this.sseService.publish({
+      await this.sseService.publish({
         type: 'post_status',
         postId: payload.postId,
         status: 'POSTING',
@@ -72,9 +72,9 @@ export class SseEventListener {
   }
 
   @OnEvent(PostEvents.POSTED)
-  handlePosted(payload: { postId: string; network: string; postUrl?: string }): void {
+  async handlePosted(payload: { postId: string; network: string; postUrl?: string }): Promise<void> {
     try {
-      this.sseService.publish({
+      await this.sseService.publish({
         type: 'post_status',
         postId: payload.postId,
         status: 'POSTED',
@@ -90,9 +90,9 @@ export class SseEventListener {
   }
 
   @OnEvent(PostEvents.FAILED)
-  handleFailed(payload: { postId: string; network: string; error?: string }): void {
+  async handleFailed(payload: { postId: string; network: string; error?: string }): Promise<void> {
     try {
-      this.sseService.publish({
+      await this.sseService.publish({
         type: 'post_status',
         postId: payload.postId,
         status: 'FAILED',
@@ -107,16 +107,33 @@ export class SseEventListener {
     }
   }
 
+  @OnEvent(PostEvents.REJECTED)
+  async handleRejected(payload: { postId: string; network: string }): Promise<void> {
+    try {
+      await this.sseService.publish({
+        type: 'post_status',
+        postId: payload.postId,
+        status: 'REJECTED',
+        network: payload.network,
+      });
+    } catch (err) {
+      this.logger.error(
+        `SSE publish failed for ${payload.postId} (REJECTED): ${(err as Error).message}`,
+      );
+      // NEVER rethrow — event bus must continue
+    }
+  }
+
   @OnEvent(OrchestratorEvents.CYCLE_END)
-  handleOrchestratorCycleEnd(payload: {
+  async handleOrchestratorCycleEnd(payload: {
     cycle: number;
     action?: string;
     success?: boolean;
     duration?: number;
     sleepMs: number;
-  }): void {
+  }): Promise<void> {
     try {
-      this.sseService.publish({
+      await this.sseService.publish({
         type: 'orchestrator_cycle_end',
         cycle: payload.cycle,
         action: payload.action,
