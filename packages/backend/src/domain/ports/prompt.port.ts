@@ -10,6 +10,10 @@
 export interface CompiledChatPrompt {
   systemPrompt: string;
   userPrompt: string;
+  /** The resolved Langfuse label that produced this prompt content. */
+  label?: string;
+  /** Whether the content came from a fallback (inline or remote) instead of the requested label. */
+  isFallback?: boolean;
 }
 
 export const IPromptPort = Symbol('IPromptPort');
@@ -52,11 +56,14 @@ export interface IPromptPort {
    * @param variables Values for {{var}} placeholders
    * @param fallback Optional inline fallback — used when neither the remote
    *   prompt manager nor the local registry has the prompt
+   * @param label Optional Langfuse label override; if omitted, the registry
+   *   resolves from PROMPT_VERSION / PROMPT_VERSION_<NAME> env vars.
    */
   getCompiledChat(
     name: string,
     variables: Record<string, string>,
     fallback?: CompiledChatPrompt,
+    label?: string,
   ): Promise<CompiledChatPrompt>;
 
   /**
@@ -65,11 +72,14 @@ export interface IPromptPort {
    * @param name Prompt name in the prompt manager (e.g. 'critique-post')
    * @param variables Values for {{var}} placeholders
    * @param fallback Optional inline fallback text
+   * @param label Optional Langfuse label override; if omitted, the registry
+   *   resolves from PROMPT_VERSION / PROMPT_VERSION_<NAME> env vars.
    */
   getCompiledText(
     name: string,
     variables: Record<string, string>,
     fallback?: string,
+    label?: string,
   ): Promise<string>;
 
   /**

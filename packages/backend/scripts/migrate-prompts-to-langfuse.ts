@@ -26,8 +26,25 @@ if (!publicKey || !secretKey) {
 const client = new LangfuseClient({
   publicKey,
   secretKey,
-  baseUrl: process.env.LANGFUSE_BASE_URL || 'https://cloud.langfuse.com',
+  baseUrl: process.env.LANGFUSE_BASE_URL || 'https://us.cloud.langfuse.com',
 });
+
+/**
+ * Build the set of labels for a prompt from:
+ * 1. the base labels defined below (always includes 'production')
+ * 2. PROMPT_VERSION_<NAME> env var override
+ * 3. PROMPT_VERSION global env var
+ * 'latest' is a reserved built-in label and is skipped.
+ */
+function getLabels(baseLabels: string[], name: string): string[] {
+  const labels = new Set(baseLabels);
+  const normalizedName = name.replace(/[^a-zA-Z0-9]+/g, '_').toUpperCase();
+  const perPromptLabel = process.env[`PROMPT_VERSION_${normalizedName}`];
+  if (perPromptLabel && perPromptLabel !== 'latest') labels.add(perPromptLabel);
+  const globalLabel = process.env.PROMPT_VERSION;
+  if (globalLabel && globalLabel !== 'latest') labels.add(globalLabel);
+  return [...labels];
+}
 
 // ─── Prompt definitions ──────────────────────────────────────────────────────
 
@@ -379,23 +396,24 @@ async function main() {
   console.log(`\n🚀 Migrating ${PROMPTS.length} prompts to Langfuse...\n`);
 
   for (const p of PROMPTS) {
+    const labels = getLabels(p.labels, p.name);
     try {
       if (p.type === 'chat') {
         const created = await client.prompt.create({
           name: p.name,
           type: 'chat',
           prompt: p.prompt,
-          labels: p.labels,
+          labels,
         });
-        console.log(`  ✅ ${p.name} (chat, v${created.version})`);
+        console.log(`  ✅ ${p.name} (chat, v${created.version}, labels: ${labels.join(', ')})`);
       } else {
         const created = await client.prompt.create({
           name: p.name,
           type: 'text',
           prompt: p.prompt,
-          labels: p.labels,
+          labels,
         });
-        console.log(`  ✅ ${p.name} (text, v${created.version})`);
+        console.log(`  ✅ ${p.name} (text, v${created.version}, labels: ${labels.join(', ')})`);
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);

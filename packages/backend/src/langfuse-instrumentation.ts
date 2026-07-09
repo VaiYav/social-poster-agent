@@ -66,6 +66,11 @@ let langfuseProvider: BasicTracerProvider | undefined;
 
 if (langfuseEnabled) {
   try {
+    // Default to US cloud (matches .env.example) and ensure the env var is set
+    // so the Langfuse SDK/SpanProcessor use the same endpoint.
+    const baseUrl = process.env.LANGFUSE_BASE_URL || 'https://us.cloud.langfuse.com';
+    process.env.LANGFUSE_BASE_URL = baseUrl;
+
     langfuseProcessor = new LangfuseSpanProcessor();
 
     // Create an isolated TracerProvider with only the LangfuseSpanProcessor.
@@ -80,7 +85,6 @@ if (langfuseEnabled) {
     // provider instead of falling back to the global (Sentry) one.
     setLangfuseTracerProvider(langfuseProvider);
 
-    const baseUrl = process.env.LANGFUSE_BASE_URL ?? 'https://cloud.langfuse.com';
     log('log', `Langfuse tracing enabled — exporting to ${baseUrl}`);
   } catch (err) {
     // SDK errors are non-fatal — the app must still boot. Langfuse SDK is

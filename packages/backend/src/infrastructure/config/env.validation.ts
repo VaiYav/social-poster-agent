@@ -155,6 +155,7 @@ const envSchema = Joi.object({
   LANGFUSE_BASE_URL: Joi.string().allow('').default(''),
   // Prompt version label for Langfuse Prompt Management. Defaults to 'latest'.
   // Set to a specific version (e.g. 'production') to pin all prompts to that label.
+  // Override per prompt with PROMPT_VERSION_<NAME> env vars (handled by PromptRegistry).
   PROMPT_VERSION: Joi.string().default('latest'),
 
   // ── Security ──

@@ -72,7 +72,7 @@ export class LangfuseService implements OnModuleDestroy {
         this.client = new LangfuseClient({
           publicKey: process.env.LANGFUSE_PUBLIC_KEY!,
           secretKey: process.env.LANGFUSE_SECRET_KEY!,
-          baseUrl: process.env.LANGFUSE_BASE_URL || 'https://cloud.langfuse.com',
+          baseUrl: process.env.LANGFUSE_BASE_URL || 'https://us.cloud.langfuse.com',
         });
       } catch (err) {
         this.logger.warn(`Failed to init LangfuseClient — prompt management disabled: ${getErrorMessage(err)}`);
@@ -118,8 +118,13 @@ export class LangfuseService implements OnModuleDestroy {
    *
    * @param name Prompt name in Langfuse
    * @param fallback Optional fallback chat messages (Mustache {{var}} syntax)
+   * @param label Langfuse prompt label to fetch (e.g. 'production', 'latest', 'v2')
    */
-  async getChatPrompt(name: string, fallback?: FallbackChatMessage[]): Promise<ChatPromptClient | undefined> {
+  async getChatPrompt(
+    name: string,
+    fallback?: FallbackChatMessage[],
+    label = 'production',
+  ): Promise<ChatPromptClient | undefined> {
     const client = this.client;
     if (!client) return undefined;
     if (!this.promptCircuitBreaker.canExecute()) return undefined;
@@ -127,7 +132,7 @@ export class LangfuseService implements OnModuleDestroy {
       return await this.promptCircuitBreaker.execute(() =>
         client.prompt.get(name, {
           type: 'chat',
-          label: 'production',
+          label,
           cacheTtlSeconds: 300,
           fetchTimeoutMs: 3000,
           maxRetries: 1,
@@ -135,7 +140,7 @@ export class LangfuseService implements OnModuleDestroy {
         }),
       );
     } catch (err) {
-      this.logger.warn(`Failed to fetch chat prompt "${name}" from Langfuse — using fallback: ${getErrorMessage(err)}`);
+      this.logger.warn(`Failed to fetch chat prompt "${name}" (label: ${label}) from Langfuse: ${getErrorMessage(err)}`);
       return undefined;
     }
   }
@@ -149,8 +154,13 @@ export class LangfuseService implements OnModuleDestroy {
    *
    * @param name Prompt name in Langfuse
    * @param fallback Optional fallback text (Mustache {{var}} syntax)
+   * @param label Langfuse prompt label to fetch (e.g. 'production', 'latest', 'v2')
    */
-  async getTextPrompt(name: string, fallback?: string): Promise<TextPromptClient | undefined> {
+  async getTextPrompt(
+    name: string,
+    fallback?: string,
+    label = 'production',
+  ): Promise<TextPromptClient | undefined> {
     const client = this.client;
     if (!client) return undefined;
     if (!this.promptCircuitBreaker.canExecute()) return undefined;
@@ -158,7 +168,7 @@ export class LangfuseService implements OnModuleDestroy {
       return await this.promptCircuitBreaker.execute(() =>
         client.prompt.get(name, {
           type: 'text',
-          label: 'production',
+          label,
           cacheTtlSeconds: 300,
           fetchTimeoutMs: 3000,
           maxRetries: 1,
@@ -166,7 +176,7 @@ export class LangfuseService implements OnModuleDestroy {
         }),
       );
     } catch (err) {
-      this.logger.warn(`Failed to fetch text prompt "${name}" from Langfuse — using fallback: ${getErrorMessage(err)}`);
+      this.logger.warn(`Failed to fetch text prompt "${name}" (label: ${label}) from Langfuse: ${getErrorMessage(err)}`);
       return undefined;
     }
   }

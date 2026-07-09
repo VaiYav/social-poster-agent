@@ -15,6 +15,10 @@ import { TrendingScraperService } from '../trending/trending-scraper.service.js'
 import { LangfuseService, type LangfuseHandlerOptions } from '../../infrastructure/langfuse/langfuse.service.js';
 import { withLlmCallbacks } from '../../infrastructure/llm/llm.service.js';
 import { IPromptPort } from '../../domain/ports/prompt.port.js';
+import {
+  withPromptLabelContext,
+  getRecordedPromptLabels,
+} from '../../infrastructure/prompt/prompt-label-context.js';
 import { getEnabledNetworks } from '../../domain/enabled-networks.js';
 import {
   SocialNetwork,
@@ -140,6 +144,9 @@ export class GenerationService {
    * to the config, and wrap the invoke in AsyncLocalStorage so all
    * llm.generateChat() calls inside graph nodes nest under the trace.
    *
+   * Also wraps the invocation in a prompt-label context so PromptRegistry can
+   * record the exact Langfuse labels used for each prompt in this run.
+   *
    * When Langfuse is disabled (no LANGFUSE_PUBLIC_KEY), this is a plain
    * graph.invoke() with zero overhead.
    */
@@ -147,15 +154,49 @@ export class GenerationService {
     config: GraphInvokeConfig,
     handlerOpts: LangfuseHandlerOptions,
     input: Parameters<ReturnType<ReturnType<typeof buildGenerationGraph>['compile']>['invoke']>[0],
-  ): Promise<Record<string, unknown>> {
+  ): Promise<{ finalState: Record<string, unknown>; promptLabels: Record<string, { label: string; isFallback?: boolean }> }> {
     const handler = this.langfuse?.createHandler(handlerOpts);
     const callbacks = handler ? [handler] : [];
     if (callbacks.length > 0) {
       config.callbacks = callbacks;
     }
-    return withLlmCallbacks(callbacks, () =>
-      this.getGraph().invoke(input as never, config as never),
-    ) as Promise<Record<string, unknown>>;
+    return withPromptLabelContext(() =>
+      withLlmCallbacks(callbacks, async () => {
+        const finalState = await this.getGraph().invoke(input as never, config as never);
+        const promptLabels = getRecordedPromptLabels();
+        return { finalState, promptLabels };
+      }),
+    );
+  }
+
+  /**
+   * Build the llmMetadata JSON for a saved Post.
+   *
+   * promptVersion = the active PROMPT_VERSION (global label)
+   * promptLabels = map of promptName -> { label, isFallback } recorded during this run
+   */
+  private buildPostLlmMetadata(
+    genPost: GeneratedPost,
+    simhash: string,
+    promptLabels: Record<string, { label: string; isFallback?: boolean }>,
+    overrides: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    return {
+      model: genPost.model,
+      promptVersion: this.llm.getPromptVersion?.() ?? 'unknown',
+      promptLabels,
+      hook: genPost.hook,
+      hookTechnique: genPost.hookTechnique,
+      contentStyleId: genPost.contentStyleId,
+      humorMechanicId: genPost.humorMechanicId ?? null,
+      angleType: genPost.angle.split('—')[0]?.trim(),
+      simhash,
+      qualityScore: genPost.qualityScore,
+      judgeScores: genPost.judgeScores ?? null,
+      visualConcept: genPost.visualConcept ?? null,
+      abVariants: genPost.abVariants ?? null,
+      ...overrides,
+    };
   }
 
   /**
@@ -706,7 +747,7 @@ export class GenerationService {
     // Langfuse tracing: sessionId=runId groups all LLM calls across topics
     // in the same run. tags + traceMetadata enable filtering in the Langfuse UI.
     // promptNames links this trace to the Langfuse Prompt Management prompts used.
-    const finalState = await this.tracedGraphInvoke(
+    const { finalState, promptLabels } = await this.tracedGraphInvoke(
       config,
       {
         sessionId: runId,
@@ -766,20 +807,11 @@ export class GenerationService {
           topic: topic.topic,
           keywords: topic.keywords,
         },
-        llmMetadata: {
-          model: genPost.model,
-          promptVersion: this.llm.getPromptVersion?.() ?? '0.3.0', // Sprint J: from LlmService
-          hook: genPost.hook,
-          hookTechnique: genPost.hookTechnique, // P1: for performance tracking
-          contentStyleId: genPost.contentStyleId, // Anti-AI-detection style rotation
-          humorMechanicId: genPost.humorMechanicId ?? null, // Q5: humor mechanics rotation
-          angleType: genPost.angle.split('—')[0]?.trim(),
-          simhash: candidateHash, // B5: store hash for future dedup
-          qualityScore: genPost.qualityScore, // Sprint Q: LLM quality score (1-10)
-          judgeScores: genPost.judgeScores ?? null, // Stage 2: LLM-as-a-Judge scores
-          visualConcept: genPost.visualConcept ?? null, // P3: image concept for poster
-          abVariants: genPost.abVariants ?? null, // P7: A/B emoji/hashtag variants
-        } as Prisma.InputJsonValue,
+        llmMetadata: this.buildPostLlmMetadata(
+          genPost,
+          candidateHash,
+          genPost.promptLabels ?? promptLabels,
+        ) as Prisma.InputJsonValue,
       });
 
       savedPosts.push(post);
@@ -835,15 +867,16 @@ export class GenerationService {
                           path: topic.path,
                           topic: topic.topic,
                         },
-                        llmMetadata: {
-                          model: genPost.model,
-                          promptVersion: '0.3.0-p4',
-                          hook: genPost.hook,
-                          angleType: 'continuation',
-                          simhash: simhash(cont.content),
-                          multiStage: true,
-                          threadDepth: plan.depth,
-                        },
+                        llmMetadata: this.buildPostLlmMetadata(
+                          genPost,
+                          simhash(cont.content),
+                          {},
+                          {
+                            angleType: 'continuation',
+                            multiStage: true,
+                            threadDepth: plan.depth,
+                          },
+                        ) as Prisma.InputJsonValue,
                       },
                       tx,
                       { emitEvent: false }, // H1: emit after the tx commits, not inside it
@@ -919,14 +952,15 @@ export class GenerationService {
             topic: topic.topic,
             keywords: topic.keywords,
           },
-          llmMetadata: {
-            model: genPost.model,
-            promptVersion: '0.3.0-f2',
-            hook: genPost.hook,
-            angleType: 'continuation',
-            simhash: simhash(continuationContent),
-            multiStage: true,
-          },
+          llmMetadata: this.buildPostLlmMetadata(
+            genPost,
+            simhash(continuationContent),
+            {},
+            {
+              angleType: 'continuation',
+              multiStage: true,
+            },
+          ) as Prisma.InputJsonValue,
         },
         tx,
         { emitEvent: false }, // H1: emit after the tx commits, not inside it
@@ -1308,7 +1342,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
             };
             const initialState = createInitialState(topic, targetNetworks, brandVoice);
             // Langfuse tracing for resume — same sessionId as original run
-            const finalState = await this.tracedGraphInvoke(
+            const { finalState, promptLabels } = await this.tracedGraphInvoke(
               config,
               {
                 sessionId: runId,
@@ -1341,12 +1375,11 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
                 content: genPost.content,
                 generationRunId: runId,
                 sourceRef: { type: topic.sourceType, path: topic.path, topic: topic.topic, keywords: topic.keywords },
-                llmMetadata: {
-                  model: genPost.model,
-                  promptVersion: this.llm.getPromptVersion?.() ?? '0.4.0-resume',
-                  hook: genPost.hook,
-                  simhash: candidateHash,
-                },
+                llmMetadata: this.buildPostLlmMetadata(
+                  genPost,
+                  candidateHash,
+                  genPost.promptLabels ?? promptLabels,
+                ) as Prisma.InputJsonValue,
               });
               postIds.push(post.id);
               recentHashes.push(candidateHash);
@@ -1407,7 +1440,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
     // The interrupt() call in human_review node will return this value.
     const resumePayload = { approved, edits };
     // Langfuse tracing for review resume — same sessionId as original run
-    const finalState = await this.tracedGraphInvoke(
+    const { finalState, promptLabels } = await this.tracedGraphInvoke(
       config,
       {
         sessionId: runId,
@@ -1441,12 +1474,11 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
         content: genPost.content,
         generationRunId: runId,
         sourceRef: { type: 'review', path: '', topic, keywords: [] },
-        llmMetadata: {
-          model: genPost.model,
-          promptVersion: this.llm.getPromptVersion?.() ?? '0.4.0-review',
-          hook: genPost.hook,
-          simhash: candidateHash,
-        },
+        llmMetadata: this.buildPostLlmMetadata(
+          genPost,
+          candidateHash,
+          genPost.promptLabels ?? promptLabels,
+        ) as Prisma.InputJsonValue,
       });
       postIds.push(post.id);
       recentHashes.push(candidateHash);

@@ -16,6 +16,7 @@ import { buildHumanizeInstruction } from '../content-enhancements/humanizer-gate
 import { getLanguageExamples } from '../content-enhancements/language-packs.js';
 import type { IPromptPort, CompiledChatPrompt } from '../../domain/ports/prompt.port.js';
 import { interpolate } from '../../infrastructure/prompt/prompt-registry.js';
+import { getRecordedPromptLabels } from '../../infrastructure/prompt/prompt-label-context.js';
 import { JUDGE_SYSTEM_PROMPT, JUDGE_USER_PROMPT_TEMPLATE } from './prompts/judge-prompt.js';
 
 const logger = new Logger('GenerationGraph');
@@ -179,6 +180,8 @@ export interface GeneratedPost {
   visualConcept?: VisualConcept | null;
   /** P7: A/B emoji/hashtag variants — null when disabled or failed. */
   abVariants?: ABVariantPair | null;
+  /** Prompt labels used for this post — stored in Post.llmMetadata for A/B tracking. */
+  promptLabels?: Record<string, { label: string; isFallback?: boolean }>;
 }
 
 // ============================================================
@@ -1351,6 +1354,7 @@ function isPartialJudgeScores(value: unknown): value is Partial<JudgeScores> {
 function saveToDbNode(state: GenerationStateType): Partial<GenerationStateType> {
   const posts: GeneratedPost[] = [];
   const errors: string[] = [];
+  const promptLabels = getRecordedPromptLabels();
 
   for (const network of state.targetNetworks) {
     const netResult = state.results[network];
@@ -1378,6 +1382,7 @@ function saveToDbNode(state: GenerationStateType): Partial<GenerationStateType> 
       humorMechanicId: netResult.humorMechanicId,
       visualConcept: netResult.visualConcept ?? null,
       abVariants: netResult.abVariants ?? null,
+      promptLabels,
     });
   }
 

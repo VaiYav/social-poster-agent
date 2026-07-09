@@ -4,6 +4,7 @@ import { LangfuseService } from '../langfuse/langfuse.service.js'
 import type { IPromptPort, IPromptFallbackProvider, CompiledChatPrompt } from '../../domain/ports/prompt.port.js'
 import { PROMPT_FALLBACK_PROVIDERS } from '../../domain/ports/prompt.port.js'
 import { getErrorMessage } from '../common/error-utils.js'
+import { recordPromptLabel } from './prompt-label-context.js'
 
 /**
  * PromptRegistry — facade for prompt management.
@@ -12,8 +13,11 @@ import { getErrorMessage } from '../common/error-utils.js'
  * not the concrete class (hexagonal architecture).
  *
  * Fallback chain (extensible via PROMPT_FALLBACK_PROVIDERS):
- *   1. Langfuse Prompt Management (with SDK native `fallback` parameter —
- *      if the fetch fails, the SDK returns fallback content automatically)
+ *   1. Langfuse Prompt Management with label resolution:
+ *      - PROMPT_VERSION_<NAME> env var override per prompt
+ *      - optional caller-supplied `label` parameter
+ *      - PROMPT_VERSION env var (default 'latest')
+ *      - label fallback chain: resolved label -> 'production' -> 'latest'
  *   2. Intermediate fallback providers (injected via PROMPT_FALLBACK_PROVIDERS,
  *      tried in order — e.g. local JSON cache, S3. Empty by default.)
  *   3. Inline fallback from the caller (when all above fail)
@@ -39,7 +43,7 @@ export class PromptRegistry implements IPromptPort {
     @Optional() private readonly langfuse?: LangfuseService,
     @Optional() @Inject(PROMPT_FALLBACK_PROVIDERS) fallbackProviders?: IPromptFallbackProvider[],
   ) {
-    this.currentVersion = this.configService.get<string>('PROMPT_VERSION', 'latest')
+    this.currentVersion = this.configService.get<string>('PROMPT_VERSION', 'latest') || 'latest'
     this.fallbackProviders = fallbackProviders ?? []
   }
 
@@ -69,33 +73,44 @@ export class PromptRegistry implements IPromptPort {
    * @param name Prompt name in Langfuse (e.g. 'research-extract')
    * @param variables Values for {{var}} placeholders
    * @param fallback Optional inline fallback ({var} syntax)
+   * @param label Optional Langfuse label override
    */
   async getCompiledChat(
     name: string,
     variables: Record<string, string>,
     fallback?: CompiledChatPrompt,
+    label?: string,
   ): Promise<CompiledChatPrompt> {
-    // 1. Try Langfuse with SDK native fallback
+    const resolvedLabel = this.resolveLabel(name, label)
+
+    // 1. Try Langfuse with SDK native fallback and label fallback chain
     if (this.langfuse) {
-      // Convert inline fallback to SDK format (ChatMessage[] with {{var}} syntax)
       const sdkFallback = fallback
         ? [
             { role: 'system', content: toMustache(fallback.systemPrompt) },
             { role: 'user', content: toMustache(fallback.userPrompt) },
           ]
         : undefined
-      const prompt = await this.langfuse.getChatPrompt(name, sdkFallback)
-      if (prompt) {
+
+      const result = await this.fetchChatPrompt(name, sdkFallback, resolvedLabel)
+      if (result) {
         try {
-          const compiled = prompt.compile(variables)
+          const compiled = result.prompt.compile(variables) as unknown[]
           const messages = compiled.filter(isChatMessage)
           const systemMsg = messages.find((m) => m.role === 'system')
           const userMsg = messages.find((m) => m.role === 'user')
           if (systemMsg && userMsg) {
-            return { systemPrompt: systemMsg.content, userPrompt: userMsg.content }
+            const isFallback = result.isFallback
+            recordPromptLabel(name, result.label, isFallback)
+            return {
+              systemPrompt: systemMsg.content,
+              userPrompt: userMsg.content,
+              label: result.label,
+              isFallback,
+            }
           }
         } catch (err) {
-          this.logger.warn(`Langfuse compile failed for "${name}": ${getErrorMessage(err)}`)
+          this.logger.warn(`Langfuse compile failed for "${name}" (label: ${result.label}): ${getErrorMessage(err)}`)
         }
       }
     }
@@ -104,7 +119,17 @@ export class PromptRegistry implements IPromptPort {
     for (const provider of this.fallbackProviders) {
       try {
         const result = await provider.tryGetChatPrompt(name, variables)
-        if (result) return result
+        if (result) {
+          const fallbackLabel = result.label ?? resolvedLabel
+          const isFallback = result.isFallback ?? true
+          recordPromptLabel(name, fallbackLabel, isFallback)
+          return {
+            systemPrompt: result.systemPrompt,
+            userPrompt: result.userPrompt,
+            label: fallbackLabel,
+            isFallback,
+          }
+        }
       } catch (err) {
         this.logger.warn(`Fallback provider failed for "${name}": ${getErrorMessage(err)}`)
       }
@@ -112,9 +137,12 @@ export class PromptRegistry implements IPromptPort {
 
     // 3. Use inline fallback with local interpolation
     if (fallback) {
+      recordPromptLabel(name, resolvedLabel, true)
       return {
         systemPrompt: interpolate(fallback.systemPrompt, variables),
         userPrompt: interpolate(fallback.userPrompt, variables),
+        label: resolvedLabel,
+        isFallback: true,
       }
     }
 
@@ -131,26 +159,30 @@ export class PromptRegistry implements IPromptPort {
    * @param name Prompt name in Langfuse (e.g. 'critique-post')
    * @param variables Values for {{var}} placeholders
    * @param fallback Optional inline fallback text ({var} syntax)
+   * @param label Optional Langfuse label override
    */
   async getCompiledText(
     name: string,
     variables: Record<string, string>,
     fallback?: string,
+    label?: string,
   ): Promise<string> {
-    // 1. Try Langfuse with SDK native fallback
+    const resolvedLabel = this.resolveLabel(name, label)
+
+    // 1. Try Langfuse with SDK native fallback and label fallback chain
     if (this.langfuse) {
-      // Convert inline fallback to SDK format ({{var}} Mustache syntax)
       const sdkFallback = fallback ? toMustache(fallback) : undefined
-      const prompt = await this.langfuse.getTextPrompt(name, sdkFallback)
-      if (prompt) {
+      const result = await this.fetchTextPrompt(name, sdkFallback, resolvedLabel)
+      if (result) {
         try {
-          const compiled = prompt.compile(variables)
+          const compiled = result.prompt.compile(variables)
           if (typeof compiled !== 'string') {
             throw new Error(`Expected string from text prompt compile, got ${typeof compiled}`)
           }
+          recordPromptLabel(name, result.label, result.isFallback)
           return compiled
         } catch (err) {
-          this.logger.warn(`Langfuse compile failed for "${name}": ${getErrorMessage(err)}`)
+          this.logger.warn(`Langfuse compile failed for "${name}" (label: ${result.label}): ${getErrorMessage(err)}`)
         }
       }
     }
@@ -159,7 +191,10 @@ export class PromptRegistry implements IPromptPort {
     for (const provider of this.fallbackProviders) {
       try {
         const result = await provider.tryGetTextPrompt(name, variables)
-        if (result !== null) return result
+        if (result !== null) {
+          recordPromptLabel(name, resolvedLabel, true)
+          return result
+        }
       } catch (err) {
         this.logger.warn(`Fallback provider failed for text prompt "${name}": ${getErrorMessage(err)}`)
       }
@@ -167,11 +202,89 @@ export class PromptRegistry implements IPromptPort {
 
     // 3. Use inline fallback with local interpolation
     if (fallback) {
+      recordPromptLabel(name, resolvedLabel, true)
       return interpolate(fallback, variables)
     }
 
     this.logger.error(`Text prompt "${name}" not found in Langfuse, fallback providers, or inline fallback`)
     throw new Error(`Text prompt "${name}" not found in Langfuse or fallback`)
+  }
+
+  /**
+   * Resolve the effective label for a prompt:
+   *   1. PROMPT_VERSION_<NAME> env var override
+   *   2. caller-supplied `label` parameter
+   *   3. PROMPT_VERSION env var
+   */
+  private resolveLabel(name: string, requestedLabel?: string): string {
+    const perPromptKey = this.perPromptEnvKey(name)
+    const perPromptLabel = this.configService.get<string>(perPromptKey, '')
+    if (perPromptLabel) return perPromptLabel
+    if (requestedLabel) return requestedLabel
+    return this.currentVersion
+  }
+
+  private perPromptEnvKey(name: string): string {
+    const normalized = name.replace(/[^a-zA-Z0-9]+/g, '_').toUpperCase()
+    return `PROMPT_VERSION_${normalized}`
+  }
+
+  /**
+   * Build the label fallback chain:
+   *   resolvedLabel -> 'production' -> 'latest'
+   * Duplicates are removed so we don't try the same label twice.
+   */
+  private buildLabelChain(resolvedLabel: string): string[] {
+    const chain = [resolvedLabel]
+    if (resolvedLabel !== 'production') chain.push('production')
+    if (resolvedLabel !== 'latest') chain.push('latest')
+    return chain
+  }
+
+  private async fetchChatPrompt(
+    name: string,
+    sdkFallback: { role: string; content: string }[] | undefined,
+    resolvedLabel: string,
+  ): Promise<{ prompt: { compile(vars: Record<string, string>): unknown }; label: string; isFallback: boolean } | undefined> {
+    if (!this.langfuse) return undefined
+    const chain = this.buildLabelChain(resolvedLabel)
+    for (let i = 0; i < chain.length; i++) {
+      const label = chain[i]!
+      const isLast = i === chain.length - 1
+      const fallback = isLast ? sdkFallback : undefined
+      try {
+        const prompt = await this.langfuse.getChatPrompt(name, fallback, label)
+        if (prompt && (!prompt.isFallback || isLast)) {
+          return { prompt, label, isFallback: prompt.isFallback }
+        }
+      } catch (err) {
+        this.logger.warn(`Langfuse fetch failed for "${name}" (label: ${label}): ${getErrorMessage(err)}`)
+      }
+    }
+    return undefined
+  }
+
+  private async fetchTextPrompt(
+    name: string,
+    sdkFallback: string | undefined,
+    resolvedLabel: string,
+  ): Promise<{ prompt: { compile(vars: Record<string, string>): unknown }; label: string; isFallback: boolean } | undefined> {
+    if (!this.langfuse) return undefined
+    const chain = this.buildLabelChain(resolvedLabel)
+    for (let i = 0; i < chain.length; i++) {
+      const label = chain[i]!
+      const isLast = i === chain.length - 1
+      const fallback = isLast ? sdkFallback : undefined
+      try {
+        const prompt = await this.langfuse.getTextPrompt(name, fallback, label)
+        if (prompt && (!prompt.isFallback || isLast)) {
+          return { prompt, label, isFallback: prompt.isFallback }
+        }
+      } catch (err) {
+        this.logger.warn(`Langfuse fetch failed for "${name}" (label: ${label}): ${getErrorMessage(err)}`)
+      }
+    }
+    return undefined
   }
 }
 
