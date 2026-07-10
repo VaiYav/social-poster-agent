@@ -148,10 +148,18 @@ describe('B3: Reconciliation — runReconciliation()', () => {
 
     await ctx.service.runReconciliation();
 
+    // P1: Reconciliation now paginates via cursor on approvedAt.
+    // First page has no cursor — just status + orderBy + take + select.
     expect(mockPrisma.post.findMany).toHaveBeenCalledWith({
       where: { status: PostStatus.APPROVED },
       orderBy: { approvedAt: 'desc' },
-      take: 1000,
+      take: 100,
+      select: {
+        id: true,
+        network: true,
+        approvedAt: true,
+        createdAt: true,
+      },
     });
   });
 

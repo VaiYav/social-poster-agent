@@ -192,6 +192,8 @@ export class GenerationService {
   ): Record<string, unknown> {
     return {
       model: genPost.model,
+      tokens: genPost.tokens ?? 0,
+      cost: genPost.cost ?? 0,
       promptVersion: this.llm.getPromptVersion?.() ?? 'unknown',
       promptLabels,
       hook: genPost.hook,
@@ -366,6 +368,15 @@ export class GenerationService {
       // (limited to avoid overwhelming LLM providers with too many concurrent calls)
       const MAX_CONCURRENCY = 3;
       const postIds: string[] = [];
+      // P2: Judge score samples for end-of-run calibration summary
+      const judgeScoreSamples: Array<{
+        network: SocialNetwork;
+        anti_ai_tone: number;
+        hook_strength: number;
+        factual_accuracy: number;
+        character_limit: number;
+        qualityScore: number;
+      }> = [];
 
       // Process topics in batches of MAX_CONCURRENCY
       for (let i = 0; i < prioritizedTopics.length; i += MAX_CONCURRENCY) {
@@ -399,12 +410,44 @@ export class GenerationService {
         for (const result of results) {
           if (result.status === 'fulfilled') {
             postIds.push(...result.value.map((p) => p.id));
+            // P2: Collect judge scores for calibration summary
+            for (const post of result.value) {
+              const meta = post.llmMetadata as Record<string, unknown> | null;
+              const scores = meta?.judgeScores as Record<string, unknown> | null;
+              if (scores && typeof scores.anti_ai_tone === 'number') {
+                judgeScoreSamples.push({
+                  network: post.network,
+                  anti_ai_tone: scores.anti_ai_tone as number,
+                  hook_strength: (scores.hook_strength as number) ?? 0,
+                  factual_accuracy: (scores.factual_accuracy as number) ?? 0,
+                  character_limit: (scores.character_limit as number) ?? 0,
+                  qualityScore: (meta?.qualityScore as number) ?? 0,
+                });
+              }
+            }
           } else {
             this.logger.error(
               `Failed to generate posts for topic: ${(result.reason as Error)?.message ?? 'unknown'}`,
             );
           }
         }
+      }
+
+      // P2: Judge calibration summary — log aggregate judge scores per run so
+      // operators can correlate anti_ai_tone with approve/reject decisions and
+      // adjust JUDGE_REFINE_THRESHOLD or the judge prompt over time.
+      if (judgeScoreSamples.length > 0) {
+        const avg = (key: 'anti_ai_tone' | 'hook_strength' | 'factual_accuracy' | 'character_limit') =>
+          Number((judgeScoreSamples.reduce((s, x) => s + x[key], 0) / judgeScoreSamples.length).toFixed(2));
+        const belowThreshold = judgeScoreSamples.filter(
+          (s) => s.anti_ai_tone < (Number(process.env.JUDGE_REFINE_THRESHOLD ?? '0.6') || 0.6),
+        ).length;
+        this.logger.log(
+          `Judge calibration [run ${run.id}]: ${judgeScoreSamples.length} posts scored — ` +
+            `avg anti_ai=${avg('anti_ai_tone')} hook=${avg('hook_strength')} ` +
+            `factual=${avg('factual_accuracy')} chars=${avg('character_limit')} — ` +
+            `${belowThreshold}/${judgeScoreSamples.length} below refine threshold`,
+        );
       }
 
       // If the run was paused, do not mark it as completed.
@@ -769,7 +812,7 @@ export class GenerationService {
     humanReview = false,
     language = 'en',
     signal?: AbortSignal,
-  ): Promise<{ id: string }[]> {
+  ): Promise<{ id: string; network: SocialNetwork; llmMetadata: Prisma.JsonValue }[]> {
     // Check which networks have active accounts.
     // Q11 (N+1 fix): load each network's account ONCE and reuse the map in the
     // save loop below (previously findByNetwork was re-queried per generated
@@ -843,7 +886,7 @@ export class GenerationService {
 
     // Save each generated post as DRAFT
     // B5: SimHash dedup — skip near-duplicate posts (Hamming distance ≤ 8)
-    const savedPosts: { id: string }[] = [];
+    const savedPosts: { id: string; network: SocialNetwork; llmMetadata: Prisma.JsonValue }[] = [];
 
     // Load recent post hashes for this network to check against
     const recentHashes = await this.loadRecentPostHashes(topic.topic);
@@ -928,7 +971,7 @@ export class GenerationService {
                   data: { threadId: thread.id, threadPosition: 0 },
                 });
                 // Create continuation posts (same tx client → all-or-nothing)
-                const created: { id: string }[] = [];
+                const created: { id: string; network: SocialNetwork; llmMetadata: Prisma.JsonValue }[] = [];
                 for (const cont of plan.continuations) {
                   created.push(
                     await this.postsService.create(

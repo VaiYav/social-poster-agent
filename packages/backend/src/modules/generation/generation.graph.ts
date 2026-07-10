@@ -130,6 +130,10 @@ interface NetworkResult {
   /** P7: A/B emoji/hashtag variants — null when disabled or failed. */
   abVariants?: ABVariantPair | null;
   error?: string | null;
+  /** P2: Accumulated LLM token usage for this network's pipeline (draft+critique+refine+judge). */
+  tokens?: number;
+  /** P2: Accumulated estimated USD cost for this network's pipeline. */
+  cost?: number;
 }
 
 /** Output of the full graph — one entry per target network. */
@@ -154,6 +158,10 @@ export interface GeneratedPost {
   abVariants?: ABVariantPair | null;
   /** Prompt labels used for this post — stored in Post.llmMetadata for A/B tracking. */
   promptLabels?: Record<string, { label: string; isFallback?: boolean }>;
+  /** P2: Total LLM tokens consumed producing this post. */
+  tokens?: number;
+  /** P2: Estimated USD cost of producing this post. */
+  cost?: number;
 }
 
 // ============================================================
@@ -575,6 +583,8 @@ function makeDraftNode(network: SocialNetwork, promptPort: IPromptPort) {
           [network]: {
             ...netResult,
             draft: response.content.trim(),
+            tokens: (netResult.tokens ?? 0) + (response.tokens ?? 0),
+            cost: Number(((netResult.cost ?? 0) + (response.cost ?? 0)).toFixed(6)),
           },
         },
       };
@@ -659,6 +669,8 @@ function makeCritiqueNode(network: SocialNetwork, promptPort: IPromptPort) {
             ...netResult,
             critique: response.content.trim(),
             qualityScore,
+            tokens: (netResult.tokens ?? 0) + (response.tokens ?? 0),
+            cost: Number(((netResult.cost ?? 0) + (response.cost ?? 0)).toFixed(6)),
           },
         },
       };
@@ -749,6 +761,8 @@ function makeRefineNode(network: SocialNetwork, promptPort: IPromptPort) {
       const response = await llm.generateChat('', refinePrompt, { temperature: REFINE_TEMPERATURE, role: 'draft' });
 
       let refined = response.content.trim();
+      let refineTokens = response.tokens ?? 0;
+      let refineCost = response.cost ?? 0;
 
       // Q12: Hard char-limit enforcement — if the refined text still exceeds the
       // network limit, do one more LLM pass to cut it down. LLMs (especially
@@ -764,6 +778,8 @@ function makeRefineNode(network: SocialNetwork, promptPort: IPromptPort) {
             `Cut this ${network} post to ${charLimit} characters or fewer. Keep the hook and the punchline. Remove filler, not substance.\n\nPost:\n"${refined}"\n\nReturn ONLY the shortened post (max ${charLimit} chars):`,
             { temperature: 0.3, role: 'draft' },
           );
+          refineTokens += cutResponse.tokens ?? 0;
+          refineCost += cutResponse.cost ?? 0;
           const cut = cutResponse.content.trim();
           if (cut.length > 0 && cut.length <= charLimit) {
             refined = cut;
@@ -785,6 +801,8 @@ function makeRefineNode(network: SocialNetwork, promptPort: IPromptPort) {
             ...netResult,
             refined,
             pendingHumanizeRetry: false,
+            tokens: (netResult.tokens ?? 0) + refineTokens,
+            cost: Number(((netResult.cost ?? 0) + refineCost).toFixed(6)),
           },
         },
       };
@@ -1018,6 +1036,8 @@ function makeJudgeNode(network: SocialNetwork, promptPort: IPromptPort, refineTh
               judgeRetried: true,
               pendingHumanizeRetry: true,
               judgeFeedback: `anti_ai_tone=${judgeScores.anti_ai_tone}: ${judgeScores.anti_ai_tone_reason}\nhook_strength=${judgeScores.hook_strength}: ${judgeScores.hook_strength_reason}`,
+              tokens: (netResult.tokens ?? 0) + (response.tokens ?? 0),
+              cost: Number(((netResult.cost ?? 0) + (response.cost ?? 0)).toFixed(6)),
             },
           },
         };
@@ -1025,7 +1045,13 @@ function makeJudgeNode(network: SocialNetwork, promptPort: IPromptPort, refineTh
 
       return {
         results: {
-          [network]: { ...netResult, judgeScores, pendingHumanizeRetry: false },
+          [network]: {
+            ...netResult,
+            judgeScores,
+            pendingHumanizeRetry: false,
+            tokens: (netResult.tokens ?? 0) + (response.tokens ?? 0),
+            cost: Number(((netResult.cost ?? 0) + (response.cost ?? 0)).toFixed(6)),
+          },
         },
       };
     } catch (err) {
@@ -1120,6 +1146,8 @@ function saveToDbNode(
       visualConcept: netResult.visualConcept ?? null,
       abVariants: netResult.abVariants ?? null,
       promptLabels,
+      tokens: netResult.tokens,
+      cost: netResult.cost,
     });
   }
 

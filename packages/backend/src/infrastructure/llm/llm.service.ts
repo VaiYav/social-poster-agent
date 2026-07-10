@@ -578,6 +578,42 @@ export class LlmService implements ILlmPort, OnModuleInit {
   }
 
   /**
+   * P2: Estimate USD cost for a single LLM call based on provider pricing.
+   * Prices are per 1M tokens (input, output) as of 2026-07. Free-tier
+   * providers (groq, sambanova, cerebras, openrouter free, google free,
+   * nvidia, github, mistral free, huggingface free, together free, cohere
+   * trial, ollama) return 0. Paid providers use published API pricing.
+   * When token usage is unavailable (0), returns 0 — the cost is tracked
+   * only when we have real usage data.
+   */
+  private estimateCost(providerName: string, _model: string, inputTokens: number, outputTokens: number): number {
+    if (inputTokens === 0 && outputTokens === 0) return 0;
+    // Pricing per 1M tokens: [input, output]. 0 = free tier.
+    // Sources: provider pricing pages, 2026-07. Rounded to 2 decimals.
+    const PRICING: Record<string, [number, number]> = {
+      groq: [0, 0],
+      sambanova: [0, 0],
+      cerebras: [0, 0],
+      openrouter: [0, 0], // free models only in the chain
+      deepseek: [0.27, 1.10],
+      anthropic: [0.80, 4.00], // claude-haiku-4-5
+      openai: [0.50, 2.00], // gpt-5-nano approximate
+      google: [0, 0], // free tier
+      nvidia: [0, 0],
+      github: [0, 0],
+      xai: [2.00, 10.00], // grok-4.1-fast
+      mistral: [0, 0], // free tier
+      huggingface: [0, 0],
+      together: [0, 0], // free variant in chain
+      cohere: [0, 0], // trial
+      ollama: [0, 0],
+    };
+    const [inputPer1M, outputPer1M] = PRICING[providerName] ?? [0, 0];
+    if (inputPer1M === 0 && outputPer1M === 0) return 0;
+    return Number(((inputTokens / 1_000_000) * inputPer1M + (outputTokens / 1_000_000) * outputPer1M).toFixed(6));
+  }
+
+  /**
    * Q3: Extract token usage from a LangChain response without type assertions.
    */
   private extractUsageMetadata(response: unknown): { total: number | undefined; input: number; output: number } {
@@ -845,6 +881,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
               content,
               model: `${provider.name}/${provider.model}`,
               tokens,
+              cost: this.estimateCost(provider.name, provider.model, usage.input, usage.output),
             };
 
             // Sprint J: Cache the response (non-creative roles only)

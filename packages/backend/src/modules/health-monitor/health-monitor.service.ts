@@ -111,81 +111,115 @@ export class HealthMonitorService implements OnModuleInit {
   async runReconciliation(): Promise<{ requeued: number; skipped: number; deduplicated: number }> {
     this.logger.log('Running reconciliation — checking for orphaned APPROVED posts...');
 
-    const approvedPosts = await this.prisma.post.findMany({
-      where: { status: PostStatus.APPROVED },
-      orderBy: { approvedAt: 'desc' },
-      take: 1000, // MEM: safety cap — without this, thousands of APPROVED posts
-      // are loaded into memory every reconciliation tick (hourly), each carrying
-      // content + llmMetadata JSON. 1000 is well above any realistic stuck-post count.
-    });
-
+    // P1: Paginate through ALL APPROVED posts instead of capping at 1000.
+    // Uses cursor-based pagination on approvedAt to avoid loading everything
+    // into memory at once. Each page is small (100) to bound Redis queue
+    // lookups per tick.
     const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000);
+    const PAGE_SIZE = 100;
+    let cursor: Date | null = null;
+    let hasMore = true;
 
     // 2.5.3: process sequentially to avoid 1000 parallel Redis calls;
     // also deduplicate completed/failed jobs so we don't re-enqueue terminal jobs.
     let requeued = 0;
     let skipped = 0;
     let deduplicated = 0;
+    let totalScanned = 0;
 
-    for (const post of approvedPosts) {
-      // Post is stuck if it was approved MORE than 10 minutes ago
-      const stuckSince = post.approvedAt ?? post.createdAt;
-      if (stuckSince > tenMinAgo) {
-        skipped += 1;
-        continue;
+    while (hasMore) {
+      const page: Array<{ id: string; network: string; approvedAt: Date | null; createdAt: Date }> =
+        await this.prisma.post.findMany({
+          where: {
+            status: PostStatus.APPROVED,
+            ...(cursor ? { approvedAt: { lt: cursor } } : {}),
+          },
+          orderBy: { approvedAt: 'desc' },
+          take: PAGE_SIZE,
+          select: {
+            id: true,
+            network: true,
+            approvedAt: true,
+            createdAt: true,
+          },
+        });
+
+      if (page.length === 0) {
+        hasMore = false;
+        break;
       }
 
-      // P0-H5: Check if BullMQ already has this job
-      try {
-        const queue = this.queueFactory.getQueue(post.network, 'posting');
-        const existingJob = await queue.getJob(post.id);
-        if (existingJob) {
-          const state = await existingJob.getState();
-          if (
-            state === 'active' ||
-            state === 'waiting' ||
-            state === 'delayed' ||
-            state === 'completed' ||
-            state === 'failed'
-          ) {
-            this.logger.warn(
-              `Reconciliation: post ${post.id} already has a ${state} job in BullMQ — skipping (dedup)`,
-            );
-            deduplicated += 1;
-            continue;
-          }
+      // The last item's approvedAt is the cursor for the next page.
+      // Fall back to createdAt if approvedAt is null (shouldn't happen for APPROVED).
+      const last: { approvedAt: Date | null; createdAt: Date } = page[page.length - 1]!;
+      cursor = last.approvedAt ?? last.createdAt;
+
+      for (const post of page) {
+        totalScanned += 1;
+        // Post is stuck if it was approved MORE than 10 minutes ago
+        const stuckSince = post.approvedAt ?? post.createdAt;
+        if (stuckSince > tenMinAgo) {
+          skipped += 1;
+          continue;
         }
-      } catch (queueErr) {
-        this.logger.debug(
-          `Reconciliation: could not check queue state for post ${post.id}: ${(queueErr as Error).message}`,
+
+        // P0-H5: Check if BullMQ already has this job
+        try {
+          const queue = this.queueFactory.getQueue(post.network, 'posting');
+          const existingJob = await queue.getJob(post.id);
+          if (existingJob) {
+            const state = await existingJob.getState();
+            if (
+              state === 'active' ||
+              state === 'waiting' ||
+              state === 'delayed' ||
+              state === 'completed' ||
+              state === 'failed'
+            ) {
+              this.logger.warn(
+                `Reconciliation: post ${post.id} already has a ${state} job in BullMQ — skipping (dedup)`,
+              );
+              deduplicated += 1;
+              continue;
+            }
+          }
+        } catch (queueErr) {
+          this.logger.debug(
+            `Reconciliation: could not check queue state for post ${post.id}: ${(queueErr as Error).message}`,
+          );
+        }
+
+        this.logger.warn(
+          `Reconciliation: post ${post.id} (${post.network}) stuck in APPROVED for >10min — re-enqueuing`,
         );
+
+        try {
+          await this.queueService.enqueuePosting(post.id, post.network as SocialNetwork);
+        } catch (err) {
+          this.logger.error(
+            `Reconciliation: failed to re-enqueue post ${post.id}: ${(err as Error).message}`,
+          );
+          skipped += 1;
+          continue;
+        }
+
+        await this.sseService.publish({
+          type: 'reconciliation_requeue',
+          postId: post.id,
+          network: post.network,
+        });
+
+        requeued += 1;
       }
 
-      this.logger.warn(
-        `Reconciliation: post ${post.id} (${post.network}) stuck in APPROVED for >10min — re-enqueuing`,
-      );
-
-      try {
-        await this.queueService.enqueuePosting(post.id, post.network);
-      } catch (err) {
-        this.logger.error(
-          `Reconciliation: failed to re-enqueue post ${post.id}: ${(err as Error).message}`,
-        );
-        skipped += 1;
-        continue;
+      // If we got fewer than PAGE_SIZE, we've reached the end.
+      if (page.length < PAGE_SIZE) {
+        hasMore = false;
       }
-
-      await this.sseService.publish({
-        type: 'reconciliation_requeue',
-        postId: post.id,
-        network: post.network,
-      });
-
-      requeued += 1;
     }
 
     this.logger.log(
-      `Reconciliation complete: ${requeued} requeued, ${skipped} skipped, ${deduplicated} deduplicated`,
+      `Reconciliation complete: scanned ${totalScanned}, ${requeued} requeued, ${skipped} skipped, ${deduplicated} deduplicated`,
     );
     return { requeued, skipped, deduplicated };
   }

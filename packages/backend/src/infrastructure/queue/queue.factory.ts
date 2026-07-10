@@ -31,6 +31,9 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
   private readonly concurrency: number;
   /** Long lock duration for engagement workers so browsing sessions (15+ min) don't stall. */
   private readonly engagementLockDurationMs: number;
+  /** P1: BullMQ job retention — configurable via env to control Redis memory. */
+  private readonly removeOnCompleteCount: number;
+  private readonly removeOnFailCount: number;
 
   // Queue instances per network
   private readonly queues = new Map<string, Queue>();
@@ -68,6 +71,9 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
     // or event-loop-blocked worker. Using a 5-minute lock (instead of session+5 min) allows
     // BullMQ to requeue a stuck browsing session within minutes instead of ~20 min.
     this.engagementLockDurationMs = 5 * 60 * 1000;
+    // P1: Configurable retention — defaults match the previous hardcoded values.
+    this.removeOnCompleteCount = this.parseIntEnv('BULLMQ_REMOVE_ON_COMPLETE', 100);
+    this.removeOnFailCount = this.parseIntEnv('BULLMQ_REMOVE_ON_FAIL', 500);
   }
 
   /**
@@ -211,8 +217,8 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
           type: 'exponential',
           delay: this.postingRetryDelayMs, // 2min → 4min → 8min → 16min...
         },
-        removeOnComplete: { count: 100 },
-        removeOnFail: { count: 500 },
+        removeOnComplete: { count: this.removeOnCompleteCount },
+        removeOnFail: { count: this.removeOnFailCount },
       },
     );
     this.logger.log(`Enqueued posting job for post ${postId} → ${network} (priority: ${opts?.priority ?? 10})`);
@@ -241,8 +247,8 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
           type: 'exponential',
           delay: this.retryDelayMs,
         },
-        removeOnComplete: { count: 100 },
-        removeOnFail: { count: 500 },
+        removeOnComplete: { count: this.removeOnCompleteCount },
+        removeOnFail: { count: this.removeOnFailCount },
         ...(opts?.delay ? { delay: opts.delay } : {}),
       },
     );
@@ -302,8 +308,8 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
           type: 'exponential',
           delay: this.postingRetryDelayMs,
         },
-        removeOnComplete: { count: 100 },
-        removeOnFail: { count: 500 },
+        removeOnComplete: { count: this.removeOnCompleteCount },
+        removeOnFail: { count: this.removeOnFailCount },
       },
     );
     this.logger.log(`Scheduled posting job for post ${postId} → ${network} at ${scheduledAt.toISOString()}`);
