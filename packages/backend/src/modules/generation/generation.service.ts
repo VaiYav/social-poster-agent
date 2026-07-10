@@ -70,6 +70,8 @@ interface GraphInvokeConfig {
   configurable: { thread_id: string };
   recursionLimit: number;
   callbacks?: BaseCallbackHandler[];
+  /** AbortSignal passed to graph.invoke so pause/resume can cancel the run. */
+  signal?: AbortSignal;
 }
 
 @Injectable()
@@ -268,6 +270,10 @@ export class GenerationService {
     // Sprint I: SSE generation_started event
     await this.sseService.publish({ type: 'generation_started', runId: run.id, count });
 
+    // AbortController enables pause/resume to actually stop the in-flight run.
+    const controller = new AbortController();
+    this.activeRuns.set(run.id, controller);
+
     try {
       let topics = await this.contentSourceService.getTopics(count);
 
@@ -363,6 +369,11 @@ export class GenerationService {
 
       // Process topics in batches of MAX_CONCURRENCY
       for (let i = 0; i < prioritizedTopics.length; i += MAX_CONCURRENCY) {
+        if (controller.signal.aborted) {
+          this.logger.warn(`Generation run ${run.id} aborted — stopping topic batch`);
+          break;
+        }
+
         const batch = prioritizedTopics.slice(i, i + MAX_CONCURRENCY);
         const results = await Promise.allSettled(
           batch.map((topic) => {
@@ -372,7 +383,16 @@ export class GenerationService {
             ]!;
             this.languageRotationIndex++;
             this.logger.debug(`Generating topic "${topic.topic.slice(0, 40)}" in ${language}`);
-            return this.generatePostsForTopic(topic, targetNetworks, brandVoice, run.id, multiStage, humanReview, language);
+            return this.generatePostsForTopic(
+              topic,
+              targetNetworks,
+              brandVoice,
+              run.id,
+              multiStage,
+              humanReview,
+              language,
+              controller.signal,
+            );
           }),
         );
 
@@ -385,6 +405,12 @@ export class GenerationService {
             );
           }
         }
+      }
+
+      // If the run was paused, do not mark it as completed.
+      if (controller.signal.aborted) {
+        this.logger.warn(`Generation run ${run.id} ended early (paused or aborted)`);
+        return run.id;
       }
 
       await this.markRunCompleted(run.id, prioritizedTopics.map((t) => t.topic));
@@ -404,6 +430,8 @@ export class GenerationService {
       // Sprint I: SSE generation_failed event
       await this.sseService.publish({ type: 'generation_failed', runId: run.id, error: (err as Error).message });
       throw err;
+    } finally {
+      this.activeRuns.delete(run.id);
     }
   }
 
@@ -740,6 +768,7 @@ export class GenerationService {
     multiStage = false,
     humanReview = false,
     language = 'en',
+    signal?: AbortSignal,
   ): Promise<{ id: string }[]> {
     // Check which networks have active accounts.
     // Q11 (N+1 fix): load each network's account ONCE and reuse the map in the
@@ -783,6 +812,7 @@ export class GenerationService {
     const config: GraphInvokeConfig = {
       configurable: { thread_id: `${runId}:${topic.topic}` },
       recursionLimit: 50, // P3+P7 added 6 nodes; Q8 judge-retry adds up to 2 supersteps per network
+      signal,
     };
 
     this.logger.debug(

@@ -1,4 +1,4 @@
-import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Browser, BrowserContext, Locator, Page } from '../../domain/ports/browser-primitives';
 import type { SocialNetwork } from '@prisma/client';
@@ -12,6 +12,7 @@ import { mkdirSync, existsSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseBool } from '../config/parse-bool.js';
 import { withTimeout } from '../util/with-timeout.js';
+import { ProxyRotationService, type ProxyConfig } from '../proxy/proxy-rotation.service.js';
 
 /**
  * Browser factory — creates Camoufox (stealth Firefox fork) browser contexts.
@@ -106,7 +107,10 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
   private readonly browserMaxLifetimeMs: number;
   private browserLaunchTime: number = 0;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    @Optional() private readonly proxyRotation?: ProxyRotationService,
+  ) {
     this.headless = parseBool(this.configService.get<string>('CAMOUFOX_HEADLESS', 'true'));
     this.humanize = parseBool(this.configService.get<string>('CAMOUFOX_HUMANIZE', 'true'));
     this.geoip = parseBool(this.configService.get<string>('CAMOUFOX_GEOIP', 'true'));
@@ -167,6 +171,52 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
         `SEC2: CAMOUFOX_PROFILE_DIR is under /tmp (${this.profileDir}) — FB/Threads cookies are stored there in plaintext. ` +
           'Point it at a restricted, encrypted volume in production.',
       );
+    }
+
+    // P0: posting without a residential/mobile proxy in production is a high ban risk.
+    // The platform sees a datacenter IP and is much more likely to challenge/lock the account.
+    const hasRotatedProxy = this.proxyRotation?.isEnabled() ?? false;
+    if (this.configService.get<string>('NODE_ENV') === 'production' && !this.proxyUrl && !hasRotatedProxy) {
+      this.logger.warn(
+        'No proxy configured for Camoufox (set CAMOUFOX_PROXY_URL or PROXY_ROTATION_ENABLED). ' +
+          'Posting from a datacenter IP greatly increases the risk of account bans.',
+      );
+    }
+  }
+
+  /**
+   * Resolve a proxy config for a given network. Priority:
+   * 1. ProxyRotationService (if enabled and configured) — per-network rotation.
+   * 2. CAMOUFOX_PROXY_URL static fallback.
+   * 3. No proxy (dev/test only).
+   */
+  private getProxyConfig(network?: string): ProxyConfig | undefined {
+    if (this.proxyRotation?.isEnabled()) {
+      const rotated = network ? this.proxyRotation.getProxy(network) : this.proxyRotation.getProxy('default');
+      if (rotated) return rotated;
+    }
+    if (this.proxyUrl) {
+      return this.parseProxyUrl(this.proxyUrl);
+    }
+    return undefined;
+  }
+
+  private parseProxyUrl(url: string): ProxyConfig {
+    try {
+      const parsed = new URL(url);
+      const config: ProxyConfig = {
+        server: `${parsed.protocol}//${parsed.hostname}:${parsed.port}`,
+      };
+      if (parsed.username) {
+        config.username = decodeURIComponent(parsed.username);
+      }
+      if (parsed.password) {
+        config.password = decodeURIComponent(parsed.password);
+      }
+      return config;
+    } catch {
+      // If URL parsing fails, treat as raw server address
+      return { server: url };
     }
   }
 
@@ -258,9 +308,10 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     }
 
     // Proxy support for IP rotation (anti-detection)
-    if (this.proxyUrl) {
-      launchOpts.proxy = { server: this.proxyUrl };
-      this.logger.log(`Using proxy: ${this.proxyUrl.replace(/\/\/.*@/, '//***@')}`);
+    const proxy = this.getProxyConfig();
+    if (proxy) {
+      launchOpts.proxy = proxy;
+      this.logger.log(`Using proxy: ${proxy.server.replace(/\/\/.*@/, '//***@')}`);
     }
 
     // Camoufox() returns a Playwright-compatible Browser instance.
@@ -369,9 +420,10 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
       launchOpts.firefox_user_prefs = this.firefoxUserPrefs;
     }
 
-    // Proxy support
-    if (this.proxyUrl) {
-      launchOpts.proxy = { server: this.proxyUrl };
+    // Proxy support (per-network rotation via ProxyRotationService)
+    const proxy = this.getProxyConfig(network);
+    if (proxy) {
+      launchOpts.proxy = proxy;
     }
 
     // Camoufox with user_data_dir returns a BrowserContext (persistent)
@@ -427,6 +479,12 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
       // Camoufox handles window size at C++ level via its fingerprint spoofing.
       viewport: null,
     };
+
+    // Per-network proxy (rotation or static fallback)
+    const proxy = this.getProxyConfig(network);
+    if (proxy) {
+      contextOptions.proxy = proxy;
+    }
 
     if (storageState) {
       contextOptions.storageState = JSON.parse(storageState) as never;

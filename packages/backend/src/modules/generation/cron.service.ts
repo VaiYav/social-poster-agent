@@ -20,13 +20,18 @@ import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 @Injectable()
 export class CronService implements OnModuleInit {
   private readonly logger = new Logger(CronService.name);
+  private readonly jitterMinutes: number;
 
   constructor(
     private readonly generationService: GenerationService,
     private readonly accountsService: AccountsService,
     private readonly configService: ConfigService,
     private readonly schedulerRegistry: SchedulerRegistry,
-  ) {}
+  ) {
+    const rawJitter = this.configService?.get<string>('CRON_GENERATION_JITTER_MINUTES', '0');
+    const parsed = Number(rawJitter);
+    this.jitterMinutes = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  }
 
   async onModuleInit(): Promise<void> {
     // Minor-29: seedFromEnv moved to AccountsService.onModuleInit
@@ -51,7 +56,16 @@ export class CronService implements OnModuleInit {
       '0 9,21 * * *',
     ) ?? '0 9,21 * * *';
 
-    const job = new CronJob(cronExpr, async () => { await this.handleCronGeneration(); });
+    const job = new CronJob(cronExpr, async () => {
+      // Spread cron start time by a random jitter to avoid exact-minute bursts
+      // that look automated and trigger platform bans.
+      if (this.jitterMinutes > 0) {
+        const jitterMs = Math.floor(Math.random() * this.jitterMinutes * 60 * 1000);
+        this.logger.log(`Cron generation scheduled — applying ${Math.round(jitterMs / 1000)}s jitter`);
+        await this.delay(jitterMs);
+      }
+      await this.handleCronGeneration();
+    });
     try {
       this.schedulerRegistry?.addCronJob('generation', job);
       job.start();
@@ -73,5 +87,9 @@ export class CronService implements OnModuleInit {
     } catch (err) {
       this.logger.error(`Cron generation failed: ${(err as Error).message}`);
     }
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

@@ -38,7 +38,6 @@ import { RepliesModule } from './modules/replies/replies.module';
 import { FlowControlModule } from './modules/flow-control/flow-control.module';
 import { AutonomyModule } from './modules/autonomy/autonomy.module';
 import { CaptchaModule } from './infrastructure/captcha/captcha.module';
-import { ProxyModule } from './infrastructure/proxy/proxy.module';
 import { EventsEdaModule } from './events/events.module';
 import { RedisModule } from './infrastructure/redis/redis.module';
 import { EmailModule } from './infrastructure/email/email.module';
@@ -58,7 +57,6 @@ const engagementImports = parseBool(process.env.ENGAGEMENT_ENABLED) ? [Engagemen
  * When disabled, the module is not registered — no services or routes exposed.
  */
 const captchaImports = parseBool(process.env.CAPTCHA_SOLVER_ENABLED) ? [CaptchaModule] : [];
-const proxyImports = parseBool(process.env.PROXY_ROTATION_ENABLED) ? [ProxyModule] : [];
 const quoteCardImports = parseBool(process.env.QUOTE_CARDS_ENABLED) ? [QuoteCardModule] : [];
 const repliesImports =
   parseBool(process.env.REPLIES_ENABLED)
@@ -112,7 +110,6 @@ const orchestratorImports = parseBool(process.env.ORCHESTRATOR_ENABLED) ? [Orche
     AnalyticsModule, // Sprint O / F6: Analytics dashboard (read-only, always available)
     RecyclingModule, // Sprint O / F13: Content recycling (manual trigger)
     ...captchaImports, // Sprint O: Captcha solver — gated by CAPTCHA_SOLVER_ENABLED
-    ...proxyImports, // Sprint O: Proxy rotation — gated by PROXY_ROTATION_ENABLED
     ...quoteCardImports, // Sprint O / F19: Quote cards — gated by QUOTE_CARDS_ENABLED
     ...repliesImports, // Sprint O / F4: Adaptive replies — gated by REPLIES_ENABLED
     FlowControlModule, // ADR-006: Flow control (pause/resume, crisis mode)

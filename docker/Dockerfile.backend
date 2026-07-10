@@ -79,11 +79,19 @@ RUN CLIENT_DIR=$(find /app/node_modules/.pnpm -path '*/@prisma/client' -type d |
 # Copy brand voice
 COPY brand-voice.md ./
 
+# SEC2: persistent browser profiles must live on a writable, non-world-readable dir.
+# Camoufox stores FB/Threads cookies here (plaintext outside DB encryption). /tmp
+# is broadly accessible; in production mount an encrypted/restricted volume here.
+RUN mkdir -p /app/profiles && chmod 700 /app/profiles
+
 # Sprint N: Add non-root user for security
 RUN groupadd -r spa && useradd -r -g spa spa && chown -R spa:spa /app
 USER spa
 
 EXPOSE 3100
+
+# MEM: constrain Node heap to leave headroom for Camoufox processes in the 2G container.
+ENV NODE_OPTIONS=--max-old-space-size=1536
 
 # Sprint N: Healthcheck — verify the API is responding.
 # Uses node (always available in the image) with built-in fetch.
