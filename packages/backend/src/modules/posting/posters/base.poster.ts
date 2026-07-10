@@ -314,8 +314,10 @@ export abstract class BasePoster {
         return 'div[data-contents="true"], div[dir="auto"], article, div[role="article"]';
       case 'FACEBOOK':
         return 'div[data-testid="post_message"], div[dir="auto"], article';
-      default:
-        return 'article, [data-testid="tweetText"]';
+      default: {
+        const _exhaustive: never = this.network;
+        return `article, [data-testid="tweetText"] /* unknown: ${String(_exhaustive)} */`;
+      }
     }
   }
 
@@ -750,8 +752,11 @@ export abstract class BasePoster {
         const slug = process.env.SOCIAL_FACEBOOK_PAGE_SLUG;
         return slug ? `https://www.facebook.com/${slug}` : null;
       }
-      default:
+      default: {
+        const _exhaustive: never = this.network;
+        this.logger.warn(`Unknown network in getVerificationProfileUrl: ${String(_exhaustive)}`);
         return null;
+      }
     }
   }
 
@@ -764,8 +769,11 @@ export abstract class BasePoster {
       case 'FACEBOOK':
         return /\/(posts|permalink|photos)\/\d+/;
       case 'X':
-      default:
         return /\/status\/[A-Za-z0-9]+/;
+      default: {
+        const _exhaustive: never = this.network;
+        throw new Error(`Unknown network: ${String(_exhaustive)}`);
+      }
     }
   }
 }

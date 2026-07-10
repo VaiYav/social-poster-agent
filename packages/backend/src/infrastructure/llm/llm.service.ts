@@ -489,8 +489,10 @@ export class LlmService implements ILlmPort, OnModuleInit {
       };
       
       if (isOpenAIReasoning && maxTokens !== undefined) {
-        // Use max_completion_tokens for OpenAI reasoning models
-        ctorArgs.maxCompletionTokens = maxTokens;
+        // OpenAI reasoning models (gpt-5, o1, o3, o4-mini) reject `max_tokens` and require `max_completion_tokens`.
+        // Use modelKwargs to force the correct API body parameter and avoid ChatOpenAI
+        // potentially mapping an unsupported `maxCompletionTokens` field to `max_tokens`.
+        ctorArgs.modelKwargs = { max_completion_tokens: maxTokens };
       } else if (maxTokens !== undefined) {
         // Use maxTokens for other models
         ctorArgs.maxTokens = maxTokens;

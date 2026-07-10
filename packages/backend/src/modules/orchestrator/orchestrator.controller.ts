@@ -11,17 +11,23 @@
  */
 
 import { Controller, Get, Post, Query, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { OrchestratorService } from './orchestrator.service.js';
 import { FlowControlService } from '../flow-control/flow-control.service.js';
 
 @Controller('orchestrator')
 export class OrchestratorController {
   private readonly logger = new Logger(OrchestratorController.name);
+  private readonly restartDelayMs: number;
 
   constructor(
     private readonly orchestratorService: OrchestratorService,
     private readonly flowControlService: FlowControlService,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    const raw = this.configService.get<string>('ORCHESTRATOR_RESTART_DELAY_MS', '3000');
+    this.restartDelayMs = raw ? Number(raw) : 3000;
+  }
 
   @Get('status')
   async getStatus() {
@@ -33,6 +39,11 @@ export class OrchestratorController {
     const parsed = limit ? Number(limit) : 50;
     const n = Number.isFinite(parsed) ? Math.max(1, Math.min(parsed, 200)) : 50;
     return this.orchestratorService.getHistory(n);
+  }
+
+  @Get('world')
+  async getWorldState() {
+    return this.orchestratorService.getWorldState();
   }
 
   @Post('pause')
@@ -53,7 +64,7 @@ export class OrchestratorController {
   async restart() {
     this.logger.log('Orchestrator restart requested via API');
     await this.orchestratorService.stop();
-    await new Promise((r) => setTimeout(r, 3000));
+    await new Promise((r) => setTimeout(r, this.restartDelayMs));
     await this.orchestratorService.start();
     return { success: true, message: 'Orchestrator restarted' };
   }

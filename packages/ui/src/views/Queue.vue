@@ -132,6 +132,24 @@ async function togglePause(network: string) {
     toast.error(`Queue control failed: ${(e as Error).message}`);
   }
 }
+
+async function retryFailed(network: string) {
+  try {
+    await queueStore.retryFailed(network);
+    toast.success(`${network} failed jobs queued for retry`);
+  } catch (e: unknown) {
+    toast.error(`Retry failed: ${(e as Error).message}`);
+  }
+}
+
+async function clearCompleted(network: string) {
+  try {
+    await queueStore.clearCompleted(network);
+    toast.info(`${network} completed jobs cleared`);
+  } catch (e: unknown) {
+    toast.error(`Clear failed: ${(e as Error).message}`);
+  }
+}
 </script>
 
 <template>
@@ -196,6 +214,83 @@ async function togglePause(network: string) {
           <div v-if="queueStore.paused[net]" class="mt-3 flex items-center gap-1.5 rounded-md bg-warning-subtle p-2 text-xs text-warning">
             <Timer class="h-3.5 w-3.5" />
             Paused — new jobs are held
+          </div>
+        </div>
+      </div>
+    </Card>
+
+    <!-- Failed Jobs -->
+    <Card class="mb-8">
+      <template #header>
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <XSquare class="h-5 w-5 text-status-failed" />
+            <div>
+              <h2 class="text-lg font-semibold text-text-primary">Failed Queue Jobs</h2>
+              <p class="text-sm text-text-secondary">BullMQ dead letters per network</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <Button size="sm" variant="outline" @click="queueStore.fetchAll()">
+              <RefreshCw class="mr-1 h-3.5 w-3.5" />
+              Refresh
+            </Button>
+          </div>
+        </div>
+      </template>
+
+      <div class="space-y-4">
+        <div
+          v-for="net in NETWORKS"
+          :key="net"
+          class="rounded-lg border border-border p-4"
+        >
+          <div class="mb-3 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">{{ networkIcons[net] }}</span>
+              <span class="font-semibold text-text-primary">{{ net }}</span>
+              <Badge v-if="queueStore.stats[net]?.failed" variant="error">
+                {{ queueStore.stats[net].failed }} failed
+              </Badge>
+            </div>
+            <div class="flex items-center gap-2">
+              <Button
+                v-if="queueStore.stats[net]?.failed"
+                size="sm"
+                variant="secondary"
+                @click="retryFailed(net)"
+              >
+                <RefreshCw class="mr-1 h-3.5 w-3.5" />
+                Retry all
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                @click="clearCompleted(net)"
+              >
+                <XSquare class="mr-1 h-3.5 w-3.5" />
+                Clear completed
+              </Button>
+            </div>
+          </div>
+
+          <div v-if="!queueStore.failedJobs[net] || queueStore.failedJobs[net].length === 0" class="text-sm text-text-muted">
+            No failed jobs for {{ net }}.
+          </div>
+          <div v-else class="space-y-2">
+            <div
+              v-for="job in queueStore.failedJobs[net]"
+              :key="job.id"
+              class="rounded-md bg-surface-elevated p-3 text-sm"
+            >
+              <div class="flex items-center justify-between">
+                <span class="font-mono text-xs text-text-muted">{{ job.id }}</span>
+                <span class="text-xs text-text-muted">{{ new Date(job.timestamp).toLocaleString() }}</span>
+              </div>
+              <p v-if="job.failedReason" class="mt-1 text-xs text-error">
+                {{ job.failedReason }}
+              </p>
+            </div>
           </div>
         </div>
       </div>

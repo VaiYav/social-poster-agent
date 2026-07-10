@@ -5,3 +5,5 @@ export { IBrowserPort, type IBrowserPort as IBrowserPortType } from './browser.p
 export { ILlmPort, type ILlmPort as ILlmPortType } from './llm.port.js';
 export { IContentPort, type IContentPort as IContentPortType } from './content.port.js';
 export { IPromptPort, type IPromptPort as IPromptPortType, PROMPT_FALLBACK_PROVIDERS, type IPromptFallbackProvider } from './prompt.port.js';
+export { IEngagementDecisionPort, type EngagementAction, type EngagementSource, type PostContext, type ActionDecision, type IEngagementDecisionPort as IEngagementDecisionPortType } from './engagement-decision.port.js';
+export { IPostingQueuePort, type IPostingQueuePort as IPostingQueuePortType } from './posting-queue.port.js';

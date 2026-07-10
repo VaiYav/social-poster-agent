@@ -58,7 +58,7 @@ onMounted(() => {
 
 <template>
   <div class="space-y-6">
-    <SectionHeader title="Flow Control" subtitle="Pause/resume agent flows — emergency intervention" />
+    <SectionHeader title="Flow Control" description="Pause/resume agent flows — emergency intervention" />
 
     <!-- Crisis Mode -->
     <Card class="p-6" :class="crisisActive ? 'border-red-500 bg-red-500/10' : ''">

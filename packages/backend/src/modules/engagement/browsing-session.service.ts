@@ -175,18 +175,6 @@ export class BrowsingSessionService {
       context = await this.browser.acquireContext(network, storageState);
       page = await context.newPage();
 
-      // Detect renderer/page crashes so we can close the context early. If the
-      // renderer dies, the next Playwright call will fail with "Target page,
-      // context or browser has been closed"; closing the context now lets the
-      // BrowsingSessionService catch a fatal error and discard it instead of
-      // reusing it.
-      if (typeof page.on === 'function') {
-        page.on('crash', () => {
-          this.logger.warn(`Page crashed during ${network} browsing session — closing context`);
-          void context?.close().catch(() => {});
-        });
-      }
-
       await this.browser.suppressPageErrors(page);
 
       // Block heavy resources (images, video, fonts) to reduce memory pressure
@@ -197,6 +185,30 @@ export class BrowsingSessionService {
       // Centralised in BrowserFactory.applyResourceBlocking so all read-only
       // call sites share the same blocking policy (gated by CAMOUFOX_BLOCK_IMAGES_READONLY).
       await this.browser.applyResourceBlocking(page, { blockImages: true });
+
+      // Crash/close detection: the graph may be stuck in a long scroll/operation.
+      // If the page dies, abort the session immediately instead of waiting for the full duration+180s timeout.
+      let sessionActive = true;
+      let crashReject: ((err: Error) => void) | undefined;
+      const crashPromise = new Promise<never>((_, reject) => {
+        crashReject = reject;
+      });
+      const crashError = (event: string) => new Error(`Page ${event} during ${network} browsing session`);
+
+      if (typeof page.on === 'function') {
+        page.on('crash', () => {
+          if (!sessionActive) return;
+          this.logger.warn(`Page crashed during ${network} browsing session — closing context`);
+          void context?.close().catch(() => {});
+          crashReject?.(crashError('crashed'));
+        });
+        page.on('close', () => {
+          if (!sessionActive) return;
+          this.logger.warn(`Page closed during ${network} browsing session — closing context`);
+          void context?.close().catch(() => {});
+          crashReject?.(crashError('closed'));
+        });
+      }
 
       // Pre-session health check: verify the page/browser is responsive before
       // committing to a full engagement graph run. A simple evaluate call catches
@@ -245,67 +257,70 @@ export class BrowsingSessionService {
       });
 
       // Hard timeout: the graph should finish within the planned duration + a buffer.
-      // If a browser operation hangs (e.g. a stuck page), this prevents the job from running forever.
-      // Buffer is generous because scroll + interactions must share the full duration budget.
-      const finalState = await withTimeout(
-        compiled.invoke(initialState),
-        duration * 1000 + 180_000,
-        `Browsing session for ${network}`,
-      );
+      // If the page crashes/closes, crashPromise rejects immediately and aborts the session.
+      try {
+        const finalState = await withTimeout(
+          Promise.race([compiled.invoke(initialState), crashPromise]),
+          duration * 1000 + 180_000,
+          `Browsing session for ${network}`,
+        );
 
-      postsViewed = finalState.postsProcessed ?? 0;
-      interactionsCount = (finalState.results ?? []).filter(
-        (r) => r.success && r.interactionId,
-      ).length;
+        postsViewed = finalState.postsProcessed ?? 0;
+        interactionsCount = (finalState.results ?? []).filter(
+          (r) => r.success && r.interactionId,
+        ).length;
 
-      // Update feedUrl from graph's source selection
-      if (finalState.sourceUrl) {
+        // Update feedUrl from graph's source selection
+        if (finalState.sourceUrl) {
+          await this.prisma.browsingSession.update({
+            where: { id: browsingSession.id },
+            data: { feedUrl: finalState.sourceUrl },
+          });
+        }
+
+        // Save updated session state — best effort, don't let a closed context block
+        // the session completion record. If the browser crashed, there is no state to save.
+        try {
+          const updatedState = await withTimeout(
+            this.browser.saveStorageState(context),
+            10_000,
+            `saveStorageState ${network}`,
+          );
+          await this.sessionsService.updateStorageState(session.id, updatedState);
+        } catch (saveErr) {
+          this.logger.warn(`Failed to save storage state for ${network}: ${(saveErr as Error).message}`);
+        }
+
+        // Update browsing session record
         await this.prisma.browsingSession.update({
           where: { id: browsingSession.id },
-          data: { feedUrl: finalState.sourceUrl },
+          data: {
+            status: BrowsingSessionStatus.COMPLETED,
+            endedAt: new Date(),
+            durationSec: duration,
+            postsViewed,
+            interactionsCount,
+          },
         });
-      }
 
-      // Save updated session state — best effort, don't let a closed context block
-      // the session completion record. If the browser crashed, there is no state to save.
-      try {
-        const updatedState = await withTimeout(
-          this.browser.saveStorageState(context),
-          10_000,
-          `saveStorageState ${network}`,
+        this.logger.log(
+          `Browsing session completed for ${network}: ${postsViewed} posts, ${interactionsCount} interactions ` +
+            `(source: ${finalState.sourceLabel ?? 'unknown'}, warmup: ${finalState.warmupPhase ?? 'none'})`,
         );
-        await this.sessionsService.updateStorageState(session.id, updatedState);
-      } catch (saveErr) {
-        this.logger.warn(`Failed to save storage state for ${network}: ${(saveErr as Error).message}`);
-      }
 
-      // Update browsing session record
-      await this.prisma.browsingSession.update({
-        where: { id: browsingSession.id },
-        data: {
-          status: BrowsingSessionStatus.COMPLETED,
-          endedAt: new Date(),
-          durationSec: duration,
+        // SSE event
+        await this.sseService.publish({
+          type: 'browsing_session_completed',
+          sessionId: browsingSession.id,
+          network: network as string,
           postsViewed,
           interactionsCount,
-        },
-      });
+        });
 
-      this.logger.log(
-        `Browsing session completed for ${network}: ${postsViewed} posts, ${interactionsCount} interactions ` +
-          `(source: ${finalState.sourceLabel ?? 'unknown'}, warmup: ${finalState.warmupPhase ?? 'none'})`,
-      );
-
-      // SSE event
-      await this.sseService.publish({
-        type: 'browsing_session_completed',
-        sessionId: browsingSession.id,
-        network: network as string,
-        postsViewed,
-        interactionsCount,
-      });
-
-      return { sessionId: browsingSession.id, postsViewed, interactionsCount };
+        return { sessionId: browsingSession.id, postsViewed, interactionsCount };
+      } finally {
+        sessionActive = false;
+      }
     } catch (err) {
       const errorMessage = (err as Error).message;
       this.logger.error(`Browsing session failed for ${network}: ${errorMessage}`);

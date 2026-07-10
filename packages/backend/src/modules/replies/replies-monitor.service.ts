@@ -34,8 +34,8 @@ import { AccountsService } from '../accounts/accounts.service';
 import { SessionsService } from '../sessions/sessions.service';
 import { IBrowserPort } from '../../domain/ports/browser.port.js';
 import { buildCommentId } from './comment-id.js';
-import { detectSensitive, isLikelyTroll } from './sensitive-filter.js';
-import { LlmService } from '../../infrastructure/llm/llm.service.js';
+import { detectSensitive, isLikelyTroll, isLowValueComment } from './sensitive-filter.js';
+import { ILlmPort } from '../../domain/ports/llm.port.js';
 import { sanitizeUntrustedInput } from '../../infrastructure/llm/sanitize-untrusted-input.js';
 import { DiscordNotificationService } from '../../infrastructure/notifications/discord-notification.service.js';
 import { SseService } from '../../infrastructure/sse/sse.service.js';
@@ -51,8 +51,6 @@ import { parseBool } from '../../infrastructure/config/parse-bool';
 import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 import { matchesScript, normalizeLanguage } from '../../infrastructure/util/script-check.js';
 import { detectLanguage } from '../../infrastructure/util/language-detector.js';
-
-const REPLIES_TEMPERATURE = Number(process.env.REPLIES_TEMPERATURE ?? 0.6);
 
 export interface ScrapedComment {
   commentId: string;
@@ -78,6 +76,7 @@ export class RepliesMonitorService implements OnModuleInit {
   private readonly cronSchedule: string;
   private readonly maxRepliesPerPost: number;
   private readonly autoReplyComplexity: 'low' | 'medium' | 'high';
+  private readonly repliesTemperature: number;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -87,7 +86,7 @@ export class RepliesMonitorService implements OnModuleInit {
     private readonly schedulerRegistry: SchedulerRegistry,
     private readonly discord: DiscordNotificationService,
     private readonly sseService: SseService,
-    @Optional() private readonly llmService?: LlmService,
+    @Optional() @Inject(ILlmPort) private readonly llmService?: ILlmPort,
     @Optional() @Inject(IBrowserPort) private readonly browser?: IBrowserPort,
     @Optional() private readonly engagementService?: EngagementService,
     // RP1: when present, auto-replies are scheduled as delayed BullMQ jobs instead of
@@ -103,6 +102,9 @@ export class RepliesMonitorService implements OnModuleInit {
     this.maxRepliesPerPost = Number.isFinite(rawMax) && rawMax >= 0 ? Math.floor(rawMax) : 3;
     const rawComplexity = this.configService.get<string>('REPLIES_AUTO_REPLY_COMPLEXITY', 'medium');
     this.autoReplyComplexity = rawComplexity === 'low' || rawComplexity === 'medium' || rawComplexity === 'high' ? rawComplexity : 'medium';
+    // B1: read temperature from ConfigService (validated by Joi) instead of process.env at import time.
+    const rawTemp = Number(this.configService.get<string>('REPLIES_TEMPERATURE', '0.6'));
+    this.repliesTemperature = Number.isFinite(rawTemp) && rawTemp >= 0 && rawTemp <= 2 ? rawTemp : 0.6;
   }
 
   onModuleInit(): void {
@@ -136,9 +138,9 @@ export class RepliesMonitorService implements OnModuleInit {
    * 2. Scrape comments from each post
    * 3. Process new comments (decide + reply/flag)
    */
-  async runMonitoringCycle(): Promise<{ postsChecked: number; commentsScraped: number; repliesPosted: number; humanReview: number }> {
+  async runMonitoringCycle(): Promise<{ postsChecked: number; commentsScraped: number; repliesPosted: number; repliesScheduled: number; humanReview: number }> {
     this.logger.log('Replies monitoring cycle started');
-    const stats = { postsChecked: 0, commentsScraped: 0, repliesPosted: 0, humanReview: 0 };
+    const stats = { postsChecked: 0, commentsScraped: 0, repliesPosted: 0, repliesScheduled: 0, humanReview: 0 };
 
     // 2.9.3: Respect flow control — skip cycle if replies flow is paused.
     if (this.flowControl && (await this.flowControl.isPaused('replies'))) {
@@ -180,7 +182,7 @@ export class RepliesMonitorService implements OnModuleInit {
       }
 
       this.logger.log(
-        `Replies monitoring cycle complete: ${stats.postsChecked} posts, ${stats.commentsScraped} comments, ${stats.repliesPosted} replies, ${stats.humanReview} human review`,
+        `Replies monitoring cycle complete: ${stats.postsChecked} posts, ${stats.commentsScraped} comments, ${stats.repliesPosted} replies posted, ${stats.repliesScheduled} scheduled, ${stats.humanReview} human review`,
       );
 
       // SSE event for UI
@@ -500,7 +502,15 @@ export class RepliesMonitorService implements OnModuleInit {
       };
     }
 
-    // 4. LLM is the sole content generator — no template fallback.
+    // 4. Low-value comment pre-filter — deterministic check for comments that don't warrant
+    // a reply (emoji-only, generic reactions, follow-bait, pure hashtags). Saves an LLM call.
+    // Runs AFTER sensitive check so crisis/complaint comments still go to human_review.
+    const lowValue = isLowValueComment(comment.text);
+    if (lowValue.lowValue) {
+      return { action: 'skip', reason: lowValue.reason ?? 'Low-value comment — skipped' };
+    }
+
+    // 5. LLM is the sole content generator — no template fallback.
     // If LLM service is not wired or all providers fail, skip the comment
     // (it stays NEW and will be retried in the next monitoring cycle).
     if (!this.llmService) {
@@ -549,7 +559,7 @@ Network: ${post.network}
 Reply in EXACTLY the detected language (${detectedLanguage}). Do not switch languages mid-reply.`;
 
     try {
-      const response = await this.llmService.generateChat(systemPrompt, userPrompt, { temperature: REPLIES_TEMPERATURE });
+      const response = await this.llmService.generateChat(systemPrompt, userPrompt, { temperature: this.repliesTemperature });
 
       // Parse JSON response — LLM may wrap in markdown
       const jsonMatch = response.content.match(/\{[\s\S]*\}/);
@@ -567,7 +577,7 @@ Reply in EXACTLY the detected language (${detectedLanguage}). Do not switch lang
       }
 
       // Validate action — default to human_review if invalid
-      if (parsed.action !== 'auto_reply' && parsed.action !== 'human_review') {
+      if (parsed.action !== 'auto_reply' && parsed.action !== 'human_review' && parsed.action !== 'skip') {
         parsed.action = 'human_review';
         parsed.reviewReason = 'LLM returned invalid action — defaulting to human review';
       }
@@ -633,7 +643,7 @@ Reply in EXACTLY the detected language (${detectedLanguage}). Do not switch lang
     post: { id: string; network: string; postUrl: string | null; content: string },
     comment: { id: string; commentId: string; author: string; text: string; authorProfileUrl?: string | null },
     decision: ReplyDecision,
-    stats: { postsChecked: number; commentsScraped: number; repliesPosted: number; humanReview: number },
+    stats: { postsChecked: number; commentsScraped: number; repliesPosted: number; repliesScheduled: number; humanReview: number },
   ): Promise<void> {
     switch (decision.action) {
       case 'skip': {
@@ -701,6 +711,7 @@ Reply in EXACTLY the detected language (${detectedLanguage}). Do not switch lang
           this.logger.log(
             `Auto-reply scheduled for comment ${comment.commentId} on post ${post.id} (~${Math.round(delay / 60000)}min)`,
           );
+          stats.repliesScheduled++;
           break;
         }
 
@@ -725,6 +736,13 @@ Reply in EXACTLY the detected language (${detectedLanguage}). Do not switch lang
           this.logger.warn(`EngagementService not available — cannot post reply`);
         }
         break;
+      }
+
+      default: {
+        // Exhaustiveness check — if a new action type is added to ReplyDecision
+        // but not handled here, TypeScript will flag this assignment as an error.
+        const _exhaustive: never = decision.action;
+        this.logger.error(`Unhandled reply action: ${_exhaustive}`);
       }
     }
   }

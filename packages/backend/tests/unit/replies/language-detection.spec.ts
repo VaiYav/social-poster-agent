@@ -564,7 +564,7 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
     const svcWithLlm = createServiceWithLlm(mockLlm);
     const result = await (svcWithLlm as any).decideReply(
       { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Дякую' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Дякую за цей пост, дуже точно' },
     );
     expect(result.action).toBe('auto_reply');
   });
@@ -599,10 +599,93 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
     const svcWithLlm = createServiceWithLlm(mockLlm);
     const result = await (svcWithLlm as any).decideReply(
       { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Спасибо' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Спасибо за этот пост, очень точно' },
     );
     // ru-RU normalizes to ru, but replyText is Latin → mismatch → human_review
     expect(result.action).toBe('human_review');
     expect(result.reviewReason).toContain('script');
+  });
+
+  // ── LLM skip action ──
+
+  it('SKIP-001: accepts LLM skip action for low-value comment', async () => {
+    const mockLlm = {
+      generateChat: vi.fn().mockResolvedValue({
+        content: '{"action":"skip","reason":"Generic reaction, nothing to reply to","detectedLanguage":"en"}',
+        model: 'test',
+        tokens: 10,
+      }),
+    };
+    const svcWithLlm = createServiceWithLlm(mockLlm);
+    const result = await (svcWithLlm as any).decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Who else is here from TikTok?' },
+    );
+    expect(result.action).toBe('skip');
+    expect(result.reason).toContain('Generic');
+  });
+
+  it('SKIP-002: deterministic low-value filter skips before LLM is called', async () => {
+    const mockLlm = {
+      generateChat: vi.fn().mockResolvedValue({
+        content: '{"action":"skip","reason":"should not reach LLM"}',
+        model: 'test',
+        tokens: 10,
+      }),
+    };
+    const svcWithLlm = createServiceWithLlm(mockLlm);
+    // "nice" is a generic reaction — deterministic filter catches it, no LLM call
+    const result = await (svcWithLlm as any).decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'nice' },
+    );
+    expect(result.action).toBe('skip');
+    expect(result.reason).toContain('Generic reaction');
+    expect(mockLlm.generateChat).not.toHaveBeenCalled();
+  });
+
+  it('SKIP-003: emoji-only comment is skipped by deterministic filter (no LLM call)', async () => {
+    const mockLlm = {
+      generateChat: vi.fn(),
+    };
+    const svcWithLlm = createServiceWithLlm(mockLlm);
+    const result = await (svcWithLlm as any).decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: '🔥🔥🔥' },
+    );
+    expect(result.action).toBe('skip');
+    expect(result.reason).toContain('Emoji-only');
+    expect(mockLlm.generateChat).not.toHaveBeenCalled();
+  });
+
+  it('SKIP-004: follow bait is skipped by deterministic filter (no LLM call)', async () => {
+    const mockLlm = {
+      generateChat: vi.fn(),
+    };
+    const svcWithLlm = createServiceWithLlm(mockLlm);
+    const result = await (svcWithLlm as any).decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'follow me for daily horoscopes' },
+    );
+    expect(result.action).toBe('skip');
+    expect(result.reason).toContain('Follow/subscribe bait');
+    expect(mockLlm.generateChat).not.toHaveBeenCalled();
+  });
+
+  it('SKIP-005: genuine question still goes to LLM (not caught by low-value filter)', async () => {
+    const mockLlm = {
+      generateChat: vi.fn().mockResolvedValue({
+        content: '{"action":"auto_reply","reason":"genuine question","detectedLanguage":"en","replyText":"Great question! Mercury retrograde is..."}',
+        model: 'test',
+        tokens: 10,
+      }),
+    };
+    const svcWithLlm = createServiceWithLlm(mockLlm);
+    const result = await (svcWithLlm as any).decideReply(
+      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'What does Mercury retrograde mean for me?' },
+    );
+    expect(result.action).toBe('auto_reply');
+    expect(mockLlm.generateChat).toHaveBeenCalledOnce();
   });
 });

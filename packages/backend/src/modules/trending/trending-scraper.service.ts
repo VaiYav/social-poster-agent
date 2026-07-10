@@ -27,7 +27,7 @@ import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import { IBrowserPort } from '../../domain/ports/browser.port.js';
-import { LlmService } from '../../infrastructure/llm/llm.service.js';
+import { ILlmPort } from '../../domain/ports/llm.port.js';
 import { SessionsService } from '../sessions/sessions.service.js';
 import type { BrowserContext, Page } from '../../domain/ports/browser-primitives';
 import { SocialNetwork } from '@prisma/client';
@@ -153,7 +153,7 @@ export class TrendingScraperService implements OnModuleInit {
   constructor(
     private readonly configService: ConfigService,
     private readonly schedulerRegistry: SchedulerRegistry,
-    @Optional() private readonly llmService?: LlmService,
+    @Optional() @Inject(ILlmPort) private readonly llmService?: ILlmPort,
     @Optional() @Inject(IBrowserPort) private readonly browser?: IBrowserPort,
     @Optional() private readonly sessionsService?: SessionsService,
   ) {

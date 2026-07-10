@@ -31,8 +31,12 @@ import type { Action } from './types.js';
  * Base class providing ModuleRef resolution for optional services.
  * Feature-flagged services may not be registered — resolveOptional returns null.
  */
+// Constructor type for NestJS service classes — `any[]` is the standard pattern
+// for generic constructor types (NestJS itself uses this in ModuleRef.get).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function resolveOptional<T>(moduleRef: ModuleRef, serviceClass: new (...args: any[]) => T): T | null {
+type Constructor<T> = new (...args: any[]) => T;
+
+function resolveOptional<T>(moduleRef: ModuleRef, serviceClass: Constructor<T>): T | null {
   try {
     return moduleRef.get(serviceClass, { strict: false }) ?? null;
   } catch {
@@ -215,6 +219,7 @@ export class CheckRepliesHandler implements IActionHandler {
       postsChecked: result.postsChecked,
       commentsScraped: result.commentsScraped,
       repliesPosted: result.repliesPosted,
+      repliesScheduled: result.repliesScheduled,
       humanReview: result.humanReview,
     };
   }

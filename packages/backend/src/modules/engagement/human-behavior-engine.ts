@@ -20,7 +20,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service.js';
 import { IBrowserPort } from '../../domain/ports/browser.port.js';
-import { SseService } from '../../infrastructure/sse/sse.service.js';
+import { SseService, type SseInteractionEvent } from '../../infrastructure/sse/sse.service.js';
 import { RateLimitService } from '../rate-limit/rate-limit.service.js';
 import {
   IEngagementDecisionPort,
@@ -882,7 +882,7 @@ export class HumanBehaviorEngine {
   }
 
   private async publishInteractionEvent(
-    type: string,
+    type: SseInteractionEvent['type'],
     interactionId: string,
     context: PostContext,
     interactionType: string,

@@ -1,11 +1,11 @@
-import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, Inject, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import { PrismaService } from '../prisma/prisma.service';
-import { LlmService } from '../llm/llm.service';
+import { ILlmPort } from '../../domain/ports/llm.port.js';
 import { parseBool } from '../config/parse-bool';
-import { isOrchestratorEnabled } from '../../modules/orchestrator/feature-flag.js';
+import { isOrchestratorEnabled } from '../../domain/feature-flags.js';
 
 interface LlmTopic {
   topic: string;
@@ -42,7 +42,7 @@ export class TopicGenerationService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly schedulerRegistry: SchedulerRegistry,
-    private readonly llmService: LlmService,
+    @Inject(ILlmPort) private readonly llmService: ILlmPort,
   ) {
     this.enabled = parseBool(this.configService.get<string>('TOPIC_GENERATION_ENABLED', 'true'));
     this.cronSchedule = this.configService.get<string>('TOPIC_GENERATION_CRON', '0 */2 * * *');

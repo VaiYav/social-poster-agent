@@ -393,11 +393,11 @@ describe('HealthMonitorService (F21 — Health Monitor + B3 Reconciliation)', ()
     ctx.prisma.session.findMany.mockResolvedValue([session]);
     // 5 consecutive FAILED posts (>= default threshold 5)
     ctx.prisma.post.findMany.mockResolvedValue([
-      { status: PostStatus.FAILED, createdAt: new Date() },
-      { status: PostStatus.FAILED, createdAt: new Date() },
-      { status: PostStatus.FAILED, createdAt: new Date() },
-      { status: PostStatus.FAILED, createdAt: new Date() },
-      { status: PostStatus.FAILED, createdAt: new Date() },
+      { accountId: 'acc-banned', status: PostStatus.FAILED, createdAt: new Date() },
+      { accountId: 'acc-banned', status: PostStatus.FAILED, createdAt: new Date() },
+      { accountId: 'acc-banned', status: PostStatus.FAILED, createdAt: new Date() },
+      { accountId: 'acc-banned', status: PostStatus.FAILED, createdAt: new Date() },
+      { accountId: 'acc-banned', status: PostStatus.FAILED, createdAt: new Date() },
     ]);
     postCountAllZero(ctx.prisma);
     queueCountsByNetwork(ctx.queueService, {});
@@ -438,11 +438,11 @@ describe('HealthMonitorService (F21 — Health Monitor + B3 Reconciliation)', ()
     ctx.prisma.session.findMany.mockResolvedValue([session]);
     // 4 consecutive FAILED then a POSTED (streak broken at 4 < 5)
     ctx.prisma.post.findMany.mockResolvedValue([
-      { status: PostStatus.FAILED, createdAt: new Date() },
-      { status: PostStatus.FAILED, createdAt: new Date() },
-      { status: PostStatus.FAILED, createdAt: new Date() },
-      { status: PostStatus.FAILED, createdAt: new Date() },
-      { status: PostStatus.POSTED, createdAt: new Date() },
+      { accountId: 'acc-ok', status: PostStatus.FAILED, createdAt: new Date() },
+      { accountId: 'acc-ok', status: PostStatus.FAILED, createdAt: new Date() },
+      { accountId: 'acc-ok', status: PostStatus.FAILED, createdAt: new Date() },
+      { accountId: 'acc-ok', status: PostStatus.FAILED, createdAt: new Date() },
+      { accountId: 'acc-ok', status: PostStatus.POSTED, createdAt: new Date() },
     ]);
     postCountAllZero(ctx.prisma);
     queueCountsByNetwork(ctx.queueService, {});
@@ -467,12 +467,12 @@ describe('HealthMonitorService (F21 — Health Monitor + B3 Reconciliation)', ()
     ctx.prisma.session.findMany.mockResolvedValue([session]);
     // 2 FAILED, then POSTED, then 3 FAILED — trailing streak is 3 (< 5)
     ctx.prisma.post.findMany.mockResolvedValue([
-      { status: PostStatus.FAILED, createdAt: new Date() },
-      { status: PostStatus.FAILED, createdAt: new Date() },
-      { status: PostStatus.FAILED, createdAt: new Date() },
-      { status: PostStatus.POSTED, createdAt: new Date() },
-      { status: PostStatus.FAILED, createdAt: new Date() },
-      { status: PostStatus.FAILED, createdAt: new Date() },
+      { accountId: 'acc-streak', status: PostStatus.FAILED, createdAt: new Date() },
+      { accountId: 'acc-streak', status: PostStatus.FAILED, createdAt: new Date() },
+      { accountId: 'acc-streak', status: PostStatus.FAILED, createdAt: new Date() },
+      { accountId: 'acc-streak', status: PostStatus.POSTED, createdAt: new Date() },
+      { accountId: 'acc-streak', status: PostStatus.FAILED, createdAt: new Date() },
+      { accountId: 'acc-streak', status: PostStatus.FAILED, createdAt: new Date() },
     ]);
     postCountAllZero(ctx.prisma);
     queueCountsByNetwork(ctx.queueService, {});
@@ -497,9 +497,9 @@ describe('HealthMonitorService (F21 — Health Monitor + B3 Reconciliation)', ()
     };
     ctx.prisma.session.findMany.mockResolvedValue([session]);
     ctx.prisma.post.findMany.mockResolvedValue([
-      { status: PostStatus.FAILED, createdAt: new Date() },
-      { status: PostStatus.FAILED, createdAt: new Date() },
-      { status: PostStatus.FAILED, createdAt: new Date() },
+      { accountId: 'acc-custom', status: PostStatus.FAILED, createdAt: new Date() },
+      { accountId: 'acc-custom', status: PostStatus.FAILED, createdAt: new Date() },
+      { accountId: 'acc-custom', status: PostStatus.FAILED, createdAt: new Date() },
     ]);
     postCountAllZero(ctx.prisma);
     queueCountsByNetwork(ctx.queueService, {});
@@ -524,11 +524,11 @@ describe('HealthMonitorService (F21 — Health Monitor + B3 Reconciliation)', ()
     };
     ctx.prisma.session.findMany.mockResolvedValue([session]);
     ctx.prisma.post.findMany.mockResolvedValue([
-      { status: PostStatus.FAILED, createdAt: new Date() },
-      { status: PostStatus.FAILED, createdAt: new Date() },
-      { status: PostStatus.FAILED, createdAt: new Date() },
-      { status: PostStatus.FAILED, createdAt: new Date() },
-      { status: PostStatus.FAILED, createdAt: new Date() },
+      { accountId: 'acc-expired', status: PostStatus.FAILED, createdAt: new Date() },
+      { accountId: 'acc-expired', status: PostStatus.FAILED, createdAt: new Date() },
+      { accountId: 'acc-expired', status: PostStatus.FAILED, createdAt: new Date() },
+      { accountId: 'acc-expired', status: PostStatus.FAILED, createdAt: new Date() },
+      { accountId: 'acc-expired', status: PostStatus.FAILED, createdAt: new Date() },
     ]);
     postCountAllZero(ctx.prisma);
     queueCountsByNetwork(ctx.queueService, {});

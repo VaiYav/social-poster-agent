@@ -669,8 +669,10 @@ export class PostingService {
         return this.threadsPoster;
       case SocialNetwork.FACEBOOK:
         return this.facebookPoster;
-      default:
-        throw new Error(`Unknown network: ${network as string}`);
+      default: {
+        const _exhaustive: never = network;
+        throw new Error(`Unknown network: ${String(_exhaustive)}`);
+      }
     }
   }
 

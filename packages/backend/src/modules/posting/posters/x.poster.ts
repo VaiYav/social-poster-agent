@@ -669,7 +669,7 @@ export class XPoster extends BasePoster {
           const pasteEvent = new ClipboardEvent('paste', {
             bubbles: true,
             cancelable: true,
-            clipboardData: dt as any,
+            clipboardData: dt as unknown as ClipboardEventInit['clipboardData'],
           });
           el.dispatchEvent(pasteEvent);
           return true;

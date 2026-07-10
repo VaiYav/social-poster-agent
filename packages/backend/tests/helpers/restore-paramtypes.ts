@@ -15,6 +15,8 @@ import { DbContentReader } from '../../src/infrastructure/content/db-content-rea
 import { ContentAdapterRegistry } from '../../src/infrastructure/content/adapters/content-adapter.registry.js';
 import { SseService } from '../../src/infrastructure/sse/sse.service';
 import { EncryptionService } from '../../src/infrastructure/crypto/encryption.service.js';
+import { MetricsPublisher } from '../../src/modules/monitoring/metrics-publisher';
+import { MonitoringController } from '../../src/modules/monitoring/monitoring.controller';
 import { SseModule } from '../../src/infrastructure/sse/sse.module';
 import { QueueFactory } from '../../src/infrastructure/queue/queue.factory';
 import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint';
@@ -165,6 +167,8 @@ export function restoreAllDesignParamtypes(): void {
   defineParamtypes(ContentAdapterRegistry, [ConfigService, Object]); // Object = CONTENT_ADAPTERS (@Inject)
   defineParamtypes(BrowserFactory, [ConfigService]);
   defineParamtypes(SseService, [ConfigService, Object, Object]); // Object = SHARED_REDIS_SUBSCRIBER / PUBLISHER
+  defineParamtypes(MetricsPublisher, [ConfigService, SseService, Object]); // Object = @Inject(IMetricsCollector)
+  defineParamtypes(MonitoringController, [MetricsPublisher]);
   defineParamtypes(RedisCheckpointSaver, [ConfigService, Object]); // Object = SHARED_REDIS
   defineParamtypes(QueueFactory, [ConfigService, DiscordNotificationService]);
   defineParamtypes(EncryptionService, [ConfigService]);

@@ -6,7 +6,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { PostStatus, SocialNetwork } from '@prisma/client';
+import { PostStatus, SocialNetwork, GenerationTrigger, Prisma } from '@prisma/client';
 
 export interface AnalyticsSummary {
   totalPosts: number;
@@ -163,5 +163,283 @@ export class AnalyticsService {
       postedAt: post.postedAt,
       postUrl: post.postUrl,
     }));
+  }
+
+  /**
+   * Generate a full report for a date range (7d, 30d, 90d).
+   * Returns the shape expected by the Reports UI.
+   *
+   * The Post table is consumed in cursor-paginated batches to avoid loading
+   * the entire date range into memory at once.
+   */
+  async generateReport(range: string): Promise<{
+    summary: {
+      totalPosts: number;
+      posted: number;
+      failed: number;
+      rejected: number;
+      successRate: number;
+      avgQualityScore: number | null;
+    };
+    byNetwork: Record<string, { total: number; posted: number; failed: number; successRate: number }>;
+    byTrigger: Record<string, number>;
+    dailyStats: { date: string; posted: number; failed: number }[];
+    topPosts: { id: string; network: string; content: string; postedAt: string | null; qualityScore?: number }[];
+    autoApproveStats: {
+      autoApproved: number;
+      humanReview: number;
+      rejected: number;
+      avgScore: number;
+    };
+  }> {
+    const days = parseInt(range, 10) || 30;
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    startDate.setHours(0, 0, 0, 0);
+
+    const BATCH_SIZE = 500;
+
+    const networks = [SocialNetwork.X, SocialNetwork.THREADS, SocialNetwork.FACEBOOK];
+    const byNetwork: Record<string, { total: number; posted: number; failed: number; successRate: number }> = {};
+    for (const network of networks) {
+      byNetwork[network] = { total: 0, posted: 0, failed: 0, successRate: 0 };
+    }
+
+    const byTrigger: Record<string, number> = {};
+    const dailyStats = this.buildDailyStats(days);
+    let autoApproved = 0;
+    let humanReview = 0;
+    let rejectedCount = 0;
+    let autoApproveScoreSum = 0;
+    let autoApproveScoreCount = 0;
+    let qualityScoreSum = 0;
+    let qualityScoreCount = 0;
+    let topPosts: { id: string; network: string; content: string; postedAt: Date | null; qualityScore: number | null }[] = [];
+    let totalPosts = 0;
+    let posted = 0;
+    let failed = 0;
+    let rejected = 0;
+
+    let cursor: string | undefined;
+    let hasMore = true;
+    while (hasMore) {
+      const batch = await this.prisma.post.findMany({
+        where: { createdAt: { gte: startDate } },
+        include: { generationRun: { select: { triggeredBy: true } } },
+        take: BATCH_SIZE,
+        skip: cursor ? 1 : 0,
+        cursor: cursor ? { id: cursor } : undefined,
+        orderBy: { id: 'asc' },
+      });
+
+      if (batch.length === 0) break;
+
+      for (const post of batch) {
+        totalPosts++;
+        const network = post.network;
+        const meta = (post.llmMetadata as Record<string, unknown> | null) ?? {};
+        const decision = meta?.autoApproveDecision as string | undefined;
+        const qualityScore = typeof meta?.qualityScore === 'number' ? meta.qualityScore : null;
+        const networkStats = byNetwork[network];
+
+        if (networkStats) {
+          networkStats.total++;
+          if (post.status === PostStatus.POSTED) {
+            networkStats.posted++;
+          } else if (post.status === PostStatus.FAILED) {
+            networkStats.failed++;
+          }
+        }
+
+        if (post.status === PostStatus.POSTED) {
+          posted++;
+        } else if (post.status === PostStatus.FAILED) {
+          failed++;
+        } else if (post.status === PostStatus.REJECTED) {
+          rejected++;
+        }
+
+        if (decision === 'AUTO_APPROVE') {
+          autoApproved++;
+          if (qualityScore !== null) {
+            autoApproveScoreSum += qualityScore;
+            autoApproveScoreCount++;
+          }
+        } else if (decision === 'HUMAN_REVIEW') {
+          humanReview++;
+        } else if (decision === 'REJECT') {
+          rejectedCount++;
+        }
+
+        if (qualityScore !== null) {
+          qualityScoreSum += qualityScore;
+          qualityScoreCount++;
+        }
+
+        const trigger = post.generationRun?.triggeredBy ?? 'UNKNOWN';
+        byTrigger[trigger] = (byTrigger[trigger] ?? 0) + 1;
+
+        if (post.status === PostStatus.POSTED && post.postedAt && post.postedAt >= startDate) {
+          topPosts.push({
+            id: post.id,
+            network: post.network,
+            content: post.content,
+            postedAt: post.postedAt,
+            qualityScore,
+          });
+          if (topPosts.length > 10) {
+            topPosts = topPosts
+              .filter((p) => p.qualityScore != null && p.qualityScore >= 0)
+              .sort(
+                (a, b) =>
+                  (b.qualityScore ?? 0) - (a.qualityScore ?? 0) ||
+                  (b.postedAt?.getTime() ?? 0) - (a.postedAt?.getTime() ?? 0),
+              )
+              .slice(0, 10);
+          }
+        }
+
+        // Daily stats
+        const eventDate = post.status === PostStatus.POSTED ? post.postedAt : post.createdAt;
+        if (eventDate) {
+          const dateStr = eventDate.toISOString().split('T')[0]!;
+          const day = dailyStats.find((d) => d.date === dateStr);
+          if (day) {
+            if (post.status === PostStatus.POSTED) day.posted++;
+            if (post.status === PostStatus.FAILED) day.failed++;
+          }
+        }
+      }
+
+      cursor = batch[batch.length - 1]!.id;
+      hasMore = batch.length === BATCH_SIZE;
+    }
+
+    for (const network of networks) {
+      const s = byNetwork[network];
+      if (!s) continue;
+      s.successRate = s.total > 0 ? Math.round((s.posted / s.total) * 1000) / 10 : 0;
+    }
+
+    topPosts = topPosts
+      .filter((p) => p.qualityScore != null && p.qualityScore >= 0)
+      .sort(
+        (a, b) =>
+          (b.qualityScore ?? 0) - (a.qualityScore ?? 0) ||
+          (b.postedAt?.getTime() ?? 0) - (a.postedAt?.getTime() ?? 0),
+      )
+      .slice(0, 10);
+
+    const successRate = totalPosts > 0 ? Math.round((posted / totalPosts) * 1000) / 10 : 0;
+
+    return {
+      summary: {
+        totalPosts,
+        posted,
+        failed,
+        rejected,
+        successRate,
+        avgQualityScore: qualityScoreCount > 0 ? Math.round((qualityScoreSum / qualityScoreCount) * 10) / 10 : null,
+      },
+      byNetwork,
+      byTrigger,
+      dailyStats,
+      topPosts: topPosts.map((p) => ({
+        id: p.id,
+        network: p.network,
+        content: p.content,
+        postedAt: p.postedAt?.toISOString() ?? null,
+        qualityScore: p.qualityScore ?? undefined,
+      })),
+      autoApproveStats: {
+        autoApproved,
+        humanReview,
+        rejected: rejectedCount,
+        avgScore: autoApproveScoreCount > 0 ? Math.round((autoApproveScoreSum / autoApproveScoreCount) * 10) / 10 : 0,
+      },
+    };
+  }
+
+  /**
+   * Get autonomous decision stats.
+   *
+   * Uses aggregate SQL instead of loading every Post row into memory.
+   */
+  async getAutonomousStats(): Promise<{
+    totalGenerated: number;
+    autoApproved: number;
+    rejected: number;
+    humanReview: number;
+    avgQualityScore: number;
+    qualityDistribution: { score: number; count: number }[];
+    rejectReasons: { reason: string; count: number }[];
+  }> {
+    const totalGenerated = await this.prisma.post.count();
+
+    const [decisionRows, avgRows, distributionRows, reasonRows] = await Promise.all([
+      this.prisma.$queryRaw<Array<{ autoApproved: number; rejected: number; humanReview: number }>>(
+        Prisma.sql`
+          SELECT
+            COUNT(*) FILTER (WHERE "llmMetadata"->>'autoApproveDecision' = 'AUTO_APPROVE')::int as "autoApproved",
+            COUNT(*) FILTER (WHERE "llmMetadata"->>'autoApproveDecision' = 'REJECT')::int as "rejected",
+            COUNT(*) FILTER (WHERE "llmMetadata"->>'autoApproveDecision' = 'HUMAN_REVIEW')::int as "humanReview"
+          FROM "Post"
+        `,
+      ),
+      this.prisma.$queryRaw<Array<{ avgScore: string | null }>>(
+        Prisma.sql`
+          SELECT AVG(("llmMetadata"->>'qualityScore')::numeric) as "avgScore"
+          FROM "Post"
+          WHERE "llmMetadata" ? 'qualityScore' AND "llmMetadata"->>'qualityScore' IS NOT NULL
+        `,
+      ),
+      this.prisma.$queryRaw<Array<{ score: string; count: number }>>(
+        Prisma.sql`
+          SELECT ROUND(("llmMetadata"->>'qualityScore')::numeric) as "score", COUNT(*)::int as "count"
+          FROM "Post"
+          WHERE "llmMetadata" ? 'qualityScore' AND "llmMetadata"->>'qualityScore' IS NOT NULL
+          GROUP BY ROUND(("llmMetadata"->>'qualityScore')::numeric)
+          ORDER BY "score" ASC
+        `,
+      ),
+      this.prisma.$queryRaw<Array<{ reason: string; count: number }>>(
+        Prisma.sql`
+          SELECT "llmMetadata"->>'autoApproveReason' as "reason", COUNT(*)::int as "count"
+          FROM "Post"
+          WHERE "llmMetadata" ? 'autoApproveReason' AND "llmMetadata"->>'autoApproveReason' IS NOT NULL
+          GROUP BY "llmMetadata"->>'autoApproveReason'
+          ORDER BY "count" DESC
+        `,
+      ),
+    ]);
+
+    const decision = decisionRows[0] ?? { autoApproved: 0, rejected: 0, humanReview: 0 };
+
+    const avgScore = avgRows[0]?.avgScore != null ? Number(avgRows[0].avgScore) : 0;
+    const avgQualityScore = avgScore ? Math.round(avgScore * 10) / 10 : 0;
+
+    return {
+      totalGenerated,
+      autoApproved: decision.autoApproved,
+      rejected: decision.rejected,
+      humanReview: decision.humanReview,
+      avgQualityScore,
+      qualityDistribution: (distributionRows ?? [])
+        .map((row) => ({ score: Number(row.score), count: row.count }))
+        .sort((a, b) => a.score - b.score),
+      rejectReasons: (reasonRows ?? [])
+        .map((row) => ({ reason: row.reason, count: row.count }))
+        .sort((a, b) => b.count - a.count),
+    };
+  }
+
+  private buildDailyStats(days: number): { date: string; posted: number; failed: number }[] {
+    const result: { date: string; posted: number; failed: number }[] = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      result.push({ date: d.toISOString().split('T')[0]!, posted: 0, failed: 0 });
+    }
+    return result;
   }
 }

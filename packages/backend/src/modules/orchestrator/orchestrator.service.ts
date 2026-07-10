@@ -26,8 +26,6 @@ import { OrchestratorHistoryService } from './orchestrator-history.service.js';
 import { buildOrchestratorGraph, createInitialOrchestratorState } from './orchestrator.graph.js';
 import type { OrchestratorStateType } from './orchestrator.graph.js';
 import type { CompiledStateGraph } from '@langchain/langgraph';
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyCompiledGraph = CompiledStateGraph<any, any>;
 import type { ActionResult, WorldState } from './types.js';
 import { OrchestratorEvents } from '../../events/enums/post-events.enum.js';
 import { EngagementSchedulerService } from '../engagement/engagement-scheduler.service.js';
@@ -36,6 +34,10 @@ import {
   DistributedLockService,
   type DistributedLock,
 } from '../../infrastructure/multi-instance/distributed-lock.service.js';
+
+// LangGraph's CompiledStateGraph generics are complex (state type + config type).
+// We type the state parameter properly and use the SDK's Record-based config default.
+type AnyCompiledGraph = CompiledStateGraph<OrchestratorStateType, Record<string, unknown>>;
 
 const THREAD_ID = 'orchestrator';
 const HEARTBEAT_KEY_DEFAULT = 'spa:orchestrator:heartbeat';
@@ -422,6 +424,14 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
 
   async getHistory(limit = 50): Promise<Record<string, unknown>[]> {
     return this.historyService.getHistory(limit);
+  }
+
+  /**
+   * Expose the full WorldState snapshot for the real-time dashboard.
+   * Safe to call while the orchestrator is running.
+   */
+  async getWorldState(): Promise<WorldState> {
+    return this.stateCollector.collectWorldState();
   }
 
   // ── Leader lock renewal ──────────────────────────────────────────────────

@@ -177,6 +177,11 @@ export const useMonitoringStore = defineStore('monitoring', () => {
    * Handle SSE events for real-time monitoring.
    */
   function handleSseEvent(data: { type: string; [key: string]: unknown }) {
+    // Metrics snapshots are handled by the agents store; do not spam the live feed.
+    if (data.type === 'metrics_snapshot') {
+      return;
+    }
+
     // Add to event feed
     eventFeed.value.unshift({ type: data.type, timestamp: Date.now(), data });
     if (eventFeed.value.length > 50) eventFeed.value.pop();

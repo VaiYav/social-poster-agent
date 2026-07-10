@@ -74,6 +74,25 @@ export const useFlowControlStore = defineStore('flowControl', () => {
     }
   }
 
+  function handleSseEvent(data: { type: string; action?: string; flow?: string }) {
+    if (data.type !== 'flow_control') return;
+    const flow = data.flow as FlowName | undefined;
+    if (data.action === 'pause_all') {
+      pauseAll.value = true;
+      if (flow) flows.value[flow] = true;
+      else for (const f of Object.keys(flows.value) as FlowName[]) flows.value[f] = true;
+    } else if (data.action === 'resume_all') {
+      pauseAll.value = false;
+      for (const f of Object.keys(flows.value) as FlowName[]) flows.value[f] = false;
+    } else if (data.action === 'paused' && flow) {
+      flows.value[flow] = true;
+      if (Object.values(flows.value).every(Boolean)) pauseAll.value = true;
+    } else if (data.action === 'resumed' && flow) {
+      flows.value[flow] = false;
+      pauseAll.value = false;
+    }
+  }
+
   return {
     pauseAll,
     flows,
@@ -84,5 +103,6 @@ export const useFlowControlStore = defineStore('flowControl', () => {
     resumeFlow,
     pauseAllFlows,
     resumeAllFlows,
+    handleSseEvent,
   };
 });

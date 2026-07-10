@@ -72,10 +72,29 @@ export const useQueueStore = defineStore('queue', () => {
     }
   }
 
+  async function retryFailed(network: string) {
+    try {
+      await api.post(`/queue/${network}/retry-failed`);
+      await fetchStats(network);
+      await fetchFailed(network);
+    } catch (e: unknown) {
+      error.value = (e as Error).message;
+    }
+  }
+
+  async function clearCompleted(network: string) {
+    try {
+      await api.post(`/queue/${network}/clear-completed`);
+      await fetchStats(network);
+    } catch (e: unknown) {
+      error.value = (e as Error).message;
+    }
+  }
+
   async function fetchAll() {
     const networks = ['X', 'THREADS', 'FACEBOOK'];
     await Promise.all(networks.flatMap((n) => [fetchStats(n), fetchFailed(n)]));
   }
 
-  return { stats, failedJobs, paused, loading, error, fetchStats, fetchFailed, fetchAll, pauseQueue, resumeQueue };
+  return { stats, failedJobs, paused, loading, error, fetchStats, fetchFailed, fetchAll, pauseQueue, resumeQueue, retryFailed, clearCompleted };
 });

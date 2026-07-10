@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Queue, Worker, type Job } from 'bullmq';
 import IORedis from 'ioredis';
 import { DiscordNotificationService } from '../notifications/discord-notification.service';
+import { isJobInFlight } from './queue-state-utils.js';
 
 /**
  * BullMQ queue factory — creates Redis-backed queues and workers for posting.
@@ -137,14 +138,18 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
       });
     }
 
+    // Capture in locals so TypeScript can prove non-null inside the closure.
+    const client = this.sharedClient;
+    const subscriber = this.sharedSubscriber;
+
     return {
       connection: { url: this.redisUrl },
       createClient: (type: 'client' | 'subscriber' | 'bclient') => {
         switch (type) {
           case 'client':
-            return this.sharedClient!;
+            return client;
           case 'subscriber':
-            return this.sharedSubscriber!;
+            return subscriber;
           case 'bclient':
             // Blocking client must be unique per queue/worker — cannot be shared.
             return new IORedis(this.redisUrl, {
@@ -205,8 +210,8 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
       if (existingJob) {
         const state = await existingJob.getState();
         // Active/waiting/prioritized/delayed jobs are in-flight or scheduled — don't remove.
-        const activeStates = ['active', 'waiting', 'prioritized', 'waiting-children', 'delayed'];
-        if (!activeStates.includes(state)) {
+        const activeStates = isJobInFlight(state);
+        if (!activeStates) {
           this.logger.warn(
             `Removing existing ${state} posting job for ${postId} → re-enqueuing fresh job`,
           );
@@ -450,21 +455,21 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
    * Remove completed AND failed jobs from a queue so BullMQ will accept new jobs with the same jobId.
    * This is needed for engagement stale-check jobs whose jobId is fixed per 4h window: once a session
    * completes or fails, the stale-check must be able to enqueue a fresh session with the same jobId.
+   *
+   * P6-fix: Uses BullMQ's built-in `queue.clean()` instead of loading all jobs into
+   * memory via getCompleted()/getFailed()/getDelayed(). The old approach was O(total_jobs)
+   * unbounded — thousands of accumulated jobs would cause memory spikes. `clean()` handles
+   * removal server-side in Redis with a configurable limit.
    */
   async clearCompletedAndFailedJobs(network: string, action: 'posting' | 'engagement' = 'posting'): Promise<number> {
     const queue = this.getQueue(network, action);
-    const [completed, failed, delayed] = await Promise.all([
-      queue.getCompleted(),
-      queue.getFailed(),
-      queue.getDelayed(),
+    // clean(graceTimeMs, limit, type) — grace=0 removes all regardless of age.
+    // Limit caps the number of jobs removed per call to bound Redis work.
+    const CLEAN_LIMIT = 1000;
+    const [completedCount, failedCount] = await Promise.all([
+      queue.clean(0, CLEAN_LIMIT, 'completed'),
+      queue.clean(0, CLEAN_LIMIT, 'failed'),
     ]);
-    let cleared = 0;
-    for (const job of [...completed, ...failed, ...delayed]) {
-      if (job.id) {
-        await job.remove().catch(() => {});
-        cleared++;
-      }
-    }
-    return cleared;
+    return completedCount.length + failedCount.length;
   }
 }

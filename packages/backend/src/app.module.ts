@@ -40,9 +40,12 @@ import { AutonomyModule } from './modules/autonomy/autonomy.module';
 import { CaptchaModule } from './infrastructure/captcha/captcha.module';
 import { EventsEdaModule } from './events/events.module';
 import { RedisModule } from './infrastructure/redis/redis.module';
+import { SseModule } from './infrastructure/sse/sse.module';
 import { MultiInstanceModule } from './infrastructure/multi-instance/multi-instance.module';
 import { EmailModule } from './infrastructure/email/email.module';
 import { OrchestratorModule } from './modules/orchestrator/orchestrator.module';
+import { MonitoringController } from './modules/monitoring/monitoring.controller';
+import { metricsPublisherProviders } from './modules/monitoring/monitoring.providers';
 import { parseBool } from './infrastructure/config/parse-bool';
 
 /**
@@ -72,6 +75,7 @@ const repliesImports =
 const orchestratorImports = parseBool(process.env.ORCHESTRATOR_ENABLED) ? [OrchestratorModule] : [];
 
 @Module({
+  controllers: [MonitoringController],
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
@@ -79,6 +83,7 @@ const orchestratorImports = parseBool(process.env.ORCHESTRATOR_ENABLED) ? [Orche
     }),
     ScheduleModule.forRoot(),
     RedisModule, // Sprint L: Shared Redis connection pooling
+    SseModule, // SSE fan-out — MetricsPublisher needs SseService in AppModule scope
     MultiInstanceModule, // Shared: distributed locks + per-instance heartbeats
     EmailModule, // IMAP email reader for auto-verification codes
     AppClsModule, // G-6: correlationId via CLS
@@ -119,6 +124,7 @@ const orchestratorImports = parseBool(process.env.ORCHESTRATOR_ENABLED) ? [Orche
     ...orchestratorImports, // LangGraph orchestrator — gated by ORCHESTRATOR_ENABLED
   ],
   providers: [
+    ...metricsPublisherProviders,
     // Global JWT auth guard (gated by AUTH_ENABLED; /auth/login and /health stay public).
     { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],

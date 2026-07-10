@@ -24,6 +24,7 @@ export class WatchdogCron implements OnModuleInit {
   private readonly logger = new Logger(WatchdogCron.name);
   private readonly heartbeatKey: string;
   private readonly heartbeatTtlMs: number;
+  private readonly restartDelayMs: number;
   private readonly enabled: boolean;
 
   constructor(
@@ -34,6 +35,7 @@ export class WatchdogCron implements OnModuleInit {
   ) {
     this.heartbeatKey = this.configService.get<string>('ORCHESTRATOR_HEARTBEAT_KEY') ?? HEARTBEAT_KEY_DEFAULT;
     this.heartbeatTtlMs = Number(this.configService.get<string>('ORCHESTRATOR_HEARTBEAT_TTL_MS') ?? HEARTBEAT_TTL_MS_DEFAULT);
+    this.restartDelayMs = Number(this.configService.get<string>('ORCHESTRATOR_WATCHDOG_RESTART_DELAY_MS') ?? '5000');
     this.enabled = parseBool(this.configService.get<string>('ORCHESTRATOR_ENABLED') ?? 'false');
   }
 
@@ -77,7 +79,7 @@ export class WatchdogCron implements OnModuleInit {
     if (this.orchestratorService) {
       try {
         await this.orchestratorService.stop();
-        await new Promise((r) => setTimeout(r, 5000)); // graceful shutdown window
+        await new Promise((r) => setTimeout(r, this.restartDelayMs)); // graceful shutdown window
         await this.orchestratorService.start();
         this.logger.log('Orchestrator restarted by watchdog');
       } catch (err) {

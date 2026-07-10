@@ -27,6 +27,7 @@ import {
   ShieldAlert,
 } from '@lucide/vue';
 import { useMonitoringStore } from '../stores/monitoring';
+import { useAgentsStore } from '../stores/agents';
 import { usePostsStore } from '../stores/posts';
 import { useApi } from '../composables/useApi';
 import { useRouter } from 'vue-router';
@@ -35,8 +36,11 @@ import StatCard from '../components/StatCard.vue';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import ErrorState from '../components/ErrorState.vue';
 import NetworkIcon from '../components/NetworkIcon.vue';
+import AgentGrid from '../components/agents/AgentGrid.vue';
+import LiveEventFeed from '../components/agents/LiveEventFeed.vue';
 
 const monitor = useMonitoringStore();
+const agentsStore = useAgentsStore();
 const postsStore = usePostsStore();
 const api = useApi();
 const router = useRouter();
@@ -54,11 +58,15 @@ interface FlowControlState {
 const flowState = ref<FlowControlState | null>(null);
 
 onMounted(async () => {
-  await monitor.fetchAll();
-  await fetchFlowControl();
+  await Promise.all([
+    monitor.fetchAll(),
+    agentsStore.fetchSnapshot(),
+    fetchFlowControl(),
+  ]);
   // Auto-refresh every 30 seconds
   refreshInterval.value = setInterval(() => {
     monitor.fetchAll();
+    agentsStore.fetchSnapshot();
     fetchFlowControl();
   }, 30_000);
 });
@@ -395,61 +403,25 @@ async function handleDismiss(commentId: string) {
         </div>
       </Card>
 
-      <!-- Real-time Event Feed -->
-      <Card class="mt-6">
-        <template #header>
-          <h2 class="text-lg font-semibold text-text-primary">Live Event Feed</h2>
-          <p class="text-sm text-text-secondary">Real-time SSE events (last 50)</p>
-        </template>
-
-        <div v-if="monitor.eventFeed.length === 0" class="py-8 text-center">
-          <p class="text-sm text-text-muted">Waiting for events...</p>
-        </div>
-        <div v-else class="space-y-1 max-h-96 overflow-y-auto">
-          <div
-            v-for="(event, i) in monitor.eventFeed"
-            :key="i"
-            class="flex items-center gap-3 rounded px-2 py-1.5 text-xs hover:bg-surface-highlight"
-          >
-            <span class="text-text-muted font-mono">{{ formatTime(event.timestamp) }}</span>
-            <Badge
-              :variant="event.type === 'health_alert' ? 'error' : event.type === 'post_status' ? 'info' : 'default'"
-            >
-              {{ event.type }}
-            </Badge>
-            <span class="text-text-secondary truncate">
-              {{ event.data.postId ? `post: ${String(event.data.postId).slice(0, 8)}…` : '' }}
-              {{ event.data.status ? `status: ${event.data.status}` : '' }}
-              {{ event.data.network ? `net: ${event.data.network}` : '' }}
-              {{ event.data.error ? `err: ${String(event.data.error).slice(0, 60)}` : '' }}
-              {{ event.data.severity ? `sev: ${event.data.severity}` : '' }}
-            </span>
+      <!-- Agent Grid -->
+      <div class="mt-6">
+        <div class="mb-4 flex items-center justify-between">
+          <div>
+            <h2 class="text-lg font-semibold text-text-primary">Agent Subsystems</h2>
+            <p class="text-sm text-text-secondary">Live status and control for all agents</p>
           </div>
-        </div>
-      </Card>
-
-      <!-- Agent Controls -->
-      <Card class="mt-6">
-        <template #header>
-          <h2 class="text-lg font-semibold text-text-primary">Agent Controls</h2>
-          <p class="text-sm text-text-secondary">Manual triggers and overrides</p>
-        </template>
-
-        <div class="flex flex-wrap gap-3">
-          <Button @click="monitor.triggerGeneration(3)">
-            <Zap class="h-4 w-4" />
-            Trigger Generation (3 topics)
-          </Button>
-          <Button variant="outline" @click="monitor.triggerRepliesCycle()">
-            <MessageSquare class="h-4 w-4" />
-            Run Replies Cycle
-          </Button>
-          <Button variant="outline" @click="monitor.fetchAll()">
-            <RefreshCw class="h-4 w-4" />
-            Refresh All
+          <Button variant="outline" size="sm" :loading="agentsStore.loading" @click="agentsStore.fetchSnapshot">
+            <RefreshCw class="mr-1 h-3.5 w-3.5" />
+            Refresh
           </Button>
         </div>
-      </Card>
+        <AgentGrid />
+      </div>
+
+      <!-- Real-time Event Feed -->
+      <div class="mt-6">
+        <LiveEventFeed :events="monitor.eventFeed" />
+      </div>
     </template>
   </div>
 </template>

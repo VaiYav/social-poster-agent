@@ -29,6 +29,7 @@ export interface IRepliesMonitorPort {
     postsChecked: number;
     commentsScraped: number;
     repliesPosted: number;
+    repliesScheduled: number;
     humanReview: number;
   }>;
 }

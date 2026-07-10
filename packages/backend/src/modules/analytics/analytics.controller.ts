@@ -26,6 +26,20 @@ export class AnalyticsController {
     return this.analyticsService.getSummary();
   }
 
+  @Get('report')
+  @ApiOperation({ summary: 'Generate a full performance report for a date range' })
+  @ApiQuery({ name: 'range', required: false, type: String, description: 'Date range: 7d, 30d, 90d' })
+  async getReport(@Query('range') range?: string) {
+    const validRange = range === '7d' || range === '30d' || range === '90d' ? range : '30d';
+    return this.analyticsService.generateReport(validRange);
+  }
+
+  @Get('autonomous')
+  @ApiOperation({ summary: 'Get autonomous decision and quality distribution stats' })
+  async getAutonomousStats() {
+    return this.analyticsService.getAutonomousStats();
+  }
+
   @Get('top-posts')
   @ApiOperation({ summary: 'Get top performing posts' })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Max posts to return (default: 10, max: 50)' })

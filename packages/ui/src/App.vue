@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
+import { ref, watch, computed, onMounted } from 'vue';
 import { RouterView, useRoute, useRouter } from 'vue-router';
 import { Menu, LogOut } from '@lucide/vue';
 import { usePostsStore } from './stores/posts';
 import { useMonitoringStore } from './stores/monitoring';
+import { useAgentsStore } from './stores/agents';
+import { useFlowControlStore } from './stores/flowControl';
 import { useAuthStore } from './stores/auth';
 import { useToast } from './composables/useToast';
 import { useSSE } from './composables/useSSE';
@@ -20,6 +22,8 @@ import ToastContainer from './components/ToastContainer.vue';
  */
 const postsStore = usePostsStore();
 const monitoringStore = useMonitoringStore();
+const agentsStore = useAgentsStore();
+const flowControlStore = useFlowControlStore();
 const authStore = useAuthStore();
 const toast = useToast();
 const route = useRoute();
@@ -53,9 +57,11 @@ watch(sseError, (err) => {
 // Dispatch SSE events to stores + toasts
 watch(sseData, (data) => {
   if (!data || typeof data !== 'object') return;
-  const evt = data as { type: string; postId?: string; status?: string; network?: string; error?: string; repliesPosted?: number; humanReview?: number };
+  const evt = data as { type: string; postId?: string; status?: string; network?: string; error?: string; repliesPosted?: number; humanReview?: number; action?: string; flow?: string };
   postsStore.handleSseEvent(evt);
   monitoringStore.handleSseEvent(evt);
+  agentsStore.handleSseEvent(evt);
+  flowControlStore.handleSseEvent(evt as { type: string; action?: string; flow?: string });
 
   if (evt.type === 'post_status') {
     if (evt.status === 'POSTED') {
@@ -77,6 +83,10 @@ async function handleLogout() {
   await authStore.logout();
   router.push({ name: 'login' });
 }
+
+onMounted(() => {
+  agentsStore.fetchSnapshot();
+});
 </script>
 
 <template>

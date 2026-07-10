@@ -150,6 +150,10 @@ export abstract class BaseEngager extends BasePoster {
     const maxPostUrls = 30;
 
     while (Date.now() < endTime && postUrls.length < maxPostUrls) {
+      if (page.isClosed?.()) {
+        this.logger.warn(`Page is closed — aborting doScrollFeed for ${this.network}`);
+        break;
+      }
       // Each iteration should be quick: scroll + collect links + pause. If any
       // Playwright call hangs (unresponsive page after a browser/protocol issue),
       // a per-iteration timeout lets the loop exit before the whole session times out.

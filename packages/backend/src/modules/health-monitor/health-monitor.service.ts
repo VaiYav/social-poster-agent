@@ -7,6 +7,7 @@ import { SseService } from '../../infrastructure/sse/sse.service';
 import { DiscordNotificationService } from '../../infrastructure/notifications/discord-notification.service';
 import { QueueService } from '../queue/queue.service';
 import { QueueFactory } from '../../infrastructure/queue/queue.factory';
+import { isJobInFlight } from '../../infrastructure/queue/queue-state-utils.js';
 import { SessionStatus, PostStatus, SocialNetwork, BrowsingSessionStatus } from '@prisma/client';
 import { parseBool } from '../../infrastructure/config/parse-bool';
 import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
@@ -261,7 +262,7 @@ export class HealthMonitorService implements OnModuleInit {
         const job = await queue.getJob(post.id);
         if (job) {
           const state = await job.getState();
-          if (state === 'active' || state === 'waiting' || state === 'delayed') {
+          if (isJobInFlight(state)) {
             skipped++;
             continue;
           }
@@ -446,21 +447,38 @@ export class HealthMonitorService implements OnModuleInit {
       orderBy: { createdAt: 'desc' },
     });
 
+    if (sessions.length === 0) return [];
+
+    // NQ-1 fix: Batch-query recent posts for ALL accounts in a single DB call
+    // instead of N queries (one per session). Group by accountId in memory.
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const accountIds = sessions.map((s) => s.accountId);
+    const allRecentPosts = await this.prisma.post.findMany({
+      where: {
+        accountId: { in: accountIds },
+        createdAt: { gte: twentyFourHoursAgo },
+      },
+      select: { accountId: true, status: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Group posts by accountId
+    const postsByAccount = new Map<string, typeof allRecentPosts>();
+    for (const post of allRecentPosts) {
+      const list = postsByAccount.get(post.accountId);
+      if (list) {
+        list.push(post);
+      } else {
+        postsByAccount.set(post.accountId, [post]);
+      }
+    }
+
     const results: SessionHealth[] = [];
 
     for (const session of sessions) {
       // P1-4 fix: Count CONSECUTIVE failures (not total failures in 24h).
-      // Query recent posts ordered by date desc, count trailing FAILED streak.
-      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const recentPosts = await this.prisma.post.findMany({
-        where: {
-          accountId: session.accountId,
-          createdAt: { gte: twentyFourHoursAgo },
-        },
-        select: { status: true, createdAt: true },
-        orderBy: { createdAt: 'desc' },
-        take: 50, // limit to recent 50 posts for streak analysis
-      });
+      // Use the batch-loaded posts, limited to recent 50 for streak analysis.
+      const recentPosts = (postsByAccount.get(session.accountId) ?? []).slice(0, 50);
 
       // Count consecutive FAILED posts from the most recent
       let consecutiveFailures = 0;

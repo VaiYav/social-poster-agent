@@ -121,7 +121,7 @@ export class FlowControlService {
     return { pauseAll: allPaused, flows };
   }
 
-  private async notifySse(action: string, flow: FlowName, reason?: string): Promise<void> {
+  private async notifySse(action: 'paused' | 'resumed', flow: FlowName, reason?: string): Promise<void> {
     await this.sseService.publish({
       type: 'flow_control',
       action,

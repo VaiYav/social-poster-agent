@@ -16,16 +16,22 @@ import {
 } from '@lucide/vue';
 import { usePostsStore } from '../stores/posts';
 import { useStatsStore } from '../stores/stats';
+import { useAgentsStore } from '../stores/agents';
+import { useMonitoringStore } from '../stores/monitoring';
 import { useApi } from '../composables/useApi';
 import { Card, Button, SectionHeader, Badge } from '../components/ui';
 import StatCard from '../components/StatCard.vue';
 import PostCard from '../components/PostCard.vue';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import ErrorState from '../components/ErrorState.vue';
+import AgentGrid from '../components/agents/AgentGrid.vue';
+import LiveEventFeed from '../components/agents/LiveEventFeed.vue';
 import { useRouter } from 'vue-router';
 
 const postsStore = usePostsStore();
 const statsStore = useStatsStore();
+const agentsStore = useAgentsStore();
+const monitoringStore = useMonitoringStore();
 const router = useRouter();
 const api = useApi();
 
@@ -268,6 +274,26 @@ const statItems = [
           </Button>
         </div>
       </Card>
+    </div>
+
+    <!-- Real-time Agent Grid -->
+    <div class="mt-8">
+      <div class="mb-4 flex items-center justify-between">
+        <div>
+          <h2 class="text-lg font-semibold text-text-primary">Agent Subsystems</h2>
+          <p class="text-sm text-text-secondary">Live status and control for all agents</p>
+        </div>
+        <Button variant="outline" size="sm" :loading="agentsStore.loading" @click="agentsStore.fetchSnapshot">
+          <RefreshCw class="mr-1 h-3.5 w-3.5" />
+          Refresh
+        </Button>
+      </div>
+      <AgentGrid />
+    </div>
+
+    <!-- Live Event Feed -->
+    <div class="mt-8">
+      <LiveEventFeed :events="monitoringStore.eventFeed" />
     </div>
   </div>
 </template>

@@ -1,7 +1,7 @@
 import type { ContentTopic } from '@spa/shared';
 import { ContentSourceConfig } from '@spa/shared';
 import type { IContentAdapter } from './content-adapter.interface.js';
-import { parseGoogleTrendsRss } from '../../../modules/trending/google-trends-rss.js';
+import { parseGoogleTrendsRss } from '../google-trends-rss.js';
 
 export interface GoogleTrendsAdapterConfig {
   url?: string;

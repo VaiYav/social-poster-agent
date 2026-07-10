@@ -158,6 +158,8 @@ const envSchema = Joi.object({
   ORCHESTRATOR_LEADER_KEY: Joi.string().default('spa:orchestrator:leader'),
   ORCHESTRATOR_LEADER_TTL_MS: Joi.number().integer().min(5000).default(30000),
   ORCHESTRATOR_LEADER_RENEW_INTERVAL_MS: Joi.number().integer().min(1000).default(10000),
+  ORCHESTRATOR_RESTART_DELAY_MS: Joi.number().integer().min(0).default(3000),
+  ORCHESTRATOR_WATCHDOG_RESTART_DELAY_MS: Joi.number().integer().min(0).default(5000),
 
   // ── Posting windows (Smart — data-driven from PostMetrics) ──
   POSTING_WINDOW_MIN_SAMPLES: Joi.number().integer().min(1).default(10),
@@ -250,6 +252,7 @@ const envSchema = Joi.object({
   REPLIES_AUTO_DELAY_MAX_MS: Joi.number().integer().min(1000).default(1800000), // 30 min
   REPLIES_CRON_SCHEDULE: Joi.string().default('0 */4 * * *'),
   REPLIES_AUTO_REPLY_COMPLEXITY: Joi.string().valid('low', 'medium', 'high').default('medium'),
+  REPLIES_TEMPERATURE: Joi.number().min(0).max(2).default(0.6),
 
   // ── Multi-instance distribution ──
   INSTANCE_ID: Joi.string().allow('').default(''),

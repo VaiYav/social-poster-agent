@@ -90,7 +90,7 @@ const COMMENT = { id: 'c-db', commentId: 'cid-1', author: '@stranger', text: 'Ho
 const DECISION = { action: 'auto_reply' as const, reason: 'question', replyText: 'Great question ✨' };
 
 function freshStats() {
-  return { postsChecked: 0, commentsScraped: 0, repliesPosted: 0, humanReview: 0 };
+  return { postsChecked: 0, commentsScraped: 0, repliesPosted: 0, repliesScheduled: 0, humanReview: 0 };
 }
 
 describe('RP1 — delayed auto-reply jobs', () => {
@@ -120,6 +120,7 @@ describe('RP1 — delayed auto-reply jobs', () => {
     // The cron must NOT block / post inline when a queue is wired.
     expect(env.deps.engagement.reply).not.toHaveBeenCalled();
     expect(stats.repliesPosted).toBe(0); // posted later by the worker
+    expect(stats.repliesScheduled).toBe(1); // B9: scheduled count is tracked
     // Decided reply text is persisted so the UI can show it while the job waits.
     expect(env.deps.prisma.incomingComment.update).toHaveBeenCalled();
   });

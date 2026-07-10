@@ -4,6 +4,196 @@ import { ConfigService } from '@nestjs/config';
 import IORedis from 'ioredis';
 import { SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER } from '../redis/redis.module.js';
 
+export type SseEvent =
+  | SseMetricsSnapshotEvent
+  | SsePostStatusEvent
+  | SseHealthAlertEvent
+  | SseGenerationStartedEvent
+  | SseGenerationProgressEvent
+  | SseGenerationCompletedEvent
+  | SseGenerationFailedEvent
+  | SseGenerationPausedEvent
+  | SseGenerationResumedEvent
+  | SseInteractionEvent
+  | SseBrowsingSessionStartedEvent
+  | SseBrowsingSessionCompletedEvent
+  | SseBrowsingSessionFailedEvent
+  | SseRepliesMonitorEvent
+  | SseReplyPostedEvent
+  | SseReconciliationRequeueEvent
+  | SseAutoApproveEvent
+  | SseAutonomousCycleEvent
+  | SseOrchestratorCycleEndEvent
+  | SseFlowControlEvent;
+
+export interface SseMetricsSnapshotEvent {
+  type: 'metrics_snapshot';
+  timestamp: number;
+  agents: Record<string, unknown>;
+}
+
+export interface SsePostStatusEvent {
+  type: 'post_status';
+  postId: string;
+  status: string;
+  network: string;
+  url?: string;
+  error?: string;
+  retryable?: boolean;
+}
+
+export interface SseHealthAlertEvent {
+  type: 'health_alert';
+  severity: 'critical' | 'warning' | 'info';
+  error: string;
+}
+
+export interface SseGenerationStartedEvent {
+  type: 'generation_started';
+  runId: string;
+  count: number;
+}
+
+export interface SseGenerationProgressEvent {
+  type: 'generation_progress';
+  node: string;
+  topic: string;
+  postsCount: number;
+  error?: string;
+}
+
+export interface SseGenerationCompletedEvent {
+  type: 'generation_completed';
+  runId: string;
+  postCount: number;
+}
+
+export interface SseGenerationFailedEvent {
+  type: 'generation_failed';
+  runId: string;
+  error: string;
+}
+
+export interface SseGenerationPausedEvent {
+  type: 'generation_paused';
+  runId: string;
+}
+
+export interface SseGenerationResumedEvent {
+  type: 'generation_resumed';
+  runId: string;
+}
+
+export interface SseInteractionEvent {
+  type: 'interaction_started' | 'interaction_completed' | 'interaction_failed';
+  interactionId: string;
+  interactionType: string;
+  network: string;
+  targetUrl?: string;
+  error?: string;
+}
+
+export interface SseBrowsingSessionStartedEvent {
+  type: 'browsing_session_started';
+  sessionId: string;
+  network: string;
+  durationSec: number;
+}
+
+export interface SseBrowsingSessionCompletedEvent {
+  type: 'browsing_session_completed';
+  sessionId: string;
+  network: string;
+  postsViewed: number;
+  interactionsCount: number;
+}
+
+export interface SseBrowsingSessionFailedEvent {
+  type: 'browsing_session_failed';
+  sessionId: string;
+  network: string;
+  error: string;
+}
+
+export interface SseRepliesMonitorEvent {
+  type: 'replies_monitor';
+  postsChecked: number;
+  commentsScraped: number;
+  repliesPosted: number;
+  repliesScheduled: number;
+  humanReview: number;
+}
+
+export interface SseReplyPostedEvent {
+  type: 'reply_posted';
+  postId: string;
+  commentId: string;
+  network: string;
+}
+
+export interface SseReconciliationRequeueEvent {
+  type: 'reconciliation_requeue';
+  postId: string;
+  network: string;
+}
+
+export interface SseAutoApproveEvent {
+  type: 'auto_approve';
+  postId: string;
+  decision: string;
+  qualityScore?: number | null;
+  reason?: string | null;
+}
+
+export interface SseAutonomousCycleStartedEvent {
+  type: 'autonomous_cycle';
+  action: 'started';
+}
+
+export interface SseAutonomousCycleCompletedEvent {
+  type: 'autonomous_cycle';
+  action: 'completed';
+  generated: number;
+  autoApproved: number;
+  rejected: number;
+  humanReview: number;
+}
+
+export interface SseAutonomousCycleFailedEvent {
+  type: 'autonomous_cycle';
+  action: 'failed';
+  error: string;
+}
+
+export type SseAutonomousCycleEvent =
+  | SseAutonomousCycleStartedEvent
+  | SseAutonomousCycleCompletedEvent
+  | SseAutonomousCycleFailedEvent;
+
+export interface SseOrchestratorCycleEndEvent {
+  type: 'orchestrator_cycle_end';
+  cycle: number;
+  action?: string;
+  success?: boolean;
+  duration?: number;
+  sleepMs: number;
+}
+
+export interface SseFlowControlPausedEvent {
+  type: 'flow_control';
+  action: 'paused' | 'resumed';
+  flow: 'generation' | 'posting' | 'engagement' | 'replies';
+  reason?: string | null;
+}
+
+export interface SseFlowControlGlobalEvent {
+  type: 'flow_control';
+  action: 'pause_all' | 'resume_all';
+  reason?: string | null;
+}
+
+export type SseFlowControlEvent = SseFlowControlPausedEvent | SseFlowControlGlobalEvent;
+
 /**
  * SSE (Server-Sent Events) service — pushes real-time post status updates to UI.
  *
@@ -103,53 +293,7 @@ export class SseService implements OnModuleDestroy {
   /**
    * Publish an event to Redis (called by workers/services).
    */
-  async publish(event: {
-    type: string;
-    postId?: string;
-    status?: string;
-    network?: string;
-    url?: string;
-    error?: string;
-    sessionId?: string;
-    interactionId?: string;
-    interactionType?: string;
-    targetUrl?: string;
-    durationSec?: number;
-    postsViewed?: number;
-    interactionsCount?: number;
-    severity?: string; // P1-6: health_alert severity ('critical' | 'warning' | 'info')
-    commentId?: string; // Sprint Q: reply_posted event
-    // Sprint I: Generation progress events
-    runId?: string;
-    node?: string;
-    topic?: string;
-    postsCount?: number;
-    postCount?: number;
-    count?: number;
-    // Sprint Q: Replies monitor events
-    postsChecked?: number;
-    commentsScraped?: number;
-    repliesPosted?: number;
-    humanReview?: number;
-    // ADR-006: Autonomy & flow control events
-    action?: string;
-    flow?: string;
-    reason?: string | null;
-    decision?: string;
-    qualityScore?: number | null;
-    generated?: number;
-    autoApproved?: number;
-    rejected?: number;
-    pauseAll?: boolean;
-    flows?: Record<string, boolean>;
-    // Orchestrator events
-    cycle?: number;
-    sleepMs?: number;
-    success?: boolean;
-    duration?: number;
-    // MOD-03: retryable flag for terminal vs. retryable posting failures
-    retryable?: boolean;
-  }): Promise<void> {
+  async publish(event: SseEvent): Promise<void> {
     if (!this.publisher) return;
     await this.publisher.publish(this.channel, JSON.stringify(event));
   }

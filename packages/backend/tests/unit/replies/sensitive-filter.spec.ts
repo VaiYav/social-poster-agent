@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest';
 
-import { detectSensitive, isLikelyTroll } from '../../../src/modules/replies/sensitive-filter';
+import { detectSensitive, isLikelyTroll, isLowValueComment } from '../../../src/modules/replies/sensitive-filter';
 
 describe('detectSensitive (RP3 — sensitive-topic backstop)', () => {
   it('flags English crisis/mental-health comments', () => {
@@ -93,5 +93,119 @@ describe('isLikelyTroll (RP-troll — word-boundary)', () => {
     ]) {
       expect(isLikelyTroll(text), text).toBe(false);
     }
+  });
+});
+
+describe('isLowValueComment (low-value pre-filter)', () => {
+  it('flags emoji-only comments', () => {
+    for (const text of ['🔥🔥🔥', '😍', '✨', '🌙💫🔮', '😂😂😂']) {
+      const r = isLowValueComment(text);
+      expect(r.lowValue, text).toBe(true);
+    }
+  });
+
+  it('flags pure hashtag comments', () => {
+    for (const text of ['#astrology #zodiac', '#horoscope', '#mercuryretrograde']) {
+      const r = isLowValueComment(text);
+      expect(r.lowValue, text).toBe(true);
+    }
+  });
+
+  it('flags follow/subscribe bait (EN)', () => {
+    for (const text of [
+      'follow me for daily horoscopes',
+      'follow for follow',
+      'f4f anyone?',
+      'sub4sub',
+      'check my profile for more',
+      'visit my channel',
+    ]) {
+      const r = isLowValueComment(text);
+      expect(r.lowValue, text).toBe(true);
+    }
+  });
+
+  it('flags follow/subscribe bait (RU/UA)', () => {
+    for (const text of ['подпишись на меня', 'подписка за подписку', 'підпишись', 'заходи в профиль']) {
+      const r = isLowValueComment(text);
+      expect(r.lowValue, text).toBe(true);
+    }
+  });
+
+  it('flags generic one-word reactions (EN)', () => {
+    for (const text of ['nice', 'cool', 'great', 'lol', 'first', 'ok', 'wow', 'facts', 'agreed', 'true']) {
+      const r = isLowValueComment(text);
+      expect(r.lowValue, text).toBe(true);
+    }
+  });
+
+  it('flags generic one-word reactions (RU/UA)', () => {
+    for (const text of ['класс', 'супер', 'круто', 'да', 'ок', 'спасибо', 'дякую', 'красиво']) {
+      const r = isLowValueComment(text);
+      expect(r.lowValue, text).toBe(true);
+    }
+  });
+
+  it('flags very short comments (≤3 meaningful chars after stripping)', () => {
+    for (const text of ['!', '!!!', '??', '...', '🔥!', 'ok!']) {
+      const r = isLowValueComment(text);
+      expect(r.lowValue, text).toBe(true);
+    }
+  });
+
+  it('flags empty comments', () => {
+    expect(isLowValueComment('').lowValue).toBe(true);
+    expect(isLowValueComment('   ').lowValue).toBe(true);
+  });
+
+  it('does NOT flag genuine questions', () => {
+    for (const text of [
+      'What does Mercury retrograde mean?',
+      'Is this accurate for Aries?',
+      'When is the next full moon?',
+      'Что значит ретроградный Меркурий?',
+      'Колись наступає повний місяць?',
+    ]) {
+      const r = isLowValueComment(text);
+      expect(r.lowValue, text).toBe(false);
+    }
+  });
+
+  it('does NOT flag personal experience sharing', () => {
+    for (const text of [
+      "This is so accurate for me as a Cancer moon 😭",
+      'I felt this deeply, my Venus in Scorpio is exactly like this',
+      'Это про меня, я Рак и всё именно так',
+    ]) {
+      const r = isLowValueComment(text);
+      expect(r.lowValue, text).toBe(false);
+    }
+  });
+
+  it('does NOT flag longer comments that contain generic words', () => {
+    // These contain "nice" or "cool" but are longer, meaningful comments
+    for (const text of [
+      'That is a really nice way to put it, I never thought about it that way',
+      'Cool perspective, but what about fire signs specifically?',
+    ]) {
+      const r = isLowValueComment(text);
+      expect(r.lowValue, text).toBe(false);
+    }
+  });
+
+  it('does NOT flag specific compliments that reference content', () => {
+    for (const text of [
+      'The part about Venus in Scorpio was spot on',
+      'Love how you explained the shadow period',
+    ]) {
+      const r = isLowValueComment(text);
+      expect(r.lowValue, text).toBe(false);
+    }
+  });
+
+  it('provides a reason when lowValue is true', () => {
+    const r = isLowValueComment('🔥🔥🔥');
+    expect(r.lowValue).toBe(true);
+    expect(r.reason).toBeTruthy();
   });
 });
