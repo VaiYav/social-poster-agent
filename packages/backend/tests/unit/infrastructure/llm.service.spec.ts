@@ -31,6 +31,7 @@ vi.mock('@langchain/openai', () => ({
 import { ConfigService } from '@nestjs/config';
 import type { BaseCallbackHandler } from '../../../src/domain/ports/llm-primitives.js';
 import { LlmService } from '../../../src/infrastructure/llm/llm.service';
+import { createMockRedis } from '../../mocks/index';
 
 // ── Helpers ──
 
@@ -56,6 +57,8 @@ function createMockConfigService(overrides: Record<string, unknown> = {}): Confi
     OLLAMA_URL: 'http://localhost:11434',
     OLLAMA_DEFAULT_MODEL: 'gemma4',
     LLM_DEFAULT_MODEL: 'gpt-4o-mini',
+    LLM_CACHE_SHARED: 'true',
+    LLM_CACHE_KEY_PREFIX: 'spa:cache:llm',
   };
   return {
     get: vi.fn((key: string, defaultValue?: unknown) => overrides[key] ?? defaults[key] ?? defaultValue),
@@ -67,12 +70,14 @@ function createMockConfigService(overrides: Record<string, unknown> = {}): Confi
 describe('LlmService (MOD-05 — Infrastructure Adapters)', () => {
   let service: LlmService;
   let configService: ConfigService;
+  let redis: ReturnType<typeof createMockRedis>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.invoke.mockReset();
     configService = createMockConfigService();
-    service = new LlmService(configService);
+    redis = createMockRedis();
+    service = new LlmService(configService, redis);
   });
 
   // ── onModuleInit ──
@@ -96,7 +101,7 @@ describe('LlmService (MOD-05 — Infrastructure Adapters)', () => {
       DEEPSEEK_API_KEY: '',
       CEREBRAS_API_KEY: '',
     });
-    const minimalService = new LlmService(minimalConfig);
+    const minimalService = new LlmService(minimalConfig, createMockRedis());
     minimalService.onModuleInit();
 
     const status = minimalService.getProviderStatus();
@@ -114,7 +119,7 @@ describe('LlmService (MOD-05 — Infrastructure Adapters)', () => {
       DEEPSEEK_API_KEY: '',
       CEREBRAS_API_KEY: '',
     });
-    const emptyService = new LlmService(emptyConfig);
+    const emptyService = new LlmService(emptyConfig, createMockRedis());
 
     expect(() => emptyService.onModuleInit()).not.toThrow();
     // Ollama is always included
@@ -324,7 +329,7 @@ describe('LlmService (MOD-05 — Infrastructure Adapters)', () => {
     mocks.invoke.mockResolvedValue({ content: 'response' });
 
     await service.generate('cache clear test prompt');
-    service.clearCache();
+    await service.clearCache();
     await service.generate('cache clear test prompt');
 
     // After clearCache, invoke should be called twice
@@ -337,7 +342,7 @@ describe('LlmService (MOD-05 — Infrastructure Adapters)', () => {
 
     await service.generate('cache stats test');
 
-    const stats = service.getCacheStats();
+    const stats = await service.getCacheStats();
     expect(stats).toHaveProperty('size');
     expect(stats).toHaveProperty('maxSize');
     expect(stats).toHaveProperty('ttlMs');

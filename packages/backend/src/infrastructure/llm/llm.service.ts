@@ -1,12 +1,16 @@
-import { Injectable, Logger, Optional, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI } from '@langchain/openai';
+import type IORedis from 'ioredis';
 import type { BaseCallbackHandler } from '../../domain/ports/llm-primitives.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import type { ILlmPort, GenerateOptions, LlmResponse, LlmRole, ProviderStatus } from '../../domain/ports/llm.port.js';
 import { LlmProviderRateLimit } from './llm-provider-rate-limit.js';
 import { IPromptPort } from '../../domain/ports/prompt.port.js';
+import { SHARED_REDIS } from '../redis/redis.module.js';
+import { parseBool } from '../config/parse-bool.js';
+import { InMemoryLlmCache, RedisLlmCache, type LlmCache } from './llm-cache.js';
 
 /**
  * Provider definition — each provider is tried in order until one succeeds.
@@ -44,12 +48,6 @@ interface CircuitBreakerState {
   tripped: boolean;
   /** Set when the last failure was a terminal (auth/billing) error — see recordFailure(). */
   terminal: boolean;
-}
-
-/** Sprint J: Cache entry for content caching. */
-interface CacheEntry {
-  response: LlmResponse;
-  expiresAt: number;
 }
 
 /** Provider registry entry used to build the chain from env vars. */
@@ -308,9 +306,10 @@ export class LlmService implements ILlmPort, OnModuleInit {
   private readonly cbTerminalCooldownMs: number; // cooldown after a terminal (401/402/403) failure
 
   // Sprint J: Response cache — avoids re-calling LLM for identical prompts
-  private readonly cache = new Map<string, CacheEntry>();
+  private readonly cacheBackend: LlmCache;
   private readonly cacheTtlMs: number;
   private readonly cacheMaxSize: number;
+  private readonly cacheShared: boolean;
 
   // Sprint Q: Per-provider rate-limit cooldown (separate from circuit breaker)
   private readonly rateLimitBackoff: LlmProviderRateLimit;
@@ -343,6 +342,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
 
   constructor(
     private readonly configService: ConfigService,
+    @Inject(SHARED_REDIS) @Optional() private readonly redis?: IORedis,
     @Optional() private readonly promptPort?: IPromptPort,
   ) {
     this.cbThreshold = this.configService.get<number>('LLM_CB_THRESHOLD', 3);
@@ -352,6 +352,8 @@ export class LlmService implements ILlmPort, OnModuleInit {
     this.cbTerminalCooldownMs = this.configService.get<number>('LLM_CB_TERMINAL_COOLDOWN_MS', 6 * 60 * 60 * 1000);
     this.cacheTtlMs = this.configService.get<number>('LLM_CACHE_TTL_MS', 300_000); // 5 min
     this.cacheMaxSize = this.configService.get<number>('LLM_CACHE_MAX_SIZE', 100);
+    this.cacheShared = parseBool(this.configService.get<string>('LLM_CACHE_SHARED', 'true'), true);
+    this.cacheBackend = this.buildCacheBackend();
     this.maxConcurrent = Number(this.configService.get<string | number>('LLM_MAX_CONCURRENT', 4)) || 4;
     this.rateLimitRetryMs = Number(this.configService.get<string | number>('LLM_RATE_LIMIT_RETRY_MS', 2_500)) || 2_500;
     this.rateLimitBackoff = new LlmProviderRateLimit(this.configService);
@@ -372,12 +374,13 @@ export class LlmService implements ILlmPort, OnModuleInit {
       .map((p) => `${p.name}/${p.model}`)
       .join(' → ');
     this.logger.log(`LLM provider chain (${this.providers.length}): ${summary}`);
+    this.logger.log(`LLM cache: ${this.cacheShared ? 'Redis shared' : 'in-memory'} (prefix=${this.configService.get<string>('LLM_CACHE_KEY_PREFIX', 'spa:cache:llm')})`);
 
-    // Log OpenAI configuration for debugging
-    const openaiKey = this.configService.get<string>('OPENAI_API_KEY', '');
+    // Log OpenAI configuration for debugging (never log the key)
     const openaiModel = this.configService.get<string>('OPENAI_MODEL', 'gpt-5-nano');
-    if (openaiKey) {
-      this.logger.log(`OpenAI configured: model=${openaiModel}, key=${openaiKey.slice(0, 10)}...${openaiKey.slice(-4)}`);
+    const hasOpenAiKey = !!this.configService.get<string>('OPENAI_API_KEY', '');
+    if (hasOpenAiKey) {
+      this.logger.log(`OpenAI configured: model=${openaiModel}`);
     } else {
       this.logger.warn('OpenAI API key not configured');
     }
@@ -431,6 +434,21 @@ export class LlmService implements ILlmPort, OnModuleInit {
   }
 
   /**
+   * Build the cache backend. Redis shared cache is the default; in-memory is the
+   * legacy fallback when LLM_CACHE_SHARED=false.
+   */
+  private buildCacheBackend(): LlmCache {
+    if (this.cacheShared) {
+      if (!this.redis) {
+        throw new Error('LLM_CACHE_SHARED=true but SHARED_REDIS is not available');
+      }
+      const prefix = this.configService.get<string>('LLM_CACHE_KEY_PREFIX', 'spa:cache:llm');
+      return new RedisLlmCache(prefix, this.redis);
+    }
+    return new InMemoryLlmCache(this.cacheMaxSize, this.cacheTtlMs);
+  }
+
+  /**
    * Get or create a ChatOpenAI instance for a provider + call options combo.
    *
    * BUG-FIX (race condition): instances were previously cached per provider and
@@ -449,10 +467,15 @@ export class LlmService implements ILlmPort, OnModuleInit {
     const temperature = provider.supportsTemperature
       ? (options?.temperature ?? provider.temperature)
       : undefined;
-    // For reasoning models, omit maxTokens entirely (don't pass -1)
-    const maxTokens = provider.supportsTemperature
-      ? (options?.maxTokens ?? -1)
-      : undefined;
+    // For reasoning models, use max_completion_tokens when the caller provides
+    // a maxTokens value; otherwise omit it. For normal models, default to -1
+    // (no explicit limit) when maxTokens is not provided.
+    const isOpenAIReasoning = provider.name === 'openai' && !provider.supportsTemperature;
+    const maxTokens = isOpenAIReasoning
+      ? options?.maxTokens
+      : provider.supportsTemperature
+        ? (options?.maxTokens ?? -1)
+        : undefined;
 
     const key = `${provider.name}:${provider.model}:t${temperature ?? 'na'}:m${maxTokens ?? 'na'}:to${provider.timeout}`;
     let model = this.models.get(key);
@@ -464,9 +487,6 @@ export class LlmService implements ILlmPort, OnModuleInit {
         timeout: provider.timeout,
         maxRetries: 0, // we handle fallback ourselves
       };
-      
-      // OpenAI reasoning models (gpt-5, o1, o3, o4-mini) require max_completion_tokens instead of maxTokens
-      const isOpenAIReasoning = provider.name === 'openai' && !provider.supportsTemperature;
       
       if (isOpenAIReasoning && maxTokens !== undefined) {
         // Use max_completion_tokens for OpenAI reasoning models
@@ -729,36 +749,6 @@ export class LlmService implements ILlmPort, OnModuleInit {
   }
 
   /**
-   * Sprint J: Check cache for a response.
-   */
-  private getFromCache(key: string): LlmResponse | null {
-    const entry = this.cache.get(key);
-    if (!entry) return null;
-    if (Date.now() > entry.expiresAt) {
-      this.cache.delete(key);
-      return null;
-    }
-    this.logger.debug(`LLM cache hit (key: ${key.slice(0, 8)})`);
-    return entry.response;
-  }
-
-  /**
-   * Sprint J: Store a response in cache.
-   * Evicts oldest entries if cache is full (simple FIFO eviction).
-   */
-  private setInCache(key: string, response: LlmResponse): void {
-    if (this.cache.size >= this.cacheMaxSize) {
-      // Evict oldest entry (first inserted)
-      const oldestKey = this.cache.keys().next().value;
-      if (oldestKey) this.cache.delete(oldestKey);
-    }
-    this.cache.set(key, {
-      response,
-      expiresAt: Date.now() + this.cacheTtlMs,
-    });
-  }
-
-  /**
    * Try each provider in the chain until one succeeds.
    * If lastWorkingProvider is set, try it first (sticky).
    * Sprint J: Adds circuit breaker, caching, token counting, prompt versioning.
@@ -789,8 +779,11 @@ export class LlmService implements ILlmPort, OnModuleInit {
       for (const provider of ordered) {
         const key = this.cacheKey(systemPrompt, userPrompt, options, provider);
         if (cacheable) {
-          const cached = this.getFromCache(key);
-          if (cached) return cached;
+          const cached = await this.cacheBackend.get(key);
+          if (cached) {
+            this.logger.debug(`LLM cache hit (key: ${key.slice(0, 8)})`);
+            return cached;
+          }
         }
 
         // Sprint J/Q: Skip providers with tripped circuit breaker or rate-limit cooldown
@@ -886,7 +879,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
 
             // Sprint J: Cache the response (non-creative roles only)
             if (cacheable) {
-              this.setInCache(key, llmResponse);
+              await this.cacheBackend.set(key, llmResponse, this.cacheTtlMs);
             }
 
             return llmResponse;
@@ -1010,8 +1003,8 @@ export class LlmService implements ILlmPort, OnModuleInit {
   /**
    * Sprint J: Clear the response cache (for testing or manual invalidation).
    */
-  clearCache(): void {
-    this.cache.clear();
+  async clearCache(): Promise<void> {
+    await this.cacheBackend.clear();
   }
 
   /**
@@ -1037,8 +1030,9 @@ export class LlmService implements ILlmPort, OnModuleInit {
   /**
    * Sprint J: Get cache stats for monitoring.
    */
-  getCacheStats(): { size: number; maxSize: number; ttlMs: number } {
-    return { size: this.cache.size, maxSize: this.cacheMaxSize, ttlMs: this.cacheTtlMs };
+  async getCacheStats(): Promise<{ size: number; maxSize: number; ttlMs: number }> {
+    const { size } = await this.cacheBackend.stats();
+    return { size, maxSize: this.cacheMaxSize, ttlMs: this.cacheTtlMs };
   }
 
 }

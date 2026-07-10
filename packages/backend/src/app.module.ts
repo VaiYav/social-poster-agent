@@ -40,6 +40,7 @@ import { AutonomyModule } from './modules/autonomy/autonomy.module';
 import { CaptchaModule } from './infrastructure/captcha/captcha.module';
 import { EventsEdaModule } from './events/events.module';
 import { RedisModule } from './infrastructure/redis/redis.module';
+import { MultiInstanceModule } from './infrastructure/multi-instance/multi-instance.module';
 import { EmailModule } from './infrastructure/email/email.module';
 import { OrchestratorModule } from './modules/orchestrator/orchestrator.module';
 import { parseBool } from './infrastructure/config/parse-bool';
@@ -78,6 +79,7 @@ const orchestratorImports = parseBool(process.env.ORCHESTRATOR_ENABLED) ? [Orche
     }),
     ScheduleModule.forRoot(),
     RedisModule, // Sprint L: Shared Redis connection pooling
+    MultiInstanceModule, // Shared: distributed locks + per-instance heartbeats
     EmailModule, // IMAP email reader for auto-verification codes
     AppClsModule, // G-6: correlationId via CLS
     LoggingModule, // G-7: RedactInterceptor (global)

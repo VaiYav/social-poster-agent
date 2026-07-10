@@ -231,6 +231,33 @@ const NETWORK_LENGTH_GUIDANCE: Record<SocialNetwork, string> = {
 };
 
 /**
+ * P9: Max output tokens per generation step.
+ * Capping tokens reduces latency and cost while still leaving the model room
+ * to produce the requested post. Draft/refine use the network limit as a
+ * guide (roughly 1 token ≈ 4 characters, plus headroom); analytical roles
+ * use smaller caps because their output is structured/short.
+ */
+function maxTokensForRole(role: 'facts' | 'hook' | 'critique' | 'judge' | 'draft' | 'refine', network?: SocialNetwork): number {
+  switch (role) {
+    case 'facts':
+      return 256;
+    case 'hook':
+      return 150;
+    case 'critique':
+      return 256;
+    case 'judge':
+      return 700;
+    case 'draft':
+    case 'refine':
+      if (network === SocialNetwork.X) return 200;
+      if (network === SocialNetwork.THREADS || network === SocialNetwork.FACEBOOK) return 350;
+      return 350;
+    default:
+      return 350;
+  }
+}
+
+/**
  * Strip hashtags from post content — LLMs often ignore "no hashtags" instructions.
  * Removes #word patterns and cleans up extra whitespace.
  * Preserves emoji, punctuation, and normal text.
@@ -343,7 +370,7 @@ async function researchExtractNode(
   const { systemPrompt, userPrompt } = await promptPort.getCompiledChat('research-extract', variables, RESEARCH_EXTRACT_PROMPT);
 
   try {
-    const response = await llm.generateChat(systemPrompt, userPrompt, { temperature: 0.7, role: 'facts' });
+    const response = await llm.generateChat(systemPrompt, userPrompt, { temperature: 0.7, role: 'facts', maxTokens: maxTokensForRole('facts') });
     const facts = response.content
       .split('\n')
       .map((line) => line.replace(/^\d+[\.\)]\s*/, '').trim())
@@ -428,7 +455,7 @@ async function hookGenerationNode(
 
   let response;
   try {
-    response = await llm.generateChat(systemPrompt, userPrompt, { temperature: HOOK_TEMPERATURE, role: 'hook' });
+    response = await llm.generateChat(systemPrompt, userPrompt, { temperature: HOOK_TEMPERATURE, role: 'hook', maxTokens: maxTokensForRole('hook') });
   } catch (err) {
     logger.error(`hook_generation LLM call failed: ${(err as Error).message}`);
     throw err; // Re-throw — GenerationService.generate() catches per-topic
@@ -575,7 +602,7 @@ function makeDraftNode(network: SocialNetwork, promptPort: IPromptPort) {
     const { systemPrompt, userPrompt } = await promptPort.getCompiledChat('draft-post', variables, DRAFT_POST_PROMPT);
 
     try {
-      const response = await llm.generateChat(systemPrompt, userPrompt, { temperature: DRAFT_TEMPERATURE, role: 'draft' });
+      const response = await llm.generateChat(systemPrompt, userPrompt, { temperature: DRAFT_TEMPERATURE, role: 'draft', maxTokens: maxTokensForRole('draft', network) });
 
       // B5: Return ONLY the updated network — the results reducer merges concurrent updates
       return {
@@ -645,7 +672,7 @@ function makeCritiqueNode(network: SocialNetwork, promptPort: IPromptPort) {
     const critiquePrompt = await promptPort.getCompiledText('critique-post', critiqueVariables, CRITIQUE_POST_PROMPT);
 
     try {
-      const response = await llm.generateChat('', critiquePrompt, { temperature: 0.3, role: 'critique' });
+      const response = await llm.generateChat('', critiquePrompt, { temperature: 0.3, role: 'critique', maxTokens: maxTokensForRole('critique') });
 
       // Parse quality score from response (format: "SCORE: 8" or "SCORE: 8/10")
       // Regex tolerates: optional space, optional /10 suffix, case-insensitive
@@ -758,7 +785,7 @@ function makeRefineNode(network: SocialNetwork, promptPort: IPromptPort) {
     const refinePrompt = await promptPort.getCompiledText('refine-post', refineVariables, REFINE_POST_PROMPT);
 
     try {
-      const response = await llm.generateChat('', refinePrompt, { temperature: REFINE_TEMPERATURE, role: 'draft' });
+      const response = await llm.generateChat('', refinePrompt, { temperature: REFINE_TEMPERATURE, role: 'draft', maxTokens: maxTokensForRole('refine', network) });
 
       let refined = response.content.trim();
       let refineTokens = response.tokens ?? 0;
@@ -776,7 +803,7 @@ function makeRefineNode(network: SocialNetwork, promptPort: IPromptPort) {
           const cutResponse = await llm.generateChat(
             '',
             `Cut this ${network} post to ${charLimit} characters or fewer. Keep the hook and the punchline. Remove filler, not substance.\n\nPost:\n"${refined}"\n\nReturn ONLY the shortened post (max ${charLimit} chars):`,
-            { temperature: 0.3, role: 'draft' },
+            { temperature: 0.3, role: 'draft', maxTokens: maxTokensForRole('refine', network) },
           );
           refineTokens += cutResponse.tokens ?? 0;
           refineCost += cutResponse.cost ?? 0;
@@ -991,7 +1018,7 @@ function makeJudgeNode(network: SocialNetwork, promptPort: IPromptPort, refineTh
       // meant the model either skipped its reasoning or truncated the JSON.
       const response = await llm.generateChat(systemPrompt.systemPrompt, systemPrompt.userPrompt, {
         temperature: 0.2,
-        maxTokens: 700,
+        maxTokens: maxTokensForRole('judge'),
         role: 'judge',
       });
 
@@ -1195,10 +1222,11 @@ function humanReviewNode(state: GenerationStateType): Partial<GenerationStateTyp
     const updatedResults: Record<string, NetworkResult> = {};
     for (const network of state.targetNetworks) {
       const netResult = state.results[network];
-      if (netResult && reviewResult.edits[network]) {
+      const edit = reviewResult.edits[network];
+      if (netResult && edit) {
         updatedResults[network] = {
           ...netResult,
-          refined: reviewResult.edits[network]!,
+          refined: edit,
         };
       }
     }

@@ -56,12 +56,16 @@ const mocks = vi.hoisted(() => {
 vi.mock('@langchain/openai', () => ({ ChatOpenAI: mocks.ChatOpenAI }));
 
 import { LlmService } from '../../../src/infrastructure/llm/llm.service';
+import { createMockRedis } from '../../mocks/index';
 
 function makeService(env: Record<string, string | number>): LlmService {
   const config = {
-    get: (key: string, def?: unknown) => (key in env ? env[key] : def),
+    get: (key: string, def?: unknown) => {
+      if (key === 'LLM_CACHE_SHARED') return 'false';
+      return key in env ? env[key] : def;
+    },
   } as unknown as ConfigService;
-  const service = new LlmService(config);
+  const service = new LlmService(config, createMockRedis());
   service.onModuleInit();
   return service;
 }

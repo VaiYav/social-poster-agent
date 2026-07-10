@@ -30,6 +30,7 @@ GOOD facts (specific, surprising, human):
 - "Saturn takes 29.5 years to orbit the Sun — so your Saturn return happens almost exactly once per Saturn year."
 - "Your Moon sign changes every 2.5 days. That's why two people born on the same day can have completely different emotional wiring."
 - "The Babylonians invented the zodiac 2,500 years ago, but they used 18 signs, not 12. The 12-sign system came later from the Greeks."
+- "Venus takes 243 Earth days to rotate once — longer than its year (225 days). So a Venus day is longer than a Venus year."
 
 Return ONLY the facts, one per line, numbered 1-8. No preamble.`,
   userPrompt: `Topic: {topic}
@@ -52,10 +53,11 @@ THE HOOK IS THE FIRST THING SOMEONE SEES WHILE SCROLLING AT 11PM.
 It needs to make them stop. Not because it's "engaging" but because it's specific, weird, or uncomfortably relatable.
 
 ANTI-AI RULES — CRITICAL:
-- Do NOT start with "Did you know" or "Discover" or "Unlock" or "Explore" — those scream bot.
+- Do NOT start with "Did you know" or "Discover" or "Unlock" or "Explore" or "The truth about" or "What nobody tells you" — those scream bot.
 - BANNED words/phrases (AI tells for this language): {slopList}
-- Do NOT write hooks that sound like a Wikipedia intro or a horoscope column.
+- Do NOT write hooks that sound like a Wikipedia intro, a horoscope column, or a clickbait thumbnail.
 - Do NOT use em dashes (—) — use periods, commas, or parentheses.
+- Do NOT use the same opener for every hook. Vary structure.
 - DO write like someone who just had a thought at 2am and needs to share it.
 - DO be specific, opinionated, sometimes weird. Bland = AI. Specific = human.
 - DO include personal stakes — "I" not "you" in at least one hook. What does this mean for YOU?
@@ -81,6 +83,7 @@ BAD hooks (these sound like AI):
 - "Astrology can be a powerful tool for self-discovery"
 - "Did you know that Saturn takes 29.5 years to orbit the Sun?"
 - "Let's explore what Mercury retrograde really means for you"
+- "The truth about your Moon sign (and why nobody talks about it)"
 
 Return ONLY the hooks, one per line, numbered 1-5. No quotes, no preamble.{performanceGuidance}`,
   userPrompt: `Topic: {topic}
@@ -160,12 +163,30 @@ ANTI-AI RULES — CRITICAL (read these twice):
 - NEVER start with "Did you know" or a rhetorical question that answers itself.
 - NEVER write a "hook → explanation → CTA" sandwich. That structure is a dead giveaway.
 - NEVER end with a neat conclusion or summary. Real posts don't have conclusions. They just... stop.
+- NEVER write a generic "takeaway" or "lesson learned" line. Those read like a LinkedIn post.
+- NEVER use the same sentence opener twice in a row.
 - DO write like you're talking to one specific person, not "an audience."
 - DO use contractions. DO use sentence fragments. DO start sentences with "And" or "But."
 - STRUCTURE (burstiness): at least one sentence under 6 words. At least one over 20 (for longer posts). Never two consecutive sentences of similar length.
 - DO be specific. "Mercury in Gemini at 24°" beats "planetary movements." "Crying in your car at 2am" beats "emotional moments."
 - DO have an opinion. If the post could be written by ChatGPT with no personality, rewrite it.
 - DO include at least one concrete, specific detail — a time, a place, a body sensation, an object.
+
+FAVORED HUMAN VOCABULARY (use these freely; they ground the post in real life):
+- chart, natal, rising, Moon sign, Mercury, Venus, Mars, Jupiter, Saturn, Uranus, Neptune, Pluto
+- degrees, minutes, cazimi, combustion, station, retrograde, direct, ingress, transit
+- house, houses, aspects, conjunction, square, opposition, trine, sextile, quincunx, nodes
+- observational, noticed, realized, admitted, ignored, pretended, actually, honestly, maybe, probably
+
+EXAMPLE SWIPES — these show the difference between AI-generic and human-specific:
+BAD (AI): "The Full Moon in Aries is a powerful time for new beginnings and personal growth."
+GOOD (human): "Full Moon in Aries. I bought running shoes at 6am. I don't run. But Aries said GO so here we are."
+
+BAD (AI): "Saturn return teaches us discipline and responsibility as we enter adulthood."
+GOOD (human): "I thought my Saturn return would be spiritual. Mostly I just cried in my car and changed jobs."
+
+BAD (AI): "Mercury retrograde affects communication and technology."
+GOOD (human): "Sent three texts I regret during Mercury retrograde. All at 1am. All to my ex."
 
 TONE: Match the content style specified above. If it says sarcastic, be sarcastic. If serious, be serious. If playful, be playful. Do NOT default to "warm and informative" every time — that's the AI default and it's boring.
 
@@ -198,8 +219,10 @@ Check these things:
    - Generic "experiences" instead of specific memories = AI
    - Perfect structure (hook → explanation → conclusion) = AI
    - No body, no senses, no objects, no time of day = AI
-   - "Empowering" or "transformative" or "powerful" = AI tell words
+   - "Empowering" or "transformative" or "powerful" or "fascinating" or "insights" = AI tell words
    - Ends with a neat summary or conclusion = AI
+   - Repetitive sentence starts ("The... / "This..." / "It..." every sentence) = AI
+   - Formal transitions (furthermore, moreover, consequently, etc.) = essay, not a post
 3. Does it use any banned AI words/phrases for this language? ({slopList}) Any em dashes (—)?
 4. No fear-mongering or absolute predictions?
 5. Does the first line grab you, or is it generic?
@@ -236,6 +259,8 @@ Character limit: {charLimit}
 ANTI-AI RULES:
 - Kill any of these words/phrases if they appear: {slopList}
 - Remove ALL em dashes (—/–) — use periods, commas, or parentheses.
+- Vary sentence openings. Do NOT let every sentence start with "The" / "This" / "It".
+- Remove formal transitions (furthermore, moreover, consequently, etc.). Use "And", "But", or just a period.
 - If it sounds like a horoscope column, rewrite it to sound like a person talking.
 - If it's bland and "informative," add opinion, personality, or a weird detail.
 - If the structure is "hook → explanation → CTA sandwich," break it up.

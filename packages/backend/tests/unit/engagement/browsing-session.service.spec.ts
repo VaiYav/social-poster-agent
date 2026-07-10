@@ -16,6 +16,7 @@ import { BrowsingSessionService } from '../../../src/modules/engagement/browsing
 import {
   createMockPrismaService,
   createMockSseService,
+  createMockDistributedLockService,
   fixtureSession,
 } from '../../mocks/index';
 
@@ -89,6 +90,7 @@ describe('BrowsingSessionService — page lifecycle', () => {
       facebookEngager as never,
       humanBehaviorEngine as never,
       targetingService as never,
+      createMockDistributedLockService() as never,
       undefined,
     );
   });

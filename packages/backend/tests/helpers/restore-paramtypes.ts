@@ -22,6 +22,8 @@ import { DiscordNotificationService } from '../../src/infrastructure/notificatio
 import { TopicGenerationService } from '../../src/infrastructure/content/topic-generation.service';
 import { EmailReaderService } from '../../src/infrastructure/email/email-reader.service.js';
 import { LangfuseService } from '../../src/infrastructure/langfuse/langfuse.service.js';
+import { DistributedLockService } from '../../src/infrastructure/multi-instance/distributed-lock.service.js';
+import { InstanceHeartbeatService } from '../../src/infrastructure/multi-instance/instance-heartbeat.service.js';
 
 // Modules
 import { QueueModule } from '../../src/modules/queue/queue.module';
@@ -157,7 +159,7 @@ export function defineParamtypes(target: unknown, types: unknown[]): void {
 export function restoreAllDesignParamtypes(): void {
   // ── Infrastructure ───────────────────────────────────────────────────────
   defineParamtypes(PrismaService, []);
-  defineParamtypes(LlmService, [ConfigService, Object]); // Object = IPromptPort (@Optional @Inject)
+  defineParamtypes(LlmService, [ConfigService, Object, Object]); // Object = SHARED_REDIS, Object = IPromptPort (@Optional @Inject)
   defineParamtypes(ContentReader, [ConfigService]);
   defineParamtypes(DbContentReader, [PrismaService]);
   defineParamtypes(ContentAdapterRegistry, [ConfigService, Object]); // Object = CONTENT_ADAPTERS (@Inject)
@@ -170,6 +172,8 @@ export function restoreAllDesignParamtypes(): void {
   defineParamtypes(TopicGenerationService, [PrismaService, ConfigService, SchedulerRegistry, LlmService]);
   defineParamtypes(EmailReaderService, []);
   defineParamtypes(LangfuseService, [Object]); // Object = LANGFUSE_PROMPT_BREAKER
+  defineParamtypes(DistributedLockService, [Object]); // Object = SHARED_REDIS
+  defineParamtypes(InstanceHeartbeatService, [ConfigService, Object]); // Object = SHARED_REDIS
 
   // ── Module classes with constructor DI ───────────────────────────────────
   defineParamtypes(SseModule, [SseService]);
@@ -269,6 +273,7 @@ export function restoreAllDesignParamtypes(): void {
     FacebookEngager,
     HumanBehaviorEngine,
     TargetingService,
+    Object, // @Inject(DISTRIBUTED_LOCK_SERVICE)
     Object, // @Optional() WarmupService
   ]);
   defineParamtypes(EngagementService, [

@@ -53,9 +53,25 @@ const envSchema = Joi.object({
   LLM_CB_THRESHOLD: Joi.number().default(3),
   LLM_CB_COOLDOWN_MS: Joi.number().default(60000),
   LLM_CB_TERMINAL_COOLDOWN_MS: Joi.number().default(6 * 60 * 60 * 1000),
+  LLM_CACHE_SHARED: Joi.string().valid('true', 'false').default('true'),
+  LLM_CACHE_KEY_PREFIX: Joi.string().default('spa:cache:llm'),
   LLM_CACHE_TTL_MS: Joi.number().default(300000),
   LLM_CACHE_MAX_SIZE: Joi.number().default(100),
   CONTENT_CACHE_TTL_MS: Joi.number().default(120000),
+  // Q1: Per-role provider routing defaults. Creative roles use strong models;
+  // analytical roles use the cheapest available chain.
+  LLM_ROLE_CHAINS: Joi.string().default(
+    'draft=openai,anthropic,google;hook=openai,anthropic,google;critique=groq,cerebras,sambanova;judge=groq,cerebras,sambanova;facts=groq,cerebras,sambanova;utility=groq,cerebras,sambanova',
+  ),
+  // Per-generation-stage temperature overrides
+  GENERATION_TEMPERATURE_HOOK: Joi.number().min(0).max(2).default(0.95),
+  GENERATION_TEMPERATURE_DRAFT: Joi.number().min(0).max(2).default(0.8),
+  GENERATION_TEMPERATURE_REFINE: Joi.number().min(0).max(2).default(0.6),
+  // Q8: Judge-gated refine loop threshold
+  JUDGE_REFINE_THRESHOLD: Joi.number().min(0).max(1).default(0.6),
+  // Q2: Global concurrency cap and 429 retry delay
+  LLM_MAX_CONCURRENT: Joi.number().integer().min(1).default(4),
+  LLM_RATE_LIMIT_RETRY_MS: Joi.number().integer().min(0).default(2500),
   // Sprint Q: per-provider rate-limit backoff
   LLM_RATE_LIMIT_MAX_COOLDOWN_MS: Joi.number().default(2 * 60 * 60 * 1000),
   LLM_RATE_LIMIT_BASE_BACKOFF_MS: Joi.number().default(10000),
@@ -139,6 +155,9 @@ const envSchema = Joi.object({
   ORCHESTRATOR_CHECKPOINT_KEY: Joi.string().default('spa:orchestrator:checkpoint'),
   ORCHESTRATOR_HEARTBEAT_KEY: Joi.string().default('spa:orchestrator:heartbeat'),
   ORCHESTRATOR_HISTORY_KEY: Joi.string().default('spa:orchestrator:history'),
+  ORCHESTRATOR_LEADER_KEY: Joi.string().default('spa:orchestrator:leader'),
+  ORCHESTRATOR_LEADER_TTL_MS: Joi.number().integer().min(5000).default(30000),
+  ORCHESTRATOR_LEADER_RENEW_INTERVAL_MS: Joi.number().integer().min(1000).default(10000),
 
   // ── Posting windows (Smart — data-driven from PostMetrics) ──
   POSTING_WINDOW_MIN_SAMPLES: Joi.number().integer().min(1).default(10),
@@ -231,6 +250,14 @@ const envSchema = Joi.object({
   REPLIES_AUTO_DELAY_MAX_MS: Joi.number().integer().min(1000).default(1800000), // 30 min
   REPLIES_CRON_SCHEDULE: Joi.string().default('0 */4 * * *'),
   REPLIES_AUTO_REPLY_COMPLEXITY: Joi.string().valid('low', 'medium', 'high').default('medium'),
+
+  // ── Multi-instance distribution ──
+  INSTANCE_ID: Joi.string().allow('').default(''),
+  INSTANCE_HEARTBEAT_TTL_MS: Joi.number().integer().min(5000).default(30000),
+  INSTANCE_HEARTBEAT_INTERVAL_MS: Joi.number().integer().min(1000).default(10000),
+  ENGAGEMENT_LOCK_KEY: Joi.string().default('spa:lock:engagement'),
+  ENGAGEMENT_LOCK_TTL_BUFFER_MS: Joi.number().integer().min(0).default(300000),
+  ENGAGEMENT_LOCK_ACQUIRE_RETRY_MS: Joi.number().integer().min(100).default(1000),
 }).unknown(true); // allow extra env vars (PATH, HOME, etc.)
 
 /**

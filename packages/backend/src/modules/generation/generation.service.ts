@@ -368,7 +368,7 @@ export class GenerationService {
       // (limited to avoid overwhelming LLM providers with too many concurrent calls)
       const MAX_CONCURRENCY = 3;
       const postIds: string[] = [];
-      // P2: Judge score samples for end-of-run calibration summary
+      // P2: Judge score samples + run metrics for end-of-run calibration summary
       const judgeScoreSamples: Array<{
         network: SocialNetwork;
         anti_ai_tone: number;
@@ -377,6 +377,8 @@ export class GenerationService {
         character_limit: number;
         qualityScore: number;
       }> = [];
+      let runTokens = 0;
+      let runCost = 0;
 
       // Process topics in batches of MAX_CONCURRENCY
       for (let i = 0; i < prioritizedTopics.length; i += MAX_CONCURRENCY) {
@@ -424,6 +426,12 @@ export class GenerationService {
                   qualityScore: (meta?.qualityScore as number) ?? 0,
                 });
               }
+              if (meta) {
+                const tokens = typeof meta.tokens === 'number' ? meta.tokens : 0;
+                const cost = typeof meta.cost === 'number' ? meta.cost : 0;
+                runTokens += tokens;
+                runCost += cost;
+              }
             }
           } else {
             this.logger.error(
@@ -442,11 +450,13 @@ export class GenerationService {
         const belowThreshold = judgeScoreSamples.filter(
           (s) => s.anti_ai_tone < (Number(process.env.JUDGE_REFINE_THRESHOLD ?? '0.6') || 0.6),
         ).length;
+        const promptVersion = this.llm.getPromptVersion?.() ?? 'unknown';
         this.logger.log(
           `Judge calibration [run ${run.id}]: ${judgeScoreSamples.length} posts scored — ` +
             `avg anti_ai=${avg('anti_ai_tone')} hook=${avg('hook_strength')} ` +
             `factual=${avg('factual_accuracy')} chars=${avg('character_limit')} — ` +
-            `${belowThreshold}/${judgeScoreSamples.length} below refine threshold`,
+            `${belowThreshold}/${judgeScoreSamples.length} below refine threshold — ` +
+            `tokens=${runTokens} cost=$${runCost.toFixed(6)} promptVersion=${promptVersion}`,
         );
       }
 
@@ -457,7 +467,7 @@ export class GenerationService {
       }
 
       await this.markRunCompleted(run.id, prioritizedTopics.map((t) => t.topic));
-      this.logger.log(`Generation run ${run.id}: ${postIds.length} drafts created`);
+      this.logger.log(`Generation run ${run.id}: ${postIds.length} drafts created — tokens=${runTokens} cost=$${runCost.toFixed(6)}`);
       // Sprint I: SSE generation_completed event
       await this.sseService.publish({ type: 'generation_completed', runId: run.id, postCount: postIds.length });
       return run.id;
@@ -1474,6 +1484,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
             const config: GraphInvokeConfig = {
               configurable: { thread_id: `${runId}:${topic.topic}` },
               recursionLimit: 30, // Q8: judge-retry can add up to 2 supersteps per network
+              signal: controller.signal,
             };
             const initialState = createInitialState(topic, targetNetworks, brandVoice);
             // Langfuse tracing for resume — same sessionId as original run

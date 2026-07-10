@@ -2,7 +2,7 @@
 
 ## Status
 
-Backlog / proposal. Existing analytics endpoints are fragmented and low-level.
+**Implemented** (via `HealthMonitorService`, not a separate `DashboardService`). The `GET /dashboard` endpoint lives in `health-monitor.controller.ts` and aggregates pipeline state. The UI screen is `packages/ui/src/views/Dashboard.vue` with flow-control, stats, and recent-posts cards, routed at `/dashboard`.
 
 ## Problem
 

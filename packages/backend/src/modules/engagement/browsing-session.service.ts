@@ -32,6 +32,10 @@ import { HumanBehaviorEngine } from './human-behavior-engine.js';
 import { TargetingService } from './targeting.service.js';
 import { WarmupService } from '../sessions/warmup.service.js';
 import {
+  DISTRIBUTED_LOCK_SERVICE,
+  type DistributedLockService,
+} from '../../infrastructure/multi-instance/distributed-lock.service.js';
+import {
   buildEngagementGraph,
   createEngagementInitialState,
 } from './engagement.graph.js';
@@ -46,12 +50,13 @@ export class BrowsingSessionService {
   private readonly repostsMaxPerSession: number;
   private readonly quotesMaxPerSession: number;
   private readonly maxPostsPerSession: number;
-  // Global concurrency limiter — only one browsing session can run at a time
+  // Distributed lock settings — only one browsing session can run at a time
   // across ALL networks. Two concurrent Camoufox contexts (e.g. X + THREADS)
   // cause renderer process crashes due to memory pressure in constrained
-  // containers. This mutex serializes sessions so the browser process only
-  // has one active page/renderer at a time.
-  private static sessionMutex: Promise<void> = Promise.resolve();
+  // containers. The distributed lock serializes sessions across all instances.
+  private readonly lockKey: string;
+  private readonly lockTtlBufferMs: number;
+  private readonly lockRetryMs: number;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -65,6 +70,7 @@ export class BrowsingSessionService {
     private readonly facebookEngager: FacebookEngager,
     private readonly humanBehaviorEngine: HumanBehaviorEngine,
     private readonly targetingService: TargetingService,
+    @Inject(DISTRIBUTED_LOCK_SERVICE) private readonly lockService: DistributedLockService,
     @Optional() private readonly warmupService?: WarmupService,
   ) {
     this.defaultDurationSec = Number(
@@ -85,6 +91,9 @@ export class BrowsingSessionService {
     this.maxPostsPerSession = Number(
       this.configService.get<string>('F1_MAX_POSTS_PER_SESSION', '30'),
     );
+    this.lockKey = this.configService.get<string>('ENGAGEMENT_LOCK_KEY', 'spa:lock:engagement');
+    this.lockTtlBufferMs = Number(this.configService.get<string>('ENGAGEMENT_LOCK_TTL_BUFFER_MS', '300000'));
+    this.lockRetryMs = Number(this.configService.get<string>('ENGAGEMENT_LOCK_ACQUIRE_RETRY_MS', '1000'));
   }
 
   /**
@@ -107,53 +116,57 @@ export class BrowsingSessionService {
     const duration = durationSec ?? this.defaultDurationSec;
     const engager = this.getEngager(network);
 
-    // Acquire the global session mutex — only one browsing session runs at a time
-    // across all networks. Two concurrent Camoufox contexts (X + THREADS) cause
-    // renderer process crashes due to memory pressure. The mutex serializes sessions;
+    // Acquire the distributed session lock — only one browsing session runs at a time
+    // across all networks and all instances. Two concurrent Camoufox contexts (X + THREADS)
+    // cause renderer process crashes due to memory pressure. The lock serializes sessions;
     // the queue will retry the waiting job after the current one finishes.
-    let releaseMutex!: () => void;
-    const previousMutex = BrowsingSessionService.sessionMutex;
-    BrowsingSessionService.sessionMutex = new Promise<void>((resolve) => {
-      releaseMutex = resolve;
-    });
-    await previousMutex;
-
-    // Get or create session. Deferred: engagement must not force an inline form login in the
-    // job hot-path (same reasoning as posting.service.ts) — recovery happens out-of-band via the
-    // orchestrator's RECOVER_SESSION action, which has its own cooldown/circuit-breaker guards.
-    const session = await this.sessionsService.getOrCreateSession(network, { deferFormLogin: true });
-    if (!session) {
-      releaseMutex();
-      throw new Error(`No active session for ${network} — auto-login failed`);
-    }
-
-    // Create browsing session record (feedUrl updated after graph picks source)
-    const browsingSession = await this.prisma.browsingSession.create({
-      data: {
-        accountId: session.accountId,
-        status: BrowsingSessionStatus.ACTIVE,
-        feedUrl: this.getFeedUrl(network),
-      },
-    });
-
-    this.logger.log(
-      `Starting browsing session for ${network} (${duration}s) — session ${browsingSession.id}`,
+    const lockTtlMs = duration * 1000 + this.lockTtlBufferMs;
+    // Wait slightly longer than the lock TTL so a crashed/orphaned previous
+    // holder's lock can expire before we give up acquiring it.
+    const lockTimeoutMs = lockTtlMs + this.lockRetryMs;
+    const lock = await this.lockService.acquire(
+      this.lockKey,
+      lockTtlMs,
+      lockTimeoutMs,
+      this.lockRetryMs,
     );
 
-    // SSE event
-    await this.sseService.publish({
-      type: 'browsing_session_started',
-      sessionId: browsingSession.id,
-      network: network as string,
-      durationSec: duration,
-    });
-
+    let browsingSession: { id: string; accountId: string } | null = null;
     let postsViewed = 0;
     let interactionsCount = 0;
     let context: Awaited<ReturnType<IBrowserPort['acquireContext']>> | null = null;
     let page: Awaited<ReturnType<Awaited<ReturnType<IBrowserPort['acquireContext']>>['newPage']>> | undefined;
 
     try {
+      // Get or create session. Deferred: engagement must not force an inline form login in the
+      // job hot-path (same reasoning as posting.service.ts) — recovery happens out-of-band via the
+      // orchestrator's RECOVER_SESSION action, which has its own cooldown/circuit-breaker guards.
+      const session = await this.sessionsService.getOrCreateSession(network, { deferFormLogin: true });
+      if (!session) {
+        throw new Error(`No active session for ${network} — auto-login failed`);
+      }
+
+      // Create browsing session record (feedUrl updated after graph picks source)
+      browsingSession = await this.prisma.browsingSession.create({
+        data: {
+          accountId: session.accountId,
+          status: BrowsingSessionStatus.ACTIVE,
+          feedUrl: this.getFeedUrl(network),
+        },
+      });
+
+      this.logger.log(
+        `Starting browsing session for ${network} (${duration}s) — session ${browsingSession.id}`,
+      );
+
+      // SSE event
+      await this.sseService.publish({
+        type: 'browsing_session_started',
+        sessionId: browsingSession.id,
+        network: network as string,
+        durationSec: duration,
+      });
+
       // Sprint K: Acquire browser context from pool (enables parallel sessions)
       // P0-H3: Decrypt storageState if encrypted (v1: prefix).
       const storageState = session.storageState
@@ -314,23 +327,25 @@ export class BrowsingSessionService {
         }
       }
 
-      await this.prisma.browsingSession.update({
-        where: { id: browsingSession.id },
-        data: {
-          status: BrowsingSessionStatus.FAILED,
-          endedAt: new Date(),
-          errorMessage: (err as Error).message,
-          postsViewed,
-          interactionsCount,
-        },
-      });
+      if (browsingSession) {
+        await this.prisma.browsingSession.update({
+          where: { id: browsingSession.id },
+          data: {
+            status: BrowsingSessionStatus.FAILED,
+            endedAt: new Date(),
+            errorMessage: (err as Error).message,
+            postsViewed,
+            interactionsCount,
+          },
+        }).catch(() => {});
 
-      await this.sseService.publish({
-        type: 'browsing_session_failed',
-        sessionId: browsingSession.id,
-        network: network as string,
-        error: (err as Error).message,
-      });
+        await this.sseService.publish({
+          type: 'browsing_session_failed',
+          sessionId: browsingSession.id,
+          network: network as string,
+          error: (err as Error).message,
+        }).catch(() => {});
+      }
 
       throw err;
     } finally {
@@ -344,8 +359,8 @@ export class BrowsingSessionService {
       if (context) {
         this.browser.releaseContext(network, context);
       }
-      // Release the global session mutex so the next network's session can start.
-      releaseMutex();
+      // Release the distributed session lock so the next job can start.
+      await lock.release().catch(() => {});
     }
   }
 

@@ -44,6 +44,12 @@ export interface LlmResponse {
   cost?: number;
 }
 
+export function isLlmResponse(value: unknown): value is LlmResponse {
+  if (typeof value !== 'object' || value === null) return false;
+  const obj = value as Record<string, unknown>;
+  return typeof obj['content'] === 'string' && typeof obj['model'] === 'string';
+}
+
 export interface ProviderStatus {
   name: string;
   model: string;

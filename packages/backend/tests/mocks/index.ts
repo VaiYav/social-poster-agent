@@ -272,6 +272,13 @@ export function createMockPrismaService() {
 export function createMockRedis() {
   const store = new Map<string, string>();
   const lists = new Map<string, string[]>();
+  const globToRegex = (pattern: string) => {
+    const re = pattern
+      .replace(/\./g, '\\.')
+      .replace(/\*/g, '.*')
+      .replace(/\?/g, '.');
+    return new RegExp(`^${re}$`);
+  };
   return {
     // List ops (BUG-9: checkpoint pending writes use rpush/lrange).
     rpush: vi.fn((key: string, ...vals: string[]) => {
@@ -283,11 +290,29 @@ export function createMockRedis() {
     lrange: vi.fn((key: string) => Promise.resolve(lists.get(key) ?? [])),
     get: vi.fn((key: string) => Promise.resolve(store.get(key) ?? null)),
     mget: vi.fn((keys: string[]) => Promise.resolve(keys.map((k: string) => store.get(k) ?? null))),
-    set: vi.fn((key: string, val: string) => {
+    set: vi.fn((key: string, val: string, ...args: unknown[]) => {
+      // Parse simple SET ... PX/EX [NX|XX] options (position-based). TTL is ignored.
+      let i = 0;
+      while (i < args.length) {
+        const arg = args[i];
+        if (arg === 'PX' || arg === 'EX' || arg === 'PXAT' || arg === 'EXAT') {
+          i += 2;
+          continue;
+        }
+        if (arg === 'NX' || arg === 'XX') {
+          if (arg === 'NX' && store.has(key)) return Promise.resolve(null);
+          if (arg === 'XX' && !store.has(key)) return Promise.resolve(null);
+        }
+        i += 1;
+      }
       store.set(key, val);
       return Promise.resolve('OK');
     }),
     setex: vi.fn((key: string, _ttl: number, val: string) => {
+      store.set(key, val);
+      return Promise.resolve('OK');
+    }),
+    psetex: vi.fn((key: string, _ttl: number, val: string) => {
       store.set(key, val);
       return Promise.resolve('OK');
     }),
@@ -297,9 +322,18 @@ export function createMockRedis() {
       return Promise.resolve(val);
     }),
     expire: vi.fn().mockResolvedValue(1),
-    del: vi.fn((key: string) => {
-      store.delete(key);
-      return Promise.resolve(1);
+    pexpire: vi.fn().mockResolvedValue(1),
+    del: vi.fn((...keys: unknown[]) => {
+      // Support both del('key') and del(['key1', 'key2']) and del('k1', 'k2')
+      const flattened = keys.flat(Number.POSITIVE_INFINITY) as string[];
+      let count = 0;
+      for (const k of flattened) {
+        if (store.has(k)) {
+          store.delete(k);
+          count += 1;
+        }
+      }
+      return Promise.resolve(count);
     }),
     exists: vi.fn((key: string) => Promise.resolve(store.has(key) ? 1 : 0)),
     ping: vi.fn().mockResolvedValue('PONG'),
@@ -310,7 +344,36 @@ export function createMockRedis() {
     off: vi.fn(),
     disconnect: vi.fn(),
     duplicate: vi.fn().mockReturnThis(),
+    eval: vi.fn().mockResolvedValue(undefined),
+    evalsha: vi.fn().mockResolvedValue(undefined),
+    scan: vi.fn((cursor: string, ...args: unknown[]) => {
+      const params = args;
+      let match = '*';
+      for (let i = 0; i < params.length; i += 2) {
+        const cmd = params[i];
+        if (cmd === 'MATCH') match = params[i + 1] as string;
+      }
+      const regex = globToRegex(match);
+      const keys: string[] = [];
+      for (const k of store.keys()) {
+        if (regex.test(k)) keys.push(k);
+      }
+      return Promise.resolve(['0', keys]);
+    }),
     _store: store, // exposed for test assertions
+  };
+}
+
+// ── Distributed Lock Mock ──
+
+export function createMockDistributedLockService() {
+  return {
+    tryAcquire: vi.fn().mockResolvedValue(null),
+    acquire: vi.fn().mockResolvedValue({
+      release: vi.fn().mockResolvedValue(undefined),
+      extend: vi.fn().mockResolvedValue(true),
+    }),
+    onModuleDestroy: vi.fn().mockResolvedValue(undefined),
   };
 }
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-Backlog / proposal. The current reader is hard-wired to the sibling `content-agent-platform` repo.
+**Implemented.** The adapter-based `IContentPort` is in place with a registry/factory of `IContentAdapter` implementations. Built-in adapters (`CapFileAdapter`, `RssAdapter`, `ApiAdapter`, `GoogleTrendsAdapter`) are wired through `ContentModule` with DI, driven by the `CONTENT_SOURCES` env var and the `ContentSource` Prisma model.
 
 ## Problem
 

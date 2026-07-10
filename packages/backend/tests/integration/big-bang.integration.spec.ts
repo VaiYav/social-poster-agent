@@ -194,7 +194,19 @@ vi.mock('ioredis', () => {
         return inst;
       },
       get: (k: string) => Promise.resolve(store.get(k) ?? null),
-      set: (k: string, v: unknown) => {
+      set: (k: string, v: unknown, ...args: unknown[]) => {
+        // Naive position-based parser: NX|XX and PX/EX flags.
+        let i = 0;
+        while (i < args.length) {
+          const arg = args[i];
+          if (arg === 'PX' || arg === 'EX' || arg === 'PXAT' || arg === 'EXAT') {
+            i += 2;
+            continue;
+          }
+          if (arg === 'NX' && store.has(k)) return Promise.resolve(null);
+          if (arg === 'XX' && !store.has(k)) return Promise.resolve(null);
+          i += 1;
+        }
         store.set(k, String(v));
         return Promise.resolve('OK');
       },
