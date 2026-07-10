@@ -185,20 +185,38 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
   async enqueuePosting(postId: string, network: string, opts?: { priority?: number; delay?: number }): Promise<void> {
     const queue = this.getQueue(network, 'posting');
 
-    // Check if a job with this jobId already exists in a terminal state (completed/failed).
+    // Check if a job with this jobId already exists in a terminal or limbo state.
     // BullMQ's queue.add() with jobId silently returns the existing job without re-enqueuing
     // if it already exists — even if it's completed/failed. This causes posts to get stuck
     // in APPROVED forever because the orchestrator keeps "enqueuing" but the worker never
     // picks up the job. Remove the old job so the new add() actually creates a fresh one.
+    //
+    // Also handles "limbo" jobs: after exhausting retries with removeOnFail, a job hash can
+    // remain in Redis while the job is NOT in any state sorted set (not in failed/completed/
+    // wait/active/delayed). getState() returns 'unknown' for these. Without removal, the
+    // stale hash blocks all future queue.add() calls for that jobId — the post is stuck forever.
+    //
+    // DELAYED jobs are NOT removed: the PostHandler intentionally schedules posts with a
+    // 3-15 min delay (AUTONOMOUS_POSTING_DELAY_MIN/MAX_MS) to space them out. The orchestrator
+    // cycle runs every 60s, so removing delayed jobs would reset the delay every cycle and
+    // the job would never execute.
     try {
       const existingJob = await queue.getJob(postId);
       if (existingJob) {
         const state = await existingJob.getState();
-        if (state === 'completed' || state === 'failed' || state === 'delayed') {
+        // Active/waiting/prioritized/delayed jobs are in-flight or scheduled — don't remove.
+        const activeStates = ['active', 'waiting', 'prioritized', 'waiting-children', 'delayed'];
+        if (!activeStates.includes(state)) {
           this.logger.warn(
             `Removing existing ${state} posting job for ${postId} → re-enqueuing fresh job`,
           );
           await existingJob.remove();
+        } else {
+          // Job is already scheduled/in-flight — skip re-enqueuing to avoid resetting the delay
+          this.logger.debug(
+            `Posting job for ${postId} already ${state} — skipping re-enqueue`,
+          );
+          return;
         }
       }
     } catch {

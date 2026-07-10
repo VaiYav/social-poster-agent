@@ -173,6 +173,82 @@ describe('QueueFactory (MOD-05 — Infrastructure Adapters)', () => {
     expect(opts.removeOnFail).toEqual({ count: 500 });
   });
 
+  it('enqueuePosting() removes existing completed job before re-enqueuing', async () => {
+    const jobRemove = vi.fn().mockResolvedValue(undefined);
+    mocks.queueGetJob.mockResolvedValueOnce({
+      id: 'post-done',
+      getState: vi.fn().mockResolvedValue('completed'),
+      remove: jobRemove,
+    });
+
+    await factory.enqueuePosting('post-done', 'X');
+
+    expect(jobRemove).toHaveBeenCalledOnce();
+    expect(mocks.queueAdd).toHaveBeenCalledOnce();
+  });
+
+  it('enqueuePosting() removes existing failed job before re-enqueuing', async () => {
+    const jobRemove = vi.fn().mockResolvedValue(undefined);
+    mocks.queueGetJob.mockResolvedValueOnce({
+      id: 'post-fail',
+      getState: vi.fn().mockResolvedValue('failed'),
+      remove: jobRemove,
+    });
+
+    await factory.enqueuePosting('post-fail', 'X');
+
+    expect(jobRemove).toHaveBeenCalledOnce();
+    expect(mocks.queueAdd).toHaveBeenCalledOnce();
+  });
+
+  it('enqueuePosting() removes limbo job (unknown state) before re-enqueuing', async () => {
+    // BullMQ limbo: job hash exists but not in any state sorted set.
+    // getState() returns 'unknown'. Without removal, queue.add() silently
+    // deduplicates and the post is stuck forever.
+    const jobRemove = vi.fn().mockResolvedValue(undefined);
+    mocks.queueGetJob.mockResolvedValueOnce({
+      id: 'post-limbo',
+      getState: vi.fn().mockResolvedValue('unknown'),
+      remove: jobRemove,
+    });
+
+    await factory.enqueuePosting('post-limbo', 'THREADS');
+
+    expect(jobRemove).toHaveBeenCalledOnce();
+    expect(mocks.queueAdd).toHaveBeenCalledOnce();
+  });
+
+  it('enqueuePosting() does NOT remove active job (would duplicate)', async () => {
+    const jobRemove = vi.fn().mockResolvedValue(undefined);
+    mocks.queueGetJob.mockResolvedValueOnce({
+      id: 'post-active',
+      getState: vi.fn().mockResolvedValue('active'),
+      remove: jobRemove,
+    });
+
+    await factory.enqueuePosting('post-active', 'X');
+
+    expect(jobRemove).not.toHaveBeenCalled();
+    expect(mocks.queueAdd).not.toHaveBeenCalled();
+  });
+
+  it('enqueuePosting() does NOT remove delayed job (preserves scheduled delay)', async () => {
+    // The PostHandler intentionally adds a 3-15 min delay. The orchestrator cycle runs
+    // every 60s. If we removed delayed jobs, the delay would reset every cycle and the
+    // job would never execute.
+    const jobRemove = vi.fn().mockResolvedValue(undefined);
+    mocks.queueGetJob.mockResolvedValueOnce({
+      id: 'post-delayed',
+      getState: vi.fn().mockResolvedValue('delayed'),
+      remove: jobRemove,
+    });
+
+    await factory.enqueuePosting('post-delayed', 'X');
+
+    expect(jobRemove).not.toHaveBeenCalled();
+    expect(mocks.queueAdd).not.toHaveBeenCalled();
+  });
+
   // ── registerWorker ──
 
   it('registerWorker() creates a Worker with correct queue name and concurrency', () => {
