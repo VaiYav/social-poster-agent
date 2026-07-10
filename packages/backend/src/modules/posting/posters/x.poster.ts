@@ -49,6 +49,11 @@ export class XPoster extends BasePoster {
 
     const page = await context.newPage();
     await this.browser.suppressPageErrors(page);
+    // Detect renderer/page crashes so we can bail out early instead of
+    // continuing to operate on a dead page (produces cryptic "Target page,
+    // context or browser has been closed" errors). Closing the context
+    // prevents the pool from reusing a dead browser.
+    this.registerCrashHandler(page, context);
 
     try {
       // Primary path: use home page compose dialog (more reliable than /compose/post).
@@ -72,6 +77,7 @@ export class XPoster extends BasePoster {
 
       // Fallback: navigate to /compose/post page (legacy path)
       this.logger.log(`X navigating to compose page: ${X_SELECTORS.compose.url}`);
+      this.assertPageAlive(page, 'navigate to compose page');
       await this.navigate(page, X_SELECTORS.compose.url, 'domcontentloaded');
 
       // Check if logged in (redirect to login or login overlay?)
@@ -112,6 +118,7 @@ export class XPoster extends BasePoster {
       // to fire the exact input events React/DraftJS listens to. This makes the Post button
       // genuinely enabled and causes the tweet to actually submit when clicked.
       // Fallbacks: fill() + DraftJS nudge, then keyboard.type() (last resort).
+      this.assertPageAlive(page, 'type tweet content');
       let textbox = page
         .locator('[data-testid="tweetTextarea_0"]')
         .first()
@@ -267,6 +274,46 @@ export class XPoster extends BasePoster {
         this.logger.log(`X after paste/type retry — button disabled: ${isDisabled}, aria-disabled: ${ariaDisabled}`);
       }
       if (isDisabled) {
+        // Strategy D: dispatch InputEvent('beforeinput') directly into the DraftJS editor.
+        // This is the event DraftJS actually processes — execCommand and fill() may insert
+        // text into the DOM without triggering DraftJS's React state update in Firefox.
+        // Clear the field first, then dispatch beforeinput with the full content.
+        this.logger.warn(`X post button still disabled — trying direct beforeinput InputEvent dispatch...`);
+        await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+        await page.keyboard.press('Control+A').catch(() => {});
+        await page.keyboard.press('Backspace').catch(() => {});
+        await this.browser.randomDelay(200, 400);
+        const dispatched = await textbox.evaluate((el: HTMLElement, value: string) => {
+          el.focus();
+          try {
+            const beforeInput = new InputEvent('beforeinput', {
+              bubbles: true,
+              cancelable: true,
+              inputType: 'insertText',
+              data: value,
+              dataTransfer: null,
+              isComposing: false,
+            });
+            el.dispatchEvent(beforeInput);
+            el.dispatchEvent(new InputEvent('input', {
+              bubbles: true,
+              inputType: 'insertText',
+              data: value,
+            }));
+            return true;
+          } catch {
+            return false;
+          }
+        }, content).catch(() => false);
+        if (dispatched) {
+          await this.browser.randomDelay(800, 1500);
+          isDisabled = await postButton.isDisabled().catch(() => false);
+          ariaDisabled = await postButton.getAttribute('aria-disabled').catch(() => null);
+          if (ariaDisabled === 'true') isDisabled = true;
+          this.logger.log(`X after beforeinput dispatch — button disabled: ${isDisabled}, aria-disabled: ${ariaDisabled}`);
+        }
+      }
+      if (isDisabled) {
         // Button is still disabled — DraftJS refuses to accept the content.
         // Do NOT force-click a disabled button — it won't submit and may navigate
         // to /home without posting, creating a false "URL changed" signal.
@@ -277,6 +324,7 @@ export class XPoster extends BasePoster {
 
       // Submit the tweet — try multiple strategies in order:
       // 1. humanClick (for dry-run compatibility — DryRunBrowserPort intercepts this)
+      this.assertPageAlive(page, 'submit tweet');
       // 2. Cmd+Enter keyboard shortcut (X native shortcut, bypasses mouse/humanize issues)
       // 3. JavaScript click (dispatches real DOM event that React processes)
       await this.humanPreAction(page, postButton);
@@ -517,7 +565,12 @@ export class XPoster extends BasePoster {
         await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
         await this.browser.randomDelay(200, 400);
 
-        // Select any existing content and replace it via execCommand
+        // Select any existing content and replace it via execCommand.
+        // In Firefox/Camoufox, execCommand('insertText') may insert text into the DOM
+        // WITHOUT firing the 'beforeinput' event that DraftJS actually processes.
+        // DraftJS listens for InputEvent('beforeinput') with inputType='insertText' —
+        // a generic Event('input') is ignored. So after execCommand, we also dispatch
+        // proper InputEvent objects to ensure DraftJS updates its React state.
         const inserted = await textbox.evaluate((el: HTMLElement, value: string) => {
           el.focus();
           const selection = window.getSelection();
@@ -525,19 +578,45 @@ export class XPoster extends BasePoster {
           range.selectNodeContents(el);
           selection?.removeAllRanges();
           selection?.addRange(range);
-          // execCommand('insertText') dispatches the correct beforeinput/input events
-          // React/DraftJS need to register the content and enable the Post button.
+
+          // Strategy 1a: execCommand('insertText') — works in Chrome, partial Firefox
           const ok = document.execCommand('insertText', false, value);
-          if (!ok) return false;
-          // Trigger a final input event in case execCommand didn't fire one
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          return true;
+
+          // Strategy 1b: dispatch proper InputEvent('beforeinput') that DraftJS listens for.
+          // This is needed because Firefox's execCommand may not fire beforeinput natively.
+          // DraftJS calls preventDefault() on beforeinput and processes the input itself.
+          try {
+            const beforeInput = new InputEvent('beforeinput', {
+              bubbles: true,
+              cancelable: true,
+              inputType: 'insertText',
+              data: value,
+              dataTransfer: null,
+              isComposing: false,
+            });
+            el.dispatchEvent(beforeInput);
+          } catch {
+            // InputEvent constructor may not be available in all contexts
+          }
+
+          // Also dispatch InputEvent('input') with inputType — not generic Event('input')
+          try {
+            el.dispatchEvent(new InputEvent('input', {
+              bubbles: true,
+              inputType: 'insertText',
+              data: value,
+            }));
+          } catch {
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+
+          return ok || true;
         }, content).catch(() => false);
 
         if (inserted) {
           const innerText = await textbox.innerText().catch(() => '');
           if (innerText.trim().length >= content.trim().length * 0.8) {
-            this.logger.debug(`X setComposeText via execCommand succeeded (attempt ${attempt})`);
+            this.logger.debug(`X setComposeText via execCommand + InputEvent succeeded (attempt ${attempt})`);
             return;
           }
         }
@@ -649,6 +728,7 @@ export class XPoster extends BasePoster {
   private async postViaHomePageCompose(page: Page, content: string): Promise<PostResult | null> {
     try {
       this.logger.log(`X fallback: navigating to home page...`);
+      this.assertPageAlive(page, 'navigate to home page for compose');
       // Use networkidle (not domcontentloaded) — X's SPA needs time to hydrate after load.
       // domcontentloaded fires before React mounts, leaving only <style> tags in the body,
       // which causes the compose button search to fail every time.
@@ -740,6 +820,7 @@ export class XPoster extends BasePoster {
       // Type content using execCommand insertText (fires the input events React/DraftJS
       // listens to, so the Post button genuinely enables and the tweet actually submits).
       this.logger.log(`X fallback: typing tweet via execCommand insertText...`);
+      this.assertPageAlive(page, 'type tweet content (home page compose)');
       await this.setComposeText(page, textbox, content);
       await page.waitForTimeout(1000);
 
@@ -775,13 +856,51 @@ export class XPoster extends BasePoster {
         this.logger.log(`X fallback: after fill() + nudge — button disabled: ${fbDisabled}, aria-disabled: ${fbAriaDisabled}`);
       }
       if (fbDisabled) {
-        this.logger.error(`X fallback: post button disabled after fill() — DraftJS state not updated`);
+        // Strategy D (same as main path): dispatch InputEvent('beforeinput') directly.
+        // DraftJS processes beforeinput events — execCommand/fill() may not fire them in Firefox.
+        this.logger.warn(`X fallback: post button still disabled — trying direct beforeinput InputEvent dispatch...`);
+        await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+        await page.keyboard.press('Control+A').catch(() => {});
+        await page.keyboard.press('Backspace').catch(() => {});
+        await this.browser.randomDelay(200, 400);
+        const fbDispatched = await textbox.evaluate((el: HTMLElement, value: string) => {
+          el.focus();
+          try {
+            el.dispatchEvent(new InputEvent('beforeinput', {
+              bubbles: true,
+              cancelable: true,
+              inputType: 'insertText',
+              data: value,
+              dataTransfer: null,
+              isComposing: false,
+            }));
+            el.dispatchEvent(new InputEvent('input', {
+              bubbles: true,
+              inputType: 'insertText',
+              data: value,
+            }));
+            return true;
+          } catch {
+            return false;
+          }
+        }, content).catch(() => false);
+        if (fbDispatched) {
+          await this.browser.randomDelay(800, 1500);
+          fbDisabled = await postButton.isDisabled().catch(() => false);
+          fbAriaDisabled = await postButton.getAttribute('aria-disabled').catch(() => null);
+          if (fbAriaDisabled === 'true') fbDisabled = true;
+          this.logger.log(`X fallback: after beforeinput dispatch — button disabled: ${fbDisabled}, aria-disabled: ${fbAriaDisabled}`);
+        }
+      }
+      if (fbDisabled) {
+        this.logger.error(`X fallback: post button disabled after all strategies — DraftJS state not updated`);
         await this.screenshot(page, 'button-disabled-abort');
         return { error: 'Post button is disabled — DraftJS state not updated (home page compose)', retryable: false };
       }
 
       let fbClickSuccess = false;
       try {
+        this.assertPageAlive(page, 'submit tweet (home page compose)');
         await this.browser.humanClick(postButton, { timeoutMs: 10000 });
         fbClickSuccess = true;
         this.logger.log(`X fallback: humanClick on Post button succeeded`);
@@ -960,6 +1079,7 @@ export class XPoster extends BasePoster {
       window.addEventListener('unhandledrejection', (e) => { e.preventDefault(); e.stopImmediatePropagation(); }, true);
     }).catch(() => {});
 
+    this.assertPageAlive(page, `navigate to root tweet for reply`);
     await page.goto(rootTweetUrl, { waitUntil: 'domcontentloaded' });
     await this.browser.randomDelay(2000, 4000);
 

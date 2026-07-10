@@ -19,6 +19,7 @@ import {
   SelectorNotFoundError,
   ValidationError,
   AccountRestrictedError,
+  NetworkError,
   classifyPlaywrightError,
 } from '../../../domain/errors.js';
 import { navigateWithRetry } from '../../../domain/retry.js';
@@ -377,6 +378,50 @@ export abstract class BasePoster {
       }
       const classified = await this.classifyError(err, page, context);
       return { error: classified.message, screenshotPath: classified.screenshotPath, retryable: classified.retryable };
+    }
+  }
+
+  // ── Browser Crash Detection ────────────────────────────────────
+
+  /**
+   * Register a crash handler on the page — logs the crash and closes the
+   * context so the pool doesn't reuse a dead context.
+   *
+   * Camoufox/Firefox renderer crashes under memory pressure produce
+   * "Target page, context or browser has been closed" on the next Playwright
+   * call. Without this handler, the crash is silent until the next operation
+   * fails with a cryptic error. With it, we get an immediate log line and the
+   * context is released early.
+   *
+   * @param page - The Playwright page to monitor
+   * @param context - The browser context to close on crash (optional)
+   */
+  protected registerCrashHandler(page: Page, context?: BrowserContext): void {
+    if (typeof page.on !== 'function') return;
+    page.on('crash', () => {
+      this.logger.warn(
+        `Page crashed during ${this.network} posting — closing context to prevent reuse of dead browser`,
+      );
+      void context?.close().catch(() => {});
+    });
+  }
+
+  /**
+   * Assert that the page is still alive (not closed/crashed) before performing
+   * a critical operation. Throws a NetworkError so the caller's retry logic
+   * treats it as a transient browser failure and re-acquires a fresh context.
+   *
+   * @param page - The Playwright page to check
+   * @param context - A short description of what was about to happen (for the error message)
+   * @throws {NetworkError} if the page is closed or crashed
+   */
+  protected assertPageAlive(page: Page, context: string): void {
+    if (page.isClosed?.()) {
+      this.logger.warn(`${this.network}: page is closed before ${context} — bailing out early`);
+      throw new NetworkError(
+        this.network,
+        `Page is closed — cannot ${context} (browser crash detected)`,
+      );
     }
   }
 

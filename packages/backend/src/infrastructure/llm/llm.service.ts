@@ -83,7 +83,7 @@ const REASONING_MODEL_PATTERN = /^(gpt-5(\.\d+)?|o1|o3|o4-mini|codex-mini)/;
  * extensible and eliminates the repetitive if/push blocks in buildProviderChain.
  */
 const PROVIDER_DEFINITIONS: ProviderSpec[] = [
-  // 1. Groq — FREE, fast inference
+  // 1. Groq — FREE, fast inference (rate-limits under burst traffic)
   {
     name: 'groq',
     keyEnv: 'GROQ_API_KEY',
@@ -92,27 +92,21 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     free: true,
     baseURL: 'https://api.groq.com/openai/v1',
   },
-  // 2. OpenRouter — FREE models available
+  // 2. SambaNova — FREE 20M tokens/day, no credit card, OpenAI-compatible
+  // Best free-tier quota available (200x Groq's 100K TPD). Llama 3.3 70B, DeepSeek, Qwen.
+  // Positioned 2nd so it's the primary fallback when Groq rate-limits — its
+  // massive free quota means it almost never 429s.
   {
-    name: 'openrouter',
-    keyEnv: 'OPENROUTER_API_KEY',
-    modelEnv: 'OPENROUTER_MODEL',
-    defaultModel: 'meta-llama/llama-3.3-70b-instruct:free',
+    name: 'sambanova',
+    keyEnv: 'SAMBANOVA_API_KEY',
+    modelEnv: 'SAMBANOVA_MODEL',
+    defaultModel: 'Meta-Llama-3.3-70B-Instruct',
     free: true,
-    baseURL: 'https://openrouter.ai/api/v1',
+    baseURL: 'https://api.sambanova.ai/v1',
   },
-  // 3. DeepSeek — cheap
-  {
-    name: 'deepseek',
-    keyEnv: 'DEEPSEEK_API_KEY',
-    modelEnv: 'DEEPSEEK_MODEL',
-    defaultModel: 'deepseek-chat',
-    free: false,
-    baseURL: 'https://api.deepseek.com',
-  },
-  // 4. Cerebras — FREE, fast
+  // 3. Cerebras — FREE, fast (~3000 tok/s)
   // NOTE: llama-3.3-70b was deprecated/removed from Cerebras on Feb 16, 2026.
-  // gpt-oss-120b is the current production model (120B params, ~3000 tok/s).
+  // gpt-oss-120b is the current production model (120B params).
   {
     name: 'cerebras',
     keyEnv: 'CEREBRAS_API_KEY',
@@ -121,7 +115,25 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     free: true,
     baseURL: 'https://api.cerebras.ai/v1',
   },
-  // 4.5 Anthropic — strong creative/multilingual backstop via the
+  // 4. OpenRouter — FREE models available (intermittent empty content on some free models)
+  {
+    name: 'openrouter',
+    keyEnv: 'OPENROUTER_API_KEY',
+    modelEnv: 'OPENROUTER_MODEL',
+    defaultModel: 'meta-llama/llama-3.3-70b-instruct:free',
+    free: true,
+    baseURL: 'https://openrouter.ai/api/v1',
+  },
+  // 5. DeepSeek — cheap (may hit 402 Insufficient Balance if credits run out)
+  {
+    name: 'deepseek',
+    keyEnv: 'DEEPSEEK_API_KEY',
+    modelEnv: 'DEEPSEEK_MODEL',
+    defaultModel: 'deepseek-chat',
+    free: false,
+    baseURL: 'https://api.deepseek.com',
+  },
+  // 6. Anthropic — strong creative/multilingual backstop via the
   // OpenAI-compatible endpoint. Previously advertised in .env.example but
   // never wired into the chain (dead config — fixed in the quality pass).
   {
@@ -132,7 +144,7 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     free: false,
     baseURL: 'https://api.anthropic.com/v1/',
   },
-  // 5. OpenAI — paid overflow (may be quota-limited)
+  // 7. OpenAI — paid overflow (may be quota-limited)
   // gpt-5-nano, gpt-5.4-nano, gpt-5-mini and other reasoning models (o1, o3, o4-mini) do NOT accept
   // `temperature` — only the default (1) is supported. We detect reasoning
   // models by name and set supportsTemperature=false so the caller skips it.
@@ -150,7 +162,7 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
       };
     },
   },
-  // 6. Google Gemini — free tier (1500 RPD), strong multilingual (OpenAI-compatible endpoint)
+  // 8. Google Gemini — free tier (1500 RPD), strong multilingual (OpenAI-compatible endpoint)
   {
     name: 'google',
     keyEnv: 'GOOGLE_API_KEY',
@@ -159,7 +171,7 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     free: true,
     baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
   },
-  // 7. NVIDIA NIM — free ~40 req/min, general multilingual (OpenAI-compatible)
+  // 9. NVIDIA NIM — free ~40 req/min, general multilingual (OpenAI-compatible)
   {
     name: 'nvidia',
     keyEnv: 'NVIDIA_API_KEY',
@@ -167,16 +179,6 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     defaultModel: 'meta/llama-3.3-70b-instruct',
     free: true,
     baseURL: 'https://integrate.api.nvidia.com/v1',
-  },
-  // 8. SambaNova — FREE 20M tokens/day, no credit card, OpenAI-compatible
-  // Best free-tier quota available (200x Groq's 100K TPD). Llama 3.3 70B, DeepSeek, Qwen.
-  {
-    name: 'sambanova',
-    keyEnv: 'SAMBANOVA_API_KEY',
-    modelEnv: 'SAMBANOVA_MODEL',
-    defaultModel: 'Meta-Llama-3.3-70B-Instruct',
-    free: true,
-    baseURL: 'https://api.sambanova.ai/v1',
   },
   // 9. GitHub Models — FREE 150 RPD, no credit card, OpenAI-compatible
   // Access to GPT-5, Llama, DeepSeek, Mistral via one key. Needs GitHub PAT with models:read.
@@ -312,6 +314,14 @@ export class LlmService implements ILlmPort, OnModuleInit {
 
   // Sprint Q: Per-provider rate-limit cooldown (separate from circuit breaker)
   private readonly rateLimitBackoff: LlmProviderRateLimit;
+
+  // Empty-content cooldown — when a provider returns empty content (model refused
+  // to generate or parsing issue), skip it for 60s to avoid wasting time retrying
+  // a provider that's currently in a bad state. This prevents the cascade where
+  // Groq 429s → OpenRouter empty → Cerebras empty → caller times out before
+  // reaching SambaNova. With this, the chain skips empty-content providers fast.
+  private readonly emptyContentCooldowns = new Map<string, number>();
+  private readonly emptyContentCooldownMs = 60_000;
 
   // Sprint J: Prompt version — bumped when prompts change, stored in llmMetadata
   // Sprint P: Now sourced from PromptRegistry when available, falls back to static constant
@@ -652,6 +662,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
   private recordSuccess(providerName: string): void {
     this.circuitBreakers.delete(providerName);
     this.rateLimitBackoff.recordSuccess(providerName);
+    this.emptyContentCooldowns.delete(providerName);
   }
 
   /**
@@ -758,6 +769,16 @@ export class LlmService implements ILlmPort, OnModuleInit {
             this.logger.debug(`Skipping ${provider.name} — circuit breaker tripped`);
             errors.push(`${provider.name}: circuit breaker open`);
           }
+          continue;
+        }
+
+        // Empty-content cooldown — skip providers that recently returned empty content
+        const emptyCooldownUntil = this.emptyContentCooldowns.get(provider.name);
+        if (emptyCooldownUntil && emptyCooldownUntil > Date.now()) {
+          this.logger.debug(
+            `Skipping ${provider.name} — empty-content cooldown until ${new Date(emptyCooldownUntil).toISOString()}`,
+          );
+          errors.push(`${provider.name}: empty-content cooldown`);
           continue;
         }
 
@@ -880,6 +901,16 @@ export class LlmService implements ILlmPort, OnModuleInit {
         const isRateLimit = this.isRateLimitError(lastErr);
         if (!isRateLimit) {
           this.recordFailure(provider.name, this.isTerminalLlmError(lastErr));
+          // Empty content: set a short cooldown so the chain skips this provider
+          // on the next call instead of wasting time retrying it. This prevents
+          // the cascade where multiple providers return empty content in quick
+          // succession and the caller times out before reaching a working one.
+          if (msg.includes('empty content')) {
+            this.emptyContentCooldowns.set(provider.name, Date.now() + this.emptyContentCooldownMs);
+            this.logger.debug(
+              `${provider.name} empty-content cooldown set for ${this.emptyContentCooldownMs}ms`,
+            );
+          }
         } else {
           this.logger.debug(`${provider.name} rate-limited (429) — not counting as circuit breaker failure`);
         }
@@ -955,11 +986,13 @@ export class LlmService implements ILlmPort, OnModuleInit {
       for (const name of providerNames) {
         this.circuitBreakers.delete(name);
         this.rateLimitBackoff.reset([name]);
+        this.emptyContentCooldowns.delete(name);
         this.logger.log(`Circuit breaker + rate-limit reset for ${name}`);
       }
     } else {
       this.circuitBreakers.clear();
       this.rateLimitBackoff.reset();
+      this.emptyContentCooldowns.clear();
       this.logger.log('All circuit breakers and rate-limit cooldowns reset');
     }
   }

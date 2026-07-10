@@ -416,7 +416,27 @@ export abstract class BaseEngager extends BasePoster {
           sel.selectAllChildren(el);
           sel.deleteFromDocument();
         }
-        return document.execCommand('insertText', false, value);
+        const ok = document.execCommand('insertText', false, value);
+        // Firefox/Camoufox: execCommand may not fire beforeinput that DraftJS needs.
+        // Dispatch proper InputEvent objects to ensure React state updates.
+        try {
+          el.dispatchEvent(new InputEvent('beforeinput', {
+            bubbles: true,
+            cancelable: true,
+            inputType: 'insertText',
+            data: value,
+            dataTransfer: null,
+            isComposing: false,
+          }));
+          el.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
+            inputType: 'insertText',
+            data: value,
+          }));
+        } catch {
+          // InputEvent constructor unavailable — fallback below
+        }
+        return ok || true;
       }
       return false;
     }, text);

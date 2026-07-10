@@ -32,9 +32,15 @@ export class ThreadsPoster extends BasePoster {
   ): Promise<PostResult> {
     const page = await context.newPage();
     await this.browser.suppressPageErrors(page);
+    // Detect renderer/page crashes so we can bail out early instead of
+    // continuing to operate on a dead page (produces cryptic "Target page,
+    // context or browser has been closed" errors). Closing the context
+    // prevents the pool from reusing a dead browser.
+    this.registerCrashHandler(page, context);
 
     try {
       // Navigate to Threads home
+      this.assertPageAlive(page, 'navigate to Threads home');
       await this.navigate(page, THREADS_SELECTORS.compose.homeUrl);
 
       // Check if logged in
@@ -88,6 +94,7 @@ export class ThreadsPoster extends BasePoster {
       // Type content using stealth human-like typing (typeHuman)
       // typeHuman uses randomized per-key delay (40-120ms) with 5% "thinking" pauses
       // — more human-like than humanType's fixed delay, evades anti-bot detection
+      this.assertPageAlive(page, 'type thread content');
       await this.typeHuman(page, content, textareaResolution.locator);
       await this.browser.randomDelay(1000, 2000);
 
@@ -113,6 +120,7 @@ export class ThreadsPoster extends BasePoster {
       // Wait for button to be enabled (content entered)
       await this.browser.waitForStable(submitResolution.locator, { timeoutMs: 5000 });
       // Human-like: scroll into view, hover, then click
+      this.assertPageAlive(page, 'submit thread');
       await this.humanPreAction(page, submitResolution.locator);
       await this.humanClick(submitResolution.locator);
       await this.browser.randomDelay(3000, 8000);
@@ -281,6 +289,7 @@ export class ThreadsPoster extends BasePoster {
     rootPostUrl: string,
     content: string,
   ): Promise<void> {
+    this.assertPageAlive(page, `navigate to root post for reply`);
     await this.navigate(page, rootPostUrl);
 
     // Click the reply button

@@ -39,10 +39,15 @@ export class FacebookPoster extends BasePoster {
 
     const page = await context.newPage();
     await this.browser.suppressPageErrors(page);
+    // Detect renderer crashes — Facebook uses a persistent context, so we
+    // don't close the context on crash (unlike X/Threads pooled contexts),
+    // but we still log it for diagnosis.
+    this.registerCrashHandler(page);
 
     try {
       // Navigate to business page
       const pageUrl = FACEBOOK_SELECTORS.feed.url(this.pageSlug);
+      this.assertPageAlive(page, 'navigate to Facebook business page');
       await this.navigate(page, pageUrl);
 
       // Check if logged in
