@@ -59,4 +59,44 @@ describe('LanguageDetector', () => {
     expect(isLanguageDetectable('hello world here')).toBe(true);
     expect(isLanguageDetectable('Спасибо за пост')).toBe(true);
   });
+
+  it('LD-011: detects Russian even with Latin loanwords', () => {
+    expect(detectLanguage('Сатурн в retrograde снова всё ломает')).toBe('ru');
+    expect(detectLanguage('Мой Co-Star говорит что Mercury direct')).toBe('ru');
+  });
+
+  it('LD-012: detects Ukrainian even with Latin loanwords', () => {
+    expect(detectLanguage('Сатурн у retrograde знову все ламає')).toBe('uk');
+    expect(detectLanguage('Мій Co-Star каже що Mercury direct')).toBe('uk');
+  });
+
+  it('LD-013: detects Spanish and Italian with astrological terms', () => {
+    expect(detectLanguage('Saturno tarda 29.5 años en dar la vuelta al Sol')).toBe('es');
+    expect(detectLanguage('Saturno impiega 29.5 anni per fare il giro attorno al Sole')).toBe('it');
+  });
+
+  it('LD-014: handles short, ambiguous inputs gracefully', () => {
+    expect(detectLanguage('ok')).toBe('en');
+    expect(detectLanguage('hi')).toBe('en');
+    expect(detectLanguage('Это')).toBe('ru');
+    expect(detectLanguage('Це')).toBe('uk');
+  });
+
+  it('LD-015: falls back to script heuristic when tinyld returns an unsupported code', () => {
+    // German/dutch short texts are not supported; should fallback to script-based heuristic
+    expect(detectLanguage('Das ist ein Test')).toBe('en');
+    // Polish is not supported; fallback to Cyrillic check or English
+    expect(detectLanguage('To jest przykład')).toBe('en');
+    // A text with Cyrillic should be classified as Russian when unsupported
+    expect(detectLanguage('Это правда')).toBe('ru');
+  });
+
+  it('LD-016: isLanguageDetectable requires at least 3 Latin or Cyrillic characters', () => {
+    expect(isLanguageDetectable('ab')).toBe(false);
+    expect(isLanguageDetectable('ab c')).toBe(true);
+    expect(isLanguageDetectable('ab')).toBe(false);
+    expect(isLanguageDetectable('аб')).toBe(false);
+    expect(isLanguageDetectable('аб в')).toBe(true);
+    expect(isLanguageDetectable('!!!')).toBe(false);
+  });
 });

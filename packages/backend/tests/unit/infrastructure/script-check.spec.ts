@@ -96,6 +96,35 @@ describe('script-check — matchesScript', () => {
     expect(matchesScript('Yes', 'en')).toBe(true);
     expect(matchesScript('Так', 'en')).toBe(false);
   });
+
+  // ── Additional language-specific script boundaries ──
+
+  it('SC-019: Cyrillic languages accept Cyrillic-dominant text with language-specific chars', () => {
+    expect(matchesScript('Сатурн делает круг за 29.5 лет', 'ru')).toBe(true);
+    expect(matchesScript('Сатурн робить коло за 29.5 років', 'uk')).toBe(true);
+  });
+
+  it('SC-020: Cyrillic languages reject Latin-dominant text', () => {
+    expect(matchesScript('Saturn takes 29.5 years to orbit the Sun', 'ru')).toBe(false);
+    expect(matchesScript('Saturn takes 29.5 years to orbit the Sun', 'uk')).toBe(false);
+  });
+
+  it('SC-021: Latin languages accept Latin-dominant text', () => {
+    expect(matchesScript('Saturn takes 29.5 years to orbit the Sun', 'en')).toBe(true);
+    expect(matchesScript('Saturno tarda 29.5 años en dar la vuelta', 'es')).toBe(true);
+    expect(matchesScript('Saturno impiega 29.5 anni per fare il giro', 'it')).toBe(true);
+  });
+
+  it('SC-022: Latin languages reject Cyrillic-dominant text', () => {
+    expect(matchesScript('Сатурн делает круг за 29.5 лет', 'en')).toBe(false);
+    expect(matchesScript('Сатурн робить коло за 29.5 років', 'es')).toBe(false);
+    expect(matchesScript('Сатурн робить коло за 29.5 років', 'it')).toBe(false);
+  });
+
+  it('SC-023: 50/50 split is accepted for both script families', () => {
+    expect(matchesScript('abc абс', 'en')).toBe(true);
+    expect(matchesScript('abc абс', 'ru')).toBe(true);
+  });
 });
 
 describe('script-check — normalizeLanguage', () => {
@@ -144,5 +173,11 @@ describe('script-check — normalizeLanguage', () => {
     expect(normalizeLanguage('en-US-INVALID')).toBe('en');
     expect(normalizeLanguage('ru_RU')).toBe('ru');
     expect(normalizeLanguage('  es  ')).toBe('es');
+  });
+
+  it('NL-008: normalizes 3-letter and padded uppercase codes', () => {
+    expect(normalizeLanguage('ITA')).toBe('it');
+    expect(normalizeLanguage('ES ')).toBe('es');
+    expect(normalizeLanguage(' EN')).toBe('en');
   });
 });
