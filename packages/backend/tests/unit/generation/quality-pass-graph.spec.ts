@@ -43,12 +43,14 @@ type RoleName = 'facts' | 'hook' | 'draft' | 'refine' | 'critique' | 'judge';
 interface ScriptedLlm extends ILlmPort {
   counts: Record<RoleName, number>;
   maxTokens: Record<RoleName, number | undefined>;
+  lastPrompt: Record<RoleName, { system: string; user: string } | undefined>;
 }
 
 /** Role-dispatched mock LLM — handlers receive the per-role call index. */
 function makeLlm(handlers: Partial<Record<RoleName, (idx: number) => string>> = {}): ScriptedLlm {
   const counts: Record<RoleName, number> = { facts: 0, hook: 0, draft: 0, refine: 0, critique: 0, judge: 0 };
   const maxTokens: Record<RoleName, number | undefined> = { facts: undefined, hook: undefined, draft: undefined, refine: undefined, critique: undefined, judge: undefined };
+  const lastPrompt: Record<RoleName, { system: string; user: string } | undefined> = { facts: undefined, hook: undefined, draft: undefined, refine: undefined, critique: undefined, judge: undefined };
   const defaults: Record<RoleName, string> = {
     facts: '1. Mercury retrograde happens 3-4 times a year',
     hook: '1. hook alpha\n2. hook beta\n3. hook gamma',
@@ -63,15 +65,17 @@ function makeLlm(handlers: Partial<Record<RoleName, (idx: number) => string>> = 
     let type: RoleName;
     if (role === 'facts' || role === 'hook' || role === 'critique' || role === 'judge') {
       type = role;
+    } else if (role === 'refine') {
+      type = 'refine';
     } else if (role === 'draft') {
-      // draft and refine share the 'draft' role chain; refine sends an empty system prompt
-      type = systemPrompt ? 'draft' : 'refine';
+      type = 'draft';
     } else {
       type = 'draft';
     }
     const idx = counts[type];
     counts[type] += 1;
     maxTokens[type] = options?.maxTokens;
+    lastPrompt[type] = { system: systemPrompt, user: _userPrompt };
     const content = handlers[type]?.(idx) ?? defaults[type];
     return { content, model: 'mock/llm', tokens: 10 };
   });
@@ -82,6 +86,7 @@ function makeLlm(handlers: Partial<Record<RoleName, (idx: number) => string>> = 
     getPromptVersion: vi.fn(() => 'test'),
     counts,
     maxTokens,
+    lastPrompt,
   };
 }
 
@@ -262,5 +267,41 @@ describe('Quality pass — generation graph', () => {
     );
 
     expect(postsOf(state)[0]?.qualityScore).toBeUndefined();
+  });
+
+  it('QP-010: refine prompt instructs the model to keep the target language (Russian)', async () => {
+    const llm = makeLlm({
+      draft: () => 'Сатурн делает круг за 29.5 лет. И он всё равно тебя разносит.',
+      critique: () => 'Good content, but a bit flat.\nSCORE: 6\nVERDICT: REVISE',
+      refine: () => 'Полтора часа смотрю на свою натальную карту. Сатурн близко.',
+    });
+    const compiled = buildGenerationGraph(llm).compile();
+    await compiled.invoke(
+      createInitialState(createTopic(), [SocialNetwork.X], 'brand voice', false, 'ru'),
+      { configurable: { thread_id: 'qp-010' } },
+    );
+
+    const refinePrompt = llm.lastPrompt.refine?.user ?? '';
+    expect(refinePrompt).toMatch(/LANGUAGE/);
+    expect(refinePrompt).toMatch(/Russian \(русский\)|Русский/);
+    expect(refinePrompt).toMatch(/Do NOT translate/i);
+    expect(refinePrompt).toMatch(/Preserve the original language/i);
+  });
+
+  it('QP-011: refine prompt includes native-voice examples for non-English languages', async () => {
+    const llm = makeLlm({
+      draft: () => 'Сатурн делает круг за 29.5 лет.',
+      critique: () => 'SCORE: 5\nVERDICT: REVISE',
+      refine: () => 'Полтора часа смотрю на свою натальную карту.',
+    });
+    const compiled = buildGenerationGraph(llm).compile();
+    await compiled.invoke(
+      createInitialState(createTopic(), [SocialNetwork.X], 'brand voice', false, 'ru'),
+      { configurable: { thread_id: 'qp-011' } },
+    );
+
+    const refinePrompt = llm.lastPrompt.refine?.user ?? '';
+    expect(refinePrompt).toMatch(/NATIVE VOICE EXAMPLES/);
+    expect(refinePrompt).toMatch(/Сатурн делает круг за 29\.5 лет/);
   });
 });

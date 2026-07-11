@@ -11,7 +11,7 @@ export const ILlmPort = Symbol('ILlmPort');
  * Creative roles (draft/hook) can be routed to stronger models while
  * analytical roles (critique/judge) stay on the cheapest chain.
  */
-export type LlmRole = 'draft' | 'hook' | 'critique' | 'judge' | 'facts' | 'utility';
+export type LlmRole = 'draft' | 'hook' | 'critique' | 'judge' | 'facts' | 'utility' | 'refine';
 
 export interface GenerateOptions {
   systemPrompt?: string;

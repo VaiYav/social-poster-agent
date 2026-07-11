@@ -248,6 +248,12 @@ Where SCORE 10 = "I'd share this on my personal account and people would think I
 
 export const REFINE_POST_PROMPT = `Rewrite this {network} post based on the critique. Make it sound MORE HUMAN and LESS like AI.
 
+LANGUAGE — CRITICAL: The rewrite must be in {langName}.{langInstruction}
+- Do NOT translate the draft into English or any other language.
+- Preserve the original language, script, and natural phrasing of the draft.
+- Russian and Ukrainian are DIFFERENT languages. Do not mix them. Do not use Russian words in Ukrainian posts or vice versa.
+- Use natural, native-speaker phrasing — not translated-sounding text. Use slang, colloquialisms, and informal expressions natural to that language.{langExamples}
+
 Draft:
 "{draft}"
 

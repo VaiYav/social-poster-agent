@@ -617,6 +617,7 @@ export class GenerationService {
           id: true,
           content: true,
           network: true,
+          language: true,
           sourceRef: true,
           createdAt: true,
           llmMetadata: true,
@@ -678,10 +679,10 @@ export class GenerationService {
             facts: [],
             category: 'evergreen',
             publishedAt: new Date(),
-            language: 'en',
+            language: oldPost.language,
           };
 
-          const posts = await this.generatePostsForTopic(recycledTopic, targetNetworks, brandVoice, run.id, false);
+          const posts = await this.generatePostsForTopic(recycledTopic, targetNetworks, brandVoice, run.id, false, false, recycledTopic.language);
 
           // Tag posts with recycle metadata
           for (const post of posts) {
@@ -738,7 +739,7 @@ export class GenerationService {
   async recycleById(postId: string, networks?: SocialNetwork[]): Promise<{ id: string; status: string } | null> {
     const original = await this.prisma.post.findUnique({
       where: { id: postId },
-      select: { id: true, content: true, network: true, sourceRef: true, status: true, llmMetadata: true },
+      select: { id: true, content: true, network: true, language: true, sourceRef: true, status: true, llmMetadata: true },
     });
     if (!original || original.status !== PostStatus.POSTED) {
       return null;
@@ -772,9 +773,9 @@ export class GenerationService {
         facts: [],
         category: 'evergreen',
         publishedAt: new Date(),
-        language: 'en',
+        language: original.language,
       };
-      const posts = await this.generatePostsForTopic(recycledTopic, targetNetworks, brandVoice, run.id, false);
+      const posts = await this.generatePostsForTopic(recycledTopic, targetNetworks, brandVoice, run.id, false, false, recycledTopic.language);
       for (const post of posts) {
         await this.prisma.post.update({
           where: { id: post.id },

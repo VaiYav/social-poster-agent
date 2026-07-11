@@ -736,6 +736,8 @@ function makeRefineNode(network: SocialNetwork, promptPort: IPromptPort) {
     if (netResult.error) return {};
 
     const lang = state.language || 'en';
+    const langName = LANGUAGE_NAMES[lang] ?? 'English';
+    const langInstruction = LANGUAGE_INSTRUCTIONS[lang] ?? '';
 
     // Q8: Judge-triggered retry pass — the judge flagged the REFINED text as
     // AI-sounding. Rewrite the current refined text using the judge's reasons;
@@ -784,12 +786,15 @@ function makeRefineNode(network: SocialNetwork, promptPort: IPromptPort) {
       baitInstruction: gateInstructions ? `\n${gateInstructions}\n` : '',
       charLimit: String(charLimit),
       slopList: getSlopListForPrompt(lang),
+      langName,
+      langInstruction,
+      langExamples: getLanguageExamples(lang),
     };
 
     const refinePrompt = await promptPort.getCompiledText('refine-post', refineVariables, REFINE_POST_PROMPT);
 
     try {
-      const response = await llm.generateChat('', refinePrompt, { temperature: REFINE_TEMPERATURE, role: 'draft', maxTokens: maxTokensForRole('refine', network) });
+      const response = await llm.generateChat('', refinePrompt, { temperature: REFINE_TEMPERATURE, role: 'refine', maxTokens: maxTokensForRole('refine', network) });
 
       let refined = response.content.trim();
       let refineTokens = response.tokens ?? 0;
@@ -806,8 +811,8 @@ function makeRefineNode(network: SocialNetwork, promptPort: IPromptPort) {
         try {
           const cutResponse = await llm.generateChat(
             '',
-            `Cut this ${network} post to ${charLimit} characters or fewer. Keep the hook and the punchline. Remove filler, not substance.\n\nPost:\n"${refined}"\n\nReturn ONLY the shortened post (max ${charLimit} chars):`,
-            { temperature: 0.3, role: 'draft', maxTokens: maxTokensForRole('refine', network) },
+            `Cut this ${network} post to ${charLimit} characters or fewer. Keep the hook and the punchline. Remove filler, not substance. Preserve the original language (${langName}).\n\nPost:\n"${refined}"\n\nReturn ONLY the shortened post (max ${charLimit} chars):`,
+            { temperature: 0.3, role: 'refine', maxTokens: maxTokensForRole('refine', network) },
           );
           refineTokens += cutResponse.tokens ?? 0;
           refineCost += cutResponse.cost ?? 0;
