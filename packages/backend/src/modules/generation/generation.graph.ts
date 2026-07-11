@@ -663,6 +663,15 @@ function makeCritiqueNode(network: SocialNetwork, promptPort: IPromptPort) {
     const humanizeInstruction = buildHumanizeInstruction(netResult.draft, lang);
     const gateInstructions = [baitInstruction, humanizeInstruction].filter(Boolean).join('\n');
 
+    // Q10: Humor-landing check — only meaningful when this post was drafted
+    // with a humor mechanic (Q5). Mirrors makeDraftNode's own mechanic lookup.
+    const critiqueMechanic = netResult.humorMechanicId
+      ? (HUMOR_MECHANICS_BY_ID[netResult.humorMechanicId] ?? null)
+      : null;
+    const humorCheck = critiqueMechanic
+      ? '\n11. [Humor check] Does the joke actually land — punchline last, one line, punching at planets/situations/the narrator and never at people or groups? If it reads forced, flag it and say so.\n'
+      : '';
+
     const critiqueVariables = {
       network,
       charLimit: String(charLimit),
@@ -671,6 +680,7 @@ function makeCritiqueNode(network: SocialNetwork, promptPort: IPromptPort) {
       draft: netResult.draft,
       baitInstruction: gateInstructions ? `\n${gateInstructions}\n` : '',
       slopList: getSlopListForPrompt(lang),
+      humorCheck,
     };
 
     const critiquePrompt = await promptPort.getCompiledText('critique-post', critiqueVariables, CRITIQUE_POST_PROMPT);

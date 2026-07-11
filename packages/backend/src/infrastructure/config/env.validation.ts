@@ -61,7 +61,7 @@ const envSchema = Joi.object({
   // Q1: Per-role provider routing defaults. Creative roles use strong models;
   // analytical roles use the cheapest available chain.
   LLM_ROLE_CHAINS: Joi.string().default(
-    'draft=openai,anthropic,google;hook=openai,anthropic,google;critique=groq,cerebras,sambanova;judge=groq,cerebras,sambanova;facts=groq,cerebras,sambanova;utility=groq,cerebras,sambanova',
+    'draft=anthropic,google,openai;hook=anthropic,google,openai;critique=groq,cerebras,sambanova;judge=groq,cerebras,sambanova;facts=groq,cerebras,sambanova;utility=groq,cerebras,sambanova',
   ),
   // Per-generation-stage temperature overrides
   GENERATION_TEMPERATURE_HOOK: Joi.number().min(0).max(2).default(0.95),

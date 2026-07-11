@@ -231,7 +231,7 @@ Check these things:
 8. No engagement bait (asking for likes/comments/shares/tags/follows)?
 9. Does it have OPINION and PERSONALITY, or is it bland and "informative"?
 10. Does it have at least ONE concrete specific detail (a time, a place, a body sensation, an object)?
-
+{humorCheck}
 Draft:
 "{draft}"
 

@@ -1121,7 +1121,7 @@ export class GenerationService {
       const systemPrompt = `You are a social media writer for My Zodiac AI, an astrology platform.
 Write a short follow-up post (under 280 chars) that continues the conversation from the root post.
 Do NOT use "link in bio" — instead tease more content or ask an engaging question.
-Keep it mystical-but-grounded, accessible, empowering. No fear-mongering.
+Keep it mystical-but-grounded, accessible, and gives you agency, not fatalism. No fear-mongering.
 Return ONLY the post text, no preamble.`;
 
       const userPrompt = `Topic: ${topic}
@@ -1162,7 +1162,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
       return this.brandVoice;
     } catch {
       this.logger.warn('brand-voice.md not found — using minimal guidelines');
-      this.brandVoice = 'Mystical-but-grounded, accessible, empowering. No fear-mongering.';
+      this.brandVoice = 'Mystical-but-grounded, accessible, and gives you agency, not fatalism. No fear-mongering.';
       return this.brandVoice;
     }
   }
