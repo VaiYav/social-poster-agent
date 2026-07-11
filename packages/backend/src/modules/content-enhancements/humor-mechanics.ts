@@ -52,6 +52,21 @@ export const HUMOR_MECHANICS: HumorMechanic[] = [
     name: 'Meta-irony',
     guidance: 'Acknowledge you are an astrology account doing astrology-account things, wink at it, move on. Self-aware but not self-loathing.',
   },
+  {
+    id: 'irony',
+    name: 'Irony',
+    guidance: 'Frame an outcome as if it were the plan all along when it obviously was not, or say the opposite of what actually happened. Let the gap between words and reality do the work — do not point it out.',
+  },
+  {
+    id: 'post_irony',
+    name: 'Post-irony',
+    guidance: 'Deliver something absurd or oddly vulnerable completely straight — no wink, no twist, no tell. It should be genuinely unclear whether you mean it. The ambiguity is the joke, not a reveal at the end.',
+  },
+  {
+    id: 'sarcasm',
+    name: 'Sarcasm',
+    guidance: 'Say the opposite of what you mean, dripping with obvious insincerity — aimed at the cosmic situation or the narrator\'s own choices, never at the reader. ("Sure, Saturn, great timing, love this for me.")',
+  },
 ];
 
 /** Shared safety + delivery rules appended whenever a mechanic is injected. */
