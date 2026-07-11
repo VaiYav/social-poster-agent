@@ -244,7 +244,11 @@ function maxTokensForRole(role: 'facts' | 'hook' | 'critique' | 'judge' | 'draft
     case 'hook':
       return 150;
     case 'critique':
-      return 256;
+      // Critique prompt asks for 10 rubric checks + a final SCORE/VERDICT.
+      // 256 tokens truncates the response before the SCORE line, leaving
+      // qualityScore undefined and blocking auto-approve. 512 gives enough
+      // headroom for the critique without materially increasing cost.
+      return 512;
     case 'judge':
       return 700;
     case 'draft':

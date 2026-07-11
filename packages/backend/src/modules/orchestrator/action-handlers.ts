@@ -97,7 +97,11 @@ export class GeneratePostsHandler implements IActionHandler {
         });
         for (const post of posts) {
           try {
-            const result = await autoApprove.evaluate(post.id, post.content, post.network, undefined);
+            const meta = post.llmMetadata && typeof post.llmMetadata === 'object'
+              ? (post.llmMetadata as Record<string, unknown>)
+              : {};
+            const qualityScore = typeof meta.qualityScore === 'number' ? meta.qualityScore : undefined;
+            const result = await autoApprove.evaluate(post.id, post.content, post.network, qualityScore);
             if (result.decision === 'AUTO_APPROVE') {
               postsApproved++;
             }
