@@ -42,11 +42,13 @@ type RoleName = 'facts' | 'hook' | 'draft' | 'refine' | 'critique' | 'judge';
 
 interface ScriptedLlm extends ILlmPort {
   counts: Record<RoleName, number>;
+  maxTokens: Record<RoleName, number | undefined>;
 }
 
 /** Role-dispatched mock LLM — handlers receive the per-role call index. */
 function makeLlm(handlers: Partial<Record<RoleName, (idx: number) => string>> = {}): ScriptedLlm {
   const counts: Record<RoleName, number> = { facts: 0, hook: 0, draft: 0, refine: 0, critique: 0, judge: 0 };
+  const maxTokens: Record<RoleName, number | undefined> = { facts: undefined, hook: undefined, draft: undefined, refine: undefined, critique: undefined, judge: undefined };
   const defaults: Record<RoleName, string> = {
     facts: '1. Mercury retrograde happens 3-4 times a year',
     hook: '1. hook alpha\n2. hook beta\n3. hook gamma',
@@ -69,6 +71,7 @@ function makeLlm(handlers: Partial<Record<RoleName, (idx: number) => string>> = 
     }
     const idx = counts[type];
     counts[type] += 1;
+    maxTokens[type] = options?.maxTokens;
     const content = handlers[type]?.(idx) ?? defaults[type];
     return { content, model: 'mock/llm', tokens: 10 };
   });
@@ -78,6 +81,7 @@ function makeLlm(handlers: Partial<Record<RoleName, (idx: number) => string>> = 
     generateChat,
     getPromptVersion: vi.fn(() => 'test'),
     counts,
+    maxTokens,
   };
 }
 
@@ -225,5 +229,38 @@ describe('Quality pass — generation graph', () => {
       config,
     );
     expect(postsOf(resumed)[0]?.content).toBe('edited by a human reviewer');
+  });
+
+  it('QP-007: critique maxTokens is at least 512 so the SCORE/VERDICT lines are not truncated', async () => {
+    const llm = makeLlm();
+    const compiled = buildGenerationGraph(llm).compile();
+    await compiled.invoke(
+      createInitialState(createTopic(), [SocialNetwork.X], 'brand voice'),
+      { configurable: { thread_id: 'qp-007' } },
+    );
+
+    expect(llm.maxTokens.critique).toBeGreaterThanOrEqual(512);
+  });
+
+  it('QP-008: qualityScore is parsed from critique response and stored on the generated post', async () => {
+    const llm = makeLlm({ critique: () => 'Solid, specific, human.\nSCORE: 7\nVERDICT: GOOD' });
+    const compiled = buildGenerationGraph(llm).compile();
+    const state = await compiled.invoke(
+      createInitialState(createTopic(), [SocialNetwork.X], 'brand voice'),
+      { configurable: { thread_id: 'qp-008' } },
+    );
+
+    expect(postsOf(state)[0]?.qualityScore).toBe(7);
+  });
+
+  it('QP-009: critique response without a SCORE leaves qualityScore undefined', async () => {
+    const llm = makeLlm({ critique: () => 'Solid, specific, human. No score line here.' });
+    const compiled = buildGenerationGraph(llm).compile();
+    const state = await compiled.invoke(
+      createInitialState(createTopic(), [SocialNetwork.X], 'brand voice'),
+      { configurable: { thread_id: 'qp-009' } },
+    );
+
+    expect(postsOf(state)[0]?.qualityScore).toBeUndefined();
   });
 });

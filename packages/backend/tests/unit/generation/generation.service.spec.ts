@@ -223,6 +223,7 @@ let contentSource: ReturnType<typeof createMockContentSourceService>;
 let accounts: ReturnType<typeof createMockAccountsService>;
 let posts: ReturnType<typeof createMockPostsService>;
 let checkpoint: ReturnType<typeof createMockCheckpointSaver>;
+let abVariantService: { createVariants: ReturnType<typeof vi.fn> };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -252,6 +253,7 @@ beforeEach(() => {
   prisma.postThread.create.mockResolvedValue({ id: 'thread-001' });
   sse = createMockSseService();
   checkpoint = createMockCheckpointSaver();
+  abVariantService = { createVariants: vi.fn().mockResolvedValue(undefined) };
 
   service = new GenerationService(
     llm,
@@ -262,6 +264,8 @@ beforeEach(() => {
     checkpoint as any,
     sse as any,
   );
+  // Inject the mock A/B variant service so persistPostVariants runs in tests.
+  (service as any).abVariantService = abVariantService;
 });
 
 afterEach(() => {
@@ -304,6 +308,28 @@ describe('GenerationService', () => {
       }));
       expect(sse.publish).toHaveBeenCalledWith(expect.objectContaining({ type: 'generation_started', runId: 'run-001', count: 1 }));
       expect(sse.publish).toHaveBeenCalledWith(expect.objectContaining({ type: 'generation_completed', runId: 'run-001' }));
+    });
+
+    it('UTC-200a: persists PostVariants for each generated post', async () => {
+      contentSource.getTopics.mockResolvedValue([TOPIC_1]);
+      mockInvoke.mockResolvedValue({
+        posts: [
+          genPost(SocialNetwork.X, 'Mercury retrograde starts July 14 for X!'),
+          genPost(SocialNetwork.THREADS, 'Mercury retrograde starts July 14 for Threads!'),
+        ],
+        facts: TOPIC_1.facts,
+      });
+
+      await service.generate(1, [SocialNetwork.X, SocialNetwork.THREADS]);
+
+      expect(abVariantService.createVariants).toHaveBeenCalledTimes(2);
+      expect(abVariantService.createVariants).toHaveBeenCalledWith(
+        expect.any(String),
+        SocialNetwork.X,
+        'Mercury retrograde starts July 14 for X!',
+        null,
+        undefined,
+      );
     });
 
     it('UTC-201: empty topics → run marked with error message, 0 posts', async () => {
