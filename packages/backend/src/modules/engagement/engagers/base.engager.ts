@@ -364,11 +364,13 @@ export abstract class BaseEngager extends BasePoster {
     if (isDisabled) {
       this.logger.warn('Comment submit button is disabled — text may not have registered. Retrying with keyboard.type()...');
       // Clear and re-type using keyboard.type() (last resort for React contenteditable)
+      // Use Backspace (not Delete) and a slower delay to avoid dropped characters
+      // in multilingual content, matching the X poster strategy.
       await input.locator.click({ force: true }).catch(() => {});
       await page.keyboard.press('Control+a').catch(() => {});
-      await page.keyboard.press('Delete').catch(() => {});
+      await page.keyboard.press('Backspace').catch(() => {});
       await this.browser.randomDelay(200, 500);
-      await page.keyboard.type(text, { delay: 30 });
+      await page.keyboard.type(text, { delay: 50 });
       await this.browser.randomDelay(1000, 2000);
 
       // Re-check if button is now enabled
@@ -397,64 +399,77 @@ export abstract class BaseEngager extends BasePoster {
 
   /**
    * Type text into a React-based contenteditable div (Threads, X).
-   * Uses execCommand('insertText') first (fires the input events React needs),
-   * then falls back to keyboard.type() if execCommand fails.
+   * Uses execCommand('insertText') and a proper DraftJS InputEvent('beforeinput')
+   * to update React state, then falls back to keyboard.type() if text was not
+   * actually entered. Verifies the DOM text to avoid false positives.
    */
   protected async typeIntoContenteditable(page: Page, locator: import('playwright-core').Locator, text: string): Promise<void> {
-    // Strategy 1: execCommand('insertText') — fires the input events React/DraftJS need
-    try {
-      await locator.focus({ timeout: 5000 });
-    } catch {
-      await locator.click({ force: true, timeout: 5000 }).catch(() => {});
-    }
-    await this.browser.randomDelay(300, 800);
+    const trimmedText = text.trim();
+    const minLength = Math.max(1, Math.floor(trimmedText.length * 0.8));
 
-    const inserted = await page.evaluate((value: string) => {
-      const el = document.activeElement as HTMLElement | null;
-      if (el && el.isContentEditable) {
-        // Focus ensures execCommand targets the right element
-        el.focus();
-        // Clear any existing content first
-        const sel = window.getSelection();
-        if (sel) {
-          sel.selectAllChildren(el);
-          sel.deleteFromDocument();
+    // Strategy 1: execCommand('insertText') with InputEvent('beforeinput') + InputEvent('input')
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        await locator.focus({ timeout: 5000 }).catch(() => {});
+        await locator.click({ force: true, timeout: 5000 }).catch(() => {});
+        await this.browser.randomDelay(200, 400);
+
+        const inserted = await locator.evaluate((el: HTMLElement, value: string) => {
+          if (!el.isContentEditable) return false;
+          el.focus();
+
+          // Select all existing content and replace it
+          const selection = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+
+          const ok = document.execCommand('insertText', false, value);
+
+          // DraftJS listens to InputEvent('beforeinput') with inputType='insertText'.
+          // Firefox/Camoufox execCommand does not fire this, so dispatch it explicitly.
+          try {
+            el.dispatchEvent(new InputEvent('beforeinput', {
+              bubbles: true,
+              cancelable: true,
+              inputType: 'insertText',
+              data: value,
+              dataTransfer: null,
+              isComposing: false,
+            }));
+            el.dispatchEvent(new InputEvent('input', {
+              bubbles: true,
+              inputType: 'insertText',
+              data: value,
+            }));
+          } catch {
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+
+          return ok || true;
+        }, text).catch(() => false);
+
+        if (inserted) {
+          const innerText = await locator.innerText().catch(() => '');
+          if (innerText.trim().length >= minLength) {
+            this.logger.debug('Comment text entered via execCommand insertText');
+            return;
+          }
         }
-        const ok = document.execCommand('insertText', false, value);
-        // Firefox/Camoufox: execCommand may not fire beforeinput that DraftJS needs.
-        // Dispatch proper InputEvent objects to ensure React state updates.
-        try {
-          el.dispatchEvent(new InputEvent('beforeinput', {
-            bubbles: true,
-            cancelable: true,
-            inputType: 'insertText',
-            data: value,
-            dataTransfer: null,
-            isComposing: false,
-          }));
-          el.dispatchEvent(new InputEvent('input', {
-            bubbles: true,
-            inputType: 'insertText',
-            data: value,
-          }));
-        } catch {
-          // InputEvent constructor unavailable — fallback below
-        }
-        return ok || true;
+      } catch (err) {
+        this.logger.debug(`typeIntoContenteditable attempt ${attempt} failed: ${(err as Error).message}`);
       }
-      return false;
-    }, text);
 
-    if (inserted) {
-      this.logger.debug('Comment text entered via execCommand insertText');
-      return;
+      if (page.isClosed?.()) break;
+      await this.browser.randomDelay(300, 600);
     }
 
     // Strategy 2: keyboard.type() — sends real key events that React processes
     this.logger.warn('execCommand insertText failed for comment — falling back to keyboard.type()');
     try {
       await locator.click({ force: true }).catch(() => {});
-      await page.keyboard.type(text, { delay: 30 });
+      await page.keyboard.type(text, { delay: 50 });
     } catch {
       // Strategy 3: last resort — pressSequentially
       this.logger.warn('keyboard.type() failed for comment — falling back to pressSequentially');
@@ -550,9 +565,9 @@ export abstract class BaseEngager extends BasePoster {
       this.logger.warn('Quote submit button is disabled — retrying with keyboard.type()...');
       await input.locator.click({ force: true }).catch(() => {});
       await page.keyboard.press('Control+a').catch(() => {});
-      await page.keyboard.press('Delete').catch(() => {});
+      await page.keyboard.press('Backspace').catch(() => {});
       await this.browser.randomDelay(200, 500);
-      await page.keyboard.type(text, { delay: 30 });
+      await page.keyboard.type(text, { delay: 50 });
       await this.browser.randomDelay(1000, 2000);
       const stillDisabled = await this.isSubmitDisabled(submit.locator);
       if (stillDisabled) {

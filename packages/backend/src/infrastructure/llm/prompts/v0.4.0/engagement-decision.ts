@@ -43,7 +43,9 @@ WHAT MAKES YOU SCROLL:
 
 Respond as JSON: {"action": "...", "reason": "...", "confidence": 0.0-1.0}
 If action is "comment", also include "commentText": "..."
-If action is "quote", also include "quoteText": "..."`;
+If action is "quote", also include "quoteText": "..."
+
+LANGUAGE CRITICAL: If the post's detected language is not English, the commentText or quoteText MUST be written in that same language. English replies on non-English posts look like a bot.`;
 
 export const ENGAGEMENT_DECISION_USER_TEMPLATE = `You're scrolling. Here's a post in your feed:
 
@@ -199,6 +201,8 @@ Respond as a JSON array with {count} elements, one per post, in order:
 [{{"action": "...", "reason": "...", "confidence": 0.0-1.0}}, ...]
 If an action is "comment", include "commentText": "..." — and make it a GOOD comment, not a generic one.
 If an action is "quote", include "quoteText": "..." — and make it a sharp, original take.
+
+LANGUAGE CRITICAL: For each commentText/quoteText, use the detected language of that post. Do NOT reply in English to a non-English post.
 
 Posts:
 

@@ -30,7 +30,7 @@ import {
   parseQuoteResponse,
 } from '../../infrastructure/llm/prompts/v0.4.0/engagement-decision.js';
 import { matchesScript, normalizeLanguage } from '../../infrastructure/util/script-check.js';
-import { detectLanguage } from '../../infrastructure/util/language-detector.js';
+import { detectLanguage, isLanguageDetectable } from '../../infrastructure/util/language-detector.js';
 
 @Injectable()
 export class EngagementDecisionService implements IEngagementDecisionPort {
@@ -79,11 +79,11 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       const budgetOverride = this.enforceBudget(decision, context);
       if (budgetOverride) return budgetOverride;
 
-      // If LLM decided 'comment' but didn't provide commentText, generate it.
+      // If LLM decided 'comment', ensure commentText exists and is in the right language.
       // If generation fails (returns null), downgrade to like (or read if like
       // budget exhausted) — never post a generic fallback comment.
-      if (decision.action === 'comment' && !decision.commentText) {
-        const comment = await this.generateComment(context);
+      if (decision.action === 'comment') {
+        const comment = await this.validateOrGenerateText(context, decision.commentText, 'comment');
         if (comment === null) {
           if (context.likesThisSession < context.likesMaxPerSession) {
             this.logger.warn(`LLM comment generation failed — downgrading comment → like`);
@@ -95,11 +95,11 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
         decision.commentText = comment;
       }
 
-      // If LLM decided 'quote' but didn't provide quoteText, generate it.
+      // If LLM decided 'quote', ensure quoteText exists and is in the right language.
       // If generation fails (returns null), downgrade to read — never post a
       // generic fallback quote.
-      if (decision.action === 'quote' && !decision.quoteText) {
-        const quote = await this.generateQuoteText(context);
+      if (decision.action === 'quote') {
+        const quote = await this.validateOrGenerateText(context, decision.quoteText, 'quote');
         if (quote === null) {
           this.logger.warn(`LLM quote generation failed — downgrading quote → read`);
           return { action: 'read', reason: 'Quote generation failed, downgraded to read', confidence: 0.6 };
@@ -145,12 +145,36 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
 
       const decisions = parseBatchDecisionResponse(response.content, contexts.length);
 
-      // Budget enforcement per-post (same logic as decideAction)
-      return decisions.map((decision, i) => {
-        const ctx = contexts[i]!;
-        const budgetOverride = this.enforceBudget(decision, ctx);
-        return budgetOverride ?? decision;
-      });
+      // Budget enforcement per-post (same logic as decideAction) plus language validation
+      // for any comment/quote text the batch decision produced.
+      return await Promise.all(
+        decisions.map(async (decision, i) => {
+          const ctx = contexts[i]!;
+          const budgetOverride = this.enforceBudget(decision, ctx);
+          if (budgetOverride) return budgetOverride;
+
+          if (decision.action === 'comment') {
+            const text = await this.validateOrGenerateText(ctx, decision.commentText, 'comment');
+            if (text === null) {
+              if (ctx.likesThisSession < ctx.likesMaxPerSession) {
+                return { action: 'like' as const, reason: 'Comment generation failed in batch', confidence: 0.6 };
+              }
+              return { action: 'read' as const, reason: 'Comment generation failed in batch', confidence: 0.6 };
+            }
+            decision.commentText = text;
+          }
+
+          if (decision.action === 'quote') {
+            const text = await this.validateOrGenerateText(ctx, decision.quoteText, 'quote');
+            if (text === null) {
+              return { action: 'read' as const, reason: 'Quote generation failed in batch', confidence: 0.6 };
+            }
+            decision.quoteText = text;
+          }
+
+          return decision;
+        }),
+      );
     } catch (err) {
       this.logger.warn(`LLM batch decision failed, falling back to individual: ${(err as Error).message.slice(0, 100)}`);
       // Fall back to individual calls (which have their own fallback logic)
@@ -235,6 +259,24 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
   }
 
   /**
+   * Validate a piece of text provided by a decision LLM. If it is missing or fails
+   * language/script validation, generate a fresh one via the dedicated generation prompt.
+   */
+  private async validateOrGenerateText(
+    context: PostContext,
+    existingText: string | undefined,
+    kind: 'comment' | 'quote',
+  ): Promise<string | null> {
+    const detectedLanguage = detectLanguage(context.postText);
+    if (existingText) {
+      const validated = this.validateGeneratedText(existingText, undefined, detectedLanguage, kind);
+      if (validated) return validated;
+      this.logger.warn(`LLM ${kind} text failed language validation, generating new ${kind}`);
+    }
+    return kind === 'comment' ? this.generateComment(context) : this.generateQuoteText(context);
+  }
+
+  /**
    * Probabilistic fallback decision (when LLM is unavailable).
    * Uses the same distribution as the original Math.random() approach
    * but with budget awareness.
@@ -266,24 +308,26 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
     const forbidden = [
       'my-zodiac-ai.com', 'myzodiacai.com', 'myzodiac.ai', 'check out our', 'check out my',
       'http://', 'https://', 'bit.ly', 'tinyurl',
-      'great post', 'love this', 'thanks for sharing', 'spot on',
+      'great post', 'love this', 'love this post', 'thanks for sharing', 'spot on',
       'this resonates', 'very interesting',
+      'nice one', 'well said', 'good point', 'great point', 'what a post',
+      'agreed', 'absolutely', 'exactly', 'totally', 'so true', 'makes sense',
+      'thanks', 'thank you',
     ];
     return forbidden.some((f) => lower.includes(f));
   }
 
   /**
    * Post-validation: verify that the LLM-generated text uses the script of the
-   * language it claimed to detect. Catches the #1 bot tell — English text
-   * returned for a non-English post/comment.
+   * target language. Catches the #1 bot tell — English text returned for a
+   * non-English post/comment.
    *
    * @param text - The generated comment/quote text
-   * @param language - The language the LLM claimed (may be undefined for backward compat)
+   * @param language - The target language code (always normalized to the detected post language)
    * @param kind - 'comment' or 'quote' (for logging only)
-   * @returns true if the script matches (or language is missing → skip validation)
+   * @returns true if the script matches
    */
-  private validateScriptMatch(text: string, language: string | undefined, kind: 'comment' | 'quote'): boolean {
-    if (!language) return true; // backward compat — no language field, skip validation
+  private validateScriptMatch(text: string, language: string, kind: 'comment' | 'quote'): boolean {
     const lang = normalizeLanguage(language);
     if (matchesScript(text, lang)) return true;
     this.logger.warn(
@@ -294,7 +338,9 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
 
   /**
    * Shared post-processing for LLM-generated comment/quote text.
-   * Validates language script and forbidden patterns in one place.
+   * Validates detected language, script, and forbidden patterns.
+   * The generated text must match the post's detected language. When the text is
+   * too short for reliable language detection we keep the script+forbidden checks.
    */
   private validateGeneratedText(
     text: string,
@@ -302,19 +348,36 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
     detectedLanguage: string,
     kind: 'comment' | 'quote',
   ): string | null {
+    // The source of truth is the deterministic language detector on the post text;
+    // the LLM's self-reported language is advisory only.
     const outputLanguage = language === detectedLanguage ? language : detectedLanguage;
-    if (language !== detectedLanguage) {
+    if (language && language !== detectedLanguage) {
       this.logger.warn(
         `${kind[0]!.toUpperCase() + kind.slice(1)} language mismatch: LLM said ${language}, detector said ${detectedLanguage} — using ${outputLanguage}`,
       );
     }
+
     if (!this.validateScriptMatch(text, outputLanguage, kind)) {
       return null;
     }
+
     if (this.isForbiddenComment(text)) {
       this.logger.warn(`LLM generated forbidden ${kind}, returning null: "${text.slice(0, 80)}"`);
       return null;
     }
+
+    // For detectable text of reasonable length, run the actual language detector on the
+    // generated text to catch Latin-to-Latin mismatches (e.g. English on Spanish).
+    if (text.length >= 15 && isLanguageDetectable(text)) {
+      const generatedLang = detectLanguage(text);
+      if (generatedLang !== outputLanguage) {
+        this.logger.warn(
+          `${kind[0]!.toUpperCase() + kind.slice(1)} language mismatch: generated ${generatedLang}, expected ${outputLanguage} — "${text.slice(0, 80)}"`,
+        );
+        return null;
+      }
+    }
+
     return text;
   }
 

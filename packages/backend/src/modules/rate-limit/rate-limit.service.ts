@@ -191,18 +191,18 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     // Fall back to individual GETs for older test mocks that don't expose mget.
     const [dailyStr, weeklyStr, intervalStr] = await this.getMultiple([dailyKey, weeklyKey, intervalKey]);
 
-    // Check daily limit (read-only — don't increment yet)
+    // Check daily limit (read-only — don't increment yet). A limit of 0 means unlimited.
     const dailyCount = parseInt(dailyStr ?? '0', 10);
-    if (dailyCount >= dailyLimit) {
+    if (dailyLimit > 0 && dailyCount >= dailyLimit) {
       return {
         allowed: false,
         reason: `Daily limit reached for ${network} (${dailyCount}/${dailyLimit})`,
       };
     }
 
-    // Check weekly limit
+    // Check weekly limit. A limit of 0 means unlimited.
     const weeklyCount = parseInt(weeklyStr ?? '0', 10);
-    if (weeklyCount >= weeklyLimit) {
+    if (weeklyLimit > 0 && weeklyCount >= weeklyLimit) {
       return {
         allowed: false,
         reason: `Weekly limit reached for ${network} (${weeklyCount}/${weeklyLimit})`,
@@ -254,6 +254,23 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     if (intervalMs > 0) {
       await this.redis.set(intervalKey, Date.now().toString(), 'PX', intervalMs);
     }
+  }
+
+  /**
+   * Reset rate limit counters for a network (and optional action suffix).
+   * Useful for operational recovery when a limit was reached unintentionally.
+   */
+  async resetRateLimit(network: string): Promise<void> {
+    if (!this.redis) return;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const weekStart = this.getWeekStart().toISOString().slice(0, 10);
+    const dailyKey = `${this.prefix}:${network}:daily:${today}`;
+    const weeklyKey = `${this.prefix}:${network}:weekly:${weekStart}`;
+    const intervalKey = `${this.prefix}:${network}:interval`;
+
+    await this.redis.del(dailyKey, weeklyKey, intervalKey);
+    this.logger.warn(`Rate limit counters reset for ${network}`);
   }
 
   /**
