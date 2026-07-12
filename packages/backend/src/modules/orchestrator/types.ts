@@ -31,6 +31,8 @@ export interface SessionState {
 export interface RateLimitState {
   dailyRemaining: number;
   weeklyRemaining: number;
+  dailyLimit: number;
+  weeklyLimit: number;
   minIntervalMs: number;
   lastPostMs: number;
 }

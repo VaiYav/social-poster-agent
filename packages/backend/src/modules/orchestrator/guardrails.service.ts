@@ -29,11 +29,16 @@ export class GuardrailsService {
       return WAIT_ACTION(`Network ${action.network} not enabled`, 60000, 'guardrail_override');
     }
 
-    // G3: POST requires rate limit remaining
+    // G3: POST requires rate limit remaining (daily AND weekly)
+    // A weekly limit of 0 means unlimited, so the weeklyRemaining check is skipped
+    // when the limit is configured as 0.
     if (action.type === 'POST' && action.network) {
-      const remaining = world.rateLimits[action.network]?.dailyRemaining ?? 0;
-      if (remaining === 0) {
-        return WAIT_ACTION(`Rate limit exhausted for ${action.network}`, 300000, 'guardrail_override');
+      const rl = world.rateLimits[action.network];
+      if (!rl || rl.dailyRemaining === 0) {
+        return WAIT_ACTION(`Daily rate limit exhausted for ${action.network}`, 300000, 'guardrail_override');
+      }
+      if (rl.weeklyLimit > 0 && rl.weeklyRemaining === 0) {
+        return WAIT_ACTION(`Weekly rate limit exhausted for ${action.network}`, 600000, 'guardrail_override');
       }
     }
 
@@ -78,6 +83,8 @@ export class GuardrailsService {
         net,
         inWindow: world.inPostingWindow[net],
         dailyRemaining: world.rateLimits[net]?.dailyRemaining ?? 0,
+        weeklyRemaining: world.rateLimits[net]?.weeklyRemaining ?? 0,
+        weeklyLimit: world.rateLimits[net]?.weeklyLimit ?? 0,
         status: world.sessions[net]?.status,
         circuitBreaker: world.sessions[net]?.circuitBreaker,
         lastPostMs: world.rateLimits[net]?.lastPostMs ?? 0,
@@ -86,9 +93,12 @@ export class GuardrailsService {
       this.logger.debug(`G8 ready networks: ${JSON.stringify(readyDebug)}`);
       for (const net of networks) {
         if (world.sessions[net]?.circuitBreaker === 'open') continue;
+        const rl = world.rateLimits[net];
+        const weeklyReady = rl ? (rl.weeklyLimit > 0 ? rl.weeklyRemaining > 0 : true) : false;
         if (
           world.inPostingWindow[net] &&
-          (world.rateLimits[net]?.dailyRemaining ?? 0) > 0 &&
+          (rl?.dailyRemaining ?? 0) > 0 &&
+          weeklyReady &&
           world.sessions[net]?.status === 'ACTIVE' &&
           (world.drafts.approvedByNetwork[net] ?? 0) > 0
         ) {

@@ -208,12 +208,14 @@ export class StateCollectorService {
             {
               dailyRemaining: Math.max(0, status.dailyLimit - status.dailyCount),
               weeklyRemaining: Math.max(0, status.weeklyLimit - status.weeklyCount),
+              dailyLimit: status.dailyLimit,
+              weeklyLimit: status.weeklyLimit,
               minIntervalMs: status.minIntervalMs,
               lastPostMs: status.lastPostAt ?? 0,
             },
           ] as const;
         } catch {
-          return [network, { dailyRemaining: 0, weeklyRemaining: 0, minIntervalMs: 0, lastPostMs: 0 }] as const;
+          return [network, { dailyRemaining: 0, weeklyRemaining: 0, dailyLimit: 0, weeklyLimit: 0, minIntervalMs: 0, lastPostMs: 0 }] as const;
         }
       }),
     );
