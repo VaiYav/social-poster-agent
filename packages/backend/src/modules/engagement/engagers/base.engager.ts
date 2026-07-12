@@ -173,8 +173,10 @@ export abstract class BaseEngager extends BasePoster {
                 const links = await page.locator(resolution.selector).all();
                 for (const link of links) {
                   const href = await link.getAttribute('href').catch(() => null);
-                  if (href && !postUrls.includes(href)) {
-                    postUrls.push(href.startsWith('http') ? href : this.resolveAbsoluteUrl(href));
+                  if (!href) continue;
+                  const postUrl = href.startsWith('http') ? href : this.resolveAbsoluteUrl(href);
+                  if (this.isValidPostUrl(postUrl) && !postUrls.includes(postUrl)) {
+                    postUrls.push(postUrl);
                     if (postUrls.length >= maxPostUrls) return;
                   }
                 }
@@ -195,8 +197,10 @@ export abstract class BaseEngager extends BasePoster {
                   const links = await page.locator(css).all();
                   for (const link of links) {
                     const href = await link.getAttribute('href').catch(() => null);
-                    if (href && !postUrls.includes(href)) {
-                      postUrls.push(href.startsWith('http') ? href : this.resolveAbsoluteUrl(href));
+                    if (!href) continue;
+                    const postUrl = href.startsWith('http') ? href : this.resolveAbsoluteUrl(href);
+                    if (this.isValidPostUrl(postUrl) && !postUrls.includes(postUrl)) {
+                      postUrls.push(postUrl);
                       if (postUrls.length >= maxPostUrls) return;
                     }
                   }
@@ -232,6 +236,15 @@ export abstract class BaseEngager extends BasePoster {
       FACEBOOK: 'https://www.facebook.com',
     };
     return href.startsWith('http') ? href : `${domains[this.network]}${href}`;
+  }
+
+  /**
+   * Hook for concrete engagers to reject URLs that look like post links but lead
+   * to non-post pages (e.g. X /status/.../analytics, /retweets, /likes).
+   * Default: accept all collected URLs.
+   */
+  protected isValidPostUrl(postUrl: string): boolean {
+    return true;
   }
 
   /**

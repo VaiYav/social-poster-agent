@@ -18,6 +18,20 @@ export class XEngager extends BaseEngager {
     super(browser);
   }
 
+  /**
+   * X.com feeds expose many non-post links under `/status/` (analytics, retweets,
+   * likes, quotes, photo, video, etc.). Navigating to them causes extraction
+   * timeouts and page crashes, so reject anything that is not a clean post URL.
+   */
+  protected isValidPostUrl(postUrl: string): boolean {
+    try {
+      const url = new URL(postUrl);
+      return /^\/[A-Za-z0-9_]+\/status\/\d+(\?.*)?$/.test(url.pathname + url.search);
+    } catch {
+      return false;
+    }
+  }
+
   async like(page: Page, postUrl: string): Promise<EngagementResult> {
     try {
       await this.navigate(page, postUrl, 'domcontentloaded');
