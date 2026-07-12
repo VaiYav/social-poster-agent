@@ -271,6 +271,14 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
       'browser.cache.disk.enable': false,
       'browser.cache.memory.capacity': 16384,
       'media.memory_cache_max_size': 8192,
+      // Media decode — disable the RDD (Remote Data Decoder) process and HW video decoding.
+      // X/Threads permalink pages contain <video> elements that can start the RDD process;
+      // in headless/container environments without VAAPI/GLX the RDD process can crash and
+      // take the renderer page with it ("Page crashed during ..."). Engagement already blocks
+      // media network requests, so playback is not needed. This keeps the renderer alive.
+      'media.rdd-process.enabled': false,
+      'media.hardware-video-decoding.enabled': false,
+      'media.ffmpeg.enable-vaapi': false,
       // JS GC — trigger GC earlier (128 MB high-water mark vs default ~256 MB),
       // run incremental GC slices more frequently, compact on user inactive.
       // Reduces resident JS heap without affecting execution correctness.
