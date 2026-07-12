@@ -113,6 +113,29 @@ export class PostingService {
     await this.abVariantService.recordPosted(postId, new Date()).catch(() => {});
   }
 
+  /**
+   * P0-H4: Persist session state (cookies/localStorage) after a successful post.
+   * Best-effort: if the browser context has already crashed/closed, storageState()
+   * can throw "browserContext.storageState: Target page, context or browser has been
+   * closed". In that case the post itself is already live, so we must NOT mark it
+   * FAILED just because we could not save the session. We log the degradation and
+   * continue — the next post will re-login if needed.
+   */
+  private async persistSessionState(
+    context: Awaited<ReturnType<IBrowserPort['acquireContext']>>,
+    sessionId: string,
+    postId: string,
+  ): Promise<void> {
+    try {
+      const state = await this.browser.saveStorageState(context);
+      await this.sessionsService.updateStorageState(sessionId, state);
+    } catch (err) {
+      this.logger.warn(
+        `Failed to persist session state for post ${postId}: ${(err as Error).message}`,
+      );
+    }
+  }
+
   async postById(postId: string): Promise<{ success: boolean; url?: string; error?: string; retryable?: boolean }> {
     const post = await this.postsService.findById(postId);
 
@@ -396,8 +419,7 @@ export class PostingService {
               this.logger.warn(
                 `Self-recovery: post ${postId} is already live (${existingUrl}) — skipping re-post to avoid a duplicate`,
               );
-              const recoveredState = await this.browser.saveStorageState(context);
-              await this.sessionsService.updateStorageState(freshSession.id, recoveredState);
+              await this.persistSessionState(context, freshSession.id, postId);
               result = { url: existingUrl };
               recoverySucceeded = true;
               break;
@@ -412,9 +434,7 @@ export class PostingService {
               );
             } else {
               this.logger.log(`Self-recovery succeeded on attempt ${attempt} for ${postId} — post published`);
-              // Save fresh session state
-              const updatedState = await this.browser.saveStorageState(context);
-              await this.sessionsService.updateStorageState(freshSession.id, updatedState);
+              await this.persistSessionState(context, freshSession.id, postId);
               recoverySucceeded = true;
               break;
             }
@@ -447,8 +467,7 @@ export class PostingService {
 
       // Save updated session state (context may be null if self-recovery released it)
       if (context) {
-        const updatedState = await this.browser.saveStorageState(context);
-        await this.sessionsService.updateStorageState(session.id, updatedState);
+        await this.persistSessionState(context, session.id, postId);
       }
 
       if (result.error) {

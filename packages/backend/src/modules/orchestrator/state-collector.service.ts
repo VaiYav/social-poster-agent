@@ -382,10 +382,17 @@ export class StateCollectorService {
       ),
 
       // DLQ depth — parallel per network
+      // Sprint R: exclude terminal rate-limit failures from DLQ depth. Those jobs are
+      // expected to fail until the rate window resets and should not block the orchestrator.
       Promise.all(
-        networks.map((network) =>
-          this.queueFactory.getJobCounts(network, 'posting').then((c) => c.failed ?? 0).catch(() => 0),
-        ),
+        networks.map(async (network) => {
+          try {
+            const failed = await this.queueFactory.getFailedJobs(network, 'posting');
+            return failed.filter((job) => !String(job.failedReason ?? '').startsWith('Rate limited:')).length;
+          } catch {
+            return 0;
+          }
+        }),
       ),
     ]);
 
