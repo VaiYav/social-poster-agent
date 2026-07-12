@@ -162,3 +162,11 @@ Applied to both `launchBrowser()` (X/Threads pooled contexts) and `launchPersist
 ### Existing memory infrastructure (pre-existing, not part of this optimization)
 
 `BrowserFactory` already has: pool size=1 (default), idle context TTL=3 min, orphan context sweep, browser lifetime restart (15 min default, `BROWSER_MAX_LIFETIME_MS`), persistent (Facebook) context idle close (`PERSISTENT_CONTEXT_IDLE_TTL_MS`). These handle *process lifecycle* memory; the new `firefox_user_prefs` + resource blocking handle *in-process* memory.
+
+## Redis memory and BullMQ
+
+- `CHECKPOINT_TTL_SECONDS` defaults to 3600 (1 hour). Generation checkpoints are deleted immediately after a successful run (`RedisCheckpointSaver.deleteRunCheckpoints`). Failed/paused runs keep checkpoints until TTL expires.
+- `CHECKPOINT_REDIS_URL` can point checkpoints to a separate Redis instance. If unset, checkpoints use the shared `REDIS_URL` connection.
+- `BULLMQ_EVENTS_MAX_LENGTH` (default 100) caps the BullMQ events stream per queue. The app does not use `QueueEvents`, so setting it to 0 is safe and disables the stream entirely.
+- `BULLMQ_REMOVE_ON_COMPLETE` / `BULLMQ_REMOVE_ON_FAIL` control job retention.
+- **Railway / managed Redis:** do not set `maxmemory-policy` to `allkeys-lru` on the same Redis instance used by BullMQ. BullMQ requires `noeviction` to avoid silently losing jobs. If you want to use `allkeys-lru` for checkpoints, set `CHECKPOINT_REDIS_URL` to a separate Redis instance and keep `REDIS_URL` on `noeviction`.

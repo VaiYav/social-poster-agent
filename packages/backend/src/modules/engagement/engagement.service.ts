@@ -20,6 +20,7 @@ import { XEngager } from './engagers/x.engager.js';
 import { ThreadsEngager } from './engagers/threads.engager.js';
 import { FacebookEngager } from './engagers/facebook.engager.js';
 import type { EngagementResult } from '../posting/posters/base.poster.js';
+import { isNetworkEnabled } from '../../domain/enabled-networks.js';
 
 @Injectable()
 export class EngagementService {
@@ -142,6 +143,11 @@ export class EngagementService {
     action: (engager: BaseEngager, page: import('playwright-core').Page) => Promise<EngagementResult>,
     targetHandle?: string,
   ): Promise<EngagementResult & { interactionId: string }> {
+    if (!isNetworkEnabled(network)) {
+      this.logger.warn(`Interaction ${type} requested for disabled network ${network} — skipping`);
+      return { success: false, error: `Network ${network as string} is disabled`, interactionId: '' };
+    }
+
     // ADR-006: respect flow control — direct API actions should also pause when
     // engagement is paused, so an operator can stop all engagement without restarting.
     if (await this.flowControlService.isPaused('engagement')) {

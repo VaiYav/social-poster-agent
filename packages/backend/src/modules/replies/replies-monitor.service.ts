@@ -51,6 +51,7 @@ import { parseBool } from '../../infrastructure/config/parse-bool';
 import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 import { matchesScript, normalizeLanguage } from '../../infrastructure/util/script-check.js';
 import { detectLanguage } from '../../infrastructure/util/language-detector.js';
+import { getEnabledNetworks } from '../../domain/enabled-networks.js';
 
 export interface ScrapedComment {
   commentId: string;
@@ -217,6 +218,7 @@ export class RepliesMonitorService implements OnModuleInit {
         status: PostStatus.POSTED,
         postedAt: { gte: twentyFourHoursAgo },
         postUrl: { not: null },
+        network: { in: getEnabledNetworks() },
       },
       select: {
         id: true,

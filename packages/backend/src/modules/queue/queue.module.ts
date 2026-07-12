@@ -9,6 +9,7 @@ import { QueueService } from './queue.service';
 import { QueueController } from './queue.controller';
 import { SocialNetwork } from '@prisma/client';
 import { parseBool } from '../../infrastructure/config/parse-bool';
+import { getEnabledNetworks } from '../../domain/enabled-networks.js';
 
 /**
  * Queue module — wires BullMQ workers to PostingService and BrowsingSessionService.
@@ -47,8 +48,8 @@ export class QueueModule implements OnModuleInit {
       return;
     }
 
-    // Register posting workers (one per network)
-    for (const network of Object.values(SocialNetwork)) {
+    // Register posting workers (one per enabled network)
+    for (const network of getEnabledNetworks()) {
       this.queueFactory.registerWorker(network, async (job) => {
         const { postId } = job.data as { postId: string };
         const result = await this.postingService.postById(postId);
@@ -65,9 +66,9 @@ export class QueueModule implements OnModuleInit {
       });
     }
 
-    // Register engagement workers (one per network) — lazily resolve BrowsingSessionService
+    // Register engagement workers (one per enabled network) — lazily resolve BrowsingSessionService
     // to avoid circular dependency: QueueModule → EngagementModule → QueueModule
-    for (const network of Object.values(SocialNetwork)) {
+    for (const network of getEnabledNetworks()) {
       this.queueFactory.registerWorker(
         network,
         async (job) => {

@@ -22,7 +22,7 @@ import { SocialNetwork } from '@prisma/client';
 import { QueueFactory } from '../../infrastructure/queue/queue.factory.js';
 import { parseBool } from '../../infrastructure/config/parse-bool';
 import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
-import { getEnabledNetworks } from '../../domain/enabled-networks.js';
+import { getEnabledNetworks, isNetworkEnabled } from '../../domain/enabled-networks.js';
 import type { WorldState } from '../orchestrator/types.js';
 
 @Injectable()
@@ -49,7 +49,7 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
     this.jitterMinutes = Number(this.configService.get<string>('ENGAGEMENT_JITTER_MINUTES', '30'));
     this.networks = this.parseNetworks(
       this.configService.get<string>('ENGAGEMENT_NETWORKS', getEnabledNetworks().join(',')),
-    );
+    ).filter((n) => isNetworkEnabled(n));
   }
 
   onModuleInit(): void {

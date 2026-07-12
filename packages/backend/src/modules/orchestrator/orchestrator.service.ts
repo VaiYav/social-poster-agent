@@ -247,39 +247,15 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Reset checkpoint — allows a fresh start without resuming old state.
-   * Deletes only the orchestrator thread's checkpoint keys (pointer + per-checkpoint + writes).
-   * Uses SCAN instead of KEYS to avoid blocking Redis with a global pattern.
+   * Deletes the orchestrator thread's checkpoint keys (pointer + per-checkpoint + writes).
+   * Routes through RedisCheckpointSaver so a dedicated checkpoint Redis is respected.
    */
   async resetCheckpoint(): Promise<void> {
     try {
-      const patterns = [
-        `${CHECKPOINT_KEY_PREFIX}:${THREAD_ID}`,
-        `${CHECKPOINT_KEY_PREFIX}:${THREAD_ID}:*`,
-        `${CHECKPOINT_KEY_PREFIX}:writes:${THREAD_ID}:*`,
-      ];
-      const keys: string[] = [];
-      for (const pattern of patterns) {
-        const found = await this.scanKeys(pattern);
-        keys.push(...found);
-      }
-      if (keys.length > 0) {
-        await this.redis.del(...keys);
-        this.logger.log(`Checkpoint reset — deleted ${keys.length} key(s) for thread ${THREAD_ID}`);
-      }
+      await this.checkpointSaver?.deleteRunCheckpoints(THREAD_ID);
     } catch (err) {
       this.logger.warn(`Checkpoint reset failed: ${(err as Error).message}`);
     }
-  }
-
-  private async scanKeys(pattern: string, count = 100): Promise<string[]> {
-    const found: string[] = [];
-    let cursor = '0';
-    do {
-      const [next, batch] = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', count);
-      cursor = next;
-      found.push(...batch);
-    } while (cursor !== '0');
-    return found;
   }
 
   // ── Graph Loop ───────────────────────────────────────────────────────────

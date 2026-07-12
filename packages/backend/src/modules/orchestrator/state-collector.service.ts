@@ -353,10 +353,18 @@ export class StateCollectorService {
       this.prisma.post.count({
         // postedAt is only set once a post is live. While a post is POSTING,
         // approvedAt is the timestamp that marks when it entered the pipeline.
-        where: { status: PostStatus.POSTING, approvedAt: { lt: tenMinAgo } },
+        where: {
+          status: PostStatus.POSTING,
+          approvedAt: { lt: tenMinAgo },
+          network: { in: networks as SocialNetwork[] },
+        },
       }).catch(() => 0),
       this.prisma.browsingSession.count({
-        where: { status: BrowsingSessionStatus.ACTIVE, startedAt: { lt: browsingStuckCutoff } },
+        where: {
+          status: BrowsingSessionStatus.ACTIVE,
+          startedAt: { lt: browsingStuckCutoff },
+          account: { network: { in: networks as SocialNetwork[] } },
+        },
       }).catch(() => 0),
 
       // Ban detection — parallel per network

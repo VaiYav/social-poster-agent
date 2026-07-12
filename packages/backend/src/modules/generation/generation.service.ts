@@ -20,7 +20,7 @@ import {
   withPromptLabelContext,
   getRecordedPromptLabels,
 } from '../../infrastructure/prompt/prompt-label-context.js';
-import { getEnabledNetworks } from '../../domain/enabled-networks.js';
+import { getEnabledNetworks, isNetworkEnabled } from '../../domain/enabled-networks.js';
 import {
   SocialNetwork,
   GenerationRunStatus,
@@ -251,10 +251,21 @@ export class GenerationService {
   }
 
   /**
+   * Resolve target networks to only enabled ones.
+   * If no subset is provided, fall back to all enabled networks.
+   */
+  private resolveTargetNetworks(networks?: SocialNetwork[] | null): SocialNetwork[] {
+    if (!networks) {
+      return getEnabledNetworks();
+    }
+    return networks.filter(isNetworkEnabled);
+  }
+
+  /**
    * Run generation: get topics → generate posts per topic (all networks in parallel) → save drafts.
    *
    * @param count Number of topics to generate posts for (each topic → 3 posts, one per network)
-   * @param networks Optional subset of networks (default: all 3)
+   * @param networks Optional subset of networks (default: all enabled)
    * @param triggeredBy Trigger source (manual/cron)
    * @param multiStage F2: if true, generate hook + continuation posts linked as a thread
    * @returns generation run ID
@@ -778,7 +789,11 @@ export class GenerationService {
         ? String((original.sourceRef as Record<string, unknown>).topic)
         : original.content.slice(0, 80);
 
-    const targetNetworks = networks ?? [original.network];
+    const targetNetworks = this.resolveTargetNetworks(networks ?? [original.network]);
+    if (targetNetworks.length === 0) {
+      this.logger.debug(`RC3: skipping recycle of ${postId} — network ${original.network} is disabled`);
+      return null;
+    }
     const brandVoice = await this.loadBrandVoice();
     const run = await this.prisma.generationRun.create({
       data: { triggeredBy: GenerationTrigger.MANUAL, sourceTopics: [topicStr] },
@@ -844,6 +859,9 @@ export class GenerationService {
     language = 'en',
     signal?: AbortSignal,
   ): Promise<{ id: string; network: SocialNetwork; llmMetadata: Prisma.JsonValue }[]> {
+    // Only generate for networks that are enabled in configuration.
+    const resolvedTargetNetworks = this.resolveTargetNetworks(targetNetworks);
+
     // Check which networks have active accounts.
     // Q11 (N+1 fix): load each network's account ONCE and reuse the map in the
     // save loop below (previously findByNetwork was re-queried per generated
@@ -851,7 +869,7 @@ export class GenerationService {
     const accountByNetwork = new Map<SocialNetwork, AccountResult>();
     const activeNetworks: SocialNetwork[] = [];
     const networkChecks = await Promise.all(
-      targetNetworks.map(async (network) => {
+      resolvedTargetNetworks.map(async (network) => {
         const account = await this.accountsService.findByNetwork(network);
         if (!account) return { network, account: null as AccountResult, recentCount: 0 };
         const recent = await this.postsService.findBySourceAndNetwork(
@@ -1375,6 +1393,17 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
         errorMessage,
       },
     });
+
+    // Memory optimization: generation checkpoints are only needed for resume.
+    // Once a run completes successfully, delete the Redis keys immediately.
+    // Failed/paused runs keep their checkpoints until TTL expires.
+    if (!errorMessage && topics.length > 0) {
+      try {
+        await this.checkpointSaver.deleteRunCheckpoints(runId);
+      } catch (err) {
+        this.logger.warn(`markRunCompleted: cleanup for ${runId} failed: ${(err as Error).message}`);
+      }
+    }
   }
 
   /**
@@ -1482,7 +1511,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
     }
 
     const brandVoice = await this.loadBrandVoice();
-    const targetNetworks = [SocialNetwork.X, SocialNetwork.THREADS, SocialNetwork.FACEBOOK];
+    const targetNetworks = this.resolveTargetNetworks();
     const controller = new AbortController();
     this.activeRuns.set(runId, controller);
 

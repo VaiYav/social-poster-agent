@@ -35,6 +35,8 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
   /** P1: BullMQ job retention — configurable via env to control Redis memory. */
   private readonly removeOnCompleteCount: number;
   private readonly removeOnFailCount: number;
+  /** P1: BullMQ events stream max length — limits the `:events` stream per queue. */
+  private readonly eventsMaxLen: number;
 
   // Queue instances per network
   private readonly queues = new Map<string, Queue>();
@@ -75,6 +77,10 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
     // P1: Configurable retention — defaults match the previous hardcoded values.
     this.removeOnCompleteCount = this.parseIntEnv('BULLMQ_REMOVE_ON_COMPLETE', 100);
     this.removeOnFailCount = this.parseIntEnv('BULLMQ_REMOVE_ON_FAIL', 500);
+    // P1: Limit the BullMQ events stream per queue. Default 100 is enough for
+    // debugging but far smaller than the BullMQ default of 10 000. Set to 0
+    // to disable the events stream entirely (QueueEvents is not used in this app).
+    this.eventsMaxLen = this.parseIntEnv('BULLMQ_EVENTS_MAX_LENGTH', 100);
   }
 
   /**
@@ -175,7 +181,10 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
     const queueName = `${this.queuePrefix}-${action}-${network.toLowerCase()}`;
     let queue = this.queues.get(queueName);
     if (!queue) {
-      queue = new Queue(queueName, this.getConnectionOpts());
+      queue = new Queue(queueName, {
+        ...this.getConnectionOpts(),
+        streams: { events: { maxLen: this.eventsMaxLen } },
+      });
       this.queues.set(queueName, queue);
     }
     return queue;

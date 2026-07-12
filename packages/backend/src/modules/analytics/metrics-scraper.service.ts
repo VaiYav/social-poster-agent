@@ -28,6 +28,7 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { SseService } from '../../infrastructure/sse/sse.service.js';
 import { IBrowserPort } from '../../domain/ports/browser.port.js';
 import { Inject } from '@nestjs/common';
+import { getEnabledNetworks, isNetworkEnabled } from '../../domain/enabled-networks.js';
 import { SocialNetwork, PostStatus } from '@prisma/client';
 import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 import type { IMetricsSource, PostMetricsData } from './metrics-sources/metrics-source.port.js';
@@ -64,9 +65,13 @@ export class MetricsScraperService implements OnModuleInit {
     if (this.sourcesCache) return this.sourcesCache;
     const sources: Partial<Record<SocialNetwork, IMetricsSource>> = {};
     const threadsToken = process.env.THREADS_ACCESS_TOKEN;
-    if (threadsToken) sources[SocialNetwork.THREADS] = new ThreadsInsightsSource(threadsToken);
+    if (threadsToken && isNetworkEnabled(SocialNetwork.THREADS)) {
+      sources[SocialNetwork.THREADS] = new ThreadsInsightsSource(threadsToken);
+    }
     const facebookToken = process.env.FACEBOOK_PAGE_TOKEN;
-    if (facebookToken) sources[SocialNetwork.FACEBOOK] = new FacebookInsightsSource(facebookToken);
+    if (facebookToken && isNetworkEnabled(SocialNetwork.FACEBOOK)) {
+      sources[SocialNetwork.FACEBOOK] = new FacebookInsightsSource(facebookToken);
+    }
     // X (Twitter): deferred per AN1 research §3 (no free read since Feb 2026).
     this.sourcesCache = sources;
     return sources;
@@ -119,6 +124,7 @@ export class MetricsScraperService implements OnModuleInit {
         status: PostStatus.POSTED,
         postUrl: { not: null },
         postedAt: { gte: startDate },
+        network: { in: getEnabledNetworks() },
       },
       orderBy: { postedAt: 'desc' },
       take: this.maxPostsPerRun,

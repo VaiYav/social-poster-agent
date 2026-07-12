@@ -4,6 +4,7 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { SocialNetwork } from '@prisma/client';
 import { WarmupService } from '../sessions/warmup.service.js';
 import { parseBool } from '../../infrastructure/config/parse-bool';
+import { isNetworkEnabled } from '../../domain/enabled-networks.js';
 
 /**
  * Accounts service — manages social account records.
@@ -64,6 +65,10 @@ export class AccountsService implements OnModuleInit {
     ];
 
     for (const account of accounts) {
+      if (!isNetworkEnabled(account.network)) {
+        this.logger.debug(`Skipping seed for disabled network: ${account.network}`);
+        continue;
+      }
       const existing = await this.prisma.socialAccount.findFirst({
         where: { network: account.network, handle: account.handle },
       });

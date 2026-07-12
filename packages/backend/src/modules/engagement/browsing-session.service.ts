@@ -40,6 +40,7 @@ import {
   createEngagementInitialState,
 } from './engagement.graph.js';
 import { withTimeout } from '../../infrastructure/util/with-timeout.js';
+import { isNetworkEnabled } from '../../domain/enabled-networks.js';
 
 @Injectable()
 export class BrowsingSessionService {
@@ -114,6 +115,10 @@ export class BrowsingSessionService {
     durationSec?: number,
     signal?: AbortSignal,
   ): Promise<{ sessionId: string; postsViewed: number; interactionsCount: number }> {
+    if (!isNetworkEnabled(network)) {
+      this.logger.warn(`Browsing session requested for disabled network ${network} — skipping`);
+      return { sessionId: '', postsViewed: 0, interactionsCount: 0 };
+    }
     const duration = durationSec ?? this.defaultDurationSec;
     const engager = this.getEngager(network);
 

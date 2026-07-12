@@ -11,6 +11,7 @@ import { isJobInFlight } from '../../infrastructure/queue/queue-state-utils.js';
 import { SessionStatus, PostStatus, SocialNetwork, BrowsingSessionStatus } from '@prisma/client';
 import { parseBool } from '../../infrastructure/config/parse-bool';
 import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
+import { getEnabledNetworks, isNetworkEnabled } from '../../domain/enabled-networks.js';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
 
 /**
@@ -166,6 +167,10 @@ export class HealthMonitorService implements OnModuleInit {
 
       for (const post of page) {
         totalScanned += 1;
+        if (!isNetworkEnabled(post.network as SocialNetwork)) {
+          skipped += 1;
+          continue;
+        }
         // Post is stuck if it was approved MORE than 10 minutes ago
         const stuckSince = post.approvedAt ?? post.createdAt;
         if (stuckSince > tenMinAgo) {
@@ -265,29 +270,35 @@ export class HealthMonitorService implements OnModuleInit {
     let skipped = 0;
 
     for (const post of postingPosts) {
-      // If BullMQ still has an in-flight/pending job, the post is genuinely being processed.
-      try {
-        const queue = this.queueFactory.getQueue(post.network, 'posting');
-        const job = await queue.getJob(post.id);
-        if (job) {
-          const state = await job.getState();
-          if (isJobInFlight(state)) {
-            skipped++;
-            continue;
-          }
-        }
-      } catch (queueErr) {
-        // Can't determine job state — be conservative and skip (never reap blindly).
-        this.logger.debug(
-          `Reaper: cannot check queue state for post ${post.id}: ${(queueErr as Error).message}`,
-        );
-        skipped++;
-        continue;
-      }
-
-      const errorMessage =
+      let errorMessage =
         'Stuck in POSTING with no active job (likely crash mid-post). Marked FAILED by reaper — ' +
         'VERIFY the account timeline before re-approving: the post MAY already be live.';
+      let isNetworkDisabled = false;
+
+      if (!isNetworkEnabled(post.network as SocialNetwork)) {
+        isNetworkDisabled = true;
+        errorMessage = `Network ${post.network} is disabled — post cannot be processed`;
+      } else {
+        // If BullMQ still has an in-flight/pending job, the post is genuinely being processed.
+        try {
+          const queue = this.queueFactory.getQueue(post.network, 'posting');
+          const job = await queue.getJob(post.id);
+          if (job) {
+            const state = await job.getState();
+            if (isJobInFlight(state)) {
+              skipped++;
+              continue;
+            }
+          }
+        } catch (queueErr) {
+          // Can't determine job state — be conservative and skip (never reap blindly).
+          this.logger.debug(
+            `Reaper: cannot check queue state for post ${post.id}: ${(queueErr as Error).message}`,
+          );
+          skipped++;
+          continue;
+        }
+      }
 
       try {
         await this.prisma.post.update({
@@ -310,7 +321,10 @@ export class HealthMonitorService implements OnModuleInit {
         error: errorMessage,
       });
       await this.discord
-        .warning('Stuck POSTING reaped', `Post **${post.id}** (${post.network}): ${errorMessage}`)
+        .warning(
+          isNetworkDisabled ? 'Disabled network post reaped' : 'Stuck POSTING reaped',
+          `Post **${post.id}** (${post.network}): ${errorMessage}`,
+        )
         .catch(() => void 0);
       this.logger.warn(`Reaper: post ${post.id} (${post.network}) reaped (POSTING → FAILED)`);
       reaped++;
@@ -467,7 +481,10 @@ export class HealthMonitorService implements OnModuleInit {
   private async checkSessionHealth(): Promise<SessionHealth[]> {
     // Get sessions with their account info (for network)
     const sessions = await this.prisma.session.findMany({
-      where: { status: { in: [SessionStatus.ACTIVE, SessionStatus.EXPIRED] } },
+      where: {
+        status: { in: [SessionStatus.ACTIVE, SessionStatus.EXPIRED] },
+        account: { network: { in: getEnabledNetworks() } },
+      },
       include: { account: { select: { network: true } } },
       orderBy: { createdAt: 'desc' },
     });
@@ -559,6 +576,7 @@ export class HealthMonitorService implements OnModuleInit {
       where: {
         status: PostStatus.POSTING,
         approvedAt: { lt: thirtyMinAgo },
+        network: { in: getEnabledNetworks() },
       },
     });
 
@@ -579,7 +597,7 @@ export class HealthMonitorService implements OnModuleInit {
     let dlqDepth = 0;
     const activeQueues: string[] = [];
 
-    for (const network of Object.values(SocialNetwork)) {
+    for (const network of getEnabledNetworks()) {
       try {
         const counts = await this.queueService.getJobCounts(network);
         const failed = counts.failed ?? 0;

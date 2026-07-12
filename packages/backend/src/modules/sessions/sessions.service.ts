@@ -12,6 +12,7 @@ import { navigateWithRetry } from '../../domain/retry.js';
 import { CircuitBreakerRegistry, CircuitOpenError } from '../../domain/circuit-breaker.js';
 import { parseBool } from '../../infrastructure/config/parse-bool';
 import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
+import { getEnabledNetworks, isNetworkEnabled } from '../../domain/enabled-networks.js';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
 import { EmailReaderService } from '../../infrastructure/email/email-reader.service.js';
 
@@ -129,6 +130,10 @@ export class SessionsService implements OnModuleInit {
   }
 
   async getOrCreateSession(network: SocialNetwork, opts: { deferFormLogin?: boolean } = {}) {
+    if (!isNetworkEnabled(network)) {
+      this.logger.debug(`Session request for disabled network ${network} — skipping`);
+      return null;
+    }
     const account = await this.accountsService.findByNetwork(network);
     if (!account) return null;
 
@@ -289,7 +294,7 @@ export class SessionsService implements OnModuleInit {
   }
 
   private async refreshSessions(): Promise<void> {
-    for (const network of Object.values(SocialNetwork)) {
+    for (const network of getEnabledNetworks()) {
       try {
         await this.getOrCreateSession(network); // no deferFormLogin → controlled form login allowed here
       } catch (err) {
@@ -1244,6 +1249,10 @@ export class SessionsService implements OnModuleInit {
    * P0-H3: Create session with encrypted storageState.
    */
   async createSession(network: SocialNetwork, storageState: string): Promise<void> {
+    if (!isNetworkEnabled(network)) {
+      this.logger.debug(`createSession for disabled network ${network} — skipping`);
+      return;
+    }
     const account = await this.accountsService.findByNetwork(network);
     if (!account) return;
 
@@ -1313,6 +1322,9 @@ export class SessionsService implements OnModuleInit {
    * Reference: facebook-scraper validates c_user + xs; twscrape validates ct0 + auth_token.
    */
   async healthCheck(network: SocialNetwork): Promise<{ healthy: boolean; message: string }> {
+    if (!isNetworkEnabled(network)) {
+      return { healthy: false, message: 'Network is disabled' };
+    }
     const account = await this.accountsService.findByNetwork(network);
     if (!account) {
       return { healthy: false, message: 'No account found' };

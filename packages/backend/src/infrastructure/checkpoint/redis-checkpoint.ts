@@ -27,7 +27,8 @@ import { SHARED_REDIS } from '../redis/redis.module.js';
  * - spa:checkpoint:{thread_id}:{checkpoint_id} → specific checkpoint
  * - spa:checkpoint:writes:{thread_id}:{checkpoint_id} → pending writes
  *
- * TTL: 7 days (env: CHECKPOINT_TTL_SECONDS)
+ * TTL: 1 hour (env: CHECKPOINT_TTL_SECONDS). Crash-resume/pause is usually
+ * handled within minutes; longer manual resume can be tuned with the env var.
  *
  * Sprint L: Uses shared Redis connection from RedisModule.
  */
@@ -39,22 +40,50 @@ export class RedisCheckpointSaver
   private readonly logger = new Logger(RedisCheckpointSaver.name);
   private readonly ttlSeconds: number;
   private readonly prefix: string;
+  private readonly redis: IORedis;
+  private readonly ownsConnection: boolean;
 
   constructor(
     private readonly configService: ConfigService,
-    @Inject(SHARED_REDIS) private readonly redis: IORedis,
+    @Inject(SHARED_REDIS) private readonly sharedRedis: IORedis,
   ) {
     super(); // BaseCheckpointSaver creates default JsonPlusSerializer
-    this.ttlSeconds = this.configService.get<number>('CHECKPOINT_TTL_SECONDS', 604800); // 7 days
+    this.ttlSeconds = this.configService.get<number>('CHECKPOINT_TTL_SECONDS', 3600); // 1 hour
     this.prefix = this.configService.get<string>('CHECKPOINT_PREFIX', 'spa:checkpoint');
+
+    const checkpointUrl = this.configService.get<string>('CHECKPOINT_REDIS_URL');
+    if (checkpointUrl && checkpointUrl !== this.configService.get<string>('REDIS_URL')) {
+      this.redis = this.createCheckpointRedis(checkpointUrl);
+      this.ownsConnection = true;
+      this.logger.log(`Using dedicated checkpoint Redis: ${checkpointUrl.replace(/:\/\/.*@/, '://***@')}`);
+    } else {
+      this.redis = this.sharedRedis;
+      this.ownsConnection = false;
+    }
   }
 
   onModuleInit(): void {
-    this.logger.log(`Redis checkpoint saver initialized (TTL=${this.ttlSeconds}s, shared connection)`);
+    this.logger.log(`Redis checkpoint saver initialized (TTL=${this.ttlSeconds}s, ${this.ownsConnection ? 'dedicated' : 'shared'} connection)`);
   }
 
   onModuleDestroy(): void {
-    // Sprint L: Redis connection is managed by RedisModule — don't close here
+    // Sprint L: only close the dedicated checkpoint connection; the shared
+    // connection is managed by RedisModule.
+    if (this.ownsConnection && this.redis) {
+      this.redis.quit().catch(() => void 0);
+    }
+  }
+
+  private createCheckpointRedis(url: string): IORedis {
+    const client = new IORedis(url, {
+      lazyConnect: true,
+      maxRetriesPerRequest: null,
+      retryStrategy: (times: number) => Math.min(times * 500, 5000),
+      connectionName: 'checkpoint',
+    });
+    client.on('error', (err) => this.logger.error(`Checkpoint Redis error: ${err.message}`));
+    client.on('reconnecting', (delayMs: number) => this.logger.warn(`Checkpoint Redis reconnecting in ${delayMs}ms`));
+    return client;
   }
 
   private getThreadKey(threadId: string, checkpointId?: string): string {
@@ -198,6 +227,11 @@ export class RedisCheckpointSaver
     // Update latest pointer
     await this.redis.set(this.getThreadKey(threadId), data, 'EX', this.ttlSeconds);
 
+    // Shallow-saver cleanup: keep only the latest checkpoint and its writes per thread.
+    // This prevents the orchestrator from accumulating one checkpoint per cycle
+    // and the Redis keyspace from growing unbounded.
+    await this.cleanupOldThreadCheckpoints(threadId, checkpointId);
+
     this.logger.debug(`Checkpoint saved: ${threadId}/${checkpointId}`);
     return tuple.config;
   }
@@ -220,6 +254,57 @@ export class RedisCheckpointSaver
   }
 
   /**
+   * Shallow-saver cleanup: after a new checkpoint is written, remove all older
+   * checkpoint and pending-write keys for the same thread. Keeps the latest
+   * pointer (`prefix:threadId`), the current checkpoint blob, and the current
+   * writes list. Uses SCAN + UNLINK in batches so it is non-blocking on Redis.
+   */
+  private async cleanupOldThreadCheckpoints(
+    threadId: string,
+    currentCheckpointId: string,
+  ): Promise<void> {
+    if (!this.redis) return;
+
+    try {
+      const pointerKey = this.getThreadKey(threadId);
+      const currentKey = this.getThreadKey(threadId, currentCheckpointId);
+      const currentWritesKey = this.getWritesKey(threadId, currentCheckpointId);
+
+      const toDelete: string[] = [];
+
+      const checkpointKeys = await this.scanKeys(`${this.prefix}:${threadId}:*`, 1000);
+      for (const key of checkpointKeys) {
+        if (key !== pointerKey && key !== currentKey) {
+          toDelete.push(key);
+        }
+      }
+
+      const writesKeys = await this.scanKeys(`${this.prefix}:writes:${threadId}:*`, 1000);
+      for (const key of writesKeys) {
+        if (key !== currentWritesKey) {
+          toDelete.push(key);
+        }
+      }
+
+      if (toDelete.length === 0) return;
+
+      const batchSize = 5000;
+      for (let i = 0; i < toDelete.length; i += batchSize) {
+        const batch = toDelete.slice(i, i + batchSize);
+        await this.redis.unlink(...batch);
+      }
+
+      this.logger.debug(
+        `Cleaned up ${toDelete.length} old checkpoint key(s) for thread ${threadId}`,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Failed to cleanup old checkpoints for thread ${threadId}: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  /**
    * Sprint I: List checkpoint keys for a thread — enables checkpoint inspection API.
    * Returns array of checkpoint IDs (sorted newest first).
    */
@@ -239,5 +324,33 @@ export class RedisCheckpointSaver
       return parts[parts.length - 1] ?? k;
     });
     return checkpointIds.slice(0, limit);
+  }
+
+  /**
+   * Delete all checkpoint keys for a completed generation run.
+   * LangGraph thread_id for generation is `${runId}:${topic}`, so all run keys
+   * match `prefix:{runId}:*` and `prefix:writes:{runId}:*`.
+   *
+   * Uses UNLINK (non-blocking) and ignores errors — cleanup is best-effort.
+   * Do NOT call this for failed or paused runs; the checkpoint may be needed for resume.
+   */
+  async deleteRunCheckpoints(runId: string): Promise<void> {
+    if (!this.redis) return;
+    try {
+      const patterns = [
+        `${this.prefix}:${runId}`,
+        `${this.prefix}:${runId}:*`,
+        `${this.prefix}:writes:${runId}:*`,
+      ];
+      const keys: string[] = [];
+      for (const pattern of patterns) {
+        keys.push(...(await this.scanKeys(pattern)));
+      }
+      if (keys.length === 0) return;
+      await this.redis.unlink(...keys);
+      this.logger.log(`Deleted ${keys.length} checkpoint key(s) for run ${runId}`);
+    } catch (err) {
+      this.logger.warn(`Failed to delete checkpoints for run ${runId}: ${(err as Error).message}`);
+    }
   }
 }

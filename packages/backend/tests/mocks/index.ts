@@ -525,6 +525,7 @@ export function createMockCheckpointSaver() {
     put: vi.fn().mockResolvedValue(undefined),
     get: vi.fn().mockResolvedValue(null),
     list: vi.fn().mockResolvedValue([]),
+    deleteRunCheckpoints: vi.fn().mockResolvedValue(undefined),
   };
 }
 
