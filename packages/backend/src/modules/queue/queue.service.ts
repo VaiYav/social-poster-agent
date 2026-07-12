@@ -62,16 +62,22 @@ export class QueueService {
   /**
    * Sprint Q: Retry all failed jobs in a network's posting queue.
    * Returns the number of jobs that were successfully retried.
+   *
+   * We skip jobs whose failure is a rate-limit exhaustion: retrying those
+   * immediately wastes the full retry budget and spams the logs. They will
+   * be naturally re-enqueued by the orchestrator once the rate window resets.
    */
   async retryAllFailed(network: SocialNetwork): Promise<number> {
     const failed = await this.queueFactory.getFailedJobs(network);
     let retried = 0;
     for (const job of failed) {
       try {
-        if (job.id) {
-          await this.queueFactory.retryFailedJob(network, job.id);
-          retried++;
+        if (!job.id) continue;
+        if (/rate.limit|daily limit reached|weekly limit reached/i.test(job.failedReason ?? '')) {
+          continue;
         }
+        await this.queueFactory.retryFailedJob(network, job.id);
+        retried++;
       } catch {
         // Skip individual retry failures — continue with the rest
       }

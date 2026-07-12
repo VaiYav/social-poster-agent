@@ -299,7 +299,9 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
       throw new Error(`Job ${jobId} not found in ${network} queue`);
     }
     if (job.failedReason) {
-      await job.retry();
+      // Reset attempts so the retried job gets its full retry budget back.
+      // Without this, exhausted jobs would fail immediately after being retried.
+      await job.retry('failed', { resetAttemptsMade: true, resetAttemptsStarted: true });
       this.logger.log(`Retrying failed job ${jobId} in ${network} queue`);
     } else {
       throw new Error(`Job ${jobId} is not in failed state`);

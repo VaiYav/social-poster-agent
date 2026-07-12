@@ -351,7 +351,9 @@ export class StateCollectorService {
 
     const [stuckPosting, stuckBrowsingSessions, banResults, dlqResults] = await Promise.all([
       this.prisma.post.count({
-        where: { status: PostStatus.POSTING, postedAt: { lt: tenMinAgo } },
+        // postedAt is only set once a post is live. While a post is POSTING,
+        // approvedAt is the timestamp that marks when it entered the pipeline.
+        where: { status: PostStatus.POSTING, approvedAt: { lt: tenMinAgo } },
       }).catch(() => 0),
       this.prisma.browsingSession.count({
         where: { status: BrowsingSessionStatus.ACTIVE, startedAt: { lt: browsingStuckCutoff } },

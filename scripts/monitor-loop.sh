@@ -75,6 +75,31 @@ while true; do
     echo "Reconcile result: $RECON_RESULT" >> "$MAIN_LOG"
   fi
 
+  # 5. Auto-fix: retry failed BullMQ jobs (DLQ) that are not rate-limited.
+  #    We use a cooldown so we don't burn the full retry budget every cycle.
+  DLQ_RETRY_INTERVAL="${DLQ_RETRY_INTERVAL_SEC:-300}"
+  DLQ_RETRY_TS_FILE="logs/monitor-last-dlq-retry"
+  LAST_DLQ_RETRY=$(cat "$DLQ_RETRY_TS_FILE" 2>/dev/null || echo 0)
+  NOW=$(date +%s)
+  if [ $((NOW - LAST_DLQ_RETRY)) -ge "$DLQ_RETRY_INTERVAL" ]; then
+    QUEUE_STATS=$(curl -s --max-time 15 "${AUTH_HEADER[@]}" "$API/queue/stats" 2>&1 || true)
+    if [ -n "$QUEUE_STATS" ] && command -v jq >/dev/null 2>&1; then
+      RETRIED_ANY=0
+      for network in X THREADS FACEBOOK; do
+        FAILED_IN_Q=$(echo "$QUEUE_STATS" | jq -r --arg net "$network" '.[] | select(.network == $net) | .failed // 0')
+        if [ "${FAILED_IN_Q:-0}" -gt 0 ]; then
+          echo "Retrying ${FAILED_IN_Q} failed job(s) in ${network} queue" >> "$MAIN_LOG"
+          RETRY_RESULT=$(curl -s -X POST --max-time 30 "${AUTH_HEADER[@]}" "$API/queue/$network/retry-failed" 2>&1 || true)
+          echo "Retry result for ${network}: $RETRY_RESULT" >> "$MAIN_LOG"
+          RETRIED_ANY=1
+        fi
+      done
+      if [ "$RETRIED_ANY" -eq 1 ]; then
+        echo "$NOW" > "$DLQ_RETRY_TS_FILE"
+      fi
+    fi
+  fi
+
   echo "Sleeping ${INTERVAL}s..." >> "$MAIN_LOG"
   sleep "$INTERVAL"
 done
