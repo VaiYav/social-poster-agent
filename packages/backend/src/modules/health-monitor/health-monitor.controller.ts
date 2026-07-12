@@ -30,4 +30,11 @@ export class HealthMonitorController {
   async runReconciliation(): Promise<{ requeued: number; skipped: number }> {
     return this.healthMonitorService.runReconciliation();
   }
+
+  @Post('reap-stuck-browsing')
+  @ApiOperation({ summary: 'Force-reap stuck ACTIVE browsing sessions and release the engagement lock' })
+  @ApiResponse({ status: 200, description: 'Stuck browsing sessions reaped' })
+  async reapStuckBrowsing(): Promise<{ reaped: number }> {
+    return this.healthMonitorService.reapStuckBrowsingSessions();
+  }
 }
