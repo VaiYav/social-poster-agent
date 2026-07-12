@@ -68,8 +68,12 @@ export class ActionExecutorService {
   /**
    * Execute an action. Never throws — returns ActionResult with error info.
    */
-  async execute(action: Action): Promise<ActionResult> {
+  async execute(action: Action, options?: { signal?: AbortSignal }): Promise<ActionResult> {
     const startTime = Date.now();
+
+    if (options?.signal?.aborted) {
+      return { success: false, type: action.type, duration: 0, error: 'Action aborted' };
+    }
 
     if (action.type === 'WAIT') {
       return { success: true, type: 'WAIT', duration: 0 };
@@ -81,7 +85,12 @@ export class ActionExecutorService {
         throw new Error(`Unknown action type: ${action.type}`);
       }
 
-      const sideEffects = await handler.execute(action);
+      const sideEffects = await handler.execute(action, options);
+
+      if (options?.signal?.aborted) {
+        throw new Error('Action aborted');
+      }
+
       const duration = Date.now() - startTime;
       this.logger.log(`Executed ${action.type}${action.network ? `:${action.network}` : ''} in ${duration}ms`);
       return { success: true, type: action.type, duration, sideEffects };

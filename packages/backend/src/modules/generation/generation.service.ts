@@ -13,7 +13,8 @@ import { SseService } from '../../infrastructure/sse/sse.service.js';
 import { TrendingService } from '../trending/trending.service.js';
 import { TrendingScraperService } from '../trending/trending-scraper.service.js';
 import { LangfuseService, type LangfuseHandlerOptions } from '../../infrastructure/langfuse/langfuse.service.js';
-import { withLlmCallbacks } from '../../infrastructure/llm/llm.service.js';
+import { withLlmContext } from '../../infrastructure/llm/llm.service.js';
+import { combineSignals } from '../../infrastructure/util/abort-signal.js';
 import { IPromptPort } from '../../domain/ports/prompt.port.js';
 import {
   withPromptLabelContext,
@@ -170,7 +171,7 @@ export class GenerationService {
       config.callbacks = callbacks;
     }
     return withPromptLabelContext(() =>
-      withLlmCallbacks(callbacks, async () => {
+      withLlmContext({ callbacks, signal: config.signal }, async () => {
         const finalState = await this.getGraph().invoke(input, config);
         const promptLabels = getRecordedPromptLabels();
         return { finalState, promptLabels };
@@ -264,6 +265,7 @@ export class GenerationService {
     triggeredBy: GenerationTrigger = GenerationTrigger.MANUAL,
     multiStage = false,
     humanReview = false,
+    signal?: AbortSignal,
   ): Promise<string> {
     const run = await this.prisma.generationRun.create({
       data: { triggeredBy, sourceTopics: [] },
@@ -275,6 +277,10 @@ export class GenerationService {
     // AbortController enables pause/resume to actually stop the in-flight run.
     const controller = new AbortController();
     this.activeRuns.set(run.id, controller);
+
+    // Merge internal pause/resume controller with any external abort signal
+    // (e.g. orchestrator execute-node timeout / stop).
+    const stopSignal = combineSignals(controller.signal, signal);
 
     try {
       let topics = await this.contentSourceService.getTopics(count);
@@ -382,7 +388,7 @@ export class GenerationService {
 
       // Process topics in batches of MAX_CONCURRENCY
       for (let i = 0; i < prioritizedTopics.length; i += MAX_CONCURRENCY) {
-        if (controller.signal.aborted) {
+        if (stopSignal?.aborted) {
           this.logger.warn(`Generation run ${run.id} aborted — stopping topic batch`);
           break;
         }
@@ -404,7 +410,7 @@ export class GenerationService {
               multiStage,
               humanReview,
               language,
-              controller.signal,
+              stopSignal,
             );
           }),
         );
@@ -461,7 +467,10 @@ export class GenerationService {
       }
 
       // If the run was paused, do not mark it as completed.
-      if (controller.signal.aborted) {
+      if (stopSignal?.aborted) {
+        if (signal?.aborted) {
+          throw new Error('Generation aborted by orchestrator');
+        }
         this.logger.warn(`Generation run ${run.id} ended early (paused or aborted)`);
         return run.id;
       }
@@ -472,19 +481,30 @@ export class GenerationService {
       await this.sseService.publish({ type: 'generation_completed', runId: run.id, postCount: postIds.length });
       return run.id;
     } catch (err) {
+      // Distinguish pause/resume (internal controller aborted) from orchestrator
+      // abort (external signal) so the run status is not overwritten.
+      if (stopSignal?.aborted && !signal?.aborted) {
+        this.logger.warn(`Generation run ${run.id} ended early (paused or aborted)`);
+        return run.id;
+      }
+
+      const message = signal?.aborted ? 'Generation aborted by orchestrator' : (err as Error).message;
       await this.prisma.generationRun.update({
         where: { id: run.id },
         data: {
           status: GenerationRunStatus.FAILED,
           completedAt: new Date(),
-          errorMessage: (err as Error).message,
+          errorMessage: message,
         },
       });
       // Sprint I: SSE generation_failed event
-      await this.sseService.publish({ type: 'generation_failed', runId: run.id, error: (err as Error).message });
-      throw err;
+      await this.sseService.publish({ type: 'generation_failed', runId: run.id, error: message });
+      throw new Error(message);
     } finally {
       this.activeRuns.delete(run.id);
+      // Abort the internal controller so the combined signal cleans up its
+      // listeners on the external orchestrator signal.
+      controller.abort();
     }
   }
 

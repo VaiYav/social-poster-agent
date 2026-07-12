@@ -17,7 +17,7 @@ import { OrchestratorService } from './orchestrator.service.js';
 import { parseBool } from '../../infrastructure/config/parse-bool.js';
 
 const HEARTBEAT_KEY_DEFAULT = 'spa:orchestrator:heartbeat';
-const HEARTBEAT_TTL_MS_DEFAULT = 600_000;
+const HEARTBEAT_TTL_MS_DEFAULT = 1_800_000;
 
 @Injectable()
 export class WatchdogCron implements OnModuleInit {

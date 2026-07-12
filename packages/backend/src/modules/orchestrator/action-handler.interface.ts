@@ -15,5 +15,5 @@ export interface IActionHandler {
   readonly actionType: string;
 
   /** Execute the action, returning side-effect metadata. Never throws. */
-  execute(action: Action): Promise<Record<string, unknown>>;
+  execute(action: Action, options?: { signal?: AbortSignal }): Promise<Record<string, unknown>>;
 }

@@ -57,7 +57,7 @@ export class GenerateTopicsHandler implements IActionHandler {
     private readonly prisma: PrismaService,
   ) {}
 
-  async execute(): Promise<Record<string, unknown>> {
+  async execute(_action: Action, _options?: { signal?: AbortSignal }): Promise<Record<string, unknown>> {
     const service = resolveOptional(this.moduleRef, TopicGenerationService);
     if (!service) throw new Error('TopicGenerationService not available');
     const count = Number(process.env.TOPIC_BATCH_SIZE ?? '20');
@@ -78,7 +78,7 @@ export class GeneratePostsHandler implements IActionHandler {
     private readonly prisma: PrismaService,
   ) {}
 
-  async execute(action: Action): Promise<Record<string, unknown>> {
+  async execute(action: Action, options?: { signal?: AbortSignal }): Promise<Record<string, unknown>> {
     const service = resolveOptional(this.moduleRef, GenerationService);
     if (!service) throw new Error('GenerationService not available');
 
@@ -131,7 +131,7 @@ export class GeneratePostsHandler implements IActionHandler {
       };
     }
 
-    const runId = await service.generate(postsPerRun, networks, GenerationTrigger.AUTONOMOUS);
+    const runId = await service.generate(postsPerRun, networks, GenerationTrigger.AUTONOMOUS, false, false, options?.signal);
 
     let postsApproved = 0;
     if (parseBool(process.env.AUTO_APPROVE_ENABLED ?? 'false')) {
@@ -176,7 +176,7 @@ export class PostHandler implements IActionHandler {
     private readonly prisma: PrismaService,
   ) {}
 
-  async execute(action: Action): Promise<Record<string, unknown>> {
+  async execute(action: Action, options?: { signal?: AbortSignal }): Promise<Record<string, unknown>> {
     if (!action.network) throw new Error('POST action requires network');
 
     const post = await this.prisma.post.findFirst({
@@ -212,7 +212,7 @@ export class BrowseHandler implements IActionHandler {
     @Optional() @Inject(IBrowsingSessionPort) private readonly browsingSession?: IBrowsingSessionPort,
   ) {}
 
-  async execute(action: Action): Promise<Record<string, unknown>> {
+  async execute(action: Action, options?: { signal?: AbortSignal }): Promise<Record<string, unknown>> {
     if (!action.network) throw new Error('BROWSE action requires network');
 
     if (!this.browsingSession) {
@@ -220,7 +220,7 @@ export class BrowseHandler implements IActionHandler {
     }
 
     const durationSec = Number(process.env.F1_BROWSING_SESSION_MINUTES ?? '15') * 60;
-    const result = await this.browsingSession.runBrowsingSession(action.network, durationSec);
+    const result = await this.browsingSession.runBrowsingSession(action.network, durationSec, options?.signal);
     return { browsed: true, sessionId: result.sessionId, interactions: result.interactionsCount };
   }
 }
@@ -233,7 +233,7 @@ export class RecoverSessionHandler implements IActionHandler {
 
   constructor(private readonly moduleRef: ModuleRef) {}
 
-  async execute(action: Action): Promise<Record<string, unknown>> {
+  async execute(action: Action, options?: { signal?: AbortSignal }): Promise<Record<string, unknown>> {
     if (!action.network) throw new Error('RECOVER_SESSION action requires network');
 
     const sessionsService = resolveOptional(this.moduleRef, SessionsService);
@@ -257,7 +257,7 @@ export class CheckRepliesHandler implements IActionHandler {
     @Optional() @Inject(IRepliesMonitorPort) private readonly repliesMonitor?: IRepliesMonitorPort,
   ) {}
 
-  async execute(): Promise<Record<string, unknown>> {
+  async execute(_action: Action, _options?: { signal?: AbortSignal }): Promise<Record<string, unknown>> {
     if (!this.repliesMonitor) {
       return { checked: false, reason: 'Replies module not enabled' };
     }
@@ -282,7 +282,7 @@ export class RefreshTrendsHandler implements IActionHandler {
 
   constructor(private readonly moduleRef: ModuleRef) {}
 
-  async execute(): Promise<Record<string, unknown>> {
+  async execute(_action: Action, _options?: { signal?: AbortSignal }): Promise<Record<string, unknown>> {
     const trendingScraper = resolveOptional(this.moduleRef, TrendingScraperService);
     if (!trendingScraper) {
       return { refreshed: false, reason: 'TrendingScraperService not available' };
@@ -305,7 +305,7 @@ export class HealthCheckHandler implements IActionHandler {
 
   constructor(private readonly moduleRef: ModuleRef) {}
 
-  async execute(): Promise<Record<string, unknown>> {
+  async execute(_action: Action, _options?: { signal?: AbortSignal }): Promise<Record<string, unknown>> {
     const healthMonitor = resolveOptional(this.moduleRef, HealthMonitorService);
     if (!healthMonitor) throw new Error('HealthMonitorService not available');
 
@@ -322,7 +322,7 @@ export class ReconcileHandler implements IActionHandler {
 
   constructor(private readonly moduleRef: ModuleRef) {}
 
-  async execute(): Promise<Record<string, unknown>> {
+  async execute(_action: Action, _options?: { signal?: AbortSignal }): Promise<Record<string, unknown>> {
     const healthMonitor = resolveOptional(this.moduleRef, HealthMonitorService);
     if (!healthMonitor) throw new Error('HealthMonitorService not available');
 
@@ -347,7 +347,7 @@ export class ScrapeMetricsHandler implements IActionHandler {
 
   constructor(private readonly moduleRef: ModuleRef) {}
 
-  async execute(): Promise<Record<string, unknown>> {
+  async execute(_action: Action, _options?: { signal?: AbortSignal }): Promise<Record<string, unknown>> {
     const metricsScraper = resolveOptional(this.moduleRef, MetricsScraperService);
     if (!metricsScraper) {
       return { scraped: false, reason: 'MetricsScraperService not available' };
@@ -371,7 +371,7 @@ export class RecycleContentHandler implements IActionHandler {
 
   constructor(private readonly moduleRef: ModuleRef) {}
 
-  async execute(): Promise<Record<string, unknown>> {
+  async execute(_action: Action, _options?: { signal?: AbortSignal }): Promise<Record<string, unknown>> {
     const recyclingService = resolveOptional(this.moduleRef, RecyclingService);
     if (!recyclingService) {
       return { recycled: false, reason: 'RecyclingService not available' };
@@ -393,7 +393,7 @@ export class AggregateHooksHandler implements IActionHandler {
 
   constructor(private readonly moduleRef: ModuleRef) {}
 
-  async execute(): Promise<Record<string, unknown>> {
+  async execute(_action: Action, _options?: { signal?: AbortSignal }): Promise<Record<string, unknown>> {
     const hookBank = resolveOptional(this.moduleRef, HookPerformanceBank);
     if (!hookBank) {
       return { aggregated: false, reason: 'HookPerformanceBank not available' };

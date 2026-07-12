@@ -51,7 +51,7 @@ export class DecisionEngineService {
    * Main entry point — choose the next action based on world state.
    * Never throws — always returns an Action.
    */
-  async decide(world: WorldState): Promise<Action> {
+  async decide(world: WorldState, signal?: AbortSignal): Promise<Action> {
     // Enrich world state with posting windows
     await this.enrichWithPostingWindows(world);
 
@@ -66,7 +66,7 @@ export class DecisionEngineService {
     let action: Action;
     if (this.llmEnabled) {
       try {
-        action = await this.llmDecision.decide(world);
+        action = await this.llmDecision.decide(world, signal);
       } catch (err) {
         this.logger.warn(`LLM decision failed, falling back to rules: ${(err as Error).message}`);
         action = this.rulesOnlyDecision(world);

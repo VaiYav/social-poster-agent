@@ -11,6 +11,7 @@ import { SocialNetwork } from '@prisma/client';
 import { ILlmPort } from '../../domain/ports/llm.port.js';
 import { LangfuseService } from '../../infrastructure/langfuse/langfuse.service.js';
 import { IPromptPort } from '../../domain/ports/prompt.port.js';
+import { combineSignals } from '../../infrastructure/util/abort-signal.js';
 import { ORCHESTRATOR_SYSTEM_PROMPT, buildOrchestratorUserPrompt } from './prompts/orchestrator-prompt.js';
 import type { WorldState, Action, ActionType, NetworkActionType, GenericActionType } from './types.js';
 
@@ -42,7 +43,7 @@ export class LlmDecisionService {
     );
   }
 
-  async decide(world: WorldState): Promise<Action> {
+  async decide(world: WorldState, signal?: AbortSignal): Promise<Action> {
     if (!this.llm) throw new Error('LLM port not available');
 
     const userPrompt = buildOrchestratorUserPrompt(world);
@@ -67,6 +68,8 @@ export class LlmDecisionService {
     const callbacks = handler ? [handler] : undefined;
 
     const controller = new AbortController();
+    const stopSignal = combineSignals(controller.signal, signal);
+
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutId = setTimeout(() => {
@@ -79,7 +82,7 @@ export class LlmDecisionService {
       temperature: 0.3,
       maxTokens: 200,
       callbacks,
-      signal: controller.signal,
+      signal: stopSignal,
     });
 
     // 2.6.4: clear the timeout and suppress the LLM promise rejection when the
@@ -90,11 +93,17 @@ export class LlmDecisionService {
       })
       .catch(() => {});
 
-    const result = await Promise.race([llmPromise, timeoutPromise]);
+    try {
+      const result = await Promise.race([llmPromise, timeoutPromise]);
 
-    const action = this.parseLlmResponse(result.content);
-    this.logger.debug(`LLM decision: ${action.type}:${action.network} — ${action.reason}`);
-    return action;
+      const action = this.parseLlmResponse(result.content);
+      this.logger.debug(`LLM decision: ${action.type}:${action.network} — ${action.reason}`);
+      return action;
+    } finally {
+      // Abort the local controller so the combined signal cleans up its
+      // listeners on the orchestrator graph's long-lived signal.
+      controller.abort();
+    }
   }
 
   private parseLlmResponse(text: string): Action {

@@ -41,7 +41,7 @@ type AnyCompiledGraph = CompiledStateGraph<OrchestratorStateType, Record<string,
 
 const THREAD_ID = 'orchestrator';
 const HEARTBEAT_KEY_DEFAULT = 'spa:orchestrator:heartbeat';
-const HEARTBEAT_TTL_MS_DEFAULT = 600_000;
+const HEARTBEAT_TTL_MS_DEFAULT = 1_800_000;
 const LEADER_KEY_DEFAULT = 'spa:orchestrator:leader';
 const LEADER_TTL_MS_DEFAULT = 30_000;
 const LEADER_RENEW_MS_DEFAULT = 10_000;
@@ -57,8 +57,10 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
   private running = false;
   private stopRequested = false;
   private graphPromise: Promise<void> | null = null;
+  private graphAbort: AbortController | null = null;
   private sleepAbort: AbortController | null = null;
   private currentCycle = 0;
+  private graphRunId = 0;
 
   // Mutex to prevent concurrent start/stop/restart (watchdog + API race)
   private lifecycleLock = false;
@@ -133,13 +135,19 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
 
       try {
         // Build graph dependencies
+        // Each run gets its own AbortController so a stop/restart aborts the
+        // current graph without affecting a new one.
+        const graphAbort = new AbortController();
+        this.graphAbort = graphAbort;
+        const runId = ++this.graphRunId;
+
         const deps = {
           stateCollector: this.stateCollector,
           decisionEngine: this.decisionEngine,
           actionExecutor: this.actionExecutor,
           writeHeartbeat: () => this.writeHeartbeat(),
           sleep: (ms: number) => this.sleep(ms),
-          isStopped: () => this.stopRequested,
+          isStopped: () => this.stopRequested || graphAbort.signal.aborted,
           onCycleEnd: (cycle: number, result: ActionResult | null, sleepMs: number) =>
             this.onCycleEnd(cycle, result, sleepMs),
           onEngagementCheck: (world: WorldState) => this.onEngagementCheck(world),
@@ -155,16 +163,18 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
 
         // Run graph in background; set promise BEFORE running=true so stop() cannot
         // observe a running graph without a promise to wait on.
-        const promise = this.runGraphLoop(compiledGraph);
+        const promise = this.runGraphLoop(compiledGraph, graphAbort);
         this.graphPromise = promise;
         this.running = true;
 
         // 2.6.3: clean up the promise when the loop actually exits so a subsequent
         // start() cannot start a second loop while the old one is still stopping.
+        // Use runId to avoid clobbering a new start() that happened while the
+        // previous loop was still winding down.
         promise.catch(() => {});
         promise.finally(() => {
-          this.graphPromise = null;
-          if (this.running) {
+          if (this.graphRunId === runId) {
+            this.graphPromise = null;
             this.running = false;
           }
         }).catch(() => {});
@@ -196,21 +206,35 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
       // is not extended while we are trying to release it.
       this.stopLeaderRenewal();
 
-      // Abort any in-progress sleep so the loop can check stopRequested
+      // Abort the current graph invocation and any in-progress sleep so the
+      // loop can check stopRequested / graphAbort.signal.
+      this.graphAbort?.abort();
       this.sleepAbort?.abort();
 
       // 2.6.3: wait for the graph loop to actually exit before declaring stopped.
       // The start() promise cleanup handles the normal exit path; this awaits it
       // explicitly so stop() cannot return while runGraphLoop is still running.
-      if (this.graphPromise) {
-        await this.graphPromise.catch(() => void 0);
+      // Use a hard timeout so a non-cooperative graph cannot block restart forever.
+      const STOP_TIMEOUT_MS = 15_000;
+      const stopRunId = this.graphRunId;
+      const graphPromise = this.graphPromise;
+      if (graphPromise) {
+        let stopTimer: ReturnType<typeof setTimeout> | undefined;
+        const stopTimeout = new Promise<void>((resolve) => {
+          stopTimer = setTimeout(resolve, STOP_TIMEOUT_MS);
+        });
+        await Promise.race([graphPromise.catch(() => void 0), stopTimeout]);
+        clearTimeout(stopTimer);
       }
 
       // Release the leader lock so another instance can take over immediately.
       await this.releaseLeaderLock();
 
-      this.running = false;
-      this.graphPromise = null;
+      if (this.graphRunId === stopRunId) {
+        this.running = false;
+        this.graphPromise = null;
+        this.graphAbort = null;
+      }
       this.logger.log('Orchestrator stopped');
     } finally {
       this.lifecycleLock = false;
@@ -260,7 +284,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
 
   // ── Graph Loop ───────────────────────────────────────────────────────────
 
-  private async runGraphLoop(compiledGraph: AnyCompiledGraph): Promise<void> {
+  private async runGraphLoop(compiledGraph: AnyCompiledGraph, graphAbort: AbortController): Promise<void> {
     // Check if we have a checkpoint to resume from
     let hasCheckpoint = false;
     try {
@@ -287,7 +311,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn('Failed to load checkpoint, starting fresh');
     }
 
-    while (!this.stopRequested) {
+    while (!this.stopRequested && !graphAbort.signal.aborted) {
       try {
         // On first iteration without checkpoint: pass full initial state.
         // On subsequent iterations: pass ONLY reset fields (world/action/result = null).
@@ -300,6 +324,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
 
         const result = await compiledGraph.invoke(input, {
           configurable: { thread_id: THREAD_ID },
+          signal: graphAbort.signal,
         });
 
         hasCheckpoint = true; // checkpoint now exists after first invoke
@@ -307,6 +332,10 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
         this.currentCycle = resultState.cycle;
       } catch (err) {
         this.logger.error(`Orchestrator cycle error: ${(err as Error).message}`);
+        if (this.stopRequested || graphAbort.signal.aborted) {
+          this.logger.log('Orchestrator stopping after cycle error');
+          return;
+        }
         await this.sleep(60_000);
       }
     }

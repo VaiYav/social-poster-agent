@@ -11,6 +11,7 @@ import { IPromptPort } from '../../domain/ports/prompt.port.js';
 import { SHARED_REDIS } from '../redis/redis.module.js';
 import { parseBool } from '../config/parse-bool.js';
 import { InMemoryLlmCache, RedisLlmCache, type LlmCache } from './llm-cache.js';
+import { combineSignals, signalToPromise } from '../util/abort-signal.js';
 
 /**
  * Provider definition — each provider is tried in order until one succeeds.
@@ -261,20 +262,34 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
  *
  * Callers can also pass callbacks explicitly via GenerateOptions.callbacks —
  * those are merged with the ALS callbacks (deduped by reference).
+ *
+ * A signal can also be propagated so model.invoke() respects orchestrator
+ * aborts / action timeouts.
  */
-const callbackStorage = new AsyncLocalStorage<BaseCallbackHandler[]>();
+interface LlmContext {
+  callbacks: BaseCallbackHandler[];
+  signal?: AbortSignal;
+}
+
+const llmContextStorage = new AsyncLocalStorage<LlmContext>();
 
 /**
- * Run a function with ambient Langfuse callbacks in AsyncLocalStorage.
- * All llm.generateChat()/generate() calls within `fn` (including those deep
- * inside LangGraph nodes) will automatically attach these callbacks to their
- * model.invoke() calls, nesting the LLM observations under the graph trace.
+ * Run a function with ambient Langfuse callbacks and an optional abort signal
+ * in AsyncLocalStorage. All llm.generateChat()/generate() calls within `fn`
+ * (including those deep inside LangGraph nodes) will automatically attach these
+ * callbacks to their model.invoke() calls and respect the signal, nesting the
+ * LLM observations under the graph trace.
  *
  * Exported so GenerationService can wrap graph.invoke() without threading
- * callbacks through every node function signature.
+ * callbacks/signals through every node function signature.
  */
+export function withLlmContext<T>(context: LlmContext, fn: () => Promise<T>): Promise<T> {
+  return llmContextStorage.run(context, fn);
+}
+
+/** Backward-compatible wrapper: callbacks only. */
 export function withLlmCallbacks<T>(callbacks: BaseCallbackHandler[], fn: () => Promise<T>): Promise<T> {
-  return callbackStorage.run(callbacks, fn);
+  return withLlmContext({ callbacks }, fn);
 }
 
 /**
@@ -830,7 +845,8 @@ export class LlmService implements ILlmPort, OnModuleInit {
         // and AsyncLocalStorage (ambient — set by GenerationService around
         // graph.invoke() so all LLM calls in the graph nest under one trace).
         // Dedupe by reference; filter out undefined entries.
-        const alsCallbacks = callbackStorage.getStore() ?? [];
+        const alsContext = llmContextStorage.getStore();
+        const alsCallbacks = alsContext?.callbacks ?? [];
         const explicitCallbacks = options?.callbacks ?? [];
         const callbacks = [...new Set([...alsCallbacks, ...explicitCallbacks])].filter(
           (h): h is BaseCallbackHandler => h != null,
@@ -845,6 +861,10 @@ export class LlmService implements ILlmPort, OnModuleInit {
         let lastErr: unknown;
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
           try {
+            if (options?.signal?.aborted) {
+              throw new Error('Abort');
+            }
+
             const invokeConfig: { callbacks?: BaseCallbackHandler[]; signal?: AbortSignal } = {};
             if (callbacks.length > 0) invokeConfig.callbacks = callbacks;
             if (options?.signal) invokeConfig.signal = options.signal;
@@ -878,6 +898,10 @@ export class LlmService implements ILlmPort, OnModuleInit {
               tokens,
               cost: this.estimateCost(provider.name, provider.model, usage.input, usage.output),
             };
+
+            if (options?.signal?.aborted) {
+              throw new Error('Abort');
+            }
 
             // Sprint J: Cache the response (non-creative roles only)
             if (cacheable) {
@@ -965,11 +989,25 @@ export class LlmService implements ILlmPort, OnModuleInit {
     userPrompt: string,
     options?: GenerateOptions,
   ): Promise<LlmResponse> {
-    return this.invokeWithFallback(systemPrompt, userPrompt, options);
+    const alsContext = llmContextStorage.getStore();
+    const effectiveSignal = combineSignals(options?.signal, alsContext?.signal);
+
+    if (effectiveSignal?.aborted) {
+      throw new Error('Abort');
+    }
+
+    if (!effectiveSignal) {
+      return this.invokeWithFallback(systemPrompt, userPrompt, options);
+    }
+
+    return await Promise.race([
+      this.invokeWithFallback(systemPrompt, userPrompt, { ...options, signal: effectiveSignal }),
+      signalToPromise(effectiveSignal),
+    ]);
   }
 
   async generate(prompt: string, options?: GenerateOptions): Promise<LlmResponse> {
-    return this.invokeWithFallback('', prompt, options);
+    return this.generateChat('', prompt, options);
   }
 
   /**

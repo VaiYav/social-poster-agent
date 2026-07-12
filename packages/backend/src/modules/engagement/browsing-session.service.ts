@@ -112,6 +112,7 @@ export class BrowsingSessionService {
   async runBrowsingSession(
     network: SocialNetwork,
     durationSec?: number,
+    signal?: AbortSignal,
   ): Promise<{ sessionId: string; postsViewed: number; interactionsCount: number }> {
     const duration = durationSec ?? this.defaultDurationSec;
     const engager = this.getEngager(network);
@@ -262,8 +263,23 @@ export class BrowsingSessionService {
       // Hard timeout: the graph should finish within the planned duration + a buffer.
       // If the page crashes/closes, crashPromise rejects immediately and aborts the session.
       try {
+        const signalPromise = signal
+          ? new Promise<never>((_, reject) => {
+              const onAbort = () => reject(new Error(`Browsing session for ${network} aborted`));
+              if (signal.aborted) {
+                onAbort();
+                return;
+              }
+              signal.addEventListener('abort', onAbort, { once: true });
+            })
+          : undefined;
+
         const finalState = await withTimeout(
-          Promise.race([compiled.invoke(initialState), crashPromise]),
+          Promise.race(
+            signalPromise
+              ? [compiled.invoke(initialState), crashPromise, signalPromise]
+              : [compiled.invoke(initialState), crashPromise],
+          ),
           duration * 1000 + 180_000,
           `Browsing session for ${network}`,
         );

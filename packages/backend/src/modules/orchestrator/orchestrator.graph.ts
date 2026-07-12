@@ -12,6 +12,7 @@
  */
 
 import { StateGraph, END, START, Annotation } from '@langchain/langgraph';
+import type { RunnableConfig } from '@langchain/core/runnables';
 import type { StateCollectorService } from './state-collector.service.js';
 import type { DecisionEngineService } from './decision-engine.service.js';
 import type { ActionExecutorService } from './action-executor.service.js';
@@ -103,12 +104,15 @@ function observeNode(deps: OrchestratorGraphDeps) {
  * DECIDE — choose next action (hard rules → LLM → guardrails).
  */
 function decideNode(deps: OrchestratorGraphDeps) {
-  return async (state: OrchestratorStateType): Promise<Partial<OrchestratorStateType>> => {
+  return async (
+    state: OrchestratorStateType,
+    config: RunnableConfig,
+  ): Promise<Partial<OrchestratorStateType>> => {
     if (!state.world) {
       // Observe failed catastrophically — return WAIT to retry next cycle
       return { action: { type: 'WAIT', reason: 'No world state (observe failed)', source: 'hard_rule' } };
     }
-    const action = await deps.decisionEngine.decide(state.world);
+    const action = await deps.decisionEngine.decide(state.world, config.signal);
     return { action };
   };
 }
@@ -117,8 +121,44 @@ function decideNode(deps: OrchestratorGraphDeps) {
  * EXECUTE — dispatch action to existing services.
  * WAIT actions skip execution entirely.
  */
+function getActionTimeoutMs(action: Action): number {
+  const browseSessionSec = Number(process.env.F1_BROWSING_SESSION_MINUTES ?? '15') * 60;
+  const browseTimeoutMs = browseSessionSec * 1000 + 180_000 + 10_000;
+  // Number() does not parse numeric-literal underscores, so strip them first.
+  const rawGenerateTimeout = process.env.ORCHESTRATOR_GENERATE_TIMEOUT_MS ?? '1200000';
+  const parsedGenerateTimeout = Number(rawGenerateTimeout.replaceAll('_', '').trim());
+  const generateTimeoutMs = Number.isFinite(parsedGenerateTimeout) && parsedGenerateTimeout > 0
+    ? parsedGenerateTimeout
+    : 1_200_000;
+
+  switch (action.type) {
+    case 'BROWSE':
+      return browseTimeoutMs;
+    case 'GENERATE_POSTS':
+      return generateTimeoutMs;
+    case 'CHECK_REPLIES':
+    case 'RECONCILE':
+      return 300_000;
+    case 'RECYCLE_CONTENT':
+    case 'GENERATE_TOPICS':
+      return 600_000;
+    case 'REFRESH_TRENDS':
+    case 'SCRAPE_METRICS':
+    case 'HEALTH_CHECK':
+    case 'RECOVER_SESSION':
+      return 180_000;
+    case 'POST':
+    case 'AGGREGATE_HOOKS':
+      return 120_000;
+    case 'WAIT':
+      return 0;
+    default:
+      return 120_000;
+  }
+}
+
 function executeNode(deps: OrchestratorGraphDeps) {
-  return async (state: OrchestratorStateType): Promise<Partial<OrchestratorStateType>> => {
+  return async (state: OrchestratorStateType, config: RunnableConfig): Promise<Partial<OrchestratorStateType>> => {
     if (!state.action) {
       return { result: { success: false, type: 'WAIT', duration: 0, error: 'No action to execute' } };
     }
@@ -130,8 +170,29 @@ function executeNode(deps: OrchestratorGraphDeps) {
     // would otherwise let the heartbeat go stale and trigger a watchdog restart mid-action.
     await deps.writeHeartbeat();
 
+    const timeoutMs = getActionTimeoutMs(state.action);
+    const timeoutCtrl = new AbortController();
+
+    let timeoutReject: ((err: Error) => void) | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutReject = reject;
+    });
+    const timer = setTimeout(() => {
+      timeoutCtrl.abort();
+      timeoutReject?.(new Error(`Action ${state.action!.type} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    const onGraphAbort = () => timeoutCtrl.abort();
+    if (config.signal) {
+      config.signal.addEventListener('abort', onGraphAbort, { once: true });
+      if (config.signal.aborted) timeoutCtrl.abort();
+    }
+
     try {
-      const result = await deps.actionExecutor.execute(state.action);
+      const result = await Promise.race([
+        deps.actionExecutor.execute(state.action, { signal: timeoutCtrl.signal }),
+        timeoutPromise,
+      ]);
       return { result };
     } catch (err) {
       const error = err as Error;
@@ -139,6 +200,12 @@ function executeNode(deps: OrchestratorGraphDeps) {
         result: { success: false, type: state.action.type, duration: 0, error: error.message },
         errors: [error],
       };
+    } finally {
+      clearTimeout(timer);
+      timeoutReject = undefined;
+      if (config.signal) {
+        config.signal.removeEventListener('abort', onGraphAbort);
+      }
     }
   };
 }

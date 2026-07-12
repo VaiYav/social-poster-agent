@@ -17,6 +17,7 @@ export interface IBrowsingSessionPort {
   runBrowsingSession(
     network: SocialNetwork,
     durationSec?: number,
+    signal?: AbortSignal,
   ): Promise<{ sessionId: string; postsViewed: number; interactionsCount: number }>;
 }
 
