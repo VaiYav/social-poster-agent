@@ -185,33 +185,6 @@ function calculateAdaptiveSleep(action: Action, world: WorldState): number {
     }
   }
 
-  // Rate limited → wait until reset (max 1 hour).
-  // Use dailyLimit/weeklyLimit > 0 to distinguish "unlimited" (limit=0) from "exhausted".
-  // lastPostMs is intentionally NOT used: the Redis intervalKey TTL expires after
-  // minIntervalMs, so a depleted daily/weekly budget would otherwise look fresh and
-  // cause a busy-loop of GENERATE/POST attempts.
-  const rateLimitNetworks = Object.keys(world.rateLimits);
-  for (const net of rateLimitNetworks) {
-    const rl = world.rateLimits[net];
-    if (!rl) continue;
-
-    if (rl.dailyLimit > 0 && rl.dailyRemaining === 0) {
-      const now = new Date();
-      const nextReset = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
-      const waitMs = nextReset.getTime() - now.getTime();
-      return Math.min(waitMs, 3_600_000); // max 1 hour
-    }
-
-    if (rl.weeklyLimit > 0 && rl.weeklyRemaining === 0) {
-      const now = new Date();
-      const day = now.getUTCDay(); // 0 = Sunday
-      const daysUntilMonday = (1 - day + 7) % 7 || 7;
-      const nextReset = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysUntilMonday));
-      const waitMs = nextReset.getTime() - now.getTime();
-      return Math.min(waitMs, 3_600_000); // max 1 hour
-    }
-  }
-
   // RECOVER_SESSION → quick check if recovery worked
   if (action.type === 'RECOVER_SESSION') {
     return 15_000;

@@ -377,6 +377,10 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
   private onCycleEnd(cycle: number, result: ActionResult | null, sleepMs: number): void {
     this.logger.debug(`Cycle ${cycle} ended: ${result?.type ?? 'N/A'} (sleep ${sleepMs}ms)`);
 
+    // Update currentCycle so getStatus() reflects the latest completed cycle
+    // while the graph is sleeping between cycles.
+    this.currentCycle = cycle;
+
     void this.historyService.record(cycle, result, sleepMs);
 
     // Emit domain event — SseEventListener bridges to SSE

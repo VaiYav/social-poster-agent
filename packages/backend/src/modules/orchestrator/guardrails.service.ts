@@ -67,15 +67,16 @@ export class GuardrailsService {
 
     // G6: Max actions per hour — handled by DecisionEngine (needs Redis)
 
-    // G8: POST takes priority over BROWSE/WAIT when there are approved drafts.
-    // The LLM sometimes chooses BROWSE when it sees stale engagement, or WAIT when it
-    // believes no posting window is active, but approved content should always be posted
-    // when a network is ready. Engagement runs in parallel via checkStaleAndEnqueue, so
-    // BROWSE/WAIT as the main action is redundant when there are drafts to post.
+    // G8: POST takes priority over BROWSE/WAIT/GENERATE_TOPICS when there are approved drafts.
+    // The LLM sometimes chooses BROWSE when it sees stale engagement, WAIT when it
+    // believes no posting window is active, or GENERATE_TOPICS when the topic pool is low,
+    // but approved content should always be posted when a network is ready. Engagement runs
+    // in parallel via checkStaleAndEnqueue, so BROWSE/WAIT as the main action is redundant
+    // when there are drafts to post.
     //
     // Among ready networks, pick the one with the oldest lastPostMs so posting rotates
     // across X and Threads instead of always hammering the first enabled network.
-    if ((action.type === 'BROWSE' || action.type === 'WAIT') && world.drafts.approved > 0) {
+    if ((action.type === 'BROWSE' || action.type === 'WAIT' || action.type === 'GENERATE_TOPICS') && world.drafts.approved > 0) {
       let chosenNet: SocialNetwork | undefined;
       let chosenLastPostMs = Infinity;
       const readyDebug = networks.map((net) => ({
