@@ -118,11 +118,14 @@ export class HardRulesService {
       return WAIT_ACTION(`${world.health.bans} ban(s) detected`, 300000);
     }
 
-    // H10: Queue backed up → WAIT
-    for (const net of networks) {
-      if ((world.queueDepth[net] ?? 0) > 5) {
-        return WAIT_ACTION(`Queue depth for ${net} > 5`, 60000);
-      }
+    // H10: Queue backed up for ALL networks → WAIT
+    // If only one network is backlogged, let the decision engine pick a healthy
+    // network instead of blocking the whole pipeline.
+    const allQueueBackedUp =
+      networks.length > 0 &&
+      networks.every((net) => (world.queueDepth[net] ?? 0) > 5);
+    if (allQueueBackedUp) {
+      return WAIT_ACTION('Queue depth > 5 for all networks', 60000);
     }
 
     return null; // No hard rule matched → proceed to LLM

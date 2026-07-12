@@ -100,7 +100,8 @@ export class GuardrailsService {
           dailyReady &&
           weeklyReady &&
           world.sessions[net]?.status === 'ACTIVE' &&
-          (world.drafts.approvedByNetwork[net] ?? 0) > 0
+          (world.drafts.approvedByNetwork[net] ?? 0) > 0 &&
+          (world.queueDepth[net] ?? 0) <= 5
         ) {
           const lastPostMs = world.rateLimits[net]?.lastPostMs ?? 0;
           if (lastPostMs < chosenLastPostMs) {
