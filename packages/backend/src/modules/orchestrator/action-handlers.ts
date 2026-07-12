@@ -9,6 +9,7 @@
 import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { PostStatus, SocialNetwork, GenerationTrigger } from '@prisma/client';
+import { RateLimitService } from '../rate-limit/rate-limit.service.js';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { parseBool } from '../../infrastructure/config/parse-bool.js';
 import { GenerationService } from '../generation/generation.service.js';
@@ -82,9 +83,53 @@ export class GeneratePostsHandler implements IActionHandler {
     if (!service) throw new Error('GenerationService not available');
 
     const postsPerRun = Number(process.env.AUTONOMOUS_POSTS_PER_RUN ?? '3');
-    const networks = action.network
+    let networks = action.network
       ? [action.network]
       : (process.env.AUTONOMOUS_TARGET_NETWORKS ?? 'X,THREADS').split(',').map((n) => n.trim()) as SocialNetwork[];
+
+    // Skip generation for networks whose daily/weekly budget is already consumed
+    // by successful posts plus in-flight approved/posting posts. This prevents the
+    // orchestrator from burning LLM quota on posts that will immediately fail rate checks.
+    const rateLimitService = resolveOptional(this.moduleRef, RateLimitService);
+    if (rateLimitService) {
+      const readyNetworks: SocialNetwork[] = [];
+      for (const network of networks) {
+        const [status, inFlight] = await Promise.all([
+          rateLimitService.getStatus(network),
+          this.prisma.post.count({
+            where: {
+              network,
+              status: { in: [PostStatus.APPROVED, PostStatus.POSTING] },
+            },
+          }),
+        ]);
+        const dailyRemaining =
+          status.dailyLimit > 0
+            ? Math.max(0, status.dailyLimit - status.dailyCount - inFlight)
+            : Number.MAX_SAFE_INTEGER;
+        const weeklyRemaining =
+          status.weeklyLimit > 0
+            ? Math.max(0, status.weeklyLimit - status.weeklyCount - inFlight)
+            : Number.MAX_SAFE_INTEGER;
+        if (dailyRemaining > 0 && weeklyRemaining > 0) {
+          readyNetworks.push(network);
+        } else {
+          this.logger.warn(
+            `Skipping generation for ${network}: daily=${status.dailyCount}/${status.dailyLimit}, weekly=${status.weeklyCount}/${status.weeklyLimit}, inFlight=${inFlight}`,
+          );
+        }
+      }
+      networks = readyNetworks;
+    }
+
+    if (networks.length === 0) {
+      return {
+        runId: null,
+        postsGenerated: 0,
+        postsApproved: 0,
+        reason: 'No ready networks (rate limits or in-flight posts)',
+      };
+    }
 
     const runId = await service.generate(postsPerRun, networks, GenerationTrigger.AUTONOMOUS);
 

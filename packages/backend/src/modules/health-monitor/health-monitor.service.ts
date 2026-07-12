@@ -1,4 +1,4 @@
-import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, Inject, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
@@ -11,6 +11,7 @@ import { isJobInFlight } from '../../infrastructure/queue/queue-state-utils.js';
 import { SessionStatus, PostStatus, SocialNetwork, BrowsingSessionStatus } from '@prisma/client';
 import { parseBool } from '../../infrastructure/config/parse-bool';
 import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
+import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
 
 /**
  * F21: Account Health Monitor — hourly cron that checks:
@@ -32,6 +33,12 @@ export class HealthMonitorService implements OnModuleInit {
   // M1: a POSTING post older than this grace window with no active BullMQ job is treated
   // as orphaned (crash mid-post) and reaped to FAILED. Grace avoids racing a just-started post.
   private readonly stuckPostingGraceMin: number;
+  private readonly engagementLockKey: string;
+
+  // Cache the last health report so the metrics SSE collector doesn't run
+  // the full expensive health check every 5 seconds.
+  private lastReport: HealthReport | null = null;
+  private lastReportAt = 0;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -41,9 +48,11 @@ export class HealthMonitorService implements OnModuleInit {
     private readonly queueFactory: QueueFactory,
     private readonly configService: ConfigService,
     private readonly schedulerRegistry: SchedulerRegistry,
+    @Inject(SHARED_REDIS) private readonly redis: InstanceType<typeof import('ioredis').default>,
   ) {
     this.banThreshold = this.configService?.get<number>('HEALTH_MONITOR_BAN_THRESHOLD', 5) ?? 5;
     this.stuckPostingGraceMin = this.configService?.get<number>('STUCK_POSTING_GRACE_MIN', 5) ?? 5;
+    this.engagementLockKey = this.configService?.get<string>('ENGAGEMENT_LOCK_KEY', 'spa:lock:engagement') ?? 'spa:lock:engagement';
   }
 
   onModuleInit(): void {
@@ -356,6 +365,20 @@ export class HealthMonitorService implements OnModuleInit {
       }
     }
 
+    // If any session was stuck, the distributed engagement lock may be held by
+    // the dead/crashed worker that owned it. Force-release it so the next job
+    // can acquire it and resume engagement.
+    if (reaped > 0) {
+      try {
+        await this.redis.del(this.engagementLockKey);
+        this.logger.warn(`Reaper: forced release of engagement lock ${this.engagementLockKey}`);
+      } catch (lockErr) {
+        this.logger.warn(
+          `Reaper: failed to force-release engagement lock ${this.engagementLockKey}: ${(lockErr as Error).message}`,
+        );
+      }
+    }
+
     this.logger.warn(
       `Reaper: ${reaped} stuck ACTIVE browsing session(s) reaped to FAILED (cutoff ${cutoff.toISOString()})`,
     );
@@ -433,6 +456,8 @@ export class HealthMonitorService implements OnModuleInit {
         `(${report.alerts.filter((a) => a.severity === 'critical').length} critical)`,
     );
 
+    this.lastReport = report;
+    this.lastReportAt = Date.now();
     return report;
   }
 
@@ -576,8 +601,24 @@ export class HealthMonitorService implements OnModuleInit {
 
   /**
    * Get dashboard data — combines health report with current state.
+   * Caches the last report for 5 minutes so SSE metrics collection doesn't
+   * run the expensive full health check every 5 seconds.
    */
-  async getDashboard(): Promise<HealthReport & { summary: HealthSummary }> {
+  async getDashboard(force = false): Promise<HealthReport & { summary: HealthSummary }> {
+    const cacheMaxAgeMs = 300_000; // 5 minutes
+    if (!force && this.lastReport && Date.now() - this.lastReportAt < cacheMaxAgeMs) {
+      const report = this.lastReport;
+      const summary: HealthSummary = {
+        totalAlerts: report.alerts.length,
+        criticalAlerts: report.alerts.filter((a) => a.severity === 'critical').length,
+        warningAlerts: report.alerts.filter((a) => a.severity === 'warning').length,
+        healthySessions: report.sessions.filter((s) => s.status === 'ACTIVE').length,
+        bannedSessions: report.sessions.filter((s) => s.status === 'BANNED').length,
+        expiredSessions: report.sessions.filter((s) => s.status === 'EXPIRED').length,
+      };
+      return { ...report, summary };
+    }
+
     const report = await this.runHealthCheck({ emitAlerts: false });
 
     const summary: HealthSummary = {

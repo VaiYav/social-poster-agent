@@ -184,12 +184,18 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     const dailyKey = `${this.prefix}:${network}:daily:${today}`;
     const weeklyKey = `${this.prefix}:${network}:weekly:${weekStart}`;
     const intervalKey = `${this.prefix}:${network}:interval`;
+    const lastPostAtKey = `${this.prefix}:${network}:lastPostAt`;
 
     const { daily: dailyLimit, weekly: weeklyLimit, intervalMs } = this.resolveLimits(network);
 
     // 2.7.1: use a single MGET so daily/weekly/interval are read atomically.
     // Fall back to individual GETs for older test mocks that don't expose mget.
-    const [dailyStr, weeklyStr, intervalStr] = await this.getMultiple([dailyKey, weeklyKey, intervalKey]);
+    const [dailyStr, weeklyStr, intervalStr, lastPostAtStr] = await this.getMultiple([
+      dailyKey,
+      weeklyKey,
+      intervalKey,
+      lastPostAtKey,
+    ]);
 
     // Check daily limit (read-only — don't increment yet). A limit of 0 means unlimited.
     const dailyCount = parseInt(dailyStr ?? '0', 10);
@@ -236,6 +242,7 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     const dailyKey = `${this.prefix}:${network}:daily:${today}`;
     const weeklyKey = `${this.prefix}:${network}:weekly:${weekStart}`;
     const intervalKey = `${this.prefix}:${network}:interval`;
+    const lastPostAtKey = `${this.prefix}:${network}:lastPostAt`;
     const intervalMs = this.resolveLimits(network).intervalMs;
 
     // Increment daily counter (set TTL on first increment)
@@ -250,9 +257,15 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
       await this.redis.expire(weeklyKey, 7 * 86400 + 3600); // 7 days + 1h TTL
     }
 
+    // Persist last post timestamp for the current window (7 days + 1h so it
+    // survives the shorter minInterval TTL and remains available for posting
+    // rotation and orchestrator decisions).
+    const now = Date.now();
+    await this.redis.set(lastPostAtKey, now.toString(), 'PX', 7 * 86400 + 3600);
+
     // Update interval timestamp (skip when no interval gate is configured)
     if (intervalMs > 0) {
-      await this.redis.set(intervalKey, Date.now().toString(), 'PX', intervalMs);
+      await this.redis.set(intervalKey, now.toString(), 'PX', intervalMs);
     }
   }
 
@@ -268,8 +281,9 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     const dailyKey = `${this.prefix}:${network}:daily:${today}`;
     const weeklyKey = `${this.prefix}:${network}:weekly:${weekStart}`;
     const intervalKey = `${this.prefix}:${network}:interval`;
+    const lastPostAtKey = `${this.prefix}:${network}:lastPostAt`;
 
-    await this.redis.del(dailyKey, weeklyKey, intervalKey);
+    await this.redis.del(dailyKey, weeklyKey, intervalKey, lastPostAtKey);
     this.logger.warn(`Rate limit counters reset for ${network}`);
   }
 
@@ -302,19 +316,25 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     const dailyKey = `${this.prefix}:${network}:daily:${today}`;
     const weeklyKey = `${this.prefix}:${network}:weekly:${weekStart}`;
     const intervalKey = `${this.prefix}:${network}:interval`;
+    const lastPostAtKey = `${this.prefix}:${network}:lastPostAt`;
 
-    const [dailyCountStr, weeklyCountStr, lastPostTs] = await Promise.all([
+    const [dailyCountStr, weeklyCountStr, lastPostAtTs, intervalTs] = await Promise.all([
       this.redis.get(dailyKey),
       this.redis.get(weeklyKey),
+      this.redis.get(lastPostAtKey),
       this.redis.get(intervalKey),
     ]);
+
+    // lastPostAt is persisted for 7 days + 1h. Fall back to the shorter-lived
+    // intervalKey for backward compatibility with data written before the split.
+    const effectiveLastPostAt = lastPostAtTs ?? intervalTs;
 
     return {
       dailyCount: dailyCountStr ? parseInt(dailyCountStr, 10) : 0,
       dailyLimit,
       weeklyCount: weeklyCountStr ? parseInt(weeklyCountStr, 10) : 0,
       weeklyLimit,
-      lastPostAt: lastPostTs ? parseInt(lastPostTs, 10) : null,
+      lastPostAt: effectiveLastPostAt ? parseInt(effectiveLastPostAt, 10) : null,
       minIntervalMs: intervalMs,
     };
   }

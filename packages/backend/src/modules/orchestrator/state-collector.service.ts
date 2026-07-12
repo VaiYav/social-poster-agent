@@ -203,11 +203,17 @@ export class StateCollectorService {
       networks.map(async (network) => {
         try {
           const status = await this.rateLimitService.getStatus(network);
+          // A limit of 0 means unlimited; represent remaining as a large positive value
+          // so guardrails and posting logic don't treat it as exhausted.
+          const dailyRemaining =
+            status.dailyLimit > 0 ? Math.max(0, status.dailyLimit - status.dailyCount) : Number.MAX_SAFE_INTEGER;
+          const weeklyRemaining =
+            status.weeklyLimit > 0 ? Math.max(0, status.weeklyLimit - status.weeklyCount) : Number.MAX_SAFE_INTEGER;
           return [
             network,
             {
-              dailyRemaining: Math.max(0, status.dailyLimit - status.dailyCount),
-              weeklyRemaining: Math.max(0, status.weeklyLimit - status.weeklyCount),
+              dailyRemaining,
+              weeklyRemaining,
               dailyLimit: status.dailyLimit,
               weeklyLimit: status.weeklyLimit,
               minIntervalMs: status.minIntervalMs,
@@ -215,6 +221,7 @@ export class StateCollectorService {
             },
           ] as const;
         } catch {
+          // Degraded — safe fallback: no remaining capacity so the orchestrator WAITs.
           return [network, { dailyRemaining: 0, weeklyRemaining: 0, dailyLimit: 0, weeklyLimit: 0, minIntervalMs: 0, lastPostMs: 0 }] as const;
         }
       }),

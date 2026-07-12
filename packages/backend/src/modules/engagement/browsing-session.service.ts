@@ -120,7 +120,10 @@ export class BrowsingSessionService {
     // across all networks and all instances. Two concurrent Camoufox contexts (X + THREADS)
     // cause renderer process crashes due to memory pressure. The lock serializes sessions;
     // the queue will retry the waiting job after the current one finishes.
-    const lockTtlMs = duration * 1000 + this.lockTtlBufferMs;
+    //
+    // The lock TTL must be longer than the graph hard timeout (duration + 180s) so the
+    // lock is not released before `withTimeout` aborts a stuck/hung session.
+    const lockTtlMs = duration * 1000 + 180_000 + this.lockTtlBufferMs;
     // Wait slightly longer than the lock TTL so a crashed/orphaned previous
     // holder's lock can expire before we give up acquiring it.
     const lockTimeoutMs = lockTtlMs + this.lockRetryMs;

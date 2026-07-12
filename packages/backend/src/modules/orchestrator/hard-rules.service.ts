@@ -67,18 +67,21 @@ export class HardRulesService {
       return WAIT_ACTION(`Circuit breaker open for all networks (${openCircuits.join(', ')})`, 60000);
     }
 
-    // H5: All networks daily limit exhausted → WAIT
-    const allDailyExhausted = networks.every(
-      (net) => (world.rateLimits[net]?.dailyRemaining ?? 0) === 0,
-    );
+    // H5: All networks daily limit exhausted → WAIT.
+    // Networks with a daily limit of 0 are unlimited, so they are not considered exhausted.
+    const allDailyExhausted = networks.every((net) => {
+      const rl = world.rateLimits[net];
+      return rl && rl.dailyLimit > 0 && rl.dailyRemaining === 0;
+    });
     if (allDailyExhausted && networks.length > 0) {
       return WAIT_ACTION('Daily rate limit exhausted for all networks', 300000);
     }
 
     // H6: All networks weekly limit exhausted → WAIT
-    const allWeeklyExhausted = networks.every(
-      (net) => (world.rateLimits[net]?.weeklyRemaining ?? 0) === 0,
-    );
+    const allWeeklyExhausted = networks.every((net) => {
+      const rl = world.rateLimits[net];
+      return rl && rl.weeklyLimit > 0 && rl.weeklyRemaining === 0;
+    });
     if (allWeeklyExhausted && networks.length > 0) {
       return WAIT_ACTION('Weekly rate limit exhausted for all networks', 600000);
     }

@@ -2,8 +2,14 @@
 # SPA Railway Monitor — fetches recent logs + API health, summarizes agent state.
 # Run in a loop: while true; do bash scripts/monitor.sh; sleep 720; done
 
-API="https://spa-backend-production-5b27.up.railway.app/api/v1"
+API="https://spa-backend-production-4fa6.up.railway.app/api/v1"
 TS=$(date '+%Y-%m-%d %H:%M:%S')
+
+# Optional JWT token for protected endpoints (set SPA_API_TOKEN in your environment).
+AUTH_HEADER=()
+if [ -n "$SPA_API_TOKEN" ]; then
+  AUTH_HEADER=(-H "Authorization: Bearer ${SPA_API_TOKEN}")
+fi
 
 echo "================================================================"
 echo "SPA MONITOR — $TS"
@@ -61,13 +67,13 @@ echo "--- API HEALTH ---"
 HEALTH=$(curl -s --max-time 10 "$API/health" 2>&1)
 echo "Health: $HEALTH"
 
-ORCH=$(curl -s --max-time 15 "$API/orchestrator/status" 2>&1)
+ORCH=$(curl -s --max-time 15 "${AUTH_HEADER[@]}" "$API/orchestrator/status" 2>&1)
 echo "Orchestrator: $ORCH"
 
-QUEUE=$(curl -s --max-time 15 "$API/queue/stats" 2>&1)
+QUEUE=$(curl -s --max-time 15 "${AUTH_HEADER[@]}" "$API/queue/stats" 2>&1)
 echo "Queue: $QUEUE"
 
-DASH=$(curl -s --max-time 15 "$API/health-monitor/dashboard" 2>&1)
+DASH=$(curl -s --max-time 15 "${AUTH_HEADER[@]}" "$API/health-monitor/dashboard" 2>&1)
 echo "Dashboard: $DASH"
 
 echo ""

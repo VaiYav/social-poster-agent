@@ -29,12 +29,11 @@ export class GuardrailsService {
       return WAIT_ACTION(`Network ${action.network} not enabled`, 60000, 'guardrail_override');
     }
 
-    // G3: POST requires rate limit remaining (daily AND weekly)
-    // A weekly limit of 0 means unlimited, so the weeklyRemaining check is skipped
-    // when the limit is configured as 0.
+    // G3: POST requires rate limit remaining (daily AND weekly).
+    // A limit of 0 means unlimited, so the exhausted checks are skipped in that case.
     if (action.type === 'POST' && action.network) {
       const rl = world.rateLimits[action.network];
-      if (!rl || rl.dailyRemaining === 0) {
+      if (!rl || (rl.dailyLimit > 0 && rl.dailyRemaining === 0)) {
         return WAIT_ACTION(`Daily rate limit exhausted for ${action.network}`, 300000, 'guardrail_override');
       }
       if (rl.weeklyLimit > 0 && rl.weeklyRemaining === 0) {
@@ -94,10 +93,11 @@ export class GuardrailsService {
       for (const net of networks) {
         if (world.sessions[net]?.circuitBreaker === 'open') continue;
         const rl = world.rateLimits[net];
+        const dailyReady = rl ? (rl.dailyLimit > 0 ? rl.dailyRemaining > 0 : true) : false;
         const weeklyReady = rl ? (rl.weeklyLimit > 0 ? rl.weeklyRemaining > 0 : true) : false;
         if (
           world.inPostingWindow[net] &&
-          (rl?.dailyRemaining ?? 0) > 0 &&
+          dailyReady &&
           weeklyReady &&
           world.sessions[net]?.status === 'ACTIVE' &&
           (world.drafts.approvedByNetwork[net] ?? 0) > 0

@@ -14,7 +14,7 @@ export class HealthMonitorController {
   @ApiOperation({ summary: 'F21: Health dashboard — sessions, posts, queues, alerts' })
   @ApiResponse({ status: 200, description: 'Health dashboard with summary' })
   async getDashboard(): Promise<HealthReport & { summary: HealthSummary }> {
-    return this.healthMonitorService.getDashboard();
+    return this.healthMonitorService.getDashboard(true);
   }
 
   @Post('check')
