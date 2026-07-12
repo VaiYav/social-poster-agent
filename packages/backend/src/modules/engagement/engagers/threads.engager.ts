@@ -18,6 +18,19 @@ export class ThreadsEngager extends BaseEngager {
     super(browser);
   }
 
+  /**
+   * Threads feeds sometimes expose auxiliary links under /post/ (e.g. permalink
+   * variants with extra segments). Reject anything that is not a clean post URL.
+   */
+  protected isValidPostUrl(postUrl: string): boolean {
+    try {
+      const url = new URL(postUrl);
+      return /^(\/@[^/]+\/post\/[^/]+|\/t\/[^/]+)(\?.*)?$/.test(url.pathname + url.search);
+    } catch {
+      return false;
+    }
+  }
+
   async like(page: Page, postUrl: string): Promise<EngagementResult> {
     try {
       await this.navigate(page, postUrl, 'domcontentloaded');
