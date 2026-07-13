@@ -8,6 +8,7 @@ import { PostingService } from '../posting/posting.service';
 import { QueueService } from './queue.service';
 import { QueueController } from './queue.controller';
 import { SocialNetwork } from '@prisma/client';
+import { RateLimitError } from 'bullmq';
 import { parseBool } from '../../infrastructure/config/parse-bool';
 import { getEnabledNetworks } from '../../domain/enabled-networks.js';
 
@@ -54,6 +55,14 @@ export class QueueModule implements OnModuleInit {
         const { postId } = job.data as { postId: string };
         const result = await this.postingService.postById(postId);
         if (!result.success) {
+          // Rate-limited posts are not failures — tell BullMQ to delay the whole
+          // queue so the job is retried when the rate window resets (next day / interval).
+          if (result.rateLimit) {
+            const queue = this.queueFactory.getQueue(network, 'posting');
+            await queue.rateLimit(Math.max(1000, result.retryAfterMs ?? 300_000));
+            throw new RateLimitError();
+          }
+
           // retryable === false means postById already resolved the post to a terminal
           // state (e.g. network disabled) — retrying can never succeed, so resolve the
           // job instead of burning the full retry budget on a guaranteed repeat failure.

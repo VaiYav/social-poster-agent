@@ -39,9 +39,9 @@ export class ThreadsPoster extends BasePoster {
     this.registerCrashHandler(page, context);
 
     try {
-      // Navigate to Threads home
+      // Navigate to Threads home (domcontentloaded to reduce renderer memory pressure)
       this.assertPageAlive(page, 'navigate to Threads home');
-      await this.navigate(page, THREADS_SELECTORS.compose.homeUrl);
+      await this.navigate(page, THREADS_SELECTORS.compose.homeUrl, 'domcontentloaded');
 
       // Check if logged in
       if (await this.isOnLoginPage(page)) {
@@ -69,7 +69,7 @@ export class ThreadsPoster extends BasePoster {
       } catch (clickErr) {
         this.logger.warn(`Compose button click failed: ${(clickErr as Error).message} — trying /compose URL`);
         // Fallback: navigate directly to compose URL
-        await page.goto('https://www.threads.com/compose', { waitUntil: 'networkidle', timeout: 15000 });
+        await page.goto('https://www.threads.com/compose', { waitUntil: 'domcontentloaded', timeout: 15000 });
       }
       await this.browser.randomDelay(2000, 5000);
 
@@ -91,19 +91,17 @@ export class ThreadsPoster extends BasePoster {
         });
       }
 
-      // Type content using stealth human-like typing (typeHuman)
-      // typeHuman uses randomized per-key delay (40-120ms) with 5% "thinking" pauses
-      // — more human-like than humanType's fixed delay, evades anti-bot detection
+      // Type content using character-by-character execCommand insertText so React
+      // enables the Post button. Fallback to typeHuman if the DOM is empty.
       this.assertPageAlive(page, 'type thread content');
-      await this.typeHuman(page, content, textareaResolution.locator);
+      await this.setComposeText(page, textareaResolution.locator, content);
       await this.browser.randomDelay(1000, 2000);
 
-      // Verify content was entered; if not, fall back to execCommand insertText which fires
-      // the input events React/DraftJS-style editors need to enable the submit button.
+      // Verify content was entered; if not, fall back to stealth human-like typing.
       const enteredText = await textareaResolution.locator.innerText().catch(() => '');
       if (!enteredText || enteredText.trim().length < 10) {
-        this.logger.warn(`Threads typeHuman didn't enter text — trying execCommand insertText...`);
-        await this.setComposeText(page, textareaResolution.locator, content);
+        this.logger.warn(`Threads setComposeText didn't enter text — trying typeHuman...`);
+        await this.typeHuman(page, content, textareaResolution.locator);
       }
 
       // Screenshot after typing
@@ -194,10 +192,10 @@ export class ThreadsPoster extends BasePoster {
   }
 
   /**
-   * Insert text into Threads' contenteditable compose box using
-   * document.execCommand('insertText'). This fires the input events React listens
-   * to, so the Post button is genuinely enabled and the thread is actually
-   * submitted. Used as a fallback when typeHuman leaves the textarea empty or
+   * Insert text into Threads' contenteditable compose box using character-by-character
+   * document.execCommand('insertText'). This fires the per-character `beforeinput` event
+   * sequence React listens to, so the Post button is genuinely enabled and the thread is
+   * actually submitted. Used as a fallback when typeHuman leaves the textarea empty or
    * the submit button stays disabled.
    */
   private async setComposeText(
@@ -205,44 +203,17 @@ export class ThreadsPoster extends BasePoster {
     textbox: Locator,
     content: string,
   ): Promise<void> {
-    const MAX_RETRIES = 2;
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        await textbox.focus({ timeout: 5000 }).catch(() => {});
-        await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
-        await this.browser.randomDelay(200, 400);
+    const inserted = await this.insertContenteditableText(page, textbox, content, {
+      delayMinMs: 20,
+      delayMaxMs: 60,
+    });
 
-        const inserted = await textbox.evaluate((el: HTMLElement, value: string) => {
-          el.focus();
-          const selection = window.getSelection();
-          const range = document.createRange();
-          range.selectNodeContents(el);
-          selection?.removeAllRanges();
-          selection?.addRange(range);
-          const ok = document.execCommand('insertText', false, value);
-          if (!ok) return false;
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          return true;
-        }, content).catch(() => false);
-
-        if (inserted) {
-          const innerText = await textbox.innerText().catch(() => '');
-          if (innerText.trim().length >= content.trim().length * 0.8) {
-            this.logger.debug(`Threads setComposeText via execCommand succeeded (attempt ${attempt})`);
-            return;
-          }
-        }
-      } catch (err) {
-        this.logger.debug(`Threads setComposeText attempt ${attempt} failed: ${(err as Error).message}`);
-      }
-      // Page crashed/closed — no point retrying text entry on a dead page
-      if (page.isClosed?.()) {
-        this.logger.warn(`Threads setComposeText: page is closed — skipping remaining retries`);
-        break;
-      }
-      await this.browser.randomDelay(300, 600);
+    if (inserted) {
+      this.logger.debug('Threads setComposeText via per-character execCommand insertText succeeded');
+      return;
     }
-    this.logger.warn(`Threads execCommand insertText failed — textbox may be empty`);
+
+    this.logger.warn('Threads execCommand insertText failed — textbox may be empty');
   }
 
   /**
@@ -290,7 +261,7 @@ export class ThreadsPoster extends BasePoster {
     content: string,
   ): Promise<void> {
     this.assertPageAlive(page, `navigate to root post for reply`);
-    await this.navigate(page, rootPostUrl);
+    await this.navigate(page, rootPostUrl, 'domcontentloaded');
 
     // Click the reply button
     const replyResolution = await this.resolve(
@@ -308,15 +279,15 @@ export class ThreadsPoster extends BasePoster {
       THREADS_SELECTORS.engagement.replyTextarea,
       'reply textarea',
     );
-    // Use typeHuman for stealth typing (randomized per-key delay + thinking pauses)
-    await this.typeHuman(page, content, textareaResolution.locator);
+    // Use character-by-character execCommand insertText so React enables the Reply button
+    await this.setComposeText(page, textareaResolution.locator, content);
     await this.browser.randomDelay(1000, 2000);
 
-    // Fallback to execCommand insertText if the textarea didn't capture the content
+    // Fallback to typeHuman for stealth typing if the textarea didn't capture the content
     const replyText = await textareaResolution.locator.innerText().catch(() => '');
     if (!replyText || replyText.trim().length < 10) {
-      this.logger.warn(`Threads reply typeHuman didn't enter text — trying execCommand insertText...`);
-      await this.setComposeText(page, textareaResolution.locator, content);
+      this.logger.warn(`Threads reply setComposeText didn't enter text — trying typeHuman...`);
+      await this.typeHuman(page, content, textareaResolution.locator);
     }
 
     // Submit reply

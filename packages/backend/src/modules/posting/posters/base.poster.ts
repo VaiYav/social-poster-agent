@@ -115,6 +115,112 @@ export abstract class BasePoster {
   }
 
   /**
+   * Insert text into a React/DraftJS contenteditable element by emitting
+   * character-by-character `document.execCommand('insertText', false, char)`.
+   *
+   * Whole-string execCommand/insertText is not enough for X/Threads: the React
+   * state that enables the Post/Reply button is driven by the `beforeinput`
+   * event sequence, which is only emitted per-character when execCommand is
+   * called one character at a time. Inserting the whole string at once leaves
+   * the button disabled even though the DOM text appears correct.
+   *
+   * Returns true when the element's visible text reaches at least minRatio of
+   * the target text length. Retries on failure. Callers provide their own
+   * fallback (e.g. typeHuman or keyboard.type()) when this returns false.
+   */
+  protected async insertContenteditableText(
+    page: Page,
+    locator: Locator,
+    text: string,
+    opts?: { delayMinMs?: number; delayMaxMs?: number; minRatio?: number; maxRetries?: number },
+  ): Promise<boolean> {
+    const trimmed = text.trim();
+    const minLength = Math.max(1, Math.floor(trimmed.length * (opts?.minRatio ?? 0.8)));
+    const maxRetries = opts?.maxRetries ?? 2;
+    const delayMin = opts?.delayMinMs ?? 30;
+    const delayMax = opts?.delayMaxMs ?? 70;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await locator.focus({ timeout: 5000 }).catch(() => {});
+        await locator.click({ force: true, timeout: 5000 }).catch(() => {});
+        await this.browser.randomDelay(200, 400);
+
+        const chars = Array.from(text);
+        for (let i = 0; i < chars.length; i++) {
+          if (page.isClosed?.()) return false;
+
+          const char = chars[i]!;
+          const inserted = await locator.evaluate(
+            (el: HTMLElement, { value, isFirst }: { value: string; isFirst: boolean }) => {
+              if (!el.isContentEditable) return false;
+              el.focus();
+
+              if (isFirst) {
+                const selection = window.getSelection();
+                const range = document.createRange();
+                range.selectNodeContents(el);
+                selection?.removeAllRanges();
+                selection?.addRange(range);
+              }
+
+              // Camoufox (Firefox) does not fire beforeinput for page-script execCommand,
+              // so DraftJS never updates its React state. Dispatch beforeinput before
+              // the DOM mutation and input after it, per the W3C editing event order.
+              const beforeInput = new InputEvent('beforeinput', {
+                bubbles: true,
+                cancelable: true,
+                inputType: 'insertText',
+                data: value,
+                dataTransfer: null,
+                isComposing: false,
+              });
+              el.dispatchEvent(beforeInput);
+
+              const ok = document.execCommand('insertText', false, value);
+
+              const input = new InputEvent('input', {
+                bubbles: true,
+                inputType: 'insertText',
+                data: value,
+              });
+              el.dispatchEvent(input);
+
+              return ok || true;
+            },
+            { value: char, isFirst: i === 0 },
+          ).catch(() => false);
+
+          if (!inserted) {
+            this.logger.debug(
+              `insertContenteditableText: execCommand failed for char ${i}, attempt ${attempt}`,
+            );
+            break;
+          }
+
+          if (i < chars.length - 1) {
+            await this.browser.randomDelay(delayMin, delayMax);
+          }
+        }
+
+        const innerText = await locator.innerText().catch(() => '');
+        if (innerText.trim().length >= minLength) {
+          return true;
+        }
+      } catch (err) {
+        this.logger.debug(
+          `insertContenteditableText attempt ${attempt} failed: ${(err as Error).message}`,
+        );
+      }
+
+      if (page.isClosed?.()) break;
+      await this.browser.randomDelay(300, 600);
+    }
+
+    return false;
+  }
+
+  /**
    * Click a locator using human-like click (tries normal, falls back to force).
    */
   protected async humanClick(locator: Locator, timeoutMs = 15000): Promise<void> {

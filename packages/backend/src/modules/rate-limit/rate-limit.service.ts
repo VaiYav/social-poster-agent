@@ -161,18 +161,20 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Check if a post is allowed under the rate limit for this network.
-   * Returns { allowed, reason } — if not allowed, caller should defer.
+   * Returns { allowed, reason, retryAfterMs } — if not allowed, caller should defer.
+   * retryAfterMs tells BullMQ / callers how long to wait before retrying.
    *
    * Checks in order: daily limit → weekly limit → min interval.
    * Does NOT increment counters — call recordPost() after successful post.
    */
-  async checkRateLimit(network: string): Promise<{ allowed: boolean; reason?: string }> {
+  async checkRateLimit(network: string): Promise<{ allowed: boolean; reason?: string; retryAfterMs?: number }> {
     if (!this.redis) {
       // 2.7.3: optionally fail-closed when Redis is unavailable
       if (this.failClosed) {
         return {
           allowed: false,
           reason: 'Redis unavailable — rate limit check failed closed',
+          retryAfterMs: 300_000,
         };
       }
       return { allowed: true, reason: 'Redis not connected — rate limit bypassed' };
@@ -180,7 +182,8 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
 
     const now = Date.now();
     const today = new Date().toISOString().slice(0, 10);
-    const weekStart = this.getWeekStart().toISOString().slice(0, 10);
+    const weekStartDate = this.getWeekStart();
+    const weekStart = weekStartDate.toISOString().slice(0, 10);
     const dailyKey = `${this.prefix}:${network}:daily:${today}`;
     const weeklyKey = `${this.prefix}:${network}:weekly:${weekStart}`;
     const intervalKey = `${this.prefix}:${network}:interval`;
@@ -200,18 +203,22 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     // Check daily limit (read-only — don't increment yet). A limit of 0 means unlimited.
     const dailyCount = parseInt(dailyStr ?? '0', 10);
     if (dailyLimit > 0 && dailyCount >= dailyLimit) {
+      const nextDayStart = new Date(`${today}T00:00:00.000Z`).getTime() + 86_400_000;
       return {
         allowed: false,
         reason: `Daily limit reached for ${network} (${dailyCount}/${dailyLimit})`,
+        retryAfterMs: Math.max(0, nextDayStart - now),
       };
     }
 
     // Check weekly limit. A limit of 0 means unlimited.
     const weeklyCount = parseInt(weeklyStr ?? '0', 10);
     if (weeklyLimit > 0 && weeklyCount >= weeklyLimit) {
+      const nextWeekStart = weekStartDate.getTime() + 7 * 86_400_000;
       return {
         allowed: false,
         reason: `Weekly limit reached for ${network} (${weeklyCount}/${weeklyLimit})`,
+        retryAfterMs: Math.max(0, nextWeekStart - now),
       };
     }
 
@@ -223,6 +230,7 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
         return {
           allowed: false,
           reason: `Rate limit: wait ${Math.ceil(waitMs / 1000)}s before next ${network} post`,
+          retryAfterMs: waitMs,
         };
       }
     }

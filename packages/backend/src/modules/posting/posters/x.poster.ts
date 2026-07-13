@@ -546,10 +546,10 @@ export class XPoster extends BasePoster {
   }
 
   /**
-   * Insert text into X's DraftJS contenteditable compose box using
-   * document.execCommand('insertText'). This fires the input events React/DraftJS
-   * listens to, so the Post button becomes genuinely enabled and the tweet is
-   * actually submitted when clicked. Falls back to the legacy per-character
+   * Insert text into X's DraftJS contenteditable compose box using character-by-character
+   * document.execCommand('insertText'). This fires the per-character `beforeinput` event
+   * sequence React/DraftJS listens to, so the Post button becomes genuinely enabled and
+   * the tweet is actually submitted when clicked. Falls back to the legacy per-character
    * typeHuman strategy if execCommand fails or returns false.
    */
   private async setComposeText(
@@ -557,83 +557,18 @@ export class XPoster extends BasePoster {
     textbox: Locator,
     content: string,
   ): Promise<void> {
-    const MAX_RETRIES = 2;
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        // Focus the contenteditable div so execCommand targets the right element
-        await textbox.focus({ timeout: 5000 }).catch(() => {});
-        await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
-        await this.browser.randomDelay(200, 400);
+    const inserted = await this.insertContenteditableText(page, textbox, content, {
+      delayMinMs: 20,
+      delayMaxMs: 60,
+    });
 
-        // Select any existing content and replace it via execCommand.
-        // In Firefox/Camoufox, execCommand('insertText') may insert text into the DOM
-        // WITHOUT firing the 'beforeinput' event that DraftJS actually processes.
-        // DraftJS listens for InputEvent('beforeinput') with inputType='insertText' —
-        // a generic Event('input') is ignored. So after execCommand, we also dispatch
-        // proper InputEvent objects to ensure DraftJS updates its React state.
-        const inserted = await textbox.evaluate((el: HTMLElement, value: string) => {
-          el.focus();
-          const selection = window.getSelection();
-          const range = document.createRange();
-          range.selectNodeContents(el);
-          selection?.removeAllRanges();
-          selection?.addRange(range);
-
-          // Strategy 1a: execCommand('insertText') — works in Chrome, partial Firefox
-          const ok = document.execCommand('insertText', false, value);
-
-          // Strategy 1b: dispatch proper InputEvent('beforeinput') that DraftJS listens for.
-          // This is needed because Firefox's execCommand may not fire beforeinput natively.
-          // DraftJS calls preventDefault() on beforeinput and processes the input itself.
-          try {
-            const beforeInput = new InputEvent('beforeinput', {
-              bubbles: true,
-              cancelable: true,
-              inputType: 'insertText',
-              data: value,
-              dataTransfer: null,
-              isComposing: false,
-            });
-            el.dispatchEvent(beforeInput);
-          } catch {
-            // InputEvent constructor may not be available in all contexts
-          }
-
-          // Also dispatch InputEvent('input') with inputType — not generic Event('input')
-          try {
-            el.dispatchEvent(new InputEvent('input', {
-              bubbles: true,
-              inputType: 'insertText',
-              data: value,
-            }));
-          } catch {
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-          }
-
-          return ok || true;
-        }, content).catch(() => false);
-
-        if (inserted) {
-          const innerText = await textbox.innerText().catch(() => '');
-          if (innerText.trim().length >= content.trim().length * 0.8) {
-            this.logger.debug(`X setComposeText via execCommand + InputEvent succeeded (attempt ${attempt})`);
-            return;
-          }
-        }
-      } catch (err) {
-        this.logger.debug(`X setComposeText attempt ${attempt} failed: ${(err as Error).message}`);
-      }
-      // Page crashed/closed — no point retrying text entry on a dead page
-      if (page.isClosed?.()) {
-        this.logger.warn(`X setComposeText: page is closed — skipping remaining retries`);
-        break;
-      }
-      // Pause briefly before fallback retry
-      await this.browser.randomDelay(300, 600);
+    if (inserted) {
+      this.logger.debug('X setComposeText via per-character execCommand insertText succeeded');
+      return;
     }
 
     // Fallback to legacy per-character typing
-    this.logger.warn(`X execCommand insertText failed — falling back to typeHuman`);
+    this.logger.warn('X execCommand insertText failed — falling back to typeHuman');
     await this.browser.typeHuman(page, content, textbox).catch(() => {});
   }
 
@@ -729,10 +664,10 @@ export class XPoster extends BasePoster {
     try {
       this.logger.log(`X fallback: navigating to home page...`);
       this.assertPageAlive(page, 'navigate to home page for compose');
-      // Use networkidle (not domcontentloaded) — X's SPA needs time to hydrate after load.
-      // domcontentloaded fires before React mounts, leaving only <style> tags in the body,
-      // which causes the compose button search to fail every time.
-      await this.navigate(page, 'https://x.com/home', 'networkidle');
+      // Use domcontentloaded to avoid waiting for heavy network idle on the X home page
+      // (reduces renderer memory pressure and page-crash risk). The waitForSelector below
+      // waits for the React SPA to mount, so hydration is still verified before interacting.
+      await this.navigate(page, 'https://x.com/home', 'domcontentloaded');
 
       // Check if logged in
       if (await this.isOnLoginPage(page)) {
@@ -751,12 +686,12 @@ export class XPoster extends BasePoster {
         { timeout: 30000 },
       ).then(() => true).catch(() => false);
 
-      // If SPA didn't mount within 30s, reload with networkidle and try again.
+      // If SPA didn't mount within 30s, reload with domcontentloaded and try again.
       // X sometimes serves a degraded page (only <style> tags, no JS) on first load —
-      // a reload with networkidle forces a fresh fetch and gives the SPA time to hydrate.
+      // a reload forces a fresh fetch and the waitForSelector below verifies hydration.
       if (!spaMounted) {
-        this.logger.warn(`X fallback: SPA not mounted after 30s — reloading page with networkidle...`);
-        await page.reload({ waitUntil: 'networkidle', timeout: 30000 }).catch(() => {});
+        this.logger.warn(`X fallback: SPA not mounted after 30s — reloading page...`);
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
         await this.browser.randomDelay(2000, 4000);
         spaMounted = await page.waitForSelector(
           '[data-testid="primaryColumn"], [data-testid="SideNav_NewTweet_Button"]',
@@ -1103,8 +1038,8 @@ export class XPoster extends BasePoster {
     await textbox.click({ force: true, timeout: 10000 }).catch(() => {});
     await this.browser.randomDelay(300, 800);
 
-    // Type content — try typeHuman first, then keyboard.type as fallback
-    await this.browser.typeHuman(page, content, textbox).catch(() => {});
+    // Type content — per-character execCommand so DraftJS enables the Reply button
+    await this.setComposeText(page, textbox, content);
     await this.browser.randomDelay(500, 1000);
 
     // Verify text was entered

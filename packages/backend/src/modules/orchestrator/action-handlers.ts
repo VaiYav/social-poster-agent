@@ -91,8 +91,11 @@ export class GeneratePostsHandler implements IActionHandler {
     // by successful posts plus in-flight approved/posting posts. This prevents the
     // orchestrator from burning LLM quota on posts that will immediately fail rate checks.
     const rateLimitService = resolveOptional(this.moduleRef, RateLimitService);
+    let effectivePostsPerRun = postsPerRun;
     if (rateLimitService) {
       const readyNetworks: SocialNetwork[] = [];
+      let minDailyRemaining = Number.MAX_SAFE_INTEGER;
+      let minWeeklyRemaining = Number.MAX_SAFE_INTEGER;
       for (const network of networks) {
         const [status, inFlight] = await Promise.all([
           rateLimitService.getStatus(network),
@@ -113,6 +116,8 @@ export class GeneratePostsHandler implements IActionHandler {
             : Number.MAX_SAFE_INTEGER;
         if (dailyRemaining > 0 && weeklyRemaining > 0) {
           readyNetworks.push(network);
+          minDailyRemaining = Math.min(minDailyRemaining, dailyRemaining);
+          minWeeklyRemaining = Math.min(minWeeklyRemaining, weeklyRemaining);
         } else {
           this.logger.warn(
             `Skipping generation for ${network}: daily=${status.dailyCount}/${status.dailyLimit}, weekly=${status.weeklyCount}/${status.weeklyLimit}, inFlight=${inFlight}`,
@@ -120,6 +125,9 @@ export class GeneratePostsHandler implements IActionHandler {
         }
       }
       networks = readyNetworks;
+      // Do not generate more posts per network than the smallest remaining budget.
+      // GenerationService.generate(count, networks) creates `count` posts per network.
+      effectivePostsPerRun = Math.min(postsPerRun, minDailyRemaining, minWeeklyRemaining);
     }
 
     if (networks.length === 0) {
@@ -131,7 +139,7 @@ export class GeneratePostsHandler implements IActionHandler {
       };
     }
 
-    const runId = await service.generate(postsPerRun, networks, GenerationTrigger.AUTONOMOUS, false, false, options?.signal);
+    const runId = await service.generate(effectivePostsPerRun, networks, GenerationTrigger.AUTONOMOUS, false, false, options?.signal);
 
     let postsApproved = 0;
     if (parseBool(process.env.AUTO_APPROVE_ENABLED ?? 'false')) {

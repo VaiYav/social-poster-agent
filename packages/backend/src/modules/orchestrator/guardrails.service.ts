@@ -41,6 +41,52 @@ export class GuardrailsService {
       }
     }
 
+    // G3b: GENERATE_POSTS with a network must target a network that has rate limit
+    // capacity remaining. If the LLM picks a rate-limited network, redirect to the
+    // ready network with the oldest lastPostMs so posting rotates. If no network is
+    // ready, WAIT — generating drafts for an exhausted network wastes LLM quota.
+    if (action.type === 'GENERATE_POSTS' && action.network) {
+      const rl = world.rateLimits[action.network];
+      const dailyReady = rl ? (rl.dailyLimit > 0 ? rl.dailyRemaining > 0 : true) : false;
+      const weeklyReady = rl ? (rl.weeklyLimit > 0 ? rl.weeklyRemaining > 0 : true) : true;
+      if (!dailyReady || !weeklyReady) {
+        let chosenNet: SocialNetwork | undefined;
+        let chosenLastPostMs = Infinity;
+        for (const net of networks) {
+          if (net === action.network) continue;
+          if (world.sessions[net]?.circuitBreaker === 'open') continue;
+          const r = world.rateLimits[net];
+          const dReady = r ? (r.dailyLimit > 0 ? r.dailyRemaining > 0 : true) : false;
+          const wReady = r ? (r.weeklyLimit > 0 ? r.weeklyRemaining > 0 : true) : true;
+          if (
+            dReady &&
+            wReady &&
+            world.sessions[net]?.status === 'ACTIVE' &&
+            (world.queueDepth[net] ?? 0) <= 5
+          ) {
+            const lastPostMs = world.rateLimits[net]?.lastPostMs ?? 0;
+            if (lastPostMs < chosenLastPostMs) {
+              chosenNet = net as SocialNetwork;
+              chosenLastPostMs = lastPostMs;
+            }
+          }
+        }
+        if (chosenNet) {
+          return {
+            type: 'GENERATE_POSTS' as const,
+            network: chosenNet,
+            reason: `Guardrail G3b: ${action.network} is rate-limited; redirecting GENERATE_POSTS to ${chosenNet}`,
+            source: 'guardrail_override',
+          };
+        }
+        return WAIT_ACTION(
+          `Rate limit exhausted for ${action.network} (GENERATE_POSTS blocked)`,
+          300000,
+          'guardrail_override',
+        );
+      }
+    }
+
     // G4: POST/BROWSE require active session — but check flow-pause for the *original*
     // action type first. Otherwise a paused posting/engagement/replies flow doesn't stop
     // the resulting RECOVER_SESSION action (RECOVER_SESSION has no flow of its own to

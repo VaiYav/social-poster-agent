@@ -136,7 +136,7 @@ export class PostingService {
     }
   }
 
-  async postById(postId: string): Promise<{ success: boolean; url?: string; error?: string; retryable?: boolean }> {
+  async postById(postId: string): Promise<{ success: boolean; url?: string; error?: string; retryable?: boolean; rateLimit?: boolean; retryAfterMs?: number }> {
     const post = await this.postsService.findById(postId);
 
     // Network gating — skip posts for disabled networks (e.g. Facebook)
@@ -191,13 +191,20 @@ export class PostingService {
     // goes live. Updates the post content if the post is still the original base text.
     post.content = await this.resolveVariant(postId, post.network, post.content);
 
-    // G-3: Rate limit check — if not allowed, defer (throw for BullMQ retry)
+    // G-3: Rate limit check — if not allowed, return a rate-limit result so the
+    // queue worker can use BullMQ's RateLimitError (queue-wide delay) instead of
+    // burning the retry budget on backoff loops.
     const networkKey = String(post.network);
     const rateCheck = await this.rateLimitService.checkRateLimit(networkKey);
     if (!rateCheck.allowed) {
       this.logger.warn(`Rate limited for ${networkKey}: ${rateCheck.reason}`);
-      // Throw so BullMQ retries with backoff — the rate window will have passed by then
-      throw new RetryableError(post.network, `Rate limited: ${rateCheck.reason}`);
+      return {
+        success: false,
+        error: rateCheck.reason,
+        retryable: false,
+        rateLimit: true,
+        retryAfterMs: rateCheck.retryAfterMs,
+      };
     }
 
     // F20: Warm-up check — skip posting if account is in browse-only warm-up phase
@@ -739,6 +746,10 @@ export class PostingService {
         const result = await this.postById(post.id);
         if (result.success) {
           posted++;
+        } else if (result.rateLimit) {
+          // D1: Rate-limited posts are deferred, not failed
+          this.logger.warn(`Skipping post ${post.id}: ${result.error}`);
+          skipped++;
         } else {
           failed++;
         }

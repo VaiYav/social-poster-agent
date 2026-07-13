@@ -412,70 +412,19 @@ export abstract class BaseEngager extends BasePoster {
 
   /**
    * Type text into a React-based contenteditable div (Threads, X).
-   * Uses execCommand('insertText') and a proper DraftJS InputEvent('beforeinput')
-   * to update React state, then falls back to keyboard.type() if text was not
-   * actually entered. Verifies the DOM text to avoid false positives.
+   * Uses character-by-character execCommand('insertText') so DraftJS updates
+   * its internal state and enables the submit button, then falls back to
+   * keyboard.type() if text was not actually entered.
    */
   protected async typeIntoContenteditable(page: Page, locator: import('playwright-core').Locator, text: string): Promise<void> {
-    const trimmedText = text.trim();
-    const minLength = Math.max(1, Math.floor(trimmedText.length * 0.8));
+    const inserted = await this.insertContenteditableText(page, locator, text, {
+      delayMinMs: 20,
+      delayMaxMs: 60,
+    });
 
-    // Strategy 1: execCommand('insertText') with InputEvent('beforeinput') + InputEvent('input')
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        await locator.focus({ timeout: 5000 }).catch(() => {});
-        await locator.click({ force: true, timeout: 5000 }).catch(() => {});
-        await this.browser.randomDelay(200, 400);
-
-        const inserted = await locator.evaluate((el: HTMLElement, value: string) => {
-          if (!el.isContentEditable) return false;
-          el.focus();
-
-          // Select all existing content and replace it
-          const selection = window.getSelection();
-          const range = document.createRange();
-          range.selectNodeContents(el);
-          selection?.removeAllRanges();
-          selection?.addRange(range);
-
-          const ok = document.execCommand('insertText', false, value);
-
-          // DraftJS listens to InputEvent('beforeinput') with inputType='insertText'.
-          // Firefox/Camoufox execCommand does not fire this, so dispatch it explicitly.
-          try {
-            el.dispatchEvent(new InputEvent('beforeinput', {
-              bubbles: true,
-              cancelable: true,
-              inputType: 'insertText',
-              data: value,
-              dataTransfer: null,
-              isComposing: false,
-            }));
-            el.dispatchEvent(new InputEvent('input', {
-              bubbles: true,
-              inputType: 'insertText',
-              data: value,
-            }));
-          } catch {
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-          }
-
-          return ok || true;
-        }, text).catch(() => false);
-
-        if (inserted) {
-          const innerText = await locator.innerText().catch(() => '');
-          if (innerText.trim().length >= minLength) {
-            this.logger.debug('Comment text entered via execCommand insertText');
-            return;
-          }
-        }
-      } catch (err) {
-        this.logger.debug(`typeIntoContenteditable attempt ${attempt} failed: ${(err as Error).message}`);
-      }
-
-      if (page.isClosed?.()) break;
-      await this.browser.randomDelay(300, 600);
+    if (inserted) {
+      this.logger.debug('Comment text entered via execCommand insertText');
+      return;
     }
 
     // Strategy 2: keyboard.type() — sends real key events that React processes
