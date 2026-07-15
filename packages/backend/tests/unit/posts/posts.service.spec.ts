@@ -271,14 +271,17 @@ describe('MOD-02: PostsService', () => {
     const after = Date.now();
     const arg = prisma.post.findMany.mock.calls[0][0];
     expect(arg.where.network).toBe('X');
-    const gte = arg.where.createdAt.gte as Date;
-    expect(gte).toBeInstanceOf(Date);
+    expect(arg.where.OR).toHaveLength(2);
+    const approvedAt = arg.where.OR[0].approvedAt.gte as Date;
+    const postedAt = arg.where.OR[1].postedAt.gte as Date;
+    expect(approvedAt).toBeInstanceOf(Date);
+    expect(postedAt).toBeInstanceOf(Date);
     // ~14 days ago (allow small clock skew for test execution)
     const expectedMs = 14 * 24 * 60 * 60 * 1000;
-    const diffMs = before - gte.getTime();
+    const diffMs = before - approvedAt.getTime();
     expect(diffMs).toBeGreaterThan(expectedMs - 5000);
     expect(diffMs).toBeLessThan(expectedMs + 5000);
-    expect(gte.getTime()).toBeLessThanOrEqual(after - expectedMs + 5000);
+    expect(approvedAt.getTime()).toBeLessThanOrEqual(after - expectedMs + 5000);
   });
 
   it('UTC-041: findBySourceAndNetwork() returns empty when sourceRef is null or not object', async () => {
@@ -298,6 +301,6 @@ describe('MOD-02: PostsService', () => {
     await service.findBySourceAndNetwork('/path', 'X');
 
     const arg = prisma.post.findMany.mock.calls[0][0];
-    expect(arg.where.status).toEqual({ notIn: ['FAILED', 'REJECTED'] });
+    expect(arg.where.status).toEqual({ in: ['APPROVED', 'POSTING', 'POSTED'] });
   });
 });

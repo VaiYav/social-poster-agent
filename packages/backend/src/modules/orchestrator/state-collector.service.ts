@@ -164,12 +164,14 @@ export class StateCollectorService {
             // Check posts from the last 30 minutes only — a circuit breaker based
             // on the last 3 posts never recovers because old failures stay in the
             // window forever. A time-based window auto-heals after 30 min.
+            // Use approvedAt (when the post was queued) instead of createdAt so
+            // generated drafts that fail later still count as recent attempts.
             this.prisma.post.findMany({
               where: {
                 network: network as SocialNetwork,
-                createdAt: { gte: new Date(Date.now() - 30 * 60 * 1000) },
+                approvedAt: { gte: new Date(Date.now() - 30 * 60 * 1000) },
               },
-              orderBy: { createdAt: 'desc' },
+              orderBy: { approvedAt: 'desc' },
               take: 10,
               select: { status: true },
             }),
@@ -382,9 +384,9 @@ export class StateCollectorService {
             const recentPosts = await this.prisma.post.findMany({
               where: {
                 network: network as SocialNetwork,
-                createdAt: { gt: banWindowCutoff },
+                approvedAt: { gt: banWindowCutoff },
               },
-              orderBy: { createdAt: 'desc' },
+              orderBy: { approvedAt: 'desc' },
               take: 5,
               select: { status: true },
             });

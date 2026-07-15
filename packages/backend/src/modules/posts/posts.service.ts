@@ -248,13 +248,11 @@ export class PostsService {
     const posts = await this.prisma.post.findMany({
       where: {
         network,
-        createdAt: { gte: since },
-        // FAILED/REJECTED never actually reached the network — excluding them lets
-        // generation retry the same topic instead of treating a failed attempt as
-        // "already covered" forever. Confirmed live: every X post record was
-        // FAILED/DRAFT/REJECTED while the network's session was broken, which
-        // silently blocked all new X content once the session was fixed.
-        status: { notIn: [PostStatus.FAILED, PostStatus.REJECTED] },
+        // Only treat posts that are actually queued or published as "already covered".
+        // DRAFT/HUMAN_REVIEW are not yet queued, and FAILED/REJECTED never reached
+        // the network — excluding them lets generation retry the same topic.
+        status: { in: [PostStatus.APPROVED, PostStatus.POSTING, PostStatus.POSTED] },
+        OR: [{ approvedAt: { gte: since } }, { postedAt: { gte: since } }],
       },
     });
 

@@ -8,7 +8,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SocialNetwork } from '@prisma/client';
 import { getEnabledNetworks } from '../../domain/enabled-networks.js';
-import type { WorldState, Action } from './types.js';
+import type { WorldState, Action, SessionState } from './types.js';
 import { WAIT_ACTION, RECOVER_ACTION } from './types.js';
 
 @Injectable()
@@ -27,6 +27,29 @@ export class GuardrailsService {
     const networks = getEnabledNetworks();
     if (action.network && !networks.includes(action.network)) {
       return WAIT_ACTION(`Network ${action.network} not enabled`, 60000, 'guardrail_override');
+    }
+
+    // G8: POST takes priority over BROWSE/WAIT/GENERATE_*/REPLY when there are approved drafts.
+    // The LLM sometimes chooses BROWSE when it sees stale engagement, WAIT when it
+    // believes no posting window is active, or GENERATE_TOPICS when the topic pool is low,
+    // but approved content should always be posted when a network is ready. Engagement runs
+    // in parallel via checkStaleAndEnqueue, so BROWSE/WAIT as the main action is redundant
+    // when there are drafts to post.
+    //
+    // Run before G3/G4/G5 so a rate-limit, queue-depth, or session issue on the chosen
+    // network is checked on the best ready network (oldest lastPostMs), not on the first
+    // enabled network. This also rotates posting across X and Threads and skips networks
+    // with an open or half-open circuit breaker.
+    if (world.drafts.approved > 0) {
+      const chosenNet = this.selectBestReadyNetwork(world);
+      if (chosenNet && (action.type !== 'POST' || action.network !== chosenNet)) {
+        return {
+          type: 'POST' as const,
+          network: chosenNet,
+          reason: `Guardrail G8: ${world.drafts.approved} approved drafts take priority over ${action.type} (${chosenNet} ready, oldest lastPost)`,
+          source: 'guardrail_override',
+        };
+      }
     }
 
     // G3: POST requires rate limit remaining (daily AND weekly).
@@ -54,7 +77,7 @@ export class GuardrailsService {
         let chosenLastPostMs = Infinity;
         for (const net of networks) {
           if (net === action.network) continue;
-          if (world.sessions[net]?.circuitBreaker === 'open') continue;
+          if (this.isCircuitBreakerRisky(world.sessions[net]?.circuitBreaker)) continue;
           const r = world.rateLimits[net];
           const dReady = r ? (r.dailyLimit > 0 ? r.dailyRemaining > 0 : true) : false;
           const wReady = r ? (r.weeklyLimit > 0 ? r.weeklyRemaining > 0 : true) : true;
@@ -113,60 +136,6 @@ export class GuardrailsService {
 
     // G6: Max actions per hour — handled by DecisionEngine (needs Redis)
 
-    // G8: POST takes priority over BROWSE/WAIT/GENERATE_TOPICS when there are approved drafts.
-    // The LLM sometimes chooses BROWSE when it sees stale engagement, WAIT when it
-    // believes no posting window is active, or GENERATE_TOPICS when the topic pool is low,
-    // but approved content should always be posted when a network is ready. Engagement runs
-    // in parallel via checkStaleAndEnqueue, so BROWSE/WAIT as the main action is redundant
-    // when there are drafts to post.
-    //
-    // Among ready networks, pick the one with the oldest lastPostMs so posting rotates
-    // across X and Threads instead of always hammering the first enabled network.
-    if ((action.type === 'BROWSE' || action.type === 'WAIT' || action.type === 'GENERATE_TOPICS') && world.drafts.approved > 0) {
-      let chosenNet: SocialNetwork | undefined;
-      let chosenLastPostMs = Infinity;
-      const readyDebug = networks.map((net) => ({
-        net,
-        inWindow: world.inPostingWindow[net],
-        dailyRemaining: world.rateLimits[net]?.dailyRemaining ?? 0,
-        weeklyRemaining: world.rateLimits[net]?.weeklyRemaining ?? 0,
-        weeklyLimit: world.rateLimits[net]?.weeklyLimit ?? 0,
-        status: world.sessions[net]?.status,
-        circuitBreaker: world.sessions[net]?.circuitBreaker,
-        lastPostMs: world.rateLimits[net]?.lastPostMs ?? 0,
-        approved: world.drafts.approvedByNetwork[net] ?? 0,
-      }));
-      this.logger.debug(`G8 ready networks: ${JSON.stringify(readyDebug)}`);
-      for (const net of networks) {
-        if (world.sessions[net]?.circuitBreaker === 'open') continue;
-        const rl = world.rateLimits[net];
-        const dailyReady = rl ? (rl.dailyLimit > 0 ? rl.dailyRemaining > 0 : true) : false;
-        const weeklyReady = rl ? (rl.weeklyLimit > 0 ? rl.weeklyRemaining > 0 : true) : false;
-        if (
-          world.inPostingWindow[net] &&
-          dailyReady &&
-          weeklyReady &&
-          world.sessions[net]?.status === 'ACTIVE' &&
-          (world.drafts.approvedByNetwork[net] ?? 0) > 0 &&
-          (world.queueDepth[net] ?? 0) <= 5
-        ) {
-          const lastPostMs = world.rateLimits[net]?.lastPostMs ?? 0;
-          if (lastPostMs < chosenLastPostMs) {
-            chosenNet = net as SocialNetwork;
-            chosenLastPostMs = lastPostMs;
-          }
-        }
-      }
-      if (chosenNet) {
-        return {
-          type: 'POST' as const,
-          network: chosenNet,
-          reason: `Guardrail G8: ${world.drafts.approved} approved drafts take priority over ${action.type} (${chosenNet} in posting window, oldest lastPost)`,
-          source: 'guardrail_override',
-        };
-      }
-    }
-
     // G7: Flow control paused for specific action (covers action types not already
     // gated by G4 above, e.g. GENERATE_*, RECYCLE_CONTENT, CHECK_REPLIES)
     if (this.isFlowPausedForAction(action, world)) {
@@ -192,5 +161,56 @@ export class GuardrailsService {
       default:
         return false;
     }
+  }
+
+  private isCircuitBreakerRisky(circuitBreaker: SessionState['circuitBreaker'] | undefined): boolean {
+    return circuitBreaker === 'open' || circuitBreaker === 'half_open';
+  }
+
+  /**
+   * G8 helper: select the ready network with the oldest lastPostMs among those
+   * that have approved drafts, active sessions, rate-limit capacity, and no
+   * circuit breaker risk. Returns undefined if posting is paused or no network is ready.
+   */
+  private selectBestReadyNetwork(world: WorldState): SocialNetwork | undefined {
+    if (world.flowControl.pausePosting) return undefined;
+
+    const networks = getEnabledNetworks();
+    let chosenNet: SocialNetwork | undefined;
+    let chosenLastPostMs = Infinity;
+
+    const readyDebug = networks.map((net) => ({
+      net,
+      inWindow: world.inPostingWindow[net],
+      dailyRemaining: world.rateLimits[net]?.dailyRemaining ?? 0,
+      weeklyRemaining: world.rateLimits[net]?.weeklyRemaining ?? 0,
+      status: world.sessions[net]?.status,
+      circuitBreaker: world.sessions[net]?.circuitBreaker,
+      lastPostMs: world.rateLimits[net]?.lastPostMs ?? 0,
+      approved: world.drafts.approvedByNetwork[net] ?? 0,
+    }));
+    this.logger.debug(`G8 ready networks: ${JSON.stringify(readyDebug)}`);
+
+    for (const net of networks) {
+      if (this.isCircuitBreakerRisky(world.sessions[net]?.circuitBreaker)) continue;
+      const rl = world.rateLimits[net];
+      const dailyReady = rl ? (rl.dailyLimit > 0 ? rl.dailyRemaining > 0 : true) : false;
+      const weeklyReady = rl ? (rl.weeklyLimit > 0 ? rl.weeklyRemaining > 0 : true) : true;
+      if (
+        world.inPostingWindow[net] &&
+        dailyReady &&
+        weeklyReady &&
+        world.sessions[net]?.status === 'ACTIVE' &&
+        (world.drafts.approvedByNetwork[net] ?? 0) > 0 &&
+        (world.queueDepth[net] ?? 0) <= 5
+      ) {
+        const lastPostMs = world.rateLimits[net]?.lastPostMs ?? 0;
+        if (lastPostMs < chosenLastPostMs) {
+          chosenNet = net as SocialNetwork;
+          chosenLastPostMs = lastPostMs;
+        }
+      }
+    }
+    return chosenNet;
   }
 }
