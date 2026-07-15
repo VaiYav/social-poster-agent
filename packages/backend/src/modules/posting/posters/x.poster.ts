@@ -122,7 +122,7 @@ export class XPoster extends BasePoster {
       let textbox = page
         .locator('[data-testid="tweetTextarea_0"]')
         .first()
-        .or(page.locator('[role="textbox"]').first());
+        .or(page.locator('div[contenteditable="true"]').first());
 
       // Click to focus the textbox — try normal click first (better for focus),
       // fall back to force: true if humanize blocks it
@@ -532,55 +532,73 @@ export class XPoster extends BasePoster {
    * the tweet is actually submitted when clicked. Falls back to the legacy per-character
    * typeHuman strategy if execCommand fails or returns false.
    */
+  /**
+   * Normalize text for comparison: collapse whitespace, strip leading/trailing,
+   * and normalize Unicode so `innerText` and the target content can be compared
+   * regardless of how the browser renders non-breaking spaces, etc.
+   */
+  private normalizeText(text: string): string {
+    return text
+      .replace(/\u00a0/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .normalize('NFKC');
+  }
+
   private async setComposeText(
     page: Page,
     textbox: Locator,
     content: string,
   ): Promise<void> {
-    const minLength = Math.max(1, Math.floor(content.trim().length * 0.8));
+    const target = this.normalizeText(content);
+    const marker = target.slice(0, 30);
+    const hasTarget = (text: string): boolean => this.normalizeText(text).includes(marker);
 
-    // Primary: Playwright page.keyboard.insertText(). This uses the browser's
-    // native CDP/Bidi Input.insertText, which emits an isTrusted input event
-    // on the focused contenteditable. Draft.js/Lexical reconciles on input,
-    // so the React state is updated and the Post button becomes enabled.
-    // This is the most reliable path for multilingual content (Cyrillic, CJK, etc.).
-    try {
+    // Helper: focus the contenteditable and select all of its current contents.
+    const focusAndSelect = async (): Promise<void> => {
       await textbox.focus({ timeout: 5000 }).catch(() => {});
       await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
-      await page.keyboard.press('Control+A').catch(() => {});
-      await page.keyboard.press('Backspace').catch(() => {});
-      await this.browser.randomDelay(100, 200);
+      await textbox.evaluate((el: HTMLElement) => {
+        el.focus();
+        try {
+          const sel = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          sel?.removeAllRanges();
+          sel?.addRange(range);
+        } catch {
+          // ignore
+        }
+      }).catch(() => {});
+      await this.browser.randomDelay(150, 300);
+    };
 
-      await page.keyboard.insertText(content);
-      await this.browser.randomDelay(500, 800);
-
+    // Strategy 1: synthetic paste event (most reliable for DraftJS/Lexical).
+    // Replaces the selected contents and updates React state in a single pass.
+    const pasted = await this.pasteContent(page, textbox, content);
+    if (pasted) {
       const enteredText = await textbox.innerText().catch(() => '');
-      if (enteredText.trim().length >= minLength) {
-        this.logger.debug('X setComposeText via page.keyboard.insertText succeeded');
+      if (hasTarget(enteredText)) {
+        this.logger.debug('X setComposeText via pasteContent succeeded');
         return;
       }
-    } catch (err) {
-      this.logger.debug(
-        `X setComposeText page.keyboard.insertText failed: ${(err as Error).message}`,
-      );
     }
 
-    // Fallback 1: locator.pressSequentially — emits real key events, which can
-    // trigger beforeinput/input for editors that require the full key sequence.
-    this.logger.warn('X insertText failed — falling back to pressSequentially');
+    // Strategy 2: real key events with a leading sacrificial space.
+    // DraftJS drops the first CDP key at isSelectionAtLeafStart; the space is
+    // consumed and the intended text is preserved (browser-use/browser-use#3896).
+    this.logger.warn(
+      'X pasteContent failed — falling back to pressSequentially with leading space',
+    );
     try {
-      await textbox.focus({ timeout: 5000 }).catch(() => {});
-      await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
-      await page.keyboard.press('Control+A').catch(() => {});
-      await page.keyboard.press('Backspace').catch(() => {});
-      await this.browser.randomDelay(200, 400);
-
-      await textbox.pressSequentially(content, { delay: 50 });
+      await focusAndSelect();
+      await textbox.pressSequentially(' ' + content, { delay: 50 });
       await this.browser.randomDelay(500, 800);
-
       const typedText = await textbox.innerText().catch(() => '');
-      if (typedText.trim().length >= minLength) {
-        this.logger.debug('X setComposeText via pressSequentially succeeded');
+      if (hasTarget(typedText)) {
+        this.logger.debug(
+          'X setComposeText via pressSequentially (leading space) succeeded',
+        );
         return;
       }
     } catch (err) {
@@ -589,10 +607,10 @@ export class XPoster extends BasePoster {
       );
     }
 
-    // Fallback 2: per-character execCommand('insertText') + manual beforeinput/input.
-    // Camoufox (Firefox) does not fire native beforeinput for execCommand, so the
-    // manual events may not update DraftJS state, but the text will be visible.
-    this.logger.warn('X pressSequentially failed — falling back to execCommand insertText');
+    // Strategy 3: per-character execCommand('insertText') + manual beforeinput/input.
+    this.logger.warn(
+      'X pressSequentially failed — falling back to execCommand insertText',
+    );
     const inserted = await this.insertContenteditableText(page, textbox, content, {
       delayMinMs: 20,
       delayMaxMs: 60,
@@ -600,13 +618,13 @@ export class XPoster extends BasePoster {
     });
     if (inserted) {
       const enteredText = await textbox.innerText().catch(() => '');
-      if (enteredText.trim().length >= minLength) {
-        this.logger.debug('X setComposeText via execCommand insertText succeeded (text visible)');
+      if (hasTarget(enteredText)) {
+        this.logger.debug('X setComposeText via execCommand insertText succeeded');
         return;
       }
     }
 
-    // Fallback 3: Playwright fill() + DraftJS nudge.
+    // Strategy 4: Playwright fill() + DraftJS nudge.
     this.logger.warn('X execCommand insertText failed — falling back to fill()');
     await textbox.fill(content, { timeout: 10000 }).catch(() => {});
     await this.browser.randomDelay(300, 600);
@@ -616,86 +634,145 @@ export class XPoster extends BasePoster {
     await this.browser.randomDelay(300, 600);
 
     const filledText = await textbox.innerText().catch(() => '');
-    if (filledText.trim().length >= minLength) {
+    if (hasTarget(filledText)) {
       this.logger.debug('X setComposeText via fill() succeeded');
       return;
     }
 
-    // Last resort: synthetic paste event.
-    this.logger.warn('X fill() failed — falling back to pasteContent');
-    await this.pasteContent(page, textbox, content);
-  }
-
-  /**
-   * Paste content into the compose textbox via a synthetic clipboard paste event.
-   * More reliable than keyboard.type() for multilingual content (Cyrillic, CJK, etc.)
-   * because keyboard.type() with fast delays can drop characters (e.g., "Хирон в" → "Хиронв").
-   * DraftJS handles paste events natively, so this also properly updates React state
-   * and enables the Post button.
-   *
-   * @returns true if the paste likely succeeded (textbox has content), false otherwise.
-   */
-  private async pasteContent(page: Page, textbox: Locator, content: string): Promise<boolean> {
+    // Strategy 5: direct textContent assignment with synthetic input events.
+    this.logger.warn(
+      'X fill() failed — falling back to textContent + input events',
+    );
     try {
-      // Focus the textbox
-      await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
-      await this.browser.randomDelay(200, 400);
-
-      // Select any existing content and replace it
-      await page.keyboard.press('Control+A').catch(() => {});
-      await this.browser.randomDelay(100, 200);
-
-      // Dispatch a synthetic paste event with the content.
-      // DataTransfer + ClipboardEvent is the standard way to simulate paste in browsers.
-      // DraftJS listens for 'paste' events and processes the clipboard data.
-      const pasted = await textbox.evaluate((el: HTMLElement, text: string) => {
+      await focusAndSelect();
+      const ok = await textbox.evaluate((el: HTMLElement, value: string) => {
         try {
-          el.focus();
-          // Create a DataTransfer with the content
-          const dt = new DataTransfer();
-          dt.setData('text/plain', text);
-          // Create and dispatch a paste event
-          const pasteEvent = new ClipboardEvent('paste', {
-            bubbles: true,
-            cancelable: true,
-            clipboardData: dt as unknown as ClipboardEventInit['clipboardData'],
-          });
-          el.dispatchEvent(pasteEvent);
+          el.textContent = value;
+          el.dispatchEvent(
+            new InputEvent('beforeinput', {
+              bubbles: true,
+              cancelable: true,
+              inputType: 'insertText',
+              data: value,
+            }),
+          );
+          el.dispatchEvent(
+            new InputEvent('input', {
+              bubbles: true,
+              inputType: 'insertText',
+              data: value,
+            }),
+          );
           return true;
         } catch {
           return false;
         }
-      }, content).catch(() => false);
-
-      if (pasted) {
-        await this.browser.randomDelay(300, 600);
-        // Trigger an input event in case the paste event didn't fire one
-        await textbox.evaluate((el: HTMLElement) => {
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-        }).catch(() => {});
-        const enteredText = await textbox.innerText().catch(() => '');
-        if (enteredText && enteredText.trim().length >= content.trim().length * 0.8) {
-          this.logger.debug(`X pasteContent succeeded via ClipboardEvent — content length: ${enteredText.length}`);
-          return true;
-        }
+      }, content);
+      if (ok) {
+        this.logger.debug('X setComposeText via textContent + input events succeeded');
       }
+    } catch (err) {
+      this.logger.debug(
+        `X setComposeText textContent fallback failed: ${(err as Error).message}`,
+      );
+    }
+  }
 
-      // Fallback: use page.evaluate to write to clipboard API, then Ctrl+V
-      this.logger.debug(`X pasteContent: ClipboardEvent didn't work — trying clipboard API + Ctrl+V...`);
-      await page.evaluate((text: string) => {
-        return navigator.clipboard?.writeText(text).catch(() => {});
-      }, content).catch(() => {});
-      await this.browser.randomDelay(100, 200);
-      await page.keyboard.press('Control+V').catch(() => {});
-      await this.browser.randomDelay(300, 600);
+  /**
+   * Paste content into the compose textbox via a synthetic clipboard paste event.
+   * Modeled after wingman-x's fillReplyComposer: selects all contents, dispatches
+   * a ClipboardEvent with the text, and checks that the editor handled the event
+   * (preventDefault) and that the final text actually contains the target content.
+   *
+   * Falls back to document.execCommand('insertText') if the editor did not handle
+   * the synthetic paste.
+   *
+   * @returns true if the textbox contains the target content, false otherwise.
+   */
+  private async pasteContent(page: Page, textbox: Locator, content: string): Promise<boolean> {
+    try {
+      const target = this.normalizeText(content);
+      const marker = target.slice(0, 30);
+      const hasTarget = (text: string): boolean =>
+        this.normalizeText(text).includes(marker);
 
-      const enteredText2 = await textbox.innerText().catch(() => '');
-      if (enteredText2 && enteredText2.trim().length >= content.trim().length * 0.8) {
-        this.logger.debug(`X pasteContent succeeded via clipboard API + Ctrl+V — content length: ${enteredText2.length}`);
+      await textbox.focus({ timeout: 5000 }).catch(() => {});
+      await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+      await textbox.evaluate((el: HTMLElement) => {
+        el.focus();
+        try {
+          const sel = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          sel?.removeAllRanges();
+          sel?.addRange(range);
+        } catch {
+          // ignore
+        }
+      }).catch(() => {});
+      await this.browser.randomDelay(150, 300);
+
+      const result = await textbox.evaluate(
+        (el: HTMLElement, text: string) => {
+          return new Promise<{ cancelled: boolean; afterText: string }>(
+            (resolve) => {
+              const dt = new DataTransfer();
+              dt.setData('text/plain', text);
+              const ev = new ClipboardEvent('paste', {
+                bubbles: true,
+                cancelable: true,
+                clipboardData: dt as unknown as ClipboardEventInit['clipboardData'],
+              });
+              const cancelled = !el.dispatchEvent(ev);
+              requestAnimationFrame(() => {
+                resolve({ cancelled, afterText: el.textContent ?? '' });
+              });
+            },
+          );
+        },
+        content,
+      ).catch(() => ({ cancelled: false, afterText: '' }));
+
+      if (hasTarget(result.afterText)) {
+        this.logger.debug(
+          `X pasteContent: DraftJS handled paste (cancelled=${result.cancelled}), text matches target`,
+        );
         return true;
       }
 
-      this.logger.warn(`X pasteContent failed — content not entered`);
+      if (result.cancelled) {
+        this.logger.debug(
+          'X pasteContent: paste was cancelled but final text does not match target; will fallback',
+        );
+      } else {
+        this.logger.debug(
+          'X pasteContent: paste not handled by editor, trying execCommand insertText',
+        );
+      }
+
+      // Fallback: execCommand('insertText', false, text) to replace the selection.
+      await textbox.evaluate((el: HTMLElement, text: string) => {
+        el.focus();
+        try {
+          const sel = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          sel?.removeAllRanges();
+          sel?.addRange(range);
+        } catch {
+          // ignore
+        }
+        document.execCommand('insertText', false, text);
+      }, content).catch(() => {});
+
+      await this.browser.randomDelay(300, 600);
+      const execText = await textbox.innerText().catch(() => '');
+      if (hasTarget(execText)) {
+        this.logger.debug('X pasteContent: execCommand insertText succeeded');
+        return true;
+      }
+
+      this.logger.warn('X pasteContent failed — content not entered');
       return false;
     } catch (err) {
       this.logger.warn(`X pasteContent error: ${(err as Error).message}`);
@@ -800,7 +877,7 @@ export class XPoster extends BasePoster {
       const textbox = page
         .locator('[data-testid="tweetTextarea_0"]')
         .first()
-        .or(page.locator('[role="textbox"]').first());
+        .or(page.locator('div[contenteditable="true"]').first());
 
       await textbox.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
       await textbox.click({ force: true, timeout: 10000 }).catch(() => {});
@@ -1091,11 +1168,11 @@ export class XPoster extends BasePoster {
     await this.browser.randomDelay(1500, 3000);
 
     // Reply dialog opens with a textarea — wait for it
-    await page.waitForSelector('[data-testid="tweetTextarea_0"], [role="textbox"]', { timeout: 10000 });
+    await page.waitForSelector('[data-testid="tweetTextarea_0"], div[contenteditable="true"]', { timeout: 10000 });
     const textbox = page
       .locator('[data-testid="tweetTextarea_0"]')
       .first()
-      .or(page.locator('[role="textbox"]').first());
+      .or(page.locator('div[contenteditable="true"]').first());
 
     await textbox.click({ force: true, timeout: 10000 }).catch(() => {});
     await this.browser.randomDelay(300, 800);
