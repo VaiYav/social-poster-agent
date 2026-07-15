@@ -113,8 +113,9 @@ export class HardRulesService {
       };
     }
 
-    // H9: Bans detected → WAIT
-    if (world.health.bans > 0) {
+    // H9: Bans detected on ALL networks → WAIT. A single failing network should not
+    // block the whole pipeline; the decision engine can route work to healthy networks.
+    if (world.health.bans > 0 && networks.length > 0 && world.health.bans === networks.length) {
       return WAIT_ACTION(`${world.health.bans} ban(s) detected`, 300000);
     }
 
