@@ -133,19 +133,20 @@ export class XPoster extends BasePoster {
       }
       await this.browser.randomDelay(500, 1000);
 
-      // Strategy 1: execCommand('insertText') — fires the input events React/DraftJS needs
-      this.logger.log(`X typing tweet via execCommand insertText...`);
+      // Strategy 1: human-like typing via locator.pressSequentially — fires the real key events
+      // X/Lexical needs to update React state and enable the Post button.
+      this.logger.log(`X typing tweet via humanType (locator.pressSequentially)...`);
       await this.setComposeText(page, textbox, content);
       await this.browser.randomDelay(500, 1000);
 
       // Verify content was entered
       let enteredText = await textbox.innerText().catch(() => '');
-      this.logger.debug(`X after execCommand — textbox content: "${enteredText.slice(0, 50)}..."`);
+      this.logger.debug(`X after humanType — textbox content: "${enteredText.slice(0, 50)}..."`);
 
-      // Strategy 2: if execCommand didn't work, use fill() + DraftJS nudge
+      // Strategy 2: if humanType didn't work, use fill() + DraftJS nudge
       // fill() sets the DOM content, then we type+delete a char to trigger DraftJS state update
       if (!enteredText || enteredText.trim().length < 10) {
-        this.logger.warn(`X execCommand didn't enter text — trying fill() + DraftJS nudge...`);
+        this.logger.warn(`X humanType didn't enter text — trying fill() + DraftJS nudge...`);
         await textbox.fill(content, { timeout: 10000 }).catch(() => {});
         await this.browser.randomDelay(300, 600);
         // DraftJS nudge: type a space and backspace to trigger React state update
@@ -259,13 +260,14 @@ export class XPoster extends BasePoster {
         this.logger.warn(`X post button still disabled after fill() — trying clipboard paste...`);
         const pasted = await this.pasteContent(page, textbox, content);
         if (!pasted) {
-          // Fallback: clear and re-type with keyboard.type into focused textbox
-          this.logger.warn(`X clipboard paste failed — trying keyboard.type() with slow delay...`);
+          // Fallback: clear and re-type via locator.pressSequentially into the focused textbox.
+          // Real key events (not execCommand) are required for X/Lexical to update React state.
+          this.logger.warn(`X clipboard paste failed — trying humanType (locator.pressSequentially) with slow delay...`);
           await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
           await page.keyboard.press('Control+A').catch(() => {});
           await page.keyboard.press('Backspace').catch(() => {});
           await this.browser.randomDelay(200, 400);
-          await page.keyboard.type(content, { delay: 50 });
+          await this.browser.humanType(textbox, content, { delayMs: 50 });
         }
         await page.waitForTimeout(1000);
         isDisabled = await postButton.isDisabled().catch(() => false);
@@ -557,17 +559,33 @@ export class XPoster extends BasePoster {
     textbox: Locator,
     content: string,
   ): Promise<void> {
+    // Primary: human-like typing via locator.pressSequentially.
+    // X/Lexical's compose box requires real key events (beforeinput/input/keyup) to update
+    // React state and enable the Post button. document.execCommand('insertText') inserts text
+    // into the DOM but leaves the Post button disabled, so we type first and only fall back to
+    // execCommand if the textbox does not contain enough content.
+    await this.browser.humanType(textbox, content, { delayMs: 50 }).catch(() => {});
+    await this.browser.randomDelay(300, 600);
+
+    const minLength = Math.max(1, Math.floor(content.trim().length * 0.8));
+    const enteredText = await textbox.innerText().catch(() => '');
+    if (enteredText.trim().length >= minLength) {
+      this.logger.debug('X setComposeText via humanType (locator.pressSequentially) succeeded');
+      return;
+    }
+
+    // Fallback to execCommand insertText — fast but may not enable the Post button.
+    this.logger.warn('X humanType did not enter enough text — falling back to execCommand insertText');
     const inserted = await this.insertContenteditableText(page, textbox, content, {
       delayMinMs: 20,
       delayMaxMs: 60,
     });
-
     if (inserted) {
       this.logger.debug('X setComposeText via per-character execCommand insertText succeeded');
       return;
     }
 
-    // Fallback to legacy per-character typing
+    // Last resort: legacy per-character typing.
     this.logger.warn('X execCommand insertText failed — falling back to typeHuman');
     await this.browser.typeHuman(page, content, textbox).catch(() => {});
   }
@@ -752,9 +770,9 @@ export class XPoster extends BasePoster {
       await textbox.click({ force: true, timeout: 10000 }).catch(() => {});
       await page.waitForTimeout(500);
 
-      // Type content using execCommand insertText (fires the input events React/DraftJS
-      // listens to, so the Post button genuinely enables and the tweet actually submits).
-      this.logger.log(`X fallback: typing tweet via execCommand insertText...`);
+      // Type content using human-like typing via locator.pressSequentially (fires the real
+      // key events X/Lexical needs to update React state and enable the Post button).
+      this.logger.log(`X fallback: typing tweet via humanType (locator.pressSequentially)...`);
       this.assertPageAlive(page, 'type tweet content (home page compose)');
       await this.setComposeText(page, textbox, content);
       await page.waitForTimeout(1000);
