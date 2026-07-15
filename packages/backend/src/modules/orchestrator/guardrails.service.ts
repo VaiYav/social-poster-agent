@@ -55,28 +55,30 @@ export class GuardrailsService {
           source: 'guardrail_override',
         };
       }
-      // No ready POST network — try to generate for a healthy alternative.
-      const genNet = this.selectBestGenerationNetwork(world);
-      if (genNet && (action.type !== 'GENERATE_POSTS' || action.network !== genNet)) {
-        return {
-          type: 'GENERATE_POSTS' as const,
-          network: genNet,
-          reason: `Guardrail G8: ${world.drafts.approved} approved drafts but no ready POST network; generating drafts for ${genNet}`,
-          source: 'guardrail_override',
-        };
-      }
-      // If the original action is POST to a risky network, block it until a healthy
-      // network is available.
-      if (
-        action.type === 'POST' &&
-        action.network &&
-        this.isCircuitBreakerRisky(world.sessions[action.network]?.circuitBreaker)
-      ) {
-        return WAIT_ACTION(
-          `Guardrail G8: POST ${action.network} blocked — circuit breaker ${world.sessions[action.network]?.circuitBreaker}`,
-          300000,
-          'guardrail_override',
-        );
+      if (!postNet) {
+        // No ready POST network — try to generate for a healthy alternative.
+        const genNet = this.selectBestGenerationNetwork(world);
+        if (genNet && (action.type !== 'GENERATE_POSTS' || action.network !== genNet)) {
+          return {
+            type: 'GENERATE_POSTS' as const,
+            network: genNet,
+            reason: `Guardrail G8: ${world.drafts.approved} approved drafts but no ready POST network; generating drafts for ${genNet}`,
+            source: 'guardrail_override',
+          };
+        }
+        // If the original action is POST to a risky network, block it until a healthy
+        // network is available.
+        if (
+          action.type === 'POST' &&
+          action.network &&
+          this.isCircuitBreakerRisky(world.sessions[action.network]?.circuitBreaker)
+        ) {
+          return WAIT_ACTION(
+            `Guardrail G8: POST ${action.network} blocked — circuit breaker ${world.sessions[action.network]?.circuitBreaker}`,
+            300000,
+            'guardrail_override',
+          );
+        }
       }
     }
 
