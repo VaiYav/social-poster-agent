@@ -94,51 +94,29 @@ export class GuardrailsService {
       }
     }
 
-    // G3b: GENERATE_POSTS with a network must target a network that has rate limit
-    // capacity and a healthy circuit breaker. If the LLM picks a rate-limited or
-    // half-open/open network, redirect to the ready network with the oldest lastPostMs
-    // so posting rotates. If no network is ready, WAIT — generating drafts for an
-    // exhausted or failing network wastes LLM quota.
-    if (action.type === 'GENERATE_POSTS' && action.network) {
-      const rl = world.rateLimits[action.network];
-      const dailyReady = rl ? (rl.dailyLimit > 0 ? rl.dailyRemaining > 0 : true) : false;
-      const weeklyReady = rl ? (rl.weeklyLimit > 0 ? rl.weeklyRemaining > 0 : true) : true;
-      if (
-        !dailyReady ||
-        !weeklyReady ||
-        this.isCircuitBreakerRisky(world.sessions[action.network]?.circuitBreaker)
-      ) {
-        let chosenNet: SocialNetwork | undefined;
-        let chosenLastPostMs = Infinity;
-        for (const net of networks) {
-          if (net === action.network) continue;
-          if (this.isCircuitBreakerRisky(world.sessions[net]?.circuitBreaker)) continue;
-          const r = world.rateLimits[net];
-          const dReady = r ? (r.dailyLimit > 0 ? r.dailyRemaining > 0 : true) : false;
-          const wReady = r ? (r.weeklyLimit > 0 ? r.weeklyRemaining > 0 : true) : true;
-          if (
-            dReady &&
-            wReady &&
-            world.sessions[net]?.status === 'ACTIVE' &&
-            (world.queueDepth[net] ?? 0) <= 5
-          ) {
-            const lastPostMs = world.rateLimits[net]?.lastPostMs ?? 0;
-            if (lastPostMs < chosenLastPostMs) {
-              chosenNet = net as SocialNetwork;
-              chosenLastPostMs = lastPostMs;
-            }
-          }
-        }
-        if (chosenNet) {
-          return {
-            type: 'GENERATE_POSTS' as const,
-            network: chosenNet,
-            reason: `Guardrail G3b: ${action.network} is rate-limited; redirecting GENERATE_POSTS to ${chosenNet}`,
-            source: 'guardrail_override',
-          };
-        }
+    // G3b: GENERATE_POSTS must target the healthiest network with the oldest lastPostMs
+    // (or one that has never posted). If the LLM picks a rate-limited, circuit-risk, or
+    // suboptimal network, redirect so posting rotates and we don't waste LLM quota on a
+    // failing channel. If no healthy network is available, WAIT.
+    if (action.type === 'GENERATE_POSTS') {
+      const bestGenNet = this.selectBestGenerationNetwork(world);
+      const actionNetwork = action.network;
+      if (bestGenNet && (!actionNetwork || actionNetwork !== bestGenNet)) {
+        const why = actionNetwork
+          ? this.isReadyForGeneration(actionNetwork, world)
+            ? `Guardrail G3b: ${actionNetwork} is healthy but ${bestGenNet} has the oldest lastPostMs; redirecting GENERATE_POSTS to ${bestGenNet}`
+            : `Guardrail G3b: ${actionNetwork} is not ready for generation; redirecting GENERATE_POSTS to ${bestGenNet}`
+          : `Guardrail G3b: no network specified; redirecting GENERATE_POSTS to ${bestGenNet}`;
+        return {
+          type: 'GENERATE_POSTS' as const,
+          network: bestGenNet,
+          reason: why,
+          source: 'guardrail_override',
+        };
+      }
+      if (!bestGenNet) {
         return WAIT_ACTION(
-          `Rate limit exhausted for ${action.network} (GENERATE_POSTS blocked)`,
+          `No healthy network available for GENERATE_POSTS`,
           300000,
           'guardrail_override',
         );
@@ -235,6 +213,22 @@ export class GuardrailsService {
       }
     }
     return chosenNet;
+  }
+
+  /**
+   * G3b helper: check whether a network is healthy enough for draft generation.
+   */
+  private isReadyForGeneration(network: SocialNetwork, world: WorldState): boolean {
+    if (this.isCircuitBreakerRisky(world.sessions[network]?.circuitBreaker)) return false;
+    const rl = world.rateLimits[network];
+    const dailyReady = rl ? (rl.dailyLimit > 0 ? rl.dailyRemaining > 0 : true) : false;
+    const weeklyReady = rl ? (rl.weeklyLimit > 0 ? rl.weeklyRemaining > 0 : true) : true;
+    return (
+      dailyReady &&
+      weeklyReady &&
+      world.sessions[network]?.status === 'ACTIVE' &&
+      (world.queueDepth[network] ?? 0) <= 5
+    );
   }
 
   /**
