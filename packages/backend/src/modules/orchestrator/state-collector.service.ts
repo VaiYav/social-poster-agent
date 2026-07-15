@@ -15,6 +15,7 @@ import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
 import { SessionStatus, PostStatus, SocialNetwork, BrowsingSessionStatus } from '@prisma/client';
 import { RateLimitService } from '../rate-limit/rate-limit.service.js';
 import { FlowControlService } from '../flow-control/flow-control.service.js';
+import { AccountsService } from '../accounts/accounts.service';
 import { QueueFactory } from '../../infrastructure/queue/queue.factory.js';
 import { getEnabledNetworks } from '../../domain/enabled-networks.js';
 import type { WorldState, SessionState, RateLimitState, HealthState, FlowControlState, PostMetricsSummary } from './types.js';
@@ -31,6 +32,7 @@ export class StateCollectorService {
     private readonly rateLimitService: RateLimitService,
     private readonly flowControlService: FlowControlService,
     private readonly queueFactory: QueueFactory,
+    private readonly accountsService: AccountsService,
   ) {
     this.topicPoolThreshold = Number(this.configService.get<string>('TOPIC_POOL_MIN', '30'));
   }
@@ -149,9 +151,7 @@ export class StateCollectorService {
     const entries = await Promise.all(
       networks.map(async (network) => {
         try {
-          const account = await this.prisma.socialAccount.findFirst({
-            where: { network: network as SocialNetwork, active: true },
-          });
+          const account = await this.accountsService.findByNetwork(network as SocialNetwork);
           if (!account) {
             return [network, { status: 'unknown', lastCheckMs: 0, circuitBreaker: 'unknown' }] as const;
           }
@@ -298,9 +298,7 @@ export class StateCollectorService {
       Promise.all(
         networks.map(async (network) => {
           try {
-            const account = await this.prisma.socialAccount.findFirst({
-              where: { network: network as SocialNetwork, active: true },
-            });
+            const account = await this.accountsService.findByNetwork(network as SocialNetwork);
             if (account) {
               const lastSession = await this.prisma.browsingSession.findFirst({
                 where: { accountId: account.id },
