@@ -324,87 +324,65 @@ export class XPoster extends BasePoster {
         return { error: 'Post button is disabled — DraftJS state not updated after all text entry strategies', retryable: false };
       }
 
-      // Submit the tweet — try multiple strategies in order:
-      // 1. humanClick (for dry-run compatibility — DryRunBrowserPort intercepts this)
+      // Submit the tweet — prefer the native Ctrl+Enter (Meta+Enter) keyboard shortcut.
+      // Button clicks (even human-like) are now commonly detected server-side by X and
+      // redirected to /home without posting; the keyboard shortcut bypasses mouse-based
+      // automation detection. Reference: x-mcp-bridge commit 4e45794.
       this.assertPageAlive(page, 'submit tweet');
-      // 2. Cmd+Enter keyboard shortcut (X native shortcut, bypasses mouse/humanize issues)
-      // 3. JavaScript click (dispatches real DOM event that React processes)
-      await this.humanPreAction(page, postButton);
       let humanClickFailed = false;
       try {
-        await this.browser.humanClick(postButton, { timeoutMs: 15000 });
-        this.logger.log(`X humanClick on Post button succeeded`);
-      } catch (clickErr) {
-        this.logger.warn(`X humanClick on Post button failed: ${(clickErr as Error).message}`);
+        await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+        await this.browser.randomDelay(300, 600);
+        await page.keyboard.press('Meta+Enter').catch(() => {});
+        await this.browser.randomDelay(200, 400);
+        await page.keyboard.press('Control+Enter').catch(() => {});
+        await this.browser.randomDelay(3000, 5000);
+        this.logger.log(`X after Ctrl+Enter — URL: ${page.url()}`);
+      } catch (submitErr) {
+        this.logger.warn(`X Ctrl+Enter submit failed: ${(submitErr as Error).message}`);
         humanClickFailed = true;
       }
-      await this.browser.randomDelay(2000, 4000);
 
-      // Check if the click actually submitted (URL should change away from /compose/post)
+      // Check if the Ctrl+Enter actually submitted (URL should change away from /compose/post)
+      const urlAfterSubmit = page.url();
+      const stillOnCompose = urlAfterSubmit.includes('/compose/post');
+
+      // Check if textbox is now empty or gone (sign that the tweet was submitted)
+      const textboxContentAfterSubmit = await textbox.innerText().catch(() => '');
+      this.logger.log(`X textbox content after submit: "${textboxContentAfterSubmit.slice(0, 60)}..." (len=${textboxContentAfterSubmit.length}), stillOnCompose: ${stillOnCompose}`);
+
+      // Fallback 1: Ctrl+Enter didn't navigate away from /compose/post — try clicking the Post button.
+      if (humanClickFailed || stillOnCompose) {
+        this.logger.warn(`X Ctrl+Enter did not submit — trying humanClick on Post button...`);
+        await this.humanPreAction(page, postButton);
+        try {
+          await this.browser.humanClick(postButton, { timeoutMs: 15000 });
+          this.logger.log(`X humanClick on Post button succeeded`);
+        } catch (clickErr) {
+          this.logger.warn(`X humanClick on Post button failed: ${(clickErr as Error).message}`);
+        }
+        await this.browser.randomDelay(2000, 4000);
+      }
+
+      // If the Post button click navigated to /home without posting (known /compose/post issue),
+      // try the home page compose dialog as a last resort.
       const urlAfterClick = page.url();
-      const stillOnCompose = urlAfterClick.includes('/compose/post');
-      this.logger.log(`X after humanClick — URL: ${urlAfterClick}, stillOnCompose: ${stillOnCompose}`);
-
-      // Check if textbox is now empty (sign that the tweet was submitted)
       const textboxContentAfterClick = await textbox.innerText().catch(() => '');
-      this.logger.log(`X textbox content after click: "${textboxContentAfterClick.slice(0, 60)}..." (len=${textboxContentAfterClick.length})`);
-
-      // Fallback 1: if humanClick failed OR URL didn't change OR click navigated to /home
-      // without submitting (known /compose/post issue: button navigates to /home but
-      // tweet is not posted — text remains in textbox)
-      const navigatedToHomeWithoutPosting = !stillOnCompose && textboxContentAfterClick.length > 0 && page.url().includes('/home');
+      const navigatedToHomeWithoutPosting =
+        !urlAfterClick.includes('/compose/post') &&
+        textboxContentAfterClick.length > 0 &&
+        urlAfterClick.includes('/home');
       if (navigatedToHomeWithoutPosting) {
-        // /compose/post Post button is broken — it navigated to /home without submitting.
-        // Don't re-navigate to /compose/post (it's the broken path). Instead, use the
-        // home page compose dialog which is the canonical posting path.
         this.logger.warn(`X /compose/post Post button navigated to /home without submitting — trying home page compose dialog...`);
         const homeRetry = await this.postViaHomePageCompose(page, content);
         if (homeRetry && !homeRetry.error) {
-          // Successfully posted via home page compose — post thread replies if needed
           if (homeRetry.url && threadItems && threadItems.length > 0) {
             const replyResults = await this.postThreadReplies(page, homeRetry.url, threadItems);
             return { ...homeRetry, threadReplyResults: replyResults };
           }
           return homeRetry;
         }
-        // Home page compose also failed — fall through to profile validation
-        // (the tweet was never posted, so this will correctly report a failure)
         this.logger.warn(`X home page compose dialog also failed — reporting failure`);
-      } else if (humanClickFailed || stillOnCompose) {
-        this.logger.log(`X trying Cmd+Enter keyboard shortcut to submit (humanClickFailed: ${humanClickFailed}, stillOnCompose: ${stillOnCompose})...`);
-        // Only re-navigate to /compose/post if we're NOT already on /home
-        // (if we're on /home, the /compose/post path is broken — use home page compose instead)
-        if (page.url().includes('/home')) {
-          this.logger.log(`X on /home — using home page compose dialog for Cmd+Enter retry...`);
-          const homeRetry = await this.postViaHomePageCompose(page, content);
-          if (homeRetry && !homeRetry.error) {
-            if (homeRetry.url && threadItems && threadItems.length > 0) {
-              const replyResults = await this.postThreadReplies(page, homeRetry.url, threadItems);
-              return { ...homeRetry, threadReplyResults: replyResults };
-            }
-            return homeRetry;
-          }
-        } else {
-          // Re-find the textbox and re-type the content using execCommand so DraftJS
-          // actually registers the input and the Post button enables.
-          const retryTextbox = page
-            .locator('[data-testid="tweetTextarea_0"]')
-            .first()
-            .or(page.locator('[role="textbox"]').first());
-          await retryTextbox.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
-          await retryTextbox.click({ force: true, timeout: 5000 }).catch(() => {});
-          await this.browser.randomDelay(300, 600);
-          await this.setComposeText(page, retryTextbox, content);
-          await this.browser.randomDelay(500, 1000);
-          // Now press Cmd+Enter while the textbox is focused
-          await retryTextbox.click({ force: true, timeout: 5000 }).catch(() => {});
-          await this.browser.randomDelay(300, 600);
-          await page.keyboard.press('Meta+Enter').catch(() => {});
-          await this.browser.randomDelay(200, 400);
-          await page.keyboard.press('Control+Enter').catch(() => {});
-          await this.browser.randomDelay(2000, 4000);
-          this.logger.log(`X after Cmd+Enter retry — URL: ${page.url()}`);
-        }
       }
 
       // Fallback 2: if still on compose page, try JavaScript click (last resort)
@@ -559,35 +537,45 @@ export class XPoster extends BasePoster {
     textbox: Locator,
     content: string,
   ): Promise<void> {
-    // Primary: human-like typing via locator.pressSequentially.
-    // X/Lexical's compose box requires real key events (beforeinput/input/keyup) to update
-    // React state and enable the Post button. document.execCommand('insertText') inserts text
-    // into the DOM but leaves the Post button disabled, so we type first and only fall back to
-    // execCommand if the textbox does not contain enough content.
-    await this.browser.humanType(textbox, content, { delayMs: 50 }).catch(() => {});
-    await this.browser.randomDelay(300, 600);
-
+    // Primary: per-character execCommand('insertText'). This fires the full W3C
+    // beforeinput -> DOM mutation -> input event chain that React/Lexical listens
+    // to, so the Post button is genuinely enabled and the tweet can be submitted.
+    // Reference: openlegion-ai/openlegion#419.
     const minLength = Math.max(1, Math.floor(content.trim().length * 0.8));
-    const enteredText = await textbox.innerText().catch(() => '');
-    if (enteredText.trim().length >= minLength) {
-      this.logger.debug('X setComposeText via humanType (locator.pressSequentially) succeeded');
-      return;
-    }
-
-    // Fallback to execCommand insertText — fast but may not enable the Post button.
-    this.logger.warn('X humanType did not enter enough text — falling back to execCommand insertText');
     const inserted = await this.insertContenteditableText(page, textbox, content, {
       delayMinMs: 20,
       delayMaxMs: 60,
+      maxRetries: 2,
     });
+
     if (inserted) {
-      this.logger.debug('X setComposeText via per-character execCommand insertText succeeded');
+      const enteredText = await textbox.innerText().catch(() => '');
+      if (enteredText.trim().length >= minLength) {
+        this.logger.debug('X setComposeText via execCommand insertText succeeded');
+        return;
+      }
+    }
+
+    // Fallback: Playwright fill() — sets the content and dispatches the full input
+    // event chain, which sometimes works when execCommand is unavailable.
+    this.logger.warn('X execCommand insertText failed — falling back to fill()');
+    await textbox.fill(content, { timeout: 10000 }).catch(() => {});
+    await this.browser.randomDelay(300, 600);
+    // DraftJS/Lexical nudge: type a char and delete it to trigger a state update
+    await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+    await page.keyboard.type(' ', { delay: 50 }).catch(() => {});
+    await page.keyboard.press('Backspace').catch(() => {});
+    await this.browser.randomDelay(300, 600);
+
+    const filledText = await textbox.innerText().catch(() => '');
+    if (filledText.trim().length >= minLength) {
+      this.logger.debug('X setComposeText via fill() succeeded');
       return;
     }
 
-    // Last resort: legacy per-character typing.
-    this.logger.warn('X execCommand insertText failed — falling back to typeHuman');
-    await this.browser.typeHuman(page, content, textbox).catch(() => {});
+    // Last resort: synthetic paste event — DraftJS/Lexical handles paste natively.
+    this.logger.warn('X fill() failed — falling back to pasteContent');
+    await this.pasteContent(page, textbox, content);
   }
 
   /**
@@ -851,29 +839,37 @@ export class XPoster extends BasePoster {
         return { error: 'Post button is disabled — DraftJS state not updated (home page compose)', retryable: false };
       }
 
+      // Submit the tweet — prefer the native Ctrl+Enter keyboard shortcut.
+      // Button clicks on X are commonly detected server-side and redirected to /home
+      // without posting; the keyboard shortcut avoids this. Reference: x-mcp-bridge commit 4e45794.
       let fbClickSuccess = false;
       try {
         this.assertPageAlive(page, 'submit tweet (home page compose)');
-        await this.browser.humanClick(postButton, { timeoutMs: 10000 });
-        fbClickSuccess = true;
-        this.logger.log(`X fallback: humanClick on Post button succeeded`);
-      } catch (clickErr) {
-        this.logger.warn(`X fallback: humanClick failed: ${(clickErr as Error).message}`);
-      }
-      await this.browser.randomDelay(2000, 4000);
-
-      // Check if textbox is empty after click (sign that tweet was submitted)
-      const fbTextboxAfterClick = await textbox.innerText().catch(() => '');
-      this.logger.log(`X fallback: textbox after click: "${fbTextboxAfterClick.slice(0, 60)}..." (len=${fbTextboxAfterClick.length})`);
-
-      // Cmd+Enter fallback for home page compose dialog — only if click failed
-      if (!fbClickSuccess) {
-        this.logger.log(`X fallback: trying Cmd+Enter shortcut...`);
         await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
         await this.browser.randomDelay(300, 600);
         await page.keyboard.press('Meta+Enter').catch(() => {});
         await this.browser.randomDelay(200, 400);
         await page.keyboard.press('Control+Enter').catch(() => {});
+        await this.browser.randomDelay(3000, 5000);
+        fbClickSuccess = true;
+        this.logger.log(`X fallback: Ctrl+Enter shortcut sent`);
+      } catch (submitErr) {
+        this.logger.warn(`X fallback: Ctrl+Enter failed: ${(submitErr as Error).message}`);
+      }
+
+      // Check if textbox is empty after click (sign that tweet was submitted)
+      const fbTextboxAfterClick = await textbox.innerText().catch(() => '');
+      this.logger.log(`X fallback: textbox after submit: "${fbTextboxAfterClick.slice(0, 60)}..." (len=${fbTextboxAfterClick.length})`);
+
+      // Fallback to humanClick on Post button if Ctrl+Enter didn't submit and the textbox still has content.
+      if (!fbClickSuccess || (fbTextboxAfterClick.length > 0 && (page.url().includes('/compose/post') || page.url().includes('/home')))) {
+        this.logger.log(`X fallback: trying humanClick on Post button...`);
+        try {
+          await this.browser.humanClick(postButton, { timeoutMs: 10000 });
+          this.logger.log(`X fallback: humanClick on Post button succeeded`);
+        } catch (clickErr) {
+          this.logger.warn(`X fallback: humanClick failed: ${(clickErr as Error).message}`);
+        }
         await this.browser.randomDelay(2000, 4000);
       }
 
