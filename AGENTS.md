@@ -133,10 +133,10 @@ Camoufox/Firefox consumes ~340-500 MB RSS per process (benchmark: [camoufox#87](
 
 - **Session history**: `max_total_viewers=0`, `max_entries=3` — automation never uses go_back/go_forward, cached viewers are pure overhead (~10-30 MB each).
 - **Session restore**: `max_tabs_undo=0`, `resume_from_crash=false` — automation controls lifecycle.
-- **Cache**: `disk.enable=false`, `memory.capacity=16384` (16 MB cap), `media.memory_cache_max_size=8192` — default auto-sizes to 50-100 MB+ in containers.
-- **JS GC**: `high_water_mark=128` (trigger GC at 128 MB vs default ~256), `gc_incremental_slice_ms=5`, `compact_on_user_inactive=true` + delay 5000 — more frequent GC, less resident heap.
+- **Cache**: `disk.enable=false`, `memory.capacity=65536` (64 MB cap), `media.memory_cache_max_size=16384` — default auto-sizes to 50-100 MB+ in containers. The previous 16 MB / 8 MB caps were too aggressive and caused the X compose page (React/Lexical) to crash the Camoufox renderer.
+- **JS GC**: `high_water_mark=256` (trigger GC at 256 MB vs default ~256), `gc_incremental_slice_ms=5`, `compact_on_user_inactive=true` + delay 5000 — less aggressive than the earlier 128 MB mark to avoid crashes on X's heavy SPA.
 - **Memory pressure**: `memory.free_dirty_pages=true` — aggressive dirty page freeing (helps jemalloc fragmentation).
-- **Image decode**: `image.mem.decode_bytes_at_a_time=4096` (configurable via `CAMOUFOX_IMAGE_DECODE_CHUNK`) — fix for camoufox#87 OOM on scroll; default 32768 causes excessive memory on media-heavy feeds.
+- **Image decode**: `image.mem.decode_bytes_at_a_time=8192` (configurable via `CAMOUFOX_IMAGE_DECODE_CHUNK`) — fix for camoufox#87 OOM on scroll; the previous 4096 default was too aggressive for X's compose page and 32768 (Camoufox default) causes excessive memory on media-heavy feeds.
 - **Telemetry/devtools**: `datareporting.policy.dataSubmissionEnabled=false`, `toolkit.telemetry.reportingpolicy.firstRun=false`, `devtools.jsonview.enabled=false` — no background network traffic.
 
 **Intentionally NOT touched**: `dom.ipc.processCount` — Camoufox enables fission/web-content-isolation for anti-detect (WAF suspicion). Lowering processCount would risk detection. Playwright's `playwright.cfg` sets `dom.ipc.processCount=60000` and some prefs there cannot be overridden via `firefox_user_prefs` (known limitation, [playwright#15405](https://github.com/microsoft/playwright/issues/15405)) — but cache/session-history/JS-GC prefs apply fine.

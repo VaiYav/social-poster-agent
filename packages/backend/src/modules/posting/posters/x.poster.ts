@@ -573,32 +573,20 @@ export class XPoster extends BasePoster {
       await this.browser.randomDelay(150, 300);
     };
 
-    // Strategy 1: synthetic paste event (most reliable for DraftJS/Lexical).
-    // Replaces the selected contents and updates React state in a single pass.
-    const pasted = await this.pasteContent(page, textbox, content);
-    if (pasted) {
-      const enteredText = await textbox.innerText().catch(() => '');
-      if (hasTarget(enteredText)) {
-        this.logger.debug('X setComposeText via pasteContent succeeded');
-        return;
-      }
-    }
-
-    // Strategy 2: real key events with a leading sacrificial space.
-    // DraftJS drops the first CDP key at isSelectionAtLeafStart; the space is
-    // consumed and the intended text is preserved (browser-use/browser-use#3896).
-    this.logger.warn(
-      'X pasteContent failed — falling back to pressSequentially with leading space',
-    );
+    // Strategy 1: real key events via locator.pressSequentially.
+    // X's composer (Lexical/DraftJS) only enables the Post button when it
+    // processes the genuine beforeinput/input sequence produced by real key
+    // events. Synthetic paste/execCommand/beforeinput dispatch leaves the DOM
+    // text visible but the React editor state empty, so the button stays disabled.
+    // focusAndSelect ensures any existing placeholder/content is replaced.
+    this.logger.log('X setComposeText: typing via pressSequentially...');
     try {
       await focusAndSelect();
-      await textbox.pressSequentially(' ' + content, { delay: 50 });
+      await textbox.pressSequentially(content, { delay: 30 });
       await this.browser.randomDelay(500, 800);
       const typedText = await textbox.innerText().catch(() => '');
       if (hasTarget(typedText)) {
-        this.logger.debug(
-          'X setComposeText via pressSequentially (leading space) succeeded',
-        );
+        this.logger.debug('X setComposeText via pressSequentially succeeded');
         return;
       }
     } catch (err) {
@@ -607,74 +595,38 @@ export class XPoster extends BasePoster {
       );
     }
 
-    // Strategy 3: per-character execCommand('insertText') + manual beforeinput/input.
+    // Strategy 2: fallback to page-level keyboard.type (same key events, different
+    // Playwright dispatch path). Useful if the locator-level pressSequentially
+    // fails to focus the textbox.
     this.logger.warn(
-      'X pressSequentially failed — falling back to execCommand insertText',
-    );
-    const inserted = await this.insertContenteditableText(page, textbox, content, {
-      delayMinMs: 20,
-      delayMaxMs: 60,
-      maxRetries: 2,
-    });
-    if (inserted) {
-      const enteredText = await textbox.innerText().catch(() => '');
-      if (hasTarget(enteredText)) {
-        this.logger.debug('X setComposeText via execCommand insertText succeeded');
-        return;
-      }
-    }
-
-    // Strategy 4: Playwright fill() + DraftJS nudge.
-    this.logger.warn('X execCommand insertText failed — falling back to fill()');
-    await textbox.fill(content, { timeout: 10000 }).catch(() => {});
-    await this.browser.randomDelay(300, 600);
-    await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
-    await page.keyboard.type(' ', { delay: 50 }).catch(() => {});
-    await page.keyboard.press('Backspace').catch(() => {});
-    await this.browser.randomDelay(300, 600);
-
-    const filledText = await textbox.innerText().catch(() => '');
-    if (hasTarget(filledText)) {
-      this.logger.debug('X setComposeText via fill() succeeded');
-      return;
-    }
-
-    // Strategy 5: direct textContent assignment with synthetic input events.
-    this.logger.warn(
-      'X fill() failed — falling back to textContent + input events',
+      'X pressSequentially failed — falling back to page.keyboard.type',
     );
     try {
-      await focusAndSelect();
-      const ok = await textbox.evaluate((el: HTMLElement, value: string) => {
-        try {
-          el.textContent = value;
-          el.dispatchEvent(
-            new InputEvent('beforeinput', {
-              bubbles: true,
-              cancelable: true,
-              inputType: 'insertText',
-              data: value,
-            }),
-          );
-          el.dispatchEvent(
-            new InputEvent('input', {
-              bubbles: true,
-              inputType: 'insertText',
-              data: value,
-            }),
-          );
-          return true;
-        } catch {
-          return false;
-        }
-      }, content);
-      if (ok) {
-        this.logger.debug('X setComposeText via textContent + input events succeeded');
+      await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+      await this.browser.randomDelay(200, 400);
+      await page.keyboard.type(content, { delay: 30 });
+      await this.browser.randomDelay(500, 800);
+      const typedText = await textbox.innerText().catch(() => '');
+      if (hasTarget(typedText)) {
+        this.logger.debug('X setComposeText via page.keyboard.type succeeded');
+        return;
       }
     } catch (err) {
       this.logger.debug(
-        `X setComposeText textContent fallback failed: ${(err as Error).message}`,
+        `X setComposeText page.keyboard.type failed: ${(err as Error).message}`,
       );
+    }
+
+    // Strategy 3: synthetic paste event. May insert text but usually does not
+    // update the React editor state; kept only as a last resort for content
+    // that cannot be typed (e.g. certain Unicode edge cases).
+    this.logger.warn('X key typing failed — falling back to pasteContent');
+    const pasted = await this.pasteContent(page, textbox, content);
+    if (pasted) {
+      const enteredText = await textbox.innerText().catch(() => '');
+      if (hasTarget(enteredText)) {
+        this.logger.debug('X setComposeText via pasteContent succeeded');
+      }
     }
   }
 

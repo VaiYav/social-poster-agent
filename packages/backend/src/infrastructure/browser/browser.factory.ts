@@ -158,7 +158,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     // they reduce cache, session history, JS GC thresholds, image decode chunk size, and
     // disable telemetry/devtools — none affect fingerprinting or anti-detect.
     this.memoryPrefsEnabled = parseBool(this.configService.get<string>('CAMOUFOX_MEMORY_PREFS', 'true'));
-    const imageDecodeChunk = Math.max(1024, this.configService.get<number>('CAMOUFOX_IMAGE_DECODE_CHUNK', 4096));
+    const imageDecodeChunk = Math.max(1024, this.configService.get<number>('CAMOUFOX_IMAGE_DECODE_CHUNK', 8192));
     this.firefoxUserPrefs = this.memoryPrefsEnabled ? this.buildMemoryPrefs(imageDecodeChunk) : {};
     // MEM: block images in read-only contexts. Toggle via CAMOUFOX_BLOCK_IMAGES_READONLY.
     this.blockImagesReadOnly = parseBool(
@@ -266,11 +266,13 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
       // Session restore — no tab undo, no crash resume (automation controls lifecycle).
       'browser.sessionstore.max_tabs_undo': 0,
       'browser.sessionstore.resume_from_crash': false,
-      // Cache — disk cache off (we have no reuse benefit), memory cache capped at 16 MB
+      // Cache — disk cache off (we have no reuse benefit), memory cache capped at 64 MB
       // (default auto-sizes based on system RAM, often 50-100 MB+ in containers).
+      // The previous 16 MB cap was too aggressive and caused the X compose page to crash
+      // the Camoufox renderer under the React/Lexical editor load.
       'browser.cache.disk.enable': false,
-      'browser.cache.memory.capacity': 16384,
-      'media.memory_cache_max_size': 8192,
+      'browser.cache.memory.capacity': 65536,
+      'media.memory_cache_max_size': 16384,
       // Media decode — disable the RDD (Remote Data Decoder) process and HW video decoding.
       // X/Threads permalink pages contain <video> elements that can start the RDD process;
       // in headless/container environments without VAAPI/GLX the RDD process can crash and
@@ -279,18 +281,19 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
       'media.rdd-process.enabled': false,
       'media.hardware-video-decoding.enabled': false,
       'media.ffmpeg.enable-vaapi': false,
-      // JS GC — trigger GC earlier (128 MB high-water mark vs default ~256 MB),
-      // run incremental GC slices more frequently, compact on user inactive.
-      // Reduces resident JS heap without affecting execution correctness.
-      'javascript.options.mem.high_water_mark': 128,
+      // JS GC — trigger GC at a 256 MB high-water mark (vs default ~256 MB), run incremental
+      // GC slices more frequently, compact on user inactive. The earlier 128 MB mark was too
+      // aggressive for X's heavy compose SPA and contributed to renderer crashes.
+      'javascript.options.mem.high_water_mark': 256,
       'javascript.options.mem.gc_incremental_slice_ms': 5,
       'javascript.options.compact_on_user_inactive': true,
       'javascript.options.compact_on_user_inactive_delay': 5000,
       // Memory pressure — free dirty pages aggressively (helps jemalloc/arena fragmentation).
       'memory.free_dirty_pages': true,
       // Image decode — fix for camoufox#87 OOM on scroll: default 32768 causes
-      // excessive memory when scrolling media-heavy feeds. 4096 matches the upstream
-      // fix from daijro. Configurable via CAMOUFOX_IMAGE_DECODE_CHUNK.
+      // excessive memory when scrolling media-heavy feeds. The previous 4096 default was too
+      // aggressive for X's compose page and led to renderer crashes; 8192 is a safer middle
+      // ground. Configurable via CAMOUFOX_IMAGE_DECODE_CHUNK.
       'image.mem.decode_bytes_at_a_time': imageDecodeChunk,
       // Telemetry/devtools — disable to save memory + avoid background network traffic.
       'datareporting.policy.dataSubmissionEnabled': false,
