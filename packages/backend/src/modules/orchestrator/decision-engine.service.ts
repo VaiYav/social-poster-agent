@@ -123,8 +123,13 @@ export class DecisionEngineService {
     // Approved drafts + in posting window → POST
     if (world.drafts.approved > 0) {
       for (const net of networks) {
-        // Skip networks with open circuit breaker — let a healthy network post instead
-        if (world.sessions[net]?.circuitBreaker === 'open') continue;
+        // Skip networks with open or half-open circuit breaker — let a healthy network post instead
+        if (
+          world.sessions[net]?.circuitBreaker === 'open' ||
+          world.sessions[net]?.circuitBreaker === 'half_open'
+        ) {
+          continue;
+        }
         if (world.inPostingWindow[net] && (world.rateLimits[net]?.dailyRemaining ?? 0) > 0) {
           return {
             type: 'POST',
@@ -134,16 +139,54 @@ export class DecisionEngineService {
           };
         }
       }
-      return WAIT_ACTION('Approved drafts waiting for posting window', 120000, 'rules_fallback');
+      // No healthy network is ready to post; generate drafts for the first healthy network
+      // so posting can rotate off the failing network.
+      const genNet = networks.find((net) => {
+        const rl = world.rateLimits[net];
+        const dailyReady = rl ? (rl.dailyLimit > 0 ? rl.dailyRemaining > 0 : true) : false;
+        const weeklyReady = rl ? (rl.weeklyLimit > 0 ? rl.weeklyRemaining > 0 : true) : true;
+        return (
+          world.sessions[net]?.status === 'ACTIVE' &&
+          world.sessions[net]?.circuitBreaker !== 'open' &&
+          world.sessions[net]?.circuitBreaker !== 'half_open' &&
+          dailyReady &&
+          weeklyReady
+        );
+      });
+      if (genNet) {
+        return {
+          type: 'GENERATE_POSTS',
+          network: genNet,
+          reason: `Approved drafts but no healthy POST network; generating drafts for ${genNet}`,
+          source: 'rules_fallback',
+        };
+      }
+      return WAIT_ACTION('Approved drafts waiting for healthy posting network', 120000, 'rules_fallback');
     }
 
     // No approved drafts, topic pool sufficient → GENERATE_POSTS
     if (world.topicPool.count >= world.topicPool.threshold && world.drafts.approved === 0) {
-      return {
-        type: 'GENERATE_POSTS',
-        reason: 'No approved drafts, topic pool sufficient',
-        source: 'rules_fallback',
-      };
+      const genNet = networks.find((net) => {
+        const rl = world.rateLimits[net];
+        const dailyReady = rl ? (rl.dailyLimit > 0 ? rl.dailyRemaining > 0 : true) : false;
+        const weeklyReady = rl ? (rl.weeklyLimit > 0 ? rl.weeklyRemaining > 0 : true) : true;
+        return (
+          world.sessions[net]?.status === 'ACTIVE' &&
+          world.sessions[net]?.circuitBreaker !== 'open' &&
+          world.sessions[net]?.circuitBreaker !== 'half_open' &&
+          dailyReady &&
+          weeklyReady
+        );
+      });
+      if (genNet) {
+        return {
+          type: 'GENERATE_POSTS',
+          network: genNet,
+          reason: `No approved drafts; generating for ${genNet}`,
+          source: 'rules_fallback',
+        };
+      }
+      return WAIT_ACTION('No approved drafts and no healthy network for generation', 120000, 'rules_fallback');
     }
 
     // NOTE: BROWSE (engagement) is now handled in PARALLEL by the observeNode

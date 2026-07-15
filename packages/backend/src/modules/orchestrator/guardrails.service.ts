@@ -40,15 +40,43 @@ export class GuardrailsService {
     // network is checked on the best ready network (oldest lastPostMs), not on the first
     // enabled network. This also rotates posting across X and Threads and skips networks
     // with an open or half-open circuit breaker.
+    //
+    // Fallback: if approved drafts exist but no network is ready to POST (e.g. the only
+    // network with approved drafts is half-open), generate drafts for the healthiest
+    // alternative network so posting can rotate there. If no healthy network is available
+    // for posting, block a POST action to a risky network with WAIT.
     if (world.drafts.approved > 0) {
-      const chosenNet = this.selectBestReadyNetwork(world);
-      if (chosenNet && (action.type !== 'POST' || action.network !== chosenNet)) {
+      const postNet = this.selectBestReadyNetwork(world);
+      if (postNet && (action.type !== 'POST' || action.network !== postNet)) {
         return {
           type: 'POST' as const,
-          network: chosenNet,
-          reason: `Guardrail G8: ${world.drafts.approved} approved drafts take priority over ${action.type} (${chosenNet} ready, oldest lastPost)`,
+          network: postNet,
+          reason: `Guardrail G8: ${world.drafts.approved} approved drafts take priority over ${action.type} (${postNet} ready, oldest lastPost)`,
           source: 'guardrail_override',
         };
+      }
+      // No ready POST network — try to generate for a healthy alternative.
+      const genNet = this.selectBestGenerationNetwork(world);
+      if (genNet && (action.type !== 'GENERATE_POSTS' || action.network !== genNet)) {
+        return {
+          type: 'GENERATE_POSTS' as const,
+          network: genNet,
+          reason: `Guardrail G8: ${world.drafts.approved} approved drafts but no ready POST network; generating drafts for ${genNet}`,
+          source: 'guardrail_override',
+        };
+      }
+      // If the original action is POST to a risky network, block it until a healthy
+      // network is available.
+      if (
+        action.type === 'POST' &&
+        action.network &&
+        this.isCircuitBreakerRisky(world.sessions[action.network]?.circuitBreaker)
+      ) {
+        return WAIT_ACTION(
+          `Guardrail G8: POST ${action.network} blocked — circuit breaker ${world.sessions[action.network]?.circuitBreaker}`,
+          300000,
+          'guardrail_override',
+        );
       }
     }
 
@@ -65,14 +93,19 @@ export class GuardrailsService {
     }
 
     // G3b: GENERATE_POSTS with a network must target a network that has rate limit
-    // capacity remaining. If the LLM picks a rate-limited network, redirect to the
-    // ready network with the oldest lastPostMs so posting rotates. If no network is
-    // ready, WAIT — generating drafts for an exhausted network wastes LLM quota.
+    // capacity and a healthy circuit breaker. If the LLM picks a rate-limited or
+    // half-open/open network, redirect to the ready network with the oldest lastPostMs
+    // so posting rotates. If no network is ready, WAIT — generating drafts for an
+    // exhausted or failing network wastes LLM quota.
     if (action.type === 'GENERATE_POSTS' && action.network) {
       const rl = world.rateLimits[action.network];
       const dailyReady = rl ? (rl.dailyLimit > 0 ? rl.dailyRemaining > 0 : true) : false;
       const weeklyReady = rl ? (rl.weeklyLimit > 0 ? rl.weeklyRemaining > 0 : true) : true;
-      if (!dailyReady || !weeklyReady) {
+      if (
+        !dailyReady ||
+        !weeklyReady ||
+        this.isCircuitBreakerRisky(world.sessions[action.network]?.circuitBreaker)
+      ) {
         let chosenNet: SocialNetwork | undefined;
         let chosenLastPostMs = Infinity;
         for (const net of networks) {
@@ -165,6 +198,41 @@ export class GuardrailsService {
 
   private isCircuitBreakerRisky(circuitBreaker: SessionState['circuitBreaker'] | undefined): boolean {
     return circuitBreaker === 'open' || circuitBreaker === 'half_open';
+  }
+
+  /**
+   * G8 generation helper: select the healthiest network with the oldest lastPostMs
+   * among those that have active sessions, rate-limit capacity, and no circuit breaker
+   * risk. Unlike selectBestReadyNetwork, this does NOT require approved drafts or an
+   * active posting window — it is used as a fallback to generate drafts for a healthy
+   * backup network when the only approved drafts are stuck on a failing network.
+   */
+  private selectBestGenerationNetwork(world: WorldState): SocialNetwork | undefined {
+    if (world.flowControl.pauseGeneration) return undefined;
+
+    const networks = getEnabledNetworks();
+    let chosenNet: SocialNetwork | undefined;
+    let chosenLastPostMs = Infinity;
+
+    for (const net of networks) {
+      if (this.isCircuitBreakerRisky(world.sessions[net]?.circuitBreaker)) continue;
+      const rl = world.rateLimits[net];
+      const dailyReady = rl ? (rl.dailyLimit > 0 ? rl.dailyRemaining > 0 : true) : false;
+      const weeklyReady = rl ? (rl.weeklyLimit > 0 ? rl.weeklyRemaining > 0 : true) : true;
+      if (
+        dailyReady &&
+        weeklyReady &&
+        world.sessions[net]?.status === 'ACTIVE' &&
+        (world.queueDepth[net] ?? 0) <= 5
+      ) {
+        const lastPostMs = world.rateLimits[net]?.lastPostMs ?? 0;
+        if (lastPostMs < chosenLastPostMs) {
+          chosenNet = net as SocialNetwork;
+          chosenLastPostMs = lastPostMs;
+        }
+      }
+    }
+    return chosenNet;
   }
 
   /**
