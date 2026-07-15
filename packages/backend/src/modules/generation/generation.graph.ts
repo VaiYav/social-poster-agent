@@ -29,6 +29,20 @@ import {
 
 const logger = new Logger('GenerationGraph');
 
+/**
+ * Derive a 1-10 quality score from LLM-as-a-Judge scores when the critique
+ * node did not emit a SCORE. This prevents missing scores from forcing every
+ * post into HUMAN_REVIEW when the judge has already validated the post.
+ */
+function qualityScoreFromJudgeScores(judgeScores?: JudgeScores): number | undefined {
+  if (!judgeScores) return undefined;
+  const dims = ['anti_ai_tone', 'hook_strength', 'factual_accuracy', 'character_limit'] as const;
+  const values = dims.map((k) => judgeScores[k]).filter((v) => typeof v === 'number') as number[];
+  if (values.length === 0) return undefined;
+  const avg = values.reduce((a, b) => a + b, 0) / values.length;
+  return Math.round(avg * 10);
+}
+
 // Temperature overrides — read once at module load. Reasoning models ignore
 // temperature by design, but these values are used for the non-reasoning chain.
 const HOOK_TEMPERATURE = Number(process.env.GENERATION_TEMPERATURE_HOOK ?? 0.95);
@@ -1178,13 +1192,14 @@ function saveToDbNode(
     const content = stripHashtags(netResult.refined || netResult.draft);
     if (!content) continue;
 
+    const qualityScore = netResult.qualityScore ?? qualityScoreFromJudgeScores(netResult.judgeScores);
     posts.push({
       network,
       content,
       hook: netResult.hook,
       angle: netResult.angle,
       model: state.model,
-      qualityScore: netResult.qualityScore,
+      qualityScore,
       judgeScores: netResult.judgeScores,
       hookTechnique: netResult.hookTechnique,
       contentStyleId: netResult.contentStyleId,
