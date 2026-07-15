@@ -537,31 +537,79 @@ export class XPoster extends BasePoster {
     textbox: Locator,
     content: string,
   ): Promise<void> {
-    // Primary: per-character execCommand('insertText'). This fires the full W3C
-    // beforeinput -> DOM mutation -> input event chain that React/Lexical listens
-    // to, so the Post button is genuinely enabled and the tweet can be submitted.
-    // Reference: openlegion-ai/openlegion#419.
     const minLength = Math.max(1, Math.floor(content.trim().length * 0.8));
+
+    // Primary: Playwright page.keyboard.insertText(). This uses the browser's
+    // native CDP/Bidi Input.insertText, which emits an isTrusted input event
+    // on the focused contenteditable. Draft.js/Lexical reconciles on input,
+    // so the React state is updated and the Post button becomes enabled.
+    // This is the most reliable path for multilingual content (Cyrillic, CJK, etc.).
+    try {
+      await textbox.focus({ timeout: 5000 }).catch(() => {});
+      await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+      await page.keyboard.press('Control+A').catch(() => {});
+      await page.keyboard.press('Backspace').catch(() => {});
+      await this.browser.randomDelay(100, 200);
+
+      await page.keyboard.insertText(content);
+      await this.browser.randomDelay(500, 800);
+
+      const enteredText = await textbox.innerText().catch(() => '');
+      if (enteredText.trim().length >= minLength) {
+        this.logger.debug('X setComposeText via page.keyboard.insertText succeeded');
+        return;
+      }
+    } catch (err) {
+      this.logger.debug(
+        `X setComposeText page.keyboard.insertText failed: ${(err as Error).message}`,
+      );
+    }
+
+    // Fallback 1: locator.pressSequentially — emits real key events, which can
+    // trigger beforeinput/input for editors that require the full key sequence.
+    this.logger.warn('X insertText failed — falling back to pressSequentially');
+    try {
+      await textbox.focus({ timeout: 5000 }).catch(() => {});
+      await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
+      await page.keyboard.press('Control+A').catch(() => {});
+      await page.keyboard.press('Backspace').catch(() => {});
+      await this.browser.randomDelay(200, 400);
+
+      await textbox.pressSequentially(content, { delay: 50 });
+      await this.browser.randomDelay(500, 800);
+
+      const typedText = await textbox.innerText().catch(() => '');
+      if (typedText.trim().length >= minLength) {
+        this.logger.debug('X setComposeText via pressSequentially succeeded');
+        return;
+      }
+    } catch (err) {
+      this.logger.debug(
+        `X setComposeText pressSequentially failed: ${(err as Error).message}`,
+      );
+    }
+
+    // Fallback 2: per-character execCommand('insertText') + manual beforeinput/input.
+    // Camoufox (Firefox) does not fire native beforeinput for execCommand, so the
+    // manual events may not update DraftJS state, but the text will be visible.
+    this.logger.warn('X pressSequentially failed — falling back to execCommand insertText');
     const inserted = await this.insertContenteditableText(page, textbox, content, {
       delayMinMs: 20,
       delayMaxMs: 60,
       maxRetries: 2,
     });
-
     if (inserted) {
       const enteredText = await textbox.innerText().catch(() => '');
       if (enteredText.trim().length >= minLength) {
-        this.logger.debug('X setComposeText via execCommand insertText succeeded');
+        this.logger.debug('X setComposeText via execCommand insertText succeeded (text visible)');
         return;
       }
     }
 
-    // Fallback: Playwright fill() — sets the content and dispatches the full input
-    // event chain, which sometimes works when execCommand is unavailable.
+    // Fallback 3: Playwright fill() + DraftJS nudge.
     this.logger.warn('X execCommand insertText failed — falling back to fill()');
     await textbox.fill(content, { timeout: 10000 }).catch(() => {});
     await this.browser.randomDelay(300, 600);
-    // DraftJS/Lexical nudge: type a char and delete it to trigger a state update
     await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
     await page.keyboard.type(' ', { delay: 50 }).catch(() => {});
     await page.keyboard.press('Backspace').catch(() => {});
@@ -573,7 +621,7 @@ export class XPoster extends BasePoster {
       return;
     }
 
-    // Last resort: synthetic paste event — DraftJS/Lexical handles paste natively.
+    // Last resort: synthetic paste event.
     this.logger.warn('X fill() failed — falling back to pasteContent');
     await this.pasteContent(page, textbox, content);
   }

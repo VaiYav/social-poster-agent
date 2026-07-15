@@ -99,6 +99,20 @@ export class AccountsService implements OnModuleInit {
   }
 
   async findByNetwork(network: SocialNetwork) {
+    // Prefer the account whose handle matches the configured env credentials.
+    // This prevents stale manually-created accounts from shadowing the active
+    // account (e.g., test_x_user being selected while mzai_soulwise is the
+    // intended X handle in SOCIAL_X_USERNAME).
+    const { username } = this.getCredentials(network);
+    if (username) {
+      const matching = await this.prisma.socialAccount.findFirst({
+        where: { network, active: true, handle: username },
+      });
+      if (matching) {
+        return matching;
+      }
+    }
+
     return this.prisma.socialAccount.findFirst({
       where: { network, active: true },
     });
