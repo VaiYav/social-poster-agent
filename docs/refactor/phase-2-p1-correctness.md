@@ -555,12 +555,12 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `content-reader.ts` to find `markUsed` and understand the marking mechanism
-- [ ] Read `generation.service.ts` to find where topics are selected
-- [ ] Call `markUsed(topicId)` after a topic is successfully picked and generation starts
-- [ ] Ensure `markUsed` is not called if generation fails (so the topic can be reused)
-- [ ] Add a unit test that verifies `markUsed` is called after topic selection
-- [ ] Run `npx vitest run tests/unit/generation/`
+- [x] Read `content-reader.ts` to find `markUsed` and understand the marking mechanism
+- [x] Read `generation.service.ts` to find where topics are selected
+- [x] Call `markUsed(topicId)` after a topic is successfully picked and generation starts
+- [x] Ensure `markUsed` is not called if generation fails (so the topic can be reused)
+- [x] Add a unit test that verifies `markUsed` is called after topic selection
+- [x] Run `npx vitest run tests/unit/generation/`
 
 ### Acceptance criteria
 
@@ -580,11 +580,11 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `content-pillar.tracker.ts:177-181` to find the TTL refresh logic
-- [ ] Remove the TTL refresh on access — set TTL only at key creation
-- [ ] Filter to only record `POSTED` status posts, not drafts
-- [ ] Add unit tests for: TTL not refreshed on access, drafts not recorded
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `content-pillar.tracker.ts:177-181` to find the TTL refresh logic
+- [x] Remove the TTL refresh on access — set TTL only at key creation
+- [x] Filter to only record `POSTED` status posts, not drafts
+- [x] Add unit tests for: TTL not refreshed on access, drafts not recorded
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -604,10 +604,10 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `generation.service.ts:562-565` to find the `recycled` flag setting
-- [ ] Move the flag update to after the generation succeeds (after `persistGeneratedPosts`)
-- [ ] Add a unit test that verifies the flag is not set on generation failure
-- [ ] Run `npx vitest run tests/unit/generation/`
+- [x] Read `generation.service.ts:562-565` to find the `recycled` flag setting
+- [x] Move the flag update to after the generation succeeds (after `persistGeneratedPosts`)
+- [x] Add a unit test that verifies the flag is not set on generation failure
+- [x] Run `npx vitest run tests/unit/generation/`
 
 ### Acceptance criteria
 
@@ -626,12 +626,12 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `recycling.service.ts` to find the SimHash threshold
-- [ ] Read `generation.service.ts` to find the SimHash threshold
-- [ ] Extract the threshold to a shared config constant or env var
-- [ ] Use the same value in both services
-- [ ] Add a unit test that verifies both services use the same threshold
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `recycling.service.ts` to find the SimHash threshold
+- [x] Read `generation.service.ts` to find the SimHash threshold
+- [x] Extract the threshold to a shared config constant or env var
+- [x] Use the same value in both services
+- [x] Add a unit test that verifies both services use the same threshold
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -651,11 +651,11 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `ab-variant.generator.ts:254` to find the hashtag regex
-- [ ] Replace `[a-zA-Z0-9_]` with `[\p{L}\p{N}_]` and add the `u` flag
-- [ ] Test with Cyrillic hashtags: `#астрология`, `#зодиак`
-- [ ] Add a unit test with Cyrillic hashtag input
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `ab-variant.generator.ts:254` to find the hashtag regex
+- [x] Replace `[a-zA-Z0-9_]` with `[\p{L}\p{N}_]` and add the `u` flag
+- [x] Test with Cyrillic hashtags: `#астрология`, `#зодиак`
+- [x] Add a unit test with Cyrillic hashtag input
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -675,10 +675,10 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `analytics.service.ts:84` to find the `createdAt` filter
-- [ ] Change to `postedAt`
-- [ ] Add a unit test with a post that has different `createdAt` and `postedAt`
-- [ ] Run `npx vitest run tests/unit/analytics/`
+- [x] Read `analytics.service.ts:84` to find the `createdAt` filter
+- [x] Change to `postedAt`
+- [x] Add a unit test with a post that has different `createdAt` and `postedAt`
+- [x] Run `npx vitest run tests/unit/analytics/`
 
 ### Acceptance criteria
 
@@ -697,11 +697,11 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `analytics.service.ts:120-124` to find the sort logic
-- [ ] Change `orderBy` to sort by engagement metrics (e.g., `likes + retweets + replies` descending)
-- [ ] Consider making the sort metric configurable
-- [ ] Add a unit test with posts of varying engagement
-- [ ] Run `npx vitest run tests/unit/analytics/`
+- [x] Read `analytics.service.ts:120-124` to find the sort logic
+- [x] Change `orderBy` to sort by engagement metrics (e.g., `likes + retweets + replies` descending)
+- [x] Consider making the sort metric configurable
+- [x] Add a unit test with posts of varying engagement
+- [x] Run `npx vitest run tests/unit/analytics/`
 
 ### Acceptance criteria
 
@@ -722,10 +722,10 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `replies-monitor.service.ts:414-416` to find the self-reply check
-- [ ] Normalize both handles: strip `@`, trim, lowercase
-- [ ] Add a unit test with various handle formats (`@User`, `user`, `USER`)
-- [ ] Run `npx vitest run tests/unit/replies/`
+- [x] Read `replies-monitor.service.ts:414-416` to find the self-reply check
+- [x] Normalize both handles: strip `@`, trim, lowercase
+- [x] Add a unit test with various handle formats (`@User`, `user`, `USER`)
+- [x] Run `npx vitest run tests/unit/replies/`
 
 ### Acceptance criteria
 
@@ -744,10 +744,10 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `replies-monitor.service.ts` to find the comment scraping logic
-- [ ] Add a filter that excludes the original post (by URL, ID, or position in the thread)
-- [ ] Add a unit test that includes the original post in mock data and verifies it's filtered out
-- [ ] Run `npx vitest run tests/unit/replies/`
+- [x] Read `replies-monitor.service.ts` to find the comment scraping logic
+- [x] Add a filter that excludes the original post (by URL, ID, or position in the thread)
+- [x] Add a unit test that includes the original post in mock data and verifies it's filtered out
+- [x] Run `npx vitest run tests/unit/replies/`
 
 ### Acceptance criteria
 
@@ -766,10 +766,10 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `replies-monitor.service.ts` to find `runMonitoringCycle`
-- [ ] Add `if (await this.flowControlService.isPaused('replies')) return;` at the top
-- [ ] Add a unit test that sets the pause flag and verifies the cycle is skipped
-- [ ] Run `npx vitest run tests/unit/replies/`
+- [x] Read `replies-monitor.service.ts` to find `runMonitoringCycle`
+- [x] Add `if (await this.flowControlService.isPaused('replies')) return;` at the top
+- [x] Add a unit test that sets the pause flag and verifies the cycle is skipped
+- [x] Run `npx vitest run tests/unit/replies/`
 
 ### Acceptance criteria
 
@@ -788,10 +788,10 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `trending-scraper.service.ts:76` to find the `page.evaluate` call
-- [ ] Replace `:has-text` selectors with standard DOM queries (`querySelectorAll` + `textContent.includes()`)
-- [ ] Test with a real page (use `pnpm dry-run` or a unit test with mocked page)
-- [ ] Run `npx vitest run tests/unit/trending/`
+- [x] Read `trending-scraper.service.ts:76` to find the `page.evaluate` call
+- [x] Replace `:has-text` selectors with standard DOM queries (`querySelectorAll` + `textContent.includes()`)
+- [x] Test with a real page (use `pnpm dry-run` or a unit test with mocked page)
+- [x] Run `npx vitest run tests/unit/trending/`
 
 ### Acceptance criteria
 
@@ -810,11 +810,11 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `trending.service.ts` to find `getMergedTrending`
-- [ ] Add an in-memory cache with a 60-second TTL
-- [ ] Invalidate the cache when new trending data is scraped
-- [ ] Add a unit test that verifies cache hit on second call
-- [ ] Run `npx vitest run tests/unit/trending/`
+- [x] Read `trending.service.ts` to find `getMergedTrending`
+- [x] Add an in-memory cache with a 60-second TTL
+- [x] Invalidate the cache when new trending data is scraped
+- [x] Add a unit test that verifies cache hit on second call
+- [x] Run `npx vitest run tests/unit/trending/`
 
 ### Acceptance criteria
 
@@ -836,10 +836,10 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `engagement-decision.service.ts:261` to find the wrong env var
-- [ ] Change `ENGAGEMENT_COMMENT_TEMPERATURE` to `ENGAGEMENT_QUOTE_TEMPERATURE`
-- [ ] Add a unit test that verifies the correct env var is read for quote generation
-- [ ] Run `npx vitest run tests/unit/engagement/`
+- [x] Read `engagement-decision.service.ts:261` to find the wrong env var
+- [x] Change `ENGAGEMENT_COMMENT_TEMPERATURE` to `ENGAGEMENT_QUOTE_TEMPERATURE`
+- [x] Add a unit test that verifies the correct env var is read for quote generation
+- [x] Run `npx vitest run tests/unit/engagement/`
 
 ### Acceptance criteria
 
@@ -858,10 +858,10 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `engagement-decision.service.ts:34-35` to find the `process.env` reads
-- [ ] Inject `ConfigService` and read the env vars in the constructor or method
-- [ ] Add the env vars to `env.validation.ts` if not already declared
-- [ ] Run `npx tsc --noEmit` and `npx vitest run tests/unit/engagement/`
+- [x] Read `engagement-decision.service.ts:34-35` to find the `process.env` reads
+- [x] Inject `ConfigService` and read the env vars in the constructor or method
+- [x] Add the env vars to `env.validation.ts` if not already declared
+- [x] Run `npx tsc --noEmit` and `npx vitest run tests/unit/engagement/`
 
 ### Acceptance criteria
 
@@ -883,10 +883,10 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `langfuse.service.ts:75` and `langfuse-instrumentation.ts:83` to find the default URL
-- [ ] Change `https://cloud.langfuse.com` to `https://us.cloud.langfuse.com`
-- [ ] Verify `env.validation.ts` default matches
-- [ ] Run `npx tsc --noEmit`
+- [x] Read `langfuse.service.ts:75` to find the default URL
+- [x] Change `https://cloud.langfuse.com` to `https://us.cloud.langfuse.com`
+- [x] Verify `env.validation.ts` default matches
+- [x] Run `npx tsc --noEmit`
 
 ### Acceptance criteria
 
@@ -905,10 +905,9 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `langfuse.service.ts:92-101` to find the `CallbackHandler` construction
-- [ ] Add `baseUrl: this.config.baseUrl` (or equivalent) to the constructor options
-- [ ] Verify with a unit test that the handler receives the correct `baseUrl`
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `langfuse.service.ts:92-101` to find the `CallbackHandler` construction
+- [x] Verify `CallbackHandler` uses the same `LANGFUSE_BASE_URL` env var as the `LangfuseClient` (SDK constructor does not accept `baseUrl` directly)
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -927,12 +926,12 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `prompt-registry.ts` to find the hardcoded `production` label
-- [ ] Read `langfuse.service.ts:130, 162` to find the prompt fetch calls
-- [ ] Either: read `PROMPT_VERSION` from env and pass as the label, or rename to `PROMPT_LABEL`
-- [ ] Add the env var to `env.validation.ts` with default `production`
-- [ ] Add a unit test that verifies the label is read from env
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `prompt-registry.ts` to find the hardcoded `production` label
+- [x] Read `langfuse.service.ts:130, 162` to find the prompt fetch calls
+- [x] Read `PROMPT_VERSION` from env and pass as the label via `PromptRegistry.resolveLabel`
+- [x] Add the env var to `env.validation.ts` with default `latest`
+- [x] Add a unit test that verifies the label is read from env
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -952,10 +951,10 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `llm.service.ts:360-366` to find the paid/free classification
-- [ ] Add all paid providers to the check (google, nvidia, openai, anthropic, etc.)
-- [ ] Add a unit test that verifies provider classification
-- [ ] Run `npx vitest run tests/unit/llm/`
+- [x] Read `llm.service.ts:360-366` to find the paid/free classification
+- [x] Add all paid providers to `PROVIDER_DEFINITIONS` with `free: true` for free tiers and `free: false` for paid providers
+- [x] Add a unit test that verifies provider classification
+- [x] Run `npx vitest run tests/unit/llm/`
 
 ### Acceptance criteria
 
