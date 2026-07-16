@@ -18,13 +18,13 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `posting.service.ts:393-396` to find the `postFn` error return paths
-- [ ] Read `posting.service.ts:520-539` to find the catch-all handler
-- [ ] Classify each error type: validation/selector → `retryable: false`; network/timeout → `retryable: true`
-- [ ] Return `{ error, retryable }` objects instead of plain strings
-- [ ] Update the queue worker to respect the `retryable` flag
-- [ ] Add unit tests for both retryable and non-retryable error paths
-- [ ] Run `npx vitest run tests/unit/posting/`
+- [x] Read `posting.service.ts:393-396` to find the `postFn` error return paths
+- [x] Read `posting.service.ts:520-539` to find the catch-all handler
+- [x] Classify each error type: validation/selector → `retryable: false`; network/timeout → `retryable: true`
+- [x] Return `{ error, retryable }` objects instead of plain strings
+- [x] Update the queue worker to respect the `retryable` flag
+- [x] Add unit tests for both retryable and non-retryable error paths
+- [x] Run `npx vitest run tests/unit/posting/`
 
 ### Acceptance criteria
 
@@ -44,11 +44,11 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `queue.factory.ts` to find `schedulePosting` and the retry config definitions
-- [ ] Compare general vs. posting retry configs
-- [ ] Switch `schedulePosting` to use the posting-specific config
-- [ ] Verify with a unit test that the correct config is applied
-- [ ] Run `npx vitest run tests/unit/queue/`
+- [x] Read `queue.factory.ts` to find `schedulePosting` and the retry config definitions
+- [x] Compare general vs. posting retry configs
+- [x] Switch `schedulePosting` to use the posting-specific config
+- [x] Verify with a unit test that the correct config is applied
+- [x] Run `npx vitest run tests/unit/queue/`
 
 ### Acceptance criteria
 
@@ -67,11 +67,11 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `queue.controller.ts` to find the `getFailed` endpoint
-- [ ] Create a `JobDto` or mapping function that strips sensitive fields
-- [ ] Apply the mapping to the response
-- [ ] Add a unit test that verifies sensitive fields are not present in the response
-- [ ] Run `npx vitest run tests/unit/queue/`
+- [x] Read `queue.controller.ts` to find the `getFailed` endpoint
+- [x] Create a `JobDto` or mapping function that strips sensitive fields
+- [x] Apply the mapping to the response
+- [x] Add a unit test that verifies sensitive fields are not present in the response
+- [x] Run `npx vitest run tests/unit/queue/`
 
 ### Acceptance criteria
 

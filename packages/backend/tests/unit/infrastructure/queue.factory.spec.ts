@@ -451,7 +451,7 @@ describe('QueueFactory (MOD-05 — Infrastructure Adapters)', () => {
 
   // ── schedulePosting ──
 
-  it('UTC-468: schedulePosting for future time → job.add with delay', async () => {
+  it('UTC-468: schedulePosting for future time → job.add with posting-specific retry config', async () => {
     // Arrange — schedule 60 seconds in the future
     const future = new Date(Date.now() + 60_000);
 
@@ -464,19 +464,23 @@ describe('QueueFactory (MOD-05 — Infrastructure Adapters)', () => {
     expect(opts.delay).toBeGreaterThan(0);
     expect(opts.delay).toBeLessThanOrEqual(60_000);
     expect(opts.jobId).toBe('post-sched');
+    expect(opts.attempts).toBe(8);
+    expect(opts.backoff).toEqual({ type: 'exponential', delay: 120000 });
   });
 
-  it('UTC-469: schedulePosting for past time → enqueues immediately (no delay)', async () => {
+  it('UTC-469: schedulePosting for past time → enqueues immediately with posting-specific retry config', async () => {
     // Arrange — schedule in the past
     const past = new Date(Date.now() - 60_000);
 
     // Act
     await factory.schedulePosting('post-past', 'X', past);
 
-    // Assert — enqueuePosting called (which adds with default opts, no delay)
+    // Assert — enqueuePosting called (which adds with posting-specific config, no delay)
     const addArgs = mocks.queueAdd.mock.calls[0]!;
     const opts = addArgs[2];
     expect(opts.delay).toBeUndefined();
+    expect(opts.attempts).toBe(8);
+    expect(opts.backoff).toEqual({ type: 'exponential', delay: 120000 });
   });
 
   // ── registerWorker: event handler behavior ──
