@@ -4,7 +4,7 @@ import { IBrowserPort } from '../../../domain/ports/browser.port.js';
 import { BasePoster, type PostResult } from './base.poster.js';
 import { X_SELECTORS } from './selectors/x.selectors.js';
 import { normalizePermalink } from './permalink.js';
-import { ValidationError } from '../../../domain/errors.js';
+import { ValidationError, ComposeDialogError } from '../../../domain/errors.js';
 import { parseBool } from '../../../infrastructure/config/parse-bool';
 
 /**
@@ -554,9 +554,21 @@ export class XPoster extends BasePoster {
     const marker = target.slice(0, 30);
     const hasTarget = (text: string): boolean => this.normalizeText(text).includes(marker);
 
+    // Fail fast if the compose box is not in the DOM (e.g. X /compose/post
+    // page served the "JavaScript is not available" noscript fallback).
+    // Without this check, pressSequentially/keyboard.type can hang forever
+    // waiting on a locator that matched no elements.
+    const count = await textbox.count();
+    if (count === 0) {
+      this.logger.warn('X setComposeText: compose textbox is not present in DOM');
+      throw new ComposeDialogError(this.network, 'Compose textbox not found');
+    }
+
     // Helper: focus the contenteditable and select all of its current contents.
     const focusAndSelect = async (): Promise<void> => {
+      this.assertPageAlive(page, 'focus textbox');
       await textbox.focus({ timeout: 5000 }).catch(() => {});
+      this.assertPageAlive(page, 'click textbox');
       await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
       await textbox.evaluate((el: HTMLElement) => {
         el.focus();
@@ -569,8 +581,30 @@ export class XPoster extends BasePoster {
         } catch {
           // ignore
         }
-      }).catch(() => {});
+      }, { timeout: 5000 }).catch(() => {});
       await this.browser.randomDelay(150, 300);
+    };
+
+    // Helper: clear the textbox via DOM so the next strategy starts from a
+    // blank state (humanType does not select all before typing).
+    const clearTextbox = async (): Promise<void> => {
+      this.assertPageAlive(page, 'clear textbox');
+      await textbox.evaluate((el: HTMLElement) => {
+        el.focus();
+        el.textContent = '';
+        el.innerText = '';
+        try {
+          const sel = window.getSelection();
+          if (sel) {
+            sel.removeAllRanges();
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            sel.addRange(range);
+          }
+        } catch {
+          // ignore
+        }
+      }, { timeout: 5000 }).catch(() => {});
     };
 
     // Strategy 1: real key events via locator.pressSequentially.
@@ -582,7 +616,8 @@ export class XPoster extends BasePoster {
     this.logger.log('X setComposeText: typing via pressSequentially...');
     try {
       await focusAndSelect();
-      await textbox.pressSequentially(content, { delay: 30 });
+      this.assertPageAlive(page, 'pressSequentially');
+      await textbox.pressSequentially(content, { delay: 30, timeout: 30000 });
       await this.browser.randomDelay(500, 800);
       const typedText = await textbox.innerText().catch(() => '');
       if (hasTarget(typedText)) {
@@ -595,25 +630,25 @@ export class XPoster extends BasePoster {
       );
     }
 
-    // Strategy 2: fallback to page-level keyboard.type (same key events, different
-    // Playwright dispatch path). Useful if the locator-level pressSequentially
-    // fails to focus the textbox.
+    // Strategy 2: fallback to browser-port humanType (focus + click + pressSequentially
+    // with a short timeout, then fill). Uses the same real key events, but the
+    // port's implementation adds timeouts that prevent hanging on a dead page.
     this.logger.warn(
-      'X pressSequentially failed — falling back to page.keyboard.type',
+      'X pressSequentially failed — falling back to browser.humanType',
     );
     try {
-      await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
-      await this.browser.randomDelay(200, 400);
-      await page.keyboard.type(content, { delay: 30 });
+      await clearTextbox();
+      this.assertPageAlive(page, 'humanType');
+      await this.browser.humanType(textbox, content, { delayMs: 30 });
       await this.browser.randomDelay(500, 800);
       const typedText = await textbox.innerText().catch(() => '');
       if (hasTarget(typedText)) {
-        this.logger.debug('X setComposeText via page.keyboard.type succeeded');
+        this.logger.debug('X setComposeText via humanType succeeded');
         return;
       }
     } catch (err) {
       this.logger.debug(
-        `X setComposeText page.keyboard.type failed: ${(err as Error).message}`,
+        `X setComposeText humanType failed: ${(err as Error).message}`,
       );
     }
 
@@ -621,13 +656,17 @@ export class XPoster extends BasePoster {
     // update the React editor state; kept only as a last resort for content
     // that cannot be typed (e.g. certain Unicode edge cases).
     this.logger.warn('X key typing failed — falling back to pasteContent');
+    this.assertPageAlive(page, 'pasteContent');
     const pasted = await this.pasteContent(page, textbox, content);
     if (pasted) {
       const enteredText = await textbox.innerText().catch(() => '');
       if (hasTarget(enteredText)) {
         this.logger.debug('X setComposeText via pasteContent succeeded');
+        return;
       }
     }
+
+    throw new ComposeDialogError(this.network, 'Could not enter text into compose box');
   }
 
   /**

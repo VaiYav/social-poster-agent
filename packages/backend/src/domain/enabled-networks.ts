@@ -1,8 +1,9 @@
 import { SocialNetwork } from '@prisma/client';
 
 /**
- * Returns the list of enabled social networks based on the ENABLED_NETWORKS env var.
- * Defaults to X,THREADS (Facebook disabled by default — session instability).
+ * Returns the list of enabled social networks.
+ * Per-network SOCIAL_{NETWORK}_ACTIVE flags take precedence over ENABLED_NETWORKS.
+ * Defaults to X,THREADS when neither is set (Facebook disabled by default — session instability).
  *
  * Reads process.env directly (not ConfigService) so it can be used in static
  * contexts, module loaders, and service constructors without DI.
@@ -13,21 +14,33 @@ import { SocialNetwork } from '@prisma/client';
  *   if (getEnabledNetworks().includes(SocialNetwork.FACEBOOK)) { ... }
  */
 export function getEnabledNetworks(): SocialNetwork[] {
-  const csv = process.env.ENABLED_NETWORKS ?? 'X,THREADS';
-  const valid = new Set<string>(Object.values(SocialNetwork));
-  const networks: SocialNetwork[] = [];
-  for (const raw of csv.split(',')) {
-    const token = raw.trim().toUpperCase();
-    if (!token) continue;
-    if (valid.has(token)) {
-      networks.push(token as SocialNetwork);
+  // 7.6: per-network SOCIAL_*_ACTIVE flags override ENABLED_NETWORKS.
+  const activeByFlag: SocialNetwork[] = [];
+  for (const network of Object.values(SocialNetwork)) {
+    const flag = process.env[`SOCIAL_${network}_ACTIVE`];
+    if (flag !== undefined) {
+      if (flag.trim().toLowerCase() === 'true') {
+        activeByFlag.push(network);
+      }
+      continue;
+    }
+    // No per-network flag — fall back to ENABLED_NETWORKS CSV.
+    const csv = process.env.ENABLED_NETWORKS ?? 'X,THREADS';
+    for (const raw of csv.split(',')) {
+      const token = raw.trim().toUpperCase();
+      if (token === network) {
+        activeByFlag.push(network);
+        break;
+      }
     }
   }
-  // Fallback if all tokens were invalid
-  if (networks.length === 0) {
-    return [SocialNetwork.X, SocialNetwork.THREADS];
+
+  if (activeByFlag.length > 0) {
+    return activeByFlag;
   }
-  return networks;
+
+  // Fallback if all tokens were invalid
+  return [SocialNetwork.X, SocialNetwork.THREADS];
 }
 
 /**

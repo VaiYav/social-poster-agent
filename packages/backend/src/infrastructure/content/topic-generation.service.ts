@@ -199,37 +199,41 @@ Return ONLY the JSON array, no markdown, no explanation.`;
         return 0;
       }
 
-      // Fetch existing topic strings for dedup
-      const existing = await this.prisma.topic.findMany({
-        select: { topic: true },
-        where: {},
-      });
-      const existingSet = new Set(existing.map((t) => t.topic.toLowerCase()));
-
-      let inserted = 0;
-      for (const t of topics) {
-        if (!t.topic || typeof t.topic !== 'string') continue;
-        if (existingSet.has(t.topic.toLowerCase())) {
-          this.logger.debug(`Skipping duplicate topic: ${t.topic}`);
-          continue;
-        }
-
-        await this.prisma.topic.create({
-          data: {
-            topic: t.topic,
+      // Build valid, batch-deduped topic rows. DB-level uniqueness (Topic.topic @unique)
+      // plus createMany skipDuplicates handles race conditions and existing topics.
+      const seen = new Set<string>();
+      const data = topics
+        .filter((t) => t.topic && typeof t.topic === 'string')
+        .map((t) => {
+          const topic = t.topic.trim();
+          return {
+            topic,
             keywords: Array.isArray(t.keywords) ? t.keywords.slice(0, 5) : [],
             facts: Array.isArray(t.facts) ? t.facts.slice(0, 3) : [],
             category: t.category || 'general',
-            sourceType: 'llm',
-            status: 'active',
-          },
+            sourceType: 'llm' as const,
+            status: 'active' as const,
+          };
+        })
+        .filter((row) => {
+          const key = row.topic.toLowerCase();
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
         });
-        existingSet.add(t.topic.toLowerCase());
-        inserted++;
+
+      if (data.length === 0) {
+        this.logger.log(`Generated 0 new topics (requested ${count}, parsed ${topics.length})`);
+        return 0;
       }
 
-      this.logger.log(`Generated ${inserted} new topics (requested ${count}, parsed ${topics.length})`);
-      return inserted;
+      const result = await this.prisma.topic.createMany({
+        data,
+        skipDuplicates: true,
+      });
+
+      this.logger.log(`Generated ${result.count} new topics (requested ${count}, parsed ${topics.length})`);
+      return result.count;
     } catch (err) {
       this.logger.warn(`Topic generation failed: ${(err as Error).message}`);
       return 0;

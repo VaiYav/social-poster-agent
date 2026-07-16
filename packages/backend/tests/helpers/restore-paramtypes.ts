@@ -323,7 +323,7 @@ export function restoreAllDesignParamtypes(): void {
   defineParamtypes(QueueController, [QueueService]);
 
   // ── Health ───────────────────────────────────────────────────────────────
-  defineParamtypes(HealthController, [PrismaService, Object]); // Object = @Inject(SHARED_REDIS)
+  defineParamtypes(HealthController, [PrismaService, Object, ConfigService]); // Object = @Inject(SHARED_REDIS)
   defineParamtypes(HealthMonitorService, [PrismaService, SseService, DiscordNotificationService, QueueService, QueueFactory, ConfigService, SchedulerRegistry]);
   defineParamtypes(HealthMonitorController, [HealthMonitorService]);
 

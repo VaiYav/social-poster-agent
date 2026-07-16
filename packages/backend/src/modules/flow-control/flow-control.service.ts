@@ -43,10 +43,7 @@ export class FlowControlService {
    * Returns true if either the flow-specific flag OR pause_all is set.
    */
   async isPaused(flow: FlowName): Promise<boolean> {
-    const [allPaused, flowPaused] = await Promise.all([
-      this.redis.get(PAUSE_ALL_KEY),
-      this.redis.get(FLOW_KEYS[flow]),
-    ]);
+    const [allPaused, flowPaused] = await this.redis.mget([PAUSE_ALL_KEY, FLOW_KEYS[flow]]);
     return allPaused === '1' || flowPaused === '1';
   }
 
@@ -113,10 +110,13 @@ export class FlowControlService {
     pauseAll: boolean;
     flows: Record<FlowName, boolean>;
   }> {
-    const allPaused = (await this.redis.get(PAUSE_ALL_KEY)) === '1';
+    const flowNames = Object.keys(FLOW_KEYS) as FlowName[];
+    const values = await this.redis.mget([PAUSE_ALL_KEY, ...flowNames.map((f) => FLOW_KEYS[f])]);
+    const allPaused = values[0] === '1';
     const flows = {} as Record<FlowName, boolean>;
-    for (const flow of Object.keys(FLOW_KEYS) as FlowName[]) {
-      flows[flow] = allPaused || (await this.redis.get(FLOW_KEYS[flow])) === '1';
+    for (let i = 0; i < flowNames.length; i++) {
+      const flow = flowNames[i]!;
+      flows[flow] = allPaused || values[i + 1] === '1';
     }
     return { pauseAll: allPaused, flows };
   }

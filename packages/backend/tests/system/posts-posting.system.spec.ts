@@ -802,9 +802,12 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
     const res = await request(app.getHttpServer())
       .post('/api/v1/posting/post-appr-x');
 
-    // postById throws Error('Rate limited: ...') → NestJS returns 500
-    // (plain Error, not HttpException — no global exception filter for this)
-    expect(res.status).toBeGreaterThanOrEqual(400);
+    // postById returns a rate-limit result so the queue worker can throw
+    // BullMQ's RateLimitError; the HTTP API still returns 200 with the result.
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(false);
+    expect(res.body.rateLimit).toBe(true);
+    expect(res.body.retryAfterMs).toBeGreaterThan(0);
 
     // Verify post status was NOT updated to POSTING or POSTED
     const postingUpdate = prisma.post.update.mock.calls.find(

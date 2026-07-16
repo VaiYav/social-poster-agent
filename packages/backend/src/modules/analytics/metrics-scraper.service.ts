@@ -143,8 +143,9 @@ export class MetricsScraperService implements OnModuleInit {
     let skipped = 0;
 
     for (const post of posts) {
+      let metrics: PostMetricsData | null = null;
       try {
-        const metrics = await this.scrapePostMetrics({ ...post, postUrl: post.postUrl! });
+        metrics = await this.scrapePostMetrics({ ...post, postUrl: post.postUrl! });
         if (metrics === null) {
           // No source configured for this network (or unavailable) — skip without
           // writing zero-rows that would pollute analytics.
@@ -175,8 +176,10 @@ export class MetricsScraperService implements OnModuleInit {
         this.logger.warn(`F6: Failed to scrape metrics for ${post.id}: ${message}`);
       }
 
-      // Human-like delay between page loads
-      if (this.browser?.randomDelay) {
+      // Human-like delay between page loads only when browser scraping is used.
+      // HTTP API sources (Threads/FB Insights) do not need a sleep.
+      const isHttpApi = this.getSources()[post.network]?.isHttpApi;
+      if (metrics && !isHttpApi && this.browser?.randomDelay) {
         await this.browser.randomDelay(5000, 15000);
       }
     }
@@ -243,6 +246,7 @@ export class MetricsScraperService implements OnModuleInit {
     likes: number;
     comments: number;
     shares: number;
+    impressions: number | null;
     collectedAt: Date;
   }>> {
     return this.prisma.postMetrics.findMany({
@@ -252,6 +256,7 @@ export class MetricsScraperService implements OnModuleInit {
         likes: true,
         comments: true,
         shares: true,
+        impressions: true,
         collectedAt: true,
       },
     });

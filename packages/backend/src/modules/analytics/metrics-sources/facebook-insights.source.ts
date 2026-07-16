@@ -43,6 +43,7 @@ export function parseFacebookPostCounts(json: unknown): {
  */
 export class FacebookInsightsSource implements IMetricsSource {
   readonly network = 'FACEBOOK' as const;
+  readonly isHttpApi = true;
 
   constructor(
     private readonly accessToken: string,

@@ -133,6 +133,7 @@ Camoufox/Firefox consumes ~340-500 MB RSS per process (benchmark: [camoufox#87](
 
 - **Session history**: `max_total_viewers=0`, `max_entries=3` — automation never uses go_back/go_forward, cached viewers are pure overhead (~10-30 MB each).
 - **Session restore**: `max_tabs_undo=0`, `resume_from_crash=false` — automation controls lifecycle.
+- **Focus/IME**: `focusmanager.testmode=false` — Camoufox defaults to `true` for headless, but this breaks real key events in X's DraftJS/Lexical composer and prevents typing in some IME/Cyrillic scenarios.
 - **Cache**: `disk.enable=false`, `memory.capacity=65536` (64 MB cap), `media.memory_cache_max_size=16384` — default auto-sizes to 50-100 MB+ in containers. The previous 16 MB / 8 MB caps were too aggressive and caused the X compose page (React/Lexical) to crash the Camoufox renderer.
 - **JS GC**: `high_water_mark=256` (trigger GC at 256 MB vs default ~256), `gc_incremental_slice_ms=5`, `compact_on_user_inactive=true` + delay 5000 — less aggressive than the earlier 128 MB mark to avoid crashes on X's heavy SPA.
 - **Memory pressure**: `memory.free_dirty_pages=true` — aggressive dirty page freeing (helps jemalloc fragmentation).

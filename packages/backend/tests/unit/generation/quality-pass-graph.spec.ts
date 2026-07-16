@@ -259,7 +259,7 @@ describe('Quality pass — generation graph', () => {
     expect(postsOf(state)[0]?.qualityScore).toBe(7);
   });
 
-  it('QP-009: critique response without a SCORE leaves qualityScore undefined', async () => {
+  it('QP-009: critique response without a SCORE falls back to judge-derived score', async () => {
     const llm = makeLlm({ critique: () => 'Solid, specific, human. No score line here.' });
     const compiled = buildGenerationGraph(llm).compile();
     const state = await compiled.invoke(
@@ -267,7 +267,8 @@ describe('Quality pass — generation graph', () => {
       { configurable: { thread_id: 'qp-009' } },
     );
 
-    expect(postsOf(state)[0]?.qualityScore).toBeUndefined();
+    // JUDGE_HIGH average is 0.9, mapped to a 1-10 score => 9
+    expect(postsOf(state)[0]?.qualityScore).toBe(9);
   });
 
   it('QP-010: refine prompt instructs the model to keep the target language (Russian)', async () => {

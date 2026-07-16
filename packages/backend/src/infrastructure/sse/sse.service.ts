@@ -292,10 +292,19 @@ export class SseService implements OnModuleDestroy {
 
   /**
    * Publish an event to Redis (called by workers/services).
+   * Fire-and-forget safe: Redis errors are caught and logged, never thrown to callers.
    */
   async publish(event: SseEvent): Promise<void> {
     if (!this.publisher) return;
-    await this.publisher.publish(this.channel, JSON.stringify(event));
+    try {
+      await this.publisher.publish(this.channel, JSON.stringify(event));
+    } catch (err) {
+      this.logger.error(
+        `SSE publish to Redis failed: ${(err as Error).message}`,
+        (err as Error).stack,
+      );
+      // Never throw — SSE is a best-effort notification channel.
+    }
   }
 
   getConnectedCount(): number {

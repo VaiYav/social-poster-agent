@@ -1090,15 +1090,19 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       setupPostingFlow(APPROVED_POST_X);
       mockXPoster.post.mockResolvedValue({ url: 'https://x.com/myzodiacai/status/104' });
 
-      // Then RateLimitService.checkRateLimit throws an error
+      // Then RateLimitService.checkRateLimit returns a rate-limit result
       //   And the post status remains unchanged
-      //   And BullMQ catches the error and schedules a retry
-      //   And the retry uses exponential backoff with a 60-second base delay
+      //   And BullMQ (when invoked via the queue worker) catches the result and
+      //   schedules a retry with exponential backoff
       const res4 = await request(app.getHttpServer())
         .post('/api/v1/posting/post-appr-x');
 
-      // Rate limit error → 500 (plain Error, not HttpException)
-      expect(res4.status).toBeGreaterThanOrEqual(400);
+      // Rate limit result returned with 200 so the caller can decide; the queue
+      // worker would throw BullMQ's RateLimitError when processing the job.
+      expect(res4.status).toBe(200);
+      expect(res4.body.success).toBe(false);
+      expect(res4.body.rateLimit).toBe(true);
+      expect(res4.body.retryAfterMs).toBeGreaterThan(0);
 
       // Verify browser was NOT called (rate limit blocked before posting)
       // (acquireContext may have been called by the 3 successful posts, but not for the 4th)
@@ -1486,10 +1490,13 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
         .post('/api/v1/posting/post-appr-x');
 
       // Then RateLimitService.checkRateLimit("X") returns not allowed
-      //   And the posting attempt throws an error
-      //   And BullMQ schedules a retry with exponential backoff
+      //   And the posting attempt returns a rate-limit result
+      //   And BullMQ (when invoked via the queue worker) schedules a retry
       //   And no post is published to X.com until 120 seconds have elapsed
-      expect(res.status).toBeGreaterThanOrEqual(400);
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(res.body.rateLimit).toBe(true);
+      expect(res.body.retryAfterMs).toBeGreaterThan(0);
       // Verify browser was NOT called for the blocked attempt
       // (mockXPoster.post called once for the success, not twice)
       expect(mockXPoster.post).toHaveBeenCalledTimes(1);
@@ -1511,7 +1518,10 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       // Then RateLimitService.checkRateLimit("X") returns not allowed
       //   And the post is not published
       //   And the post status remains APPROVED for retry the next day
-      expect(res.status).toBeGreaterThanOrEqual(400);
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(res.body.rateLimit).toBe(true);
+      expect(res.body.retryAfterMs).toBeGreaterThan(0);
       expect(mockXPoster.post).not.toHaveBeenCalled();
 
       // Verify post status was NOT updated to POSTING or POSTED

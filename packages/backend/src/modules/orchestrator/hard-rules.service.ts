@@ -49,13 +49,11 @@ export class HardRulesService {
       }
     }
 
-    // H3: Banned session → WAIT
-    for (const net of networks) {
-      const session = world.sessions[net];
-      if (session && session.status === 'BANNED') {
-        return WAIT_ACTION(`Session ${net} is banned`, 300000);
-      }
-    }
+    // H3: REMOVED — BANNED sessions are now handled by Guardrails (G4 and G8).
+    // G8 routes POST/GENERATE_* to healthy active networks, and G4 blocks any
+    // LLM-chosen POST/BROWSE on a BANNED session with a per-cycle WAIT. Keeping
+    // H3 here caused a single BANNED network to block every network, preventing
+    // THREADS from posting while X was restricted.
 
     // H4: Circuit breaker open for ALL networks → WAIT
     // If only some networks have open circuit breakers, let the decision engine

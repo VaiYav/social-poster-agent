@@ -68,14 +68,23 @@ export function createMockContentPort(topics?: ContentTopic[]): IContentPort {
  */
 export function createMockLocator() {
   const locator: Record<string, ReturnType<typeof vi.fn>> = {};
+  // Store content typed/filled so innerText can reflect it and
+  // setComposeText's hasTarget() check passes. count defaults to 1
+  // so the compose box is considered present.
+  let typedContent = '';
   locator.waitFor = vi.fn().mockResolvedValue(undefined);
   locator.click = vi.fn().mockResolvedValue(undefined);
-  locator.fill = vi.fn().mockResolvedValue(undefined);
+  locator.fill = vi.fn().mockImplementation((value: string) => {
+    typedContent = String(value ?? '');
+    return Promise.resolve(undefined);
+  });
   locator.focus = vi.fn().mockResolvedValue(undefined);
   locator.isVisible = vi.fn().mockResolvedValue(true);
   locator.isEnabled = vi.fn().mockResolvedValue(true);
   locator.isDisabled = vi.fn().mockResolvedValue(false);
   locator.isHidden = vi.fn().mockResolvedValue(false);
+  // Default count is 0; createMockPage will override it for selectors that
+  // should be present in the DOM (tweetTextarea / contenteditable).
   locator.count = vi.fn().mockResolvedValue(0);
   locator.first = vi.fn().mockReturnValue(locator);
   locator.last = vi.fn().mockReturnValue(locator);
@@ -87,9 +96,12 @@ export function createMockLocator() {
   locator.evaluateAll = vi.fn().mockResolvedValue([]);
   locator.getAttribute = vi.fn().mockResolvedValue(null);
   locator.textContent = vi.fn().mockResolvedValue('');
-  locator.innerText = vi.fn().mockResolvedValue('');
+  locator.innerText = vi.fn().mockImplementation(() => Promise.resolve(typedContent));
   locator.scrollIntoViewIfNeeded = vi.fn().mockResolvedValue(undefined);
-  locator.pressSequentially = vi.fn().mockResolvedValue(undefined);
+  locator.pressSequentially = vi.fn().mockImplementation((value: string) => {
+    typedContent = String(value ?? '');
+    return Promise.resolve(undefined);
+  });
   locator.press = vi.fn().mockResolvedValue(undefined);
   locator.type = vi.fn().mockResolvedValue(undefined);
   return locator as unknown;
@@ -118,7 +130,21 @@ export function createMockPage(opts: {
     goto: vi.fn().mockResolvedValue(undefined),
     url: urlFn,
     close: vi.fn().mockResolvedValue(undefined),
-    locator: vi.fn().mockReturnValue(mockLocator),
+    locator: vi.fn().mockImplementation((selector: string) => {
+      // Simulate selector-aware element presence: compose textareas/contenteditables
+      // count as present (1). Everything else (login indicators, post buttons, etc.)
+      // counts as absent (0). This makes isOnLoginPage() false by default while
+      // still allowing compose textbox count checks in XPoster.setComposeText to pass.
+      // NOTE: the shared mockLocator means only one count value is active at a time;
+      // tests that need to simulate a login form should override page.locator instead
+      // of page._locator.count.
+      const isPresent =
+        /tweetTextarea|contenteditable=\"true\"|contenteditable=true/i.test(selector) &&
+        !/input\[aria-label.*=.*\"?Username/i.test(selector) &&
+        !/input\[name=\"username/i.test(selector);
+      mockLocator.count.mockResolvedValue(isPresent ? 1 : 0);
+      return mockLocator;
+    }),
     getByRole: vi.fn().mockReturnValue(mockLocator),
     getByLabel: vi.fn().mockReturnValue(mockLocator),
     getByText: vi.fn().mockReturnValue(mockLocator),

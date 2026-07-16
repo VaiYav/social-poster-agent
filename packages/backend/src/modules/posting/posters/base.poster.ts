@@ -618,7 +618,11 @@ export abstract class BasePoster {
    */
   protected async detectShadowban(page: Page): Promise<void> {
     const url = page.url();
-    const bodyText = await page.textContent('body').catch(() => '');
+    const rawBodyText = (await page.textContent('body').catch(() => '')) ?? '';
+    // The X compose page can ship a huge __INITIAL_STATE__ JSON block; we only need
+    // the first ~200 KB for visible restriction indicators. Keeps the search fast
+    // and avoids holding multi-megabyte textContent in memory.
+    const bodyText = rawBodyText.slice(0, 200_000);
 
     // Network-specific restriction indicators
     const restrictionIndicators: Record<string, string[]> = {
@@ -629,6 +633,14 @@ export abstract class BasePoster {
         'Your account is restricted',
         'sensitive content',
         'Your Tweet could not be sent',
+        // X serves a noscript fallback when the main JS bundle fails to load or
+        // the session is flagged by the WAF/graduated-access gate.
+        'JavaScript is not available',
+        'errorContainer',
+        '__SCRIPT_LOAD_FAILURE__',
+        'We blocked an attempt to access your account',
+        'graduated access',
+        'graduated-access',
       ],
       THREADS: [
         'Your account has been restricted',
@@ -660,12 +672,24 @@ export abstract class BasePoster {
       );
     }
 
+    // Case-sensitive check for the X graduated-access flag embedded in the JS
+    // state. has_graduated_access appears on many X pages, but a false value is
+    // the signal that the account has not completed the graduated-access flow.
+    if (this.network === 'X' && (bodyText.includes('has_graduated_access":false') || bodyText.includes('has_graduated_access&quot;:false'))) {
+      this.logger.error(`X graduated-access flag detected (has_graduated_access=false) on ${url}`);
+      throw new AccountRestrictedError(
+        this.network,
+        `Account restricted on ${this.network}: X graduated-access not completed (has_graduated_access=false) (URL: ${url})`,
+      );
+    }
+
     // Check URL patterns for restriction pages
     if (
       url.includes('/suspended') ||
       url.includes('/restricted') ||
       url.includes('/account-limited') ||
-      url.includes('/appeal')
+      url.includes('/appeal') ||
+      url.includes('/graduated-access')
     ) {
       this.logger.error(`Restriction page detected on ${this.network}: ${url}`);
       throw new AccountRestrictedError(

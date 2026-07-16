@@ -276,7 +276,7 @@ describe('MOD-03: PostingService', () => {
 
   // ── postById() — Rate Limiting ─────────────────────────────────────────────
 
-  it('UTC-045: postById() throws Error when rate limit exceeded (BullMQ retry trigger)', async () => {
+  it('UTC-045: postById() returns rate-limit result so BullMQ can trigger a queue delay', async () => {
     ctx.postsService.findById.mockResolvedValue({
       ...APPROVED_POST_X,
       id: 'post-4',
@@ -288,7 +288,10 @@ describe('MOD-03: PostingService', () => {
       reason: 'Daily limit reached',
     });
 
-    await expect(ctx.service.postById('post-4')).rejects.toThrow('Rate limited: Daily limit reached');
+    const result = await ctx.service.postById('post-4');
+    expect(result.success).toBe(false);
+    expect(result.rateLimit).toBe(true);
+    expect(result.error).toContain('Daily limit reached');
     // updateStatus NOT called (deferred, not started)
     expect(ctx.postsService.updateStatus).not.toHaveBeenCalled();
   });

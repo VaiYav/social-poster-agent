@@ -38,6 +38,20 @@ const SEVERITY_EMOJI: Record<AlertSeverity, string> = {
   critical: '🚨',
 };
 
+const DISCORD_LIMITS = {
+  title: 256,
+  description: 4096,
+  fieldName: 256,
+  fieldValue: 1024,
+  footerText: 2048,
+  authorName: 256,
+} as const;
+
+function truncate(str: string, limit: number): string {
+  if (str.length <= limit) return str;
+  return `${str.slice(0, limit - 1)}…`;
+}
+
 @Injectable()
 export class DiscordNotificationService implements OnModuleInit {
   private readonly logger = new Logger(DiscordNotificationService.name);
@@ -73,11 +87,15 @@ export class DiscordNotificationService implements OnModuleInit {
       const payload = {
         embeds: [
           {
-            title: `${SEVERITY_EMOJI[alert.severity]} ${alert.title}`,
-            description: alert.message,
+            title: truncate(`${SEVERITY_EMOJI[alert.severity]} ${alert.title}`, DISCORD_LIMITS.title),
+            description: truncate(alert.message, DISCORD_LIMITS.description),
             color: SEVERITY_COLORS[alert.severity],
-            fields: alert.fields,
-            footer: alert.footer ? { text: alert.footer } : undefined,
+            fields: alert.fields?.map((field) => ({
+              name: truncate(field.name, DISCORD_LIMITS.fieldName),
+              value: truncate(field.value, DISCORD_LIMITS.fieldValue),
+              inline: field.inline,
+            })),
+            footer: alert.footer ? { text: truncate(alert.footer, DISCORD_LIMITS.footerText) } : undefined,
             timestamp: new Date().toISOString(),
           },
         ],

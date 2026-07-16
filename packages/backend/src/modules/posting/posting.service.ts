@@ -487,6 +487,22 @@ export class PostingService {
           throw new RetryableError(post.network, result.error);
         }
 
+        // Permanent account restrictions (WAF/graduated-access blocks, suspensions,
+        // permanent locks) should mark the session as BANNED so the orchestrator
+        // stops scheduling posting for that network. Temporary restrictions
+        // (e.g. "temporarily limited") are intentionally excluded so the account
+        // can recover and post again once the restriction clears.
+        const error = result.error;
+        const isPermanentRestriction =
+          /Account suspended|Account locked|We blocked an attempt to access your account|JavaScript is not available|graduated-access|has_graduated_access|__SCRIPT_LOAD_FAILURE__/i.test(error) ||
+          (
+            /(Account restricted|is restricted|is locked|is suspended)/i.test(error) &&
+            !/temporarily|sensitive content/i.test(error)
+          );
+        if (isPermanentRestriction) {
+          await this.sessionsService.markSessionBanned(post.network, session.id, error).catch(() => {});
+        }
+
         await this.postsService.updateStatus(postId, {
           status: PostStatus.FAILED,
           errorMessage: result.error,

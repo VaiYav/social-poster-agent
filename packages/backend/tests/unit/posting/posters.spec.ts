@@ -57,8 +57,8 @@ describe('MOD-03: XPoster (BasePoster architecture)', () => {
 
     const result = await poster.post(context as unknown, browserPort as unknown, 'Hello from X!');
 
-    // Navigated to compose page — X uses domcontentloaded (never reaches networkidle)
-    expect(page.goto).toHaveBeenCalledWith('https://x.com/compose/post', {
+    // Primary path now uses home page compose dialog (more reliable than /compose/post)
+    expect(page.goto).toHaveBeenCalledWith('https://x.com/home', {
       waitUntil: 'domcontentloaded',
       timeout: 30000,
     });
@@ -197,8 +197,9 @@ describe('MOD-03: ThreadsPoster (BasePoster architecture)', () => {
     const result = await poster.post(context as unknown, browserPort as unknown, 'Hello from Threads!');
 
     // Navigated to threads.com (not threads.net — updated URL)
+    // Threads now uses domcontentloaded because the page never reaches networkidle
     expect(page.goto).toHaveBeenCalledWith('https://www.threads.com/', {
-      waitUntil: 'networkidle',
+      waitUntil: 'domcontentloaded',
       timeout: 30000,
     });
 
@@ -388,13 +389,14 @@ describe('MOD-03: XPoster (extended posting flow)', () => {
 
     const result = await poster.post(context as unknown, browserPort as unknown, 'Hello from X!');
 
-    // Navigated to compose page with domcontentloaded
-    expect(page.goto).toHaveBeenCalledWith('https://x.com/compose/post', {
+    // Primary path now uses home page compose dialog (more reliable than /compose/post)
+    expect(page.goto).toHaveBeenCalledWith('https://x.com/home', {
       waitUntil: 'domcontentloaded',
       timeout: 30000,
     });
-    // typeHuman was called for stealth typing
-    expect(browserPort.typeHuman).toHaveBeenCalled();
+    // Compose textbox was resolved and the keyboard submit shortcut was used
+    expect(page.locator).toHaveBeenCalledWith('[data-testid="tweetTextarea_0"]');
+    expect(page.keyboard.press).toHaveBeenCalledWith('Control+Enter');
     // Result has valid URL
     expect(result.url).toBe('https://x.com/myzodiacai/status/1234567890');
     expect(result.error).toBeUndefined();
@@ -508,8 +510,9 @@ describe('MOD-03: ThreadsPoster (extended posting flow)', () => {
     const result = await poster.post(context as unknown, browserPort as unknown, 'Hello Threads!');
 
     // Navigated to threads.com home
+    // Threads now uses domcontentloaded because the page never reaches networkidle
     expect(page.goto).toHaveBeenCalledWith('https://www.threads.com/', {
-      waitUntil: 'networkidle',
+      waitUntil: 'domcontentloaded',
       timeout: 30000,
     });
     // humanClick called for compose button

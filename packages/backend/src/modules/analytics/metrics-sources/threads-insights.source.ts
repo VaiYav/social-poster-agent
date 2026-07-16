@@ -20,6 +20,7 @@ const THREADS_MAPPING: InsightMapping = {
  */
 export class ThreadsInsightsSource implements IMetricsSource {
   readonly network = 'THREADS' as const;
+  readonly isHttpApi = true;
 
   constructor(
     private readonly accessToken: string,

@@ -95,22 +95,27 @@ vi.mock('ioredis', () => {
  */
 function createMockPage(opts: { url?: string; successVisible?: boolean } = {}) {
   const url = opts.url ?? 'https://x.com/status/123456789';
+  let typedContent = '';
+  const setTypedContent = (value: string) => { typedContent = String(value ?? ''); };
   const locatorFirst = {
     waitFor: vi.fn().mockResolvedValue(undefined),
     click: vi.fn().mockResolvedValue(undefined),
-    fill: vi.fn().mockResolvedValue(undefined),
+    fill: vi.fn().mockImplementation((value: string) => { setTypedContent(value); return Promise.resolve(undefined); }),
     focus: vi.fn().mockResolvedValue(undefined),
     isVisible: vi.fn().mockResolvedValue(opts.successVisible ?? true),
     isEnabled: vi.fn().mockResolvedValue(true),
     isDisabled: vi.fn().mockResolvedValue(false),
     isHidden: vi.fn().mockResolvedValue(false),
-    type: vi.fn().mockResolvedValue(undefined),
+    type: vi.fn().mockImplementation((value: string) => { setTypedContent(value); return Promise.resolve(undefined); }),
     press: vi.fn().mockResolvedValue(undefined),
-    pressSequentially: vi.fn().mockResolvedValue(undefined),
+    pressSequentially: vi.fn().mockImplementation((value: string) => { setTypedContent(value); return Promise.resolve(undefined); }),
     inputValue: vi.fn().mockResolvedValue('testuser'),
-    textContent: vi.fn().mockResolvedValue(''),
-    innerText: vi.fn().mockResolvedValue(''),
+    textContent: vi.fn().mockImplementation(() => Promise.resolve(typedContent)),
+    innerText: vi.fn().mockImplementation(() => Promise.resolve(typedContent)),
     getAttribute: vi.fn().mockResolvedValue(null),
+    evaluate: vi.fn().mockResolvedValue(undefined),
+    count: vi.fn().mockResolvedValue(1),
+    all: vi.fn().mockResolvedValue([]),
     or: vi.fn().mockImplementation(() => locatorFirst),
   };
   // Separate locatorFirst for 2FA/verification selectors — isVisible returns false
@@ -118,12 +123,14 @@ function createMockPage(opts: { url?: string; successVisible?: boolean } = {}) {
   const hiddenLocatorFirst = {
     ...locatorFirst,
     isVisible: vi.fn().mockResolvedValue(false),
+    count: vi.fn().mockResolvedValue(0),
   };
   const locatorResult = {
     first: () => locatorFirst,
     allTextContents: vi.fn().mockResolvedValue([]),
     innerText: vi.fn().mockResolvedValue(''),
     evaluateAll: vi.fn().mockResolvedValue([]),
+    evaluate: vi.fn().mockResolvedValue(undefined),
     count: vi.fn().mockResolvedValue(0),
     all: vi.fn().mockResolvedValue([]),
     or: vi.fn().mockImplementation(() => locatorResult),
@@ -674,7 +681,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
 
   // ── ITC-014: Posting → RateLimit (Rate Limited → Throw → Retry) ───────────
 
-  it('ITC-014: PostingService throws Error("Rate limited") when rate limit exceeded — post status remains APPROVED (not POSTING)', async () => {
+  it('ITC-014: PostingService returns rate-limit result when rate limit exceeded — post status remains APPROVED (not POSTING)', async () => {
     // Arrange: seed Redis interval key to now (just posted → rate limited)
     const intervalKey = 'spa:ratelimit:X:interval';
     redisStore.set(intervalKey, Date.now().toString());
@@ -684,8 +691,13 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
     // Spy on SSE publish BEFORE the call to verify no events are emitted
     const publishSpy = vi.spyOn(ctx.sseService, 'publish');
 
-    // Act + Assert: throws Error with "Rate limited" message
-    await expect(ctx.postingService.postById('post-014')).rejects.toThrow('Rate limited');
+    // Act: rate limit returns a non-throwing result with rateLimit flag
+    const result = await ctx.postingService.postById('post-014');
+
+    // Assert: rate-limit result
+    expect(result.success).toBe(false);
+    expect(result.rateLimit).toBe(true);
+    expect(result.error).toMatch(/Rate limit/i);
 
     // Assert: post status NOT changed to POSTING (updateStatus not called)
     const postingUpdate = ctx.prisma.post.update.mock.calls.find(
@@ -699,7 +711,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
     // Assert: browser NOT touched (posting deferred)
     expect(ctx.browserPort.createContext).not.toHaveBeenCalled();
 
-    // Assert: no SSE events published (rate limit throws before any posting logic)
+    // Assert: no SSE events published (rate limit handled before posting logic)
     expect(publishSpy).not.toHaveBeenCalled();
   });
 

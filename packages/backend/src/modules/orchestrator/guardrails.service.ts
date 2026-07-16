@@ -135,6 +135,13 @@ export class GuardrailsService {
       }
       const session = world.sessions[action.network];
       if (session && session.status !== 'ACTIVE') {
+        // BANNED sessions are terminal — do not attempt to recover them, and do not
+        // let the LLM keep selecting them for POST/BROWSE. A WAIT gives the next
+        // cycle a chance to pick a healthy network (the orchestrator prompt includes
+        // session status so the LLM should avoid BANNED networks on retry).
+        if (session.status === 'BANNED') {
+          return WAIT_ACTION(`Session ${action.network} is banned`, 300000, 'guardrail_override');
+        }
         return RECOVER_ACTION(action.network, `Session ${action.network} not active (was ${action.type})`);
       }
     }

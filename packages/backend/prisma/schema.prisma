@@ -142,7 +142,7 @@ model GenerationRun {
 
 model Topic {
   id          String   @id @default(uuid())
-  topic       String
+  topic       String   @unique
   keywords    Json     // string[]
   facts       Json     // string[]
   category    String   @default("general")

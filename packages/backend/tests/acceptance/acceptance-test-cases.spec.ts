@@ -2079,8 +2079,12 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
       const res = await request(app.getHttpServer())
         .post('/api/v1/posting/post-appr-x');
 
-      // postById throws Error('Rate limited: ...') → NestJS returns 500
-      expect(res.status).toBeGreaterThanOrEqual(400);
+      // postById returns a rate-limit result so the queue worker can throw
+      // BullMQ's RateLimitError; the HTTP API still returns 200 with the result.
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(res.body.rateLimit).toBe(true);
+      expect(res.body.retryAfterMs).toBeGreaterThan(0);
 
       // Verify post status was NOT updated to POSTING or POSTED
       const postingUpdate = prisma.post.update.mock.calls.find(
@@ -2127,8 +2131,11 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
       const res = await request(app.getHttpServer())
         .post('/api/v1/posting/post-appr-x');
 
-      // 51st post blocked by daily limit
-      expect(res.status).toBeGreaterThanOrEqual(400);
+      // 51st post blocked by daily limit — returned as a rate-limit result
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(res.body.rateLimit).toBe(true);
+      expect(res.body.retryAfterMs).toBeGreaterThan(0);
 
       // Verify browser NOT called
       expect(browserPort.acquireContext).not.toHaveBeenCalled();
@@ -2144,7 +2151,10 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
         .post('/api/v1/posting/post-appr-x');
 
       // Blocked by min interval check
-      expect(res2.status).toBeGreaterThanOrEqual(400);
+      expect(res2.status).toBe(200);
+      expect(res2.body.success).toBe(false);
+      expect(res2.body.rateLimit).toBe(true);
+      expect(res2.body.retryAfterMs).toBeGreaterThan(0);
       expect(browserPort.acquireContext).not.toHaveBeenCalled();
     });
   });

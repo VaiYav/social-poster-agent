@@ -27,6 +27,8 @@ const KEY_LENGTH = 32; // 256 bits
 const IV_LENGTH = 12; // 96 bits (NIST recommended for GCM)
 const AUTH_TAG_LENGTH = 16; // 128 bits
 const VERSION_PREFIX = 'v1';
+export const KEY_HEX_REGEX = /^[a-f0-9]{64}$/i;
+const HEX_REGEX = /^[a-f0-9]*$/i;
 
 @Injectable()
 export class EncryptionService {
@@ -38,7 +40,7 @@ export class EncryptionService {
     const keyHex = this.configService.get<string>('SESSION_ENCRYPTION_KEY', '');
     const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
 
-    if (keyHex && keyHex.length === KEY_LENGTH * 2) {
+    if (keyHex && KEY_HEX_REGEX.test(keyHex)) {
       this.key = Buffer.from(keyHex, 'hex');
       this.enabled = true;
       this.logger.log('Session encryption enabled (AES-256-GCM)');
@@ -148,9 +150,31 @@ export class EncryptionService {
   }
 
   /**
-   * Check if a string is encrypted (has v1: prefix).
+   * Check if a string is encrypted and has the expected v1 structure.
+   * The format must be "v1:{iv_hex}:{ciphertext_hex}:{authTag_hex}" with
+   * valid hex components and the correct IV/authTag byte lengths.
    */
   isEncrypted(value: string): boolean {
-    return value.startsWith(`${VERSION_PREFIX}:`);
+    if (!value.startsWith(`${VERSION_PREFIX}:`)) {
+      return false;
+    }
+    const parts = value.split(':');
+    if (parts.length !== 4) {
+      return false;
+    }
+    const [version, ivHex, encryptedHex, authTagHex] = parts;
+    if (version !== VERSION_PREFIX) {
+      return false;
+    }
+    if (!ivHex || !encryptedHex || !authTagHex) {
+      return false;
+    }
+    if (!HEX_REGEX.test(ivHex) || !HEX_REGEX.test(encryptedHex) || !HEX_REGEX.test(authTagHex)) {
+      return false;
+    }
+    if (ivHex.length !== IV_LENGTH * 2 || authTagHex.length !== AUTH_TAG_LENGTH * 2) {
+      return false;
+    }
+    return true;
   }
 }

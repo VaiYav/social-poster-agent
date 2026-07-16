@@ -29,6 +29,8 @@ export interface PostMetricsRef {
 
 export interface IMetricsSource {
   readonly network: SocialNetwork;
+  /** True for HTTP API sources that don't need a human-like browser delay. */
+  readonly isHttpApi: boolean;
   /** Fetch latest metrics for a post, or `null` if unavailable (skip, don't zero). */
   fetchMetrics(post: PostMetricsRef): Promise<PostMetricsData | null>;
 }

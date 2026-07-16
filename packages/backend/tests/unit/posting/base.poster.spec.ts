@@ -357,8 +357,10 @@ describe('MOD-03: BasePoster', () => {
 
   it('UTC-318: isOnLoginPage() returns true when login form is visible in DOM', async () => {
     const page = createMockPage({ url: 'https://x.com/home' });
-    // Override locator count to simulate login form visible
-    (page._locator as any).count = vi.fn().mockResolvedValue(1);
+    // Override locator to simulate login form visible (locator returns a mock
+    // whose count() is 1 for any login indicator).
+    const loginLocator = { ...page._locator, count: vi.fn().mockResolvedValue(1) };
+    (page.locator as any) = vi.fn().mockReturnValue(loginLocator);
 
     const result = await poster.isOnLoginPagePublic(page);
 

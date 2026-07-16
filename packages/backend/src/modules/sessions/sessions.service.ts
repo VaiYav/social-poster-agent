@@ -1477,6 +1477,27 @@ export class SessionsService implements OnModuleInit {
   }
 
   /**
+   * Mark a session as BANNED so the orchestrator stops scheduling it.
+   * Used by PostingService when a poster detects a permanent account restriction
+   * (e.g. X graduated-access / WAF block, suspended account). The caller is
+   * responsible for determining the restriction is permanent; this is a
+   * terminal state until a human re-activates the session.
+   */
+  async markSessionBanned(network: SocialNetwork, sessionId: string, reason?: string): Promise<void> {
+    try {
+      await this.prisma.session.update({
+        where: { id: sessionId },
+        data: { status: SessionStatus.BANNED },
+      });
+      this.logger.log(`Marked session ${sessionId} for ${network} as BANNED: ${reason ?? 'no reason provided'}`);
+    } catch (err) {
+      this.logger.warn(
+        `Failed to mark session ${sessionId} as BANNED: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  /**
    * Cleanup old EXPIRED sessions from the database.
    * Keeps only the most recent 5 expired sessions per account for debugging;
    * deletes older ones to prevent unbounded growth.

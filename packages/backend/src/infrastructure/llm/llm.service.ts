@@ -225,7 +225,7 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     keyEnv: 'TOGETHER_API_KEY',
     modelEnv: 'TOGETHER_MODEL',
     defaultModel: 'meta-llama/Llama-3.3-70B-Instruct-Turbo-Free',
-    free: false,
+    free: true,
     baseURL: 'https://api.together.ai/v1',
   },
   // 14. Cohere — Trial key: 1000 calls/mo, 20 RPM, no credit card

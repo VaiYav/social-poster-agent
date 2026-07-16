@@ -266,6 +266,11 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
       // Session restore — no tab undo, no crash resume (automation controls lifecycle).
       'browser.sessionstore.max_tabs_undo': 0,
       'browser.sessionstore.resume_from_crash': false,
+      // Focus/IME — Camoufox sets focusmanager.testmode=true by default for headless
+      // environments, but that breaks real key event handling in X's DraftJS/Lexical
+      // composer and prevents typing in some IME/Cyrillic scenarios. Set false so
+      // normal focus management applies (keyboard events reach the contenteditable).
+      'focusmanager.testmode': false,
       // Cache — disk cache off (we have no reuse benefit), memory cache capped at 64 MB
       // (default auto-sizes based on system RAM, often 50-100 MB+ in containers).
       // The previous 16 MB cap was too aggressive and caused the X compose page to crash

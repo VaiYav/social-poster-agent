@@ -970,8 +970,11 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
     const res = await request(app.getHttpServer())
       .post('/api/v1/posting/post-approved-001');
 
-    // Assert: request fails (rate limit error → 500 from unhandled throw).
-    expect(res.status).toBe(500);
+    // Assert: request returns a rate-limit result (HTTP 200, success: false).
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(false);
+    expect(res.body.rateLimit).toBe(true);
+    expect(res.body.retryAfterMs).toBeGreaterThan(0);
 
     // Assert: browser.acquireContext NOT called (rate limit blocked before posting).
     expect(browserPort.acquireContext).not.toHaveBeenCalled();

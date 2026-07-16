@@ -32,7 +32,7 @@ import { parseBool } from '../../infrastructure/config/parse-bool';
 import type { JwtPayload } from './auth.service';
 
 /** Public route suffixes (matched after the global /api/v1 prefix). */
-const PUBLIC_SUFFIXES = ['/auth/login', '/health'];
+const PUBLIC_SUFFIXES = ['/auth/login', '/auth/logout', '/health'];
 
 /** Cookie name — must match AuthController. */
 const COOKIE_NAME = 'spa_token';

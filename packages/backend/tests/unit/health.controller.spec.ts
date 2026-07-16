@@ -22,7 +22,7 @@ import { SHARED_REDIS } from '../../src/infrastructure/redis/redis.module';
 
 // vitest transpiles via esbuild which does NOT emit `design:paramtypes` metadata,
 // so NestJS DI-by-type fails. We attach it explicitly to the controller class.
-defineParamtypes(HealthController, [PrismaService, Object]);
+defineParamtypes(HealthController, [PrismaService, Object, ConfigService]);
 
 // Sprint L: Redis is now injected via SHARED_REDIS token instead of created locally.
 // Mock the shared Redis instance.

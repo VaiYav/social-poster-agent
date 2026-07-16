@@ -1,4 +1,5 @@
 import * as Joi from 'joi';
+import { KEY_HEX_REGEX } from '../crypto/encryption.service.js';
 
 /**
  * P1-3 fix: Env-var validation schema.
@@ -16,6 +17,10 @@ const envSchema = Joi.object({
   SOCIAL_FACEBOOK_EMAIL: Joi.string().allow('').default(''),
   SOCIAL_FACEBOOK_PASSWORD: Joi.string().allow('').default(''),
   SOCIAL_FACEBOOK_PAGE_SLUG: Joi.string().allow('').default(''),
+  // 7.6: per-network active flags override ENABLED_NETWORKS
+  SOCIAL_X_ACTIVE: Joi.string().valid('true', 'false').optional(),
+  SOCIAL_THREADS_ACTIVE: Joi.string().valid('true', 'false').optional(),
+  SOCIAL_FACEBOOK_ACTIVE: Joi.string().valid('true', 'false').optional(),
 
   // ── Email IMAP — automatic 2FA/verification code retrieval ──
   EMAIL_IMAP_HOST: Joi.string().default('imap.gmail.com'),
@@ -109,10 +114,14 @@ const envSchema = Joi.object({
   BAN_DETECTION_WINDOW_HOURS: Joi.number().min(1).max(24).default(2),
 
   // ── Database ──
-  DATABASE_URL: Joi.string().default('postgresql://spa:spa@localhost:5433/social_poster'),
+  DATABASE_URL: Joi.string()
+    .uri({ scheme: ['postgres', 'postgresql'] })
+    .default('postgresql://spa:spa@localhost:5433/social_poster'),
 
   // ── Redis ──
-  REDIS_URL: Joi.string().default('redis://localhost:6381'),
+  REDIS_URL: Joi.string()
+    .uri({ scheme: ['redis', 'rediss'] })
+    .default('redis://localhost:6381'),
 
   // ── Server ──
   // SPA_API_PORT is the actual port used by main.ts (default 3100).
@@ -170,6 +179,16 @@ const envSchema = Joi.object({
   // ── Monitoring ──
   SENTRY_DSN: Joi.string().allow('').default(''),
 
+  // ── Health check ──
+  HEALTH_CHECK_TIMEOUT_MS: Joi.number().integer().min(500).max(30000).default(2000),
+
+  // ── Notifications ──
+  DISCORD_WEBHOOK_URL: Joi.string().uri().allow('').default(''),
+  DISCORD_ALERTS_ENABLED: Joi.string().valid('true', 'false').default('false'),
+
+  // ── Server-Sent Events (SSE) ──
+  SSE_CHANNEL: Joi.string().default('spa:sse'),
+
   // ── Langfuse (LLM observability — tracing, prompt management, evaluation) ──
   // Auto-enable: tracing activates when LANGFUSE_PUBLIC_KEY is set.
   // When absent/empty, Langfuse is a no-op (zero overhead, no network calls).
@@ -177,7 +196,7 @@ const envSchema = Joi.object({
   LANGFUSE_PUBLIC_KEY: Joi.string().allow('').default(''),
   LANGFUSE_SECRET_KEY: Joi.string().allow('').default(''),
   // Base URL: 🇪🇺 EU: https://cloud.langfuse.com | 🇺🇸 US: https://us.cloud.langfuse.com | self-hosted URL
-  LANGFUSE_BASE_URL: Joi.string().allow('').default(''),
+  LANGFUSE_BASE_URL: Joi.string().uri().allow('').default(''),
   // Prompt version label for Langfuse Prompt Management. Defaults to 'latest'.
   // Set to a specific version (e.g. 'production') to pin all prompts to that label.
   // Override per prompt with PROMPT_VERSION_<NAME> env vars (handled by PromptRegistry).
@@ -284,7 +303,7 @@ export function validateEnv(): void {
   // in plaintext — a critical security risk for production.
   if (process.env.NODE_ENV === 'production') {
     const key = process.env.SESSION_ENCRYPTION_KEY ?? '';
-    if (!key || !/^[a-f0-9]{64}$/i.test(key)) {
+    if (!key || !KEY_HEX_REGEX.test(key)) {
       throw new Error(
         'SESSION_ENCRYPTION_KEY must be a 64-character hex string in production. ' +
           'Generate with: openssl rand -hex 32',

@@ -612,7 +612,7 @@ describe('Bottom-Up Integration Tests', () => {
       expect(account).toBeDefined();
       expect(account.handle).toBe('test_x_user');
       expect(prisma.socialAccount.findFirst).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { network: 'X', active: true } }),
+        expect.objectContaining({ where: { network: 'X', active: true, handle: 'test_x_user' } }),
       );
     });
   });
