@@ -402,11 +402,11 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `health-monitor.service.ts:549` to find the ban recovery logic
-- [ ] Change `createdAt` to `updatedAt` in the time calculation
-- [ ] Consider adding a `bannedAt` field to the `Session` model (see task 7.7) for correctness
-- [ ] Add a unit test: session banned recently → not recovered; session banned long ago → recovered
-- [ ] Run `npx vitest run tests/unit/health-monitor/`
+- [x] Read `health-monitor.service.ts:549` to find the ban recovery logic
+- [x] Change `createdAt` to `updatedAt` in the time calculation
+- [x] Consider adding a `bannedAt` field to the `Session` model (see task 7.7) for correctness
+- [x] Add a unit test: session banned recently → not recovered; session banned long ago → recovered
+- [x] Run `npx vitest run tests/unit/health-monitor/`
 
 ### Acceptance criteria
 
@@ -425,12 +425,12 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `health-monitor.service.ts:519` to find the `getDashboard` → `runHealthCheck` call
-- [ ] Extract the data-collection part of `runHealthCheck` into a separate method (e.g., `collectHealthData`)
-- [ ] Have `getDashboard` call `collectHealthData` instead of `runHealthCheck`
-- [ ] `runHealthCheck` should call `collectHealthData` then emit alerts
-- [ ] Add a unit test that verifies `getDashboard` does not emit alerts
-- [ ] Run `npx vitest run tests/unit/health-monitor/`
+- [x] Read `health-monitor.service.ts:519` to find the `getDashboard` → `runHealthCheck` call
+- [x] Extract the data-collection part of `runHealthCheck` into a separate method (e.g., `collectHealthData`)
+- [x] Have `getDashboard` call `collectHealthData` instead of `runHealthCheck`
+- [x] `runHealthCheck` should call `collectHealthData` then emit alerts
+- [x] Add a unit test that verifies `getDashboard` does not emit alerts
+- [x] Run `npx vitest run tests/unit/health-monitor/`
 
 ### Acceptance criteria
 

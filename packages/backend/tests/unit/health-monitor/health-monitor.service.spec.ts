@@ -748,6 +748,8 @@ describe('HealthMonitorService (F21 — Health Monitor + B3 Reconciliation)', ()
     });
     expect(dashboard.sessions).toHaveLength(2);
     expect(dashboard.timestamp).toBeDefined();
+    // 2.5.2: dashboard must NOT emit SSE alerts; only runHealthCheck with emitAlerts=true does
+    expect(ctx.sseService.publish).not.toHaveBeenCalled();
   });
 
   // ── Sprint K: Ban Recovery ─────────────────────────────────────────────────
