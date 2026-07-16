@@ -311,11 +311,11 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `sessions.service.ts` to find the `autoLogin` call site and circuit breaker usage
-- [ ] After `autoLogin` returns, check for `null` and call `circuitBreaker.recordFailure()` if so
-- [ ] Ensure `circuitBreaker.recordSuccess()` is only called on actual success
-- [ ] Add unit tests for: `null` return → failure recorded, success → success recorded
-- [ ] Run `npx vitest run tests/unit/sessions/`
+- [x] Read `sessions.service.ts` to find the `autoLogin` call site and circuit breaker usage
+- [x] After `autoLogin` returns, check for `null` and call `circuitBreaker.recordFailure()` if so
+- [x] Ensure `circuitBreaker.recordSuccess()` is only called on actual success
+- [x] Add unit tests for: `null` return → failure recorded, success → success recorded
+- [x] Run `npx vitest run tests/unit/sessions/`
 
 ### Acceptance criteria
 
@@ -334,10 +334,10 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `sessions.service.ts:1389-1391` to find the nav error handling
-- [ ] Add `await this.updateSessionStatus(session.id, 'EXPIRED')` on nav error
-- [ ] Add a unit test that verifies status changes to `EXPIRED` on nav error
-- [ ] Run `npx vitest run tests/unit/sessions/`
+- [x] Read `sessions.service.ts:1389-1391` to find the nav error handling
+- [x] Add `await this.updateSessionStatus(session.id, 'EXPIRED')` on nav error
+- [x] Add a unit test that verifies status changes to `EXPIRED` on nav error
+- [x] Run `npx vitest run tests/unit/sessions/`
 
 ### Acceptance criteria
 
@@ -356,10 +356,10 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Search for `as SessionStatus` in `warmup.service.ts` and `sessions.service.ts`
-- [ ] Remove the casts
-- [ ] Run `npx tsc --noEmit` to verify the types are correct without casts
-- [ ] Run `npx vitest run tests/unit/sessions/`
+- [x] Search for `as SessionStatus` in `warmup.service.ts` and `sessions.service.ts`
+- [x] Remove the casts
+- [x] Run `npx tsc --noEmit` to verify the types are correct without casts
+- [x] Run `npx vitest run tests/unit/sessions/`
 
 ### Acceptance criteria
 
@@ -378,10 +378,10 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `sessions.controller.ts` to find `healthCheck` and `submitVerifyCode` routes
-- [ ] Add `@Param('network', new ParseEnumPipe(Network))` to both
-- [ ] Add a unit test that sends an invalid network and expects 400
-- [ ] Run `npx vitest run tests/unit/sessions/`
+- [x] Read `sessions.controller.ts` to find `healthCheck` and `submitVerifyCode` routes
+- [x] Add `@Param('network', new ParseEnumPipe(Network))` to both
+- [x] Add a unit test that sends an invalid network and expects 400
+- [x] Run `npx vitest run tests/unit/sessions/`
 
 ### Acceptance criteria
 
