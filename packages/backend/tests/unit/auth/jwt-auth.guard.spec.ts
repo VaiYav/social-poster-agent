@@ -79,6 +79,11 @@ describe('JwtAuthGuard', () => {
     expect(await guard.canActivate(ctx({ path: '/api/v1/health', method: 'GET', headers: {} }))).toBe(true);
   });
 
+  it('leaves /auth/logout public even when enabled', async () => {
+    const guard = new JwtAuthGuard(mockJwt(), cfg(ENABLED));
+    expect(await guard.canActivate(ctx({ path: '/api/v1/auth/logout', method: 'POST', headers: {} }))).toBe(true);
+  });
+
   it('still gates /health/debug-sentry (not public)', async () => {
     const guard = new JwtAuthGuard(mockJwt(), cfg(ENABLED));
     await expect(

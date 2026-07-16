@@ -27,6 +27,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDtoSchema, type LoginDto, type AuthUser } from '@spa/shared';
+import { parseBool } from '../../infrastructure/config/parse-bool';
 
 const COOKIE_NAME = 'spa_token';
 
@@ -35,12 +36,16 @@ const COOKIE_NAME = 'spa_token';
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
   private readonly isProduction: boolean;
+  private readonly authEnabled: boolean;
+  private readonly adminUsername: string;
 
   constructor(
     private readonly authService: AuthService,
     private readonly configService: ConfigService,
   ) {
     this.isProduction = this.configService.get<string>('NODE_ENV', 'development') === 'production';
+    this.authEnabled = parseBool(this.configService.get<string>('AUTH_ENABLED', 'false'));
+    this.adminUsername = this.configService.get<string>('ADMIN_USERNAME', 'admin') ?? 'admin';
   }
 
   @Post('login')
@@ -83,6 +88,9 @@ export class AuthController {
   async me(@Req() req: Request): Promise<{ user: AuthUser }> {
     const payload = (req as Request & { user?: { sub: string; username: string } }).user;
     if (!payload) {
+      if (!this.authEnabled) {
+        return { user: { id: 'admin', username: this.adminUsername, role: 'admin' } as AuthUser };
+      }
       throw new UnauthorizedException('Not authenticated');
     }
 

@@ -1,6 +1,7 @@
-import { Controller, Get, Inject, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Inject, NotFoundException, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { AdminGuard } from '../auth/admin.guard';
 import * as Sentry from '@sentry/nestjs';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import IORedis from 'ioredis';
@@ -58,6 +59,7 @@ export class HealthController {
   }
 
   @Get('debug-sentry')
+  @UseGuards(AdminGuard)
   @ApiOperation({ summary: 'Sentry test — throws an intentional error' })
   @ApiResponse({ status: 500, description: 'Intentional error for Sentry verification' })
   getError(): never {

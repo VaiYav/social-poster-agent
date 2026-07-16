@@ -91,8 +91,8 @@ describe('AuthService', () => {
 
     const result = await service.login('admin', 'test123');
     expect(result.token).toBe('mock-jwt-token');
-    expect(result.user).toEqual({ id: 'admin-1', username: 'admin' });
-    expect(jwt.signAsync).toHaveBeenCalledWith({ sub: 'admin-1', username: 'admin' });
+    expect(result.user).toEqual({ id: 'admin-1', username: 'admin', role: 'admin' });
+    expect(jwt.signAsync).toHaveBeenCalledWith({ sub: 'admin-1', username: 'admin', role: 'admin' });
   });
 
   it('login throws UnauthorizedException for wrong password', async () => {

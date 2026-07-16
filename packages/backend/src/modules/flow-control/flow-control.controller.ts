@@ -8,8 +8,9 @@
  *   POST   /api/v1/flow-control/pause-all     — crisis mode: pause everything
  *   POST   /api/v1/flow-control/resume-all    — resume everything
  */
-import { Controller, Get, Post, Param, Body, HttpCode, HttpStatus, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Param, Body, HttpCode, HttpStatus, BadRequestException, UseGuards } from '@nestjs/common';
 import { FlowControlService, type FlowName } from './flow-control.service';
+import { AdminGuard } from '../auth/admin.guard';
 import { z } from 'zod';
 
 const reasonSchema = z.object({
@@ -25,6 +26,7 @@ function parseFlow(flow: string): FlowName {
   return flow as FlowName;
 }
 
+@UseGuards(AdminGuard)
 @Controller('flow-control')
 export class FlowControlController {
   constructor(private readonly flowControl: FlowControlService) {}

@@ -15,8 +15,9 @@ import 'reflect-metadata';
 import { ConfigService } from '@nestjs/config';
 import { createMockPrismaService } from '../mocks/index';
 import { createControllerTestingModule } from '../helpers/nest';
-import { defineParamtypes, restoreAllDesignParamtypes } from '../helpers/restore-paramtypes';
+import { defineParamtypes } from '../helpers/restore-paramtypes';
 import { HealthController } from '../../src/modules/health/health.controller';
+import { AdminGuard } from '../../src/modules/auth/admin.guard';
 import { PrismaService } from '../../src/infrastructure/prisma/prisma.service';
 import { SHARED_REDIS } from '../../src/infrastructure/redis/redis.module';
 
@@ -53,6 +54,7 @@ describe('HealthController (MOD-07 — UTC-115..119)', () => {
       { provide: PrismaService, useValue: prismaMock },
       { provide: ConfigService, useValue: configService },
       { provide: SHARED_REDIS, useValue: mockRedisInstance },
+      AdminGuard,
     ]);
     controller = ctrl;
   });

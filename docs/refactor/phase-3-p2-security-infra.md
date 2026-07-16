@@ -161,18 +161,18 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.2.1 — Admin role guard on `FlowControlController`
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** flow-control.md S1
+**Status:** `[x]` | **Effort:** S | **Ref:** flow-control.md S1
 
-**Files:** `packages/backend/src/modules/flow-control/flow-control.controller.ts`
+**Files:** `packages/backend/src/modules/auth/admin.guard.ts`, `packages/backend/src/modules/auth/auth.module.ts`, `packages/backend/src/modules/flow-control/flow-control.controller.ts`, `packages/backend/tests/unit/auth/admin.guard.spec.ts`
 
 **Description:** `FlowControlController` endpoints (pause/resume) are not protected by an admin role guard. Any authenticated user can pause/resume the system, not just admins. Add an admin role guard to all endpoints in this controller.
 
 ### Checklist
 
-- [ ] Read `flow-control.controller.ts` to find all endpoints
-- [ ] Add `@UseGuards(AdminGuard)` or equivalent role-based guard
-- [ ] Add a unit test that verifies non-admin users get 403
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `flow-control.controller.ts` to find all endpoints
+- [x] Add `@UseGuards(AdminGuard)` or equivalent role-based guard
+- [x] Add a unit test that verifies non-admin users get 403
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -183,18 +183,18 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.2.2 — Admin role guard on `HealthMonitorController`
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** health-monitor.md
+**Status:** `[x]` | **Effort:** S | **Ref:** health-monitor.md
 
-**Files:** `packages/backend/src/modules/health-monitor/health-monitor.controller.ts`
+**Files:** `packages/backend/src/modules/auth/admin.guard.ts`, `packages/backend/src/modules/auth/auth.module.ts`, `packages/backend/src/modules/health-monitor/health-monitor.controller.ts`, `packages/backend/tests/unit/auth/admin.guard.spec.ts`
 
 **Description:** `HealthMonitorController` endpoints (run health check, reconciliation) are not admin-protected. Any authenticated user can trigger expensive health check operations. Add an admin role guard.
 
 ### Checklist
 
-- [ ] Read `health-monitor.controller.ts` to find all endpoints
-- [ ] Add `@UseGuards(AdminGuard)` to the controller or individual endpoints
-- [ ] Add a unit test that verifies non-admin users get 403
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `health-monitor.controller.ts` to find all endpoints
+- [x] Add `@UseGuards(AdminGuard)` to the controller or individual endpoints
+- [x] Add a unit test that verifies non-admin users get 403
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -205,18 +205,18 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.2.3 — `debug-sentry` endpoint — guard or remove from production
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** health.md B3
+**Status:** `[x]` | **Effort:** XS | **Ref:** health.md B3
 
-**Files:** `packages/backend/src/modules/health/health.controller.ts:56`
+**Files:** `packages/backend/src/modules/auth/admin.guard.ts`, `packages/backend/src/modules/auth/auth.module.ts`, `packages/backend/src/modules/health/health.controller.ts`, `packages/backend/src/modules/health/health.controller.ts`
 
 **Description:** The `debug-sentry` endpoint triggers a Sentry test event and is exposed in all environments. In production, this could be abused to spam Sentry. Guard it with an admin check or only register the route when `NODE_ENV !== 'production'`.
 
 ### Checklist
 
-- [ ] Read `health.controller.ts:56` to find the `debug-sentry` endpoint
-- [ ] Add `@UseGuards(AdminGuard)` or wrap the route registration in a `NODE_ENV` check
-- [ ] Add a unit test that verifies the endpoint is guarded/absent in production
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `health.controller.ts:56` to find the `debug-sentry` endpoint
+- [x] Add `@UseGuards(AdminGuard)` or wrap the route registration in a `NODE_ENV` check
+- [x] Add a unit test that verifies the endpoint is guarded/absent in production
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -249,18 +249,18 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.2.5 — `/auth/logout` add to public routes
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** auth.md B2
+**Status:** `[x]` | **Effort:** XS | **Ref:** auth.md B2
 
-**Files:** `packages/backend/src/modules/auth/jwt-auth.guard.ts:35`
+**Files:** `packages/backend/src/modules/auth/jwt-auth.guard.ts`, `packages/backend/tests/unit/auth/jwt-auth.guard.spec.ts`
 
 **Description:** `/auth/logout` is not in the public routes list, so the JWT guard blocks it. A user with an expired token cannot log out. Add `/auth/logout` to the public routes list.
 
 ### Checklist
 
-- [ ] Read `jwt-auth.guard.ts:35` to find the public routes list
-- [ ] Add `'auth/logout'` to the list
-- [ ] Add a unit test that verifies logout works without a valid token
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `jwt-auth.guard.ts:35` to find the public routes list
+- [x] Add `'auth/logout'` to the list
+- [x] Add a unit test that verifies logout works without a valid token
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -271,18 +271,18 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.2.6 — `/auth/me` return default admin when `AUTH_ENABLED=false`
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** auth.md B7
+**Status:** `[x]` | **Effort:** XS | **Ref:** auth.md B7
 
-**Files:** `packages/backend/src/modules/auth/auth.controller.ts:84-87`
+**Files:** `packages/backend/src/modules/auth/auth.controller.ts`, `packages/backend/src/modules/auth/auth.service.ts`, `packages/backend/tests/unit/auth/auth.controller.spec.ts`
 
 **Description:** When `AUTH_ENABLED=false`, `/auth/me` returns `null` because there's no JWT. The UI then shows a logged-out state even though auth is disabled. Return a default admin user object when auth is disabled.
 
 ### Checklist
 
-- [ ] Read `auth.controller.ts:84-87` to find the `/auth/me` handler
-- [ ] When `AUTH_ENABLED=false`, return `{ username: ADMIN_USERNAME, role: 'admin' }`
-- [ ] Add a unit test that verifies the default admin response
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `auth.controller.ts:84-87` to find the `/auth/me` handler
+- [x] When `AUTH_ENABLED=false`, return `{ username: ADMIN_USERNAME, role: 'admin' }`
+- [x] Add a unit test that verifies the default admin response
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -438,19 +438,19 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.3.3 — `SseService.publish` — catch Redis errors internally
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** infrastructure-sse.md B3
+**Status:** `[x]` | **Effort:** XS | **Ref:** infrastructure-sse.md B3
 
-**Files:** `packages/backend/src/infrastructure/sse/sse.service.ts`
+**Files:** `packages/backend/src/infrastructure/sse/sse.service.ts`, `packages/backend/tests/unit/infrastructure/sse.service.spec.ts`
 
 **Description:** `SseService.publish` does not catch Redis PUBLISH errors. If Redis is down, the error propagates to the caller, which may not handle it. Make `publish` fire-and-forget safe by catching errors internally and logging them.
 
 ### Checklist
 
-- [ ] Read `sse.service.ts` to find the `publish` method
-- [ ] Wrap the Redis PUBLISH in `try/catch` with `logger.error`
-- [ ] Ensure the method returns `void` (or a resolved promise) even on error
-- [ ] Add a unit test that simulates Redis failure and verifies no throw
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `sse.service.ts` to find the `publish` method
+- [x] Wrap the Redis PUBLISH in `try/catch` with `logger.error`
+- [x] Ensure the method returns `void` (or a resolved promise) even on error
+- [x] Add a unit test that simulates Redis failure and verifies no throw
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 

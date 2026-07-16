@@ -22,6 +22,7 @@ const SCRYPT_SALTLEN = 64;
 export interface JwtPayload {
   sub: string;
   username: string;
+  role: 'admin';
 }
 
 @Injectable()
@@ -91,7 +92,7 @@ export class AuthService implements OnModuleInit {
       throw new UnauthorizedException('Invalid username or password');
     }
 
-    const payload: JwtPayload = { sub: admin.id, username: admin.username };
+    const payload: JwtPayload = { sub: admin.id, username: admin.username, role: 'admin' };
     let token: string;
     try {
       token = await this.jwtService.signAsync(payload);
@@ -106,7 +107,7 @@ export class AuthService implements OnModuleInit {
 
     return {
       token,
-      user: { id: admin.id, username: admin.username },
+      user: { id: admin.id, username: admin.username, role: 'admin' } as AuthUser,
     };
   }
 
@@ -127,7 +128,7 @@ export class AuthService implements OnModuleInit {
   async getAdminById(id: string): Promise<AuthUser | null> {
     const admin = await this.prisma.admin.findUnique({ where: { id } });
     if (!admin) return null;
-    return { id: admin.id, username: admin.username };
+    return { id: admin.id, username: admin.username, role: 'admin' } as AuthUser;
   }
 
   // ── Password hashing (scrypt) ──────────────────────────────────

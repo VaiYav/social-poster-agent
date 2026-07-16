@@ -118,6 +118,15 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
     expect(mockPublisher.publish).toHaveBeenCalledWith('spa:sse', JSON.stringify(event));
   });
 
+  // ── UTC-093a ──
+  it('UTC-093a: publish() swallows Redis PUBLISH errors and logs them', async () => {
+    const error = new Error('Redis unavailable');
+    mockPublisher.publish.mockRejectedValue(error);
+
+    await expect(service.publish({ type: 'post_status' })).resolves.toBeUndefined();
+    expect(mockPublisher.publish).toHaveBeenCalledOnce();
+  });
+
   // ── UTC-094 ──
   it('UTC-094: publish() does nothing when Redis not connected', async () => {
     (service as unknown).publisher = null;
