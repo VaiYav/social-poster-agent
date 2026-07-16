@@ -28,14 +28,14 @@ These items were confirmed fixed in the codebase and are excluded from the activ
 
 ## Phase files
 
-| File | Priority | Tasks | Focus |
-|------|----------|-------|-------|
-| [phase-1-p0-critical.md](phase-1-p0-critical.md) | P0 | 6 | Critical bugs, resource leaks, data corruption |
-| [phase-2-p1-correctness.md](phase-2-p1-correctness.md) | P1 | 40 | Correctness bugs across all modules |
-| [phase-3-p2-security-infra.md](phase-3-p2-security-infra.md) | P2 | 25 | Security, env validation, infra hardening |
-| [phase-4-p2-architecture-dry.md](phase-4-p2-architecture-dry.md) | P2 | 15 | Architecture, DRY, module boundaries |
-| [phase-5-p2-performance.md](phase-5-p2-performance.md) | P2 | 11 | Performance optimizations |
-| [phase-6-7-p3-strategic-features.md](phase-6-7-p3-strategic-features.md) | P3 | 17 | Strategic refactors + new features (backlog) |
+| File | Priority | Status | Tasks | Focus |
+|------|----------|--------|-------|-------|
+| [phase-1-p0-critical.md](phase-1-p0-critical.md) | P0 | `[x]` | 6 | Critical bugs, resource leaks, data corruption |
+| [phase-2-p1-correctness.md](phase-2-p1-correctness.md) | P1 | `[ ]` | 40 | Correctness bugs across all modules |
+| [phase-3-p2-security-infra.md](phase-3-p2-security-infra.md) | P2 | `[ ]` | 25 | Security, env validation, infra hardening |
+| [phase-4-p2-architecture-dry.md](phase-4-p2-architecture-dry.md) | P2 | `[ ]` | 15 | Architecture, DRY, module boundaries |
+| [phase-5-p2-performance.md](phase-5-p2-performance.md) | P2 | `[ ]` | 11 | Performance optimizations |
+| [phase-6-7-p3-strategic-features.md](phase-6-7-p3-strategic-features.md) | P3 | `[ ]` | 17 | Strategic refactors + new features (backlog) |
 
 ## Quick wins (XS, single-pass batch)
 
