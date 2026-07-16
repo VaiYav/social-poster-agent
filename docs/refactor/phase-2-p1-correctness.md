@@ -261,12 +261,12 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `posting.service.ts` to find direct SSE publish calls for `post_status`
-- [ ] Read `sse-event.listener.ts` to find the `post_status` republish
-- [ ] Decide which path to keep (recommend: event-listener path, as it centralizes SSE publishing)
-- [ ] Remove the direct publish from `posting.service.ts` (or remove the listener handler)
-- [ ] Verify SSE events still reach the UI with a manual test or integration test
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `posting.service.ts` to find direct SSE publish calls for `post_status`
+- [x] Read `sse-event.listener.ts` to find the `post_status` republish
+- [x] Decide which path to keep (recommend: event-listener path, as it centralizes SSE publishing)
+- [x] Remove the direct publish from `posting.service.ts` (or remove the listener handler)
+- [x] Verify SSE events still reach the UI with a manual test or integration test
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -285,11 +285,11 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `sse-event.listener.ts` to find all `publish()` calls
-- [ ] Add `await` to each call (make handlers `async` if not already)
-- [ ] Alternatively, add `.catch(err => this.logger.error(...))` to each call
-- [ ] Add a unit test that simulates a publish failure and verifies no unhandled rejection
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `sse-event.listener.ts` to find all `publish()` calls
+- [x] Add `await` to each call (make handlers `async` if not already)
+- [x] Alternatively, add `.catch(err => this.logger.error(...))` to each call
+- [x] Add a unit test that simulates a publish failure and verifies no unhandled rejection
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
