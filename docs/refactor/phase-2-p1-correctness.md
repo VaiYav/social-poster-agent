@@ -482,12 +482,12 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `rate-limit.service.ts:158-176` to find the check/record logic
+- [x] Read `rate-limit.service.ts:158-176` to find the check/record logic
+- [x] Replace sequential `get` calls with atomic `MGET` for read and atomic `INCR` for record
 - [ ] Write a Lua script that atomically checks the current count and increments if under limit
 - [ ] Use `redis.eval(luaScript, ...)` to execute the script
-- [ ] Alternatively, use `WATCH`/`MULTI`/`EXEC` for a transactional approach
 - [ ] Add a unit/integration test that fires concurrent posts and verifies the limit is not exceeded
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -507,11 +507,10 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `rate-limit.service.ts:76-79` to find all `Number(...) || default` patterns
-- [ ] Replace with `const val = process.env.X; const result = val !== undefined ? Number(val) : default`
-- [ ] Or use `Number(process.env.X ?? default)` if the env var is always a string when set
-- [ ] Add a unit test that sets the env var to `0` and verifies it's respected
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `rate-limit.service.ts:76-79` to find all `Number(...) || default` patterns
+- [x] Replace with `parseNumericConfig` that preserves `0` as a valid value
+- [x] Add a unit test that sets the env var to `0` and verifies it's respected
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -530,11 +529,11 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `rate-limit.service.ts:144-146` to find the Redis-down handling
-- [ ] Add `RATE_LIMIT_FAIL_CLOSED` to `env.validation.ts` (default `false`)
-- [ ] When Redis is down and `FAIL_CLOSED=true`, return `allowed: false`
-- [ ] Add unit tests for both fail-open and fail-closed modes
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `rate-limit.service.ts:144-146` to find the Redis-down handling
+- [x] Add `RATE_LIMIT_FAIL_CLOSED` to `env.validation.ts` (default `false`)
+- [x] When Redis is down and `FAIL_CLOSED=true`, return `allowed: false`
+- [x] Add unit tests for both fail-open and fail-closed modes
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 

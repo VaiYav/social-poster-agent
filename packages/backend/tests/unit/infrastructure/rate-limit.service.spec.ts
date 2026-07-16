@@ -220,4 +220,24 @@ describe('RateLimitService (MOD-05 — Infrastructure Adapters)', () => {
     expect(status.lastPostAt).toBeNull();
     expect(status.dailyCount).toBe(10);
   });
+
+  it('UTC-089: limit of 0 is treated as unlimited (not replaced with default)', async () => {
+    configService = createMockConfigService({ RATE_LIMIT_X_MAX_PER_DAY: '0' });
+    service = new RateLimitService(configService, mockRedis as never);
+    mockRedis.mget.mockResolvedValue(['100', '0', null]); // count > 0 but limit is 0
+
+    const result = await service.checkRateLimit('X');
+
+    expect(result.allowed).toBe(true);
+  });
+
+  it('UTC-090: RATE_LIMIT_FAIL_CLOSED=true blocks posts when Redis is unavailable', async () => {
+    configService = createMockConfigService({ RATE_LIMIT_FAIL_CLOSED: 'true' });
+    service = new RateLimitService(configService, null as never);
+
+    const result = await service.checkRateLimit('X');
+
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain('failed closed');
+  });
 });
