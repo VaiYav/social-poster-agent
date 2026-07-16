@@ -46,6 +46,7 @@ describe('EventsController (MOD-07 — SSE supplement)', () => {
   /** Builds mock Express Request/Response objects suitable for the SSE handler. */
   function buildMockReqRes(): { req: Request; res: Response } {
     const req = new EventEmitter() as unknown as Request;
+    (req as { ip: string }).ip = '127.0.0.1';
     const res = {
       setHeader: vi.fn(),
       flushHeaders: vi.fn(),
@@ -76,7 +77,7 @@ describe('EventsController (MOD-07 — SSE supplement)', () => {
     controller.sse(req, res);
 
     expect(sseService.addClient).toHaveBeenCalledOnce();
-    expect(sseService.addClient).toHaveBeenCalledWith(res);
+    expect(sseService.addClient).toHaveBeenCalledWith(res, '127.0.0.1');
   });
 
   it('writes a heartbeat comment every 30 seconds', () => {
@@ -88,6 +89,7 @@ describe('EventsController (MOD-07 — SSE supplement)', () => {
 
     vi.advanceTimersByTime(30_000);
     expect(res.write).toHaveBeenCalledWith(': heartbeat\n\n');
+    expect(sseService.touchClient).toHaveBeenCalledWith('sse-client-1');
 
     vi.advanceTimersByTime(30_000);
     expect(res.write).toHaveBeenCalledTimes(2);

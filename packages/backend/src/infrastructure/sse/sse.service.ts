@@ -211,7 +211,11 @@ export type SseFlowControlEvent = SseFlowControlPausedEvent | SseFlowControlGlob
 export class SseService implements OnModuleDestroy {
   private readonly logger = new Logger(SseService.name);
   private readonly channel: string;
+  private readonly maxConnectionsPerIp: number;
+  private readonly idleTimeoutMs: number;
   private readonly clients = new Map<string, Response>();
+  private readonly clientIps = new Map<string, string>();
+  private readonly idleTimers = new Map<string, NodeJS.Timeout>();
 
   constructor(
     private readonly configService: ConfigService,
@@ -219,6 +223,8 @@ export class SseService implements OnModuleDestroy {
     @Inject(SHARED_REDIS_PUBLISHER) private readonly publisher: IORedis,
   ) {
     this.channel = this.configService.get<string>('SSE_CHANNEL', 'spa:sse');
+    this.maxConnectionsPerIp = this.configService.get<number>('SSE_MAX_CONNECTIONS_PER_IP', 10);
+    this.idleTimeoutMs = this.configService.get<number>('SSE_IDLE_TIMEOUT_MS', 5 * 60 * 1000);
   }
 
   async init(): Promise<void> {
@@ -236,9 +242,20 @@ export class SseService implements OnModuleDestroy {
    * Add a new SSE client connection.
    * Returns a client ID for cleanup.
    */
-  addClient(res: Response): string {
+  addClient(res: Response, ip?: string): string | null {
+    if (ip) {
+      const countForIp = Array.from(this.clientIps.values()).filter((v) => v === ip).length;
+      if (countForIp >= this.maxConnectionsPerIp) {
+        this.logger.warn(`SSE per-IP limit (${this.maxConnectionsPerIp}) reached for ${ip} — rejecting connection`);
+        try { res.end(); } catch { /* ignore */ }
+        return null;
+      }
+    }
+
     const clientId = `sse-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     this.clients.set(clientId, res);
+    if (ip) this.clientIps.set(clientId, ip);
+    this.resetIdleTimer(clientId, res);
     this.logger.debug(`SSE client connected: ${clientId} (total: ${this.clients.size})`);
 
     // Send initial heartbeat
@@ -248,8 +265,36 @@ export class SseService implements OnModuleDestroy {
   }
 
   removeClient(clientId: string): void {
+    const timer = this.idleTimers.get(clientId);
+    if (timer) {
+      clearTimeout(timer);
+      this.idleTimers.delete(clientId);
+    }
     this.clients.delete(clientId);
+    this.clientIps.delete(clientId);
     this.logger.debug(`SSE client disconnected: ${clientId} (total: ${this.clients.size})`);
+  }
+
+  /**
+   * Reset the idle timeout for a client. Called by the controller heartbeat
+   * and by successful broadcast writes.
+   */
+  touchClient(clientId: string): void {
+    const res = this.clients.get(clientId);
+    if (res) this.resetIdleTimer(clientId, res);
+  }
+
+  private resetIdleTimer(clientId: string, res: Response): void {
+    const existing = this.idleTimers.get(clientId);
+    if (existing) clearTimeout(existing);
+
+    const timer = setTimeout(() => {
+      this.logger.warn(`SSE client ${clientId} idle for ${this.idleTimeoutMs}ms — closing`);
+      this.removeClient(clientId);
+      try { res.end(); } catch { /* ignore */ }
+    }, this.idleTimeoutMs);
+
+    this.idleTimers.set(clientId, timer);
   }
 
   /**
@@ -283,6 +328,9 @@ export class SseService implements OnModuleDestroy {
             }
           }, 5000);
         }
+
+        // Reset idle timeout for any client we are still tracking
+        if (this.clients.has(clientId)) this.touchClient(clientId);
       } catch {
         // Client disconnected — remove
         this.removeClient(clientId);
@@ -312,13 +360,20 @@ export class SseService implements OnModuleDestroy {
   }
 
   onModuleDestroy(): void {
+    // Clear all idle timers
+    for (const timer of this.idleTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.idleTimers.clear();
+
     // Close all SSE client connections
-    for (const [, res] of this.clients) {
+    for (const [clientId, res] of this.clients) {
       try {
         res.end();
       } catch {
         // ignore — client may already be closed
       }
+      this.clientIps.delete(clientId);
     }
     this.clients.clear();
 

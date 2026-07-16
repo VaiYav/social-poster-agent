@@ -226,19 +226,19 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.2.4 — Rate limiting on `POST /auth/login`
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** auth.md
+**Status:** `[x]` | **Effort:** S | **Ref:** auth.md
 
-**Files:** `packages/backend/src/modules/auth/auth.controller.ts`
+**Files:** `packages/backend/src/modules/auth/login-rate-limit.guard.ts`, `packages/backend/src/modules/auth/auth.controller.ts`, `packages/backend/src/modules/auth/auth.module.ts`, `packages/backend/src/infrastructure/config/env.validation.ts`, `packages/backend/tests/unit/auth/login-rate-limit.guard.spec.ts`
 
 **Description:** The login endpoint has no rate limiting, making it vulnerable to brute-force attacks. Add a rate limiter (e.g., `@nestjs/throttler` or a custom guard) that limits login attempts per IP (e.g., 5 per minute).
 
 ### Checklist
 
-- [ ] Read `auth.controller.ts` to find the login endpoint
-- [ ] Add `ThrottleGuard` or a custom rate-limiting guard
-- [ ] Configure: 5 attempts per minute per IP
-- [ ] Add a unit test that verifies rate limiting triggers after 5 attempts
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `auth.controller.ts` to find the login endpoint
+- [x] Add `ThrottleGuard` or a custom rate-limiting guard
+- [x] Configure: 5 attempts per minute per IP
+- [x] Add a unit test that verifies rate limiting triggers after 5 attempts
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -293,19 +293,19 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.2.7 — SSE connection limits + rate limiting
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** events.md S3, infrastructure-sse.md
+**Status:** `[x]` | **Effort:** S | **Ref:** events.md S3, infrastructure-sse.md
 
-**Files:** `packages/backend/src/infrastructure/sse/sse.service.ts`, `packages/backend/src/modules/events/events.controller.ts`
+**Files:** `packages/backend/src/infrastructure/sse/sse.service.ts`, `packages/backend/src/modules/events/events.controller.ts`, `packages/backend/src/infrastructure/config/env.validation.ts`, `packages/backend/tests/unit/infrastructure/sse.service.spec.ts`, `packages/backend/tests/unit/events.controller.spec.ts`
 
 **Description:** SSE endpoints have no connection limits or rate limiting. A malicious client could open thousands of SSE connections, exhausting server resources. Add a max-connections-per-IP limit and close idle connections after a timeout.
 
 ### Checklist
 
-- [ ] Read `sse.service.ts` and `events.controller.ts` to find SSE connection handling
-- [ ] Add a per-IP connection counter and reject new connections above a limit (e.g., 10)
-- [ ] Add an idle timeout that closes connections with no activity (e.g., 5 minutes)
-- [ ] Add a unit test that verifies the connection limit is enforced
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `sse.service.ts` and `events.controller.ts` to find SSE connection handling
+- [x] Add a per-IP connection counter and reject new connections above a limit (e.g., 10)
+- [x] Add an idle timeout that closes connections with no activity (e.g., 5 minutes)
+- [x] Add a unit test that verifies the connection limit is enforced
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 

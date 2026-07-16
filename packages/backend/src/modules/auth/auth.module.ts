@@ -17,6 +17,7 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { AdminGuard } from './admin.guard';
+import { LoginRateLimitGuard } from './login-rate-limit.guard';
 
 /** Auth module is global so AdminGuard is available to any controller. */
 @Global()
@@ -46,8 +47,8 @@ import { AdminGuard } from './admin.guard';
       },
     }),
   ],
-  providers: [AuthService, JwtAuthGuard, AdminGuard],
+  providers: [AuthService, JwtAuthGuard, AdminGuard, LoginRateLimitGuard],
   controllers: [AuthController],
-  exports: [AuthService, JwtAuthGuard, AdminGuard, JwtModule],
+  exports: [AuthService, JwtAuthGuard, AdminGuard, LoginRateLimitGuard, JwtModule],
 })
 export class AuthModule {}

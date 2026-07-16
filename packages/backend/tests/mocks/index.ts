@@ -413,6 +413,7 @@ export function createMockSseService() {
     publish: vi.fn().mockResolvedValue(undefined),
     addClient: vi.fn(),
     removeClient: vi.fn(),
+    touchClient: vi.fn(),
     broadcast: vi.fn(),
     getActiveClientCount: vi.fn().mockReturnValue(0),
   };

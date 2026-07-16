@@ -21,6 +21,7 @@ import {
   HttpStatus,
   UnauthorizedException,
   Logger,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
@@ -28,6 +29,7 @@ import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDtoSchema, type LoginDto, type AuthUser } from '@spa/shared';
 import { parseBool } from '../../infrastructure/config/parse-bool';
+import { LoginRateLimitGuard } from './login-rate-limit.guard';
 
 const COOKIE_NAME = 'spa_token';
 
@@ -49,6 +51,7 @@ export class AuthController {
   }
 
   @Post('login')
+  @UseGuards(LoginRateLimitGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Login with username/password — sets httpOnly JWT cookie' })
   async login(@Body() body: LoginDto, @Res({ passthrough: true }) res: Response): Promise<{ user: AuthUser }> {

@@ -9,9 +9,13 @@ import { createControllerTestingModule } from '../../helpers/nest';
 import { defineParamtypes } from '../../helpers/restore-paramtypes';
 import { AuthController, COOKIE_NAME } from '../../../src/modules/auth/auth.controller';
 import { AuthService } from '../../../src/modules/auth/auth.service';
+import { LoginRateLimitGuard } from '../../../src/modules/auth/login-rate-limit.guard';
+import { SHARED_REDIS } from '../../../src/infrastructure/redis/redis.module';
+import { createMockRedis } from '../../mocks';
 
 // vitest/esbuild does NOT emit design:paramtypes metadata, so attach it explicitly.
 defineParamtypes(AuthController, [AuthService, ConfigService]);
+defineParamtypes(LoginRateLimitGuard, [ConfigService, SHARED_REDIS]);
 
 function mockConfig(values: Record<string, string> = {}): ConfigService {
   return {
@@ -56,6 +60,7 @@ describe('AuthController', () => {
     const { controller: ctrl } = await createControllerTestingModule(AuthController, [
       { provide: AuthService, useValue: authService },
       { provide: ConfigService, useValue: configService },
+      { provide: SHARED_REDIS, useValue: createMockRedis() },
     ]);
     controller = ctrl;
   });
@@ -85,6 +90,7 @@ describe('AuthController', () => {
     const { controller: ctrl } = await createControllerTestingModule(AuthController, [
       { provide: AuthService, useValue: authService },
       { provide: ConfigService, useValue: mockConfig({ AUTH_ENABLED: 'false' }) },
+      { provide: SHARED_REDIS, useValue: createMockRedis() },
     ]);
 
     const result = await ctrl.me(mockRequest() as unknown as any);
@@ -96,6 +102,7 @@ describe('AuthController', () => {
     const { controller: ctrl } = await createControllerTestingModule(AuthController, [
       { provide: AuthService, useValue: authService },
       { provide: ConfigService, useValue: mockConfig({ AUTH_ENABLED: 'true' }) },
+      { provide: SHARED_REDIS, useValue: createMockRedis() },
     ]);
 
     await expect(ctrl.me(mockRequest() as unknown as any)).rejects.toThrow(UnauthorizedException);
@@ -105,6 +112,7 @@ describe('AuthController', () => {
     const { controller: ctrl } = await createControllerTestingModule(AuthController, [
       { provide: AuthService, useValue: authService },
       { provide: ConfigService, useValue: mockConfig({ AUTH_ENABLED: 'true' }) },
+      { provide: SHARED_REDIS, useValue: createMockRedis() },
     ]);
 
     const result = await ctrl.me(mockRequest({ sub: 'admin-id', username: 'admin' }) as unknown as any);

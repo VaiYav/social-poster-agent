@@ -23,7 +23,7 @@ function createMockConfigService(overrides: Record<string, unknown> = {}): Confi
 
 function createMockResponse() {
   return {
-    write: vi.fn(),
+    write: vi.fn().mockReturnValue(true),
     end: vi.fn(),
     on: vi.fn(),
     once: vi.fn(),
@@ -48,9 +48,15 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
     configService = createMockConfigService({
       REDIS_URL: 'redis://localhost:6380',
       SSE_CHANNEL: 'spa:sse',
+      SSE_MAX_CONNECTIONS_PER_IP: 2,
+      SSE_IDLE_TIMEOUT_MS: 50,
     });
     // Sprint L: SseService now receives Redis connections via DI
     service = new SseService(configService, mockRedis, mockPublisher);
+  });
+
+  afterEach(() => {
+    service.onModuleDestroy();
   });
 
   // ── UTC-089 ──
@@ -83,6 +89,48 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
 
     expect(id1).not.toBe(id2);
     expect(service.getConnectedCount()).toBe(2);
+  });
+
+  // ── UTC-090a ──
+  it('UTC-090a: addClient() rejects new connections once per-IP limit is reached', () => {
+    const res1 = createMockResponse();
+    const res2 = createMockResponse();
+    const res3 = createMockResponse();
+
+    const id1 = service.addClient(res1, '1.1.1.1');
+    const id2 = service.addClient(res2, '1.1.1.1');
+    const id3 = service.addClient(res3, '1.1.1.1');
+
+    expect(id1).toMatch(/^sse-/);
+    expect(id2).toMatch(/^sse-/);
+    expect(id3).toBeNull();
+    expect(service.getConnectedCount()).toBe(2);
+    expect(res3.end).toHaveBeenCalled();
+  });
+
+  // ── UTC-090b ──
+  it('UTC-090b: addClient() returns null when per-IP limit is reached', () => {
+    const ip = '1.1.1.1';
+    service.addClient(createMockResponse(), ip);
+    service.addClient(createMockResponse(), ip);
+
+    const rejected = service.addClient(createMockResponse(), ip);
+
+    expect(rejected).toBeNull();
+  });
+
+  // ── UTC-090c ──
+  it('UTC-090c: idle timeout closes stale SSE connections', () => {
+    vi.useFakeTimers();
+    const mockRes = createMockResponse();
+    service.addClient(mockRes, '1.1.1.1');
+    expect(service.getConnectedCount()).toBe(1);
+
+    vi.advanceTimersByTime(100);
+
+    expect(service.getConnectedCount()).toBe(0);
+    expect(mockRes.end).toHaveBeenCalled();
+    vi.useRealTimers();
   });
 
   // ── UTC-091 ──

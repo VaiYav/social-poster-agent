@@ -28,17 +28,18 @@ export class EventsController {
     res.setHeader('X-Accel-Buffering', 'no'); // disable Nginx buffering
     res.flushHeaders();
 
-    const clientId = this.sseService.addClient(res);
+    const clientId = this.sseService.addClient(res, req.ip);
 
     // Heartbeat every 30s to keep connection alive
     const heartbeat = setInterval(() => {
+      if (clientId) this.sseService.touchClient(clientId);
       res.write(': heartbeat\n\n');
     }, 30000);
 
     // Cleanup on disconnect
     req.on('close', () => {
       clearInterval(heartbeat);
-      this.sseService.removeClient(clientId);
+      if (clientId) this.sseService.removeClient(clientId);
     });
   }
 }

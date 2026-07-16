@@ -212,6 +212,9 @@ const envSchema = Joi.object({
   RATE_LIMIT_THREADS_MAX_PER_DAY: Joi.number().integer().min(0).default(1),
   RATE_LIMIT_THREADS_MAX_PER_WEEK: Joi.number().integer().min(0).default(5),
   RATE_LIMIT_FACEBOOK_MAX_PER_DAY: Joi.number().integer().min(0).default(1),
+  // Login endpoint brute-force protection
+  RATE_LIMIT_LOGIN_MAX_ATTEMPTS: Joi.number().integer().min(1).default(5),
+  RATE_LIMIT_LOGIN_WINDOW_MS: Joi.number().integer().min(1000).default(60 * 1000),
   RATE_LIMIT_FACEBOOK_MAX_PER_WEEK: Joi.number().integer().min(0).default(5),
   // Interaction limits per action (daily / weekly)
   RATE_LIMIT_INTERACTION_LIKE_MAX_PER_DAY: Joi.number().integer().min(0).default(60),
@@ -245,6 +248,8 @@ const envSchema = Joi.object({
 
   // ── Server-Sent Events (SSE) ──
   SSE_CHANNEL: Joi.string().default('spa:sse'),
+  SSE_MAX_CONNECTIONS_PER_IP: Joi.number().integer().min(1).default(10),
+  SSE_IDLE_TIMEOUT_MS: Joi.number().integer().min(1000).default(5 * 60 * 1000),
 
   // ── Langfuse (LLM observability — tracing, prompt management, evaluation) ──
   // Auto-enable: tracing activates when LANGFUSE_PUBLIC_KEY is set.
