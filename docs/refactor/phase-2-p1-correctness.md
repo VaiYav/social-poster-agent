@@ -450,11 +450,11 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `health-monitor.service.ts:125` to find the reconciliation logic
-- [ ] Replace `Promise.all` with a concurrency-limited approach (chunked or `p-map`)
-- [ ] Filter out `completed` jobs — only reconcile `active`/`delayed`/`failed` jobs
-- [ ] Add a unit test that verifies concurrency limit and job filtering
-- [ ] Run `npx vitest run tests/unit/health-monitor/`
+- [x] Read `health-monitor.service.ts:125` to find the reconciliation logic
+- [x] Replace `Promise.all` with a concurrency-limited approach (chunked or `p-map`)
+- [x] Filter out `completed` jobs — only reconcile `active`/`delayed`/`failed` jobs
+- [x] Add a unit test that verifies concurrency limit and job filtering
+- [x] Run `npx vitest run tests/unit/health-monitor/`
 
 ### Acceptance criteria
 
