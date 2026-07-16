@@ -415,7 +415,7 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.3.2 — `PrismaService` — connection pool tuning
 
-**Status:** `[x]` | **Effort:** S | **Ref:** infrastructure-prisma.md
+**Status:** `[~]` | **Effort:** S | **Ref:** infrastructure-prisma.md
 
 **Files:** `packages/backend/src/infrastructure/prisma/prisma.service.ts`
 
