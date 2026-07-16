@@ -426,8 +426,20 @@ export class GenerationService {
           }),
         );
 
-        for (const result of results) {
+        for (let r = 0; r < results.length; r++) {
+          const result = results[r];
+          if (!result) continue;
+          const topic = batch[r];
           if (result.status === 'fulfilled') {
+            // 2.8.1: Mark the topic as used after successful generation so
+            // it is not selected again in the next cycle.
+            if (topic) {
+              try {
+                await this.contentSourceService.markUsed(topic);
+              } catch (err) {
+                this.logger.debug(`markUsed failed for topic (non-blocking): ${(err as Error).message}`);
+              }
+            }
             postIds.push(...result.value.map((p) => p.id));
             // P2: Collect judge scores for calibration summary
             for (const post of result.value) {

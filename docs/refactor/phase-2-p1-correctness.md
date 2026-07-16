@@ -10,7 +10,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.1.1 — `retryable` flag not set for poster errors
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** posting.md B10
+**Status:** `[x]` | **Effort:** S | **Ref:** posting.md B10
 
 **Files:** `packages/backend/src/modules/posting/posting.service.ts:393-396, 520-539`, queue worker
 
@@ -36,7 +36,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.1.2 — `schedulePosting` uses general retry config instead of posting config
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** queue.md
+**Status:** `[x]` | **Effort:** XS | **Ref:** queue.md
 
 **Files:** `packages/backend/src/infrastructure/queue/queue.factory.ts`
 
@@ -59,7 +59,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.1.3 — `QueueController.getFailed` exposes raw `Job` objects
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** queue.md B8
+**Status:** `[x]` | **Effort:** XS | **Ref:** queue.md B8
 
 **Files:** `packages/backend/src/modules/queue/queue.controller.ts`
 
@@ -85,7 +85,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.2.1 — Verify `qualityScore` missing-score fallback design
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** autonomy.md B2
+**Status:** `[x]` | **Effort:** XS | **Ref:** autonomy.md B2
 
 **Files:** `packages/backend/src/modules/autonomy/auto-approve.service.ts:113-120`
 
@@ -109,7 +109,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.2.2 — `loadRecentHashes` includes FAILED/REJECTED + no `orderBy`
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** autonomy.md B15/B16
+**Status:** `[x]` | **Effort:** XS | **Ref:** autonomy.md B15/B16
 
 **Files:** `packages/backend/src/modules/autonomy/auto-check.service.ts:136-147`
 
@@ -133,7 +133,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.2.3 — `checkRejectStreak` not truly consecutive
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** autonomy.md B1
+**Status:** `[x]` | **Effort:** S | **Ref:** autonomy.md B1
 
 **Files:** `packages/backend/src/modules/autonomy/auto-approve.service.ts:216-220`
 
@@ -155,7 +155,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.2.4 — Remove unused `PostsService` from `AutoApproveListener`
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** autonomy.md B21
+**Status:** `[x]` | **Effort:** XS | **Ref:** autonomy.md B21
 
 **Files:** `packages/backend/src/events/listeners/auto-approve.listener.ts:39`
 
@@ -180,7 +180,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.3.1 — `approve` with `editedContent` does not update `simhash` or re-run AutoCheck
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** posts.md S7/S8, F3/F4
+**Status:** `[x]` | **Effort:** S | **Ref:** posts.md S7/S8, F3/F4
 
 **Files:** `packages/backend/src/modules/posts/posts.service.ts:172-174, 179-184`
 
@@ -205,7 +205,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.3.2 — `updateStatus` allows arbitrary transitions — no state machine
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** posts.md B4
+**Status:** `[x]` | **Effort:** S | **Ref:** posts.md B4
 
 **Files:** `packages/backend/src/modules/posts/posts.service.ts:111-139`
 
@@ -230,7 +230,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.3.3 — `PostEvents.REJECTED` never emitted
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** posts.md B12, events.md B1
+**Status:** `[x]` | **Effort:** XS | **Ref:** posts.md B12, events.md B1
 
 **Files:** `packages/backend/src/modules/posts/posts.service.ts:192-205`
 
@@ -253,7 +253,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.3.4 — Duplicate `post_status` SSE events
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** events.md B3, infrastructure-sse.md B1
+**Status:** `[x]` | **Effort:** S | **Ref:** events.md B3, infrastructure-sse.md B1
 
 **Files:** `packages/backend/src/modules/posting/posting.service.ts`, `packages/backend/src/events/listeners/sse-event.listener.ts`
 
@@ -277,7 +277,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.3.5 — `SseEventListener` does not await `publish` → unhandled promise rejections
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** events.md B2, infrastructure-sse.md B2
+**Status:** `[x]` | **Effort:** XS | **Ref:** events.md B2, infrastructure-sse.md B2
 
 **Files:** `packages/backend/src/events/listeners/sse-event.listener.ts`
 
@@ -303,7 +303,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.4.1 — Circuit breaker does not record `null` failures
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** sessions.md
+**Status:** `[x]` | **Effort:** S | **Ref:** sessions.md
 
 **Files:** `packages/backend/src/modules/sessions/sessions.service.ts`
 
@@ -326,7 +326,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.4.2 — `healthCheck` does not expire sessions on nav errors
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** sessions.md B29
+**Status:** `[x]` | **Effort:** XS | **Ref:** sessions.md B29
 
 **Files:** `packages/backend/src/modules/sessions/sessions.service.ts:1389-1391`
 
@@ -348,7 +348,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.4.3 — Remove `as SessionStatus` casts for `WARMUP`
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** sessions.md
+**Status:** `[x]` | **Effort:** XS | **Ref:** sessions.md
 
 **Files:** `packages/backend/src/modules/sessions/warmup.service.ts`, `packages/backend/src/modules/sessions/sessions.service.ts`
 
@@ -370,7 +370,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.4.4 — `ParseEnumPipe` for `network` parameter in `SessionsController`
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** sessions.md B27
+**Status:** `[x]` | **Effort:** XS | **Ref:** sessions.md B27
 
 **Files:** `packages/backend/src/modules/sessions/sessions.controller.ts`
 
@@ -394,7 +394,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.5.1 — `checkBanRecovery` uses `createdAt` instead of `updatedAt`/`bannedAt`
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** health-monitor.md A5
+**Status:** `[x]` | **Effort:** S | **Ref:** health-monitor.md A5
 
 **Files:** `packages/backend/src/modules/health-monitor/health-monitor.service.ts:549`
 
@@ -417,7 +417,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.5.2 — `getDashboard` calls `runHealthCheck()` which emits alerts
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** health-monitor.md
+**Status:** `[x]` | **Effort:** S | **Ref:** health-monitor.md
 
 **Files:** `packages/backend/src/modules/health-monitor/health-monitor.service.ts:519`
 
@@ -442,7 +442,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.5.3 — `runReconciliation` 1000 parallel calls + re-enqueues `completed` jobs
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** health-monitor.md
+**Status:** `[x]` | **Effort:** S | **Ref:** health-monitor.md
 
 **Files:** `packages/backend/src/modules/health-monitor/health-monitor.service.ts:125`
 
@@ -474,7 +474,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.7.1 — Non-atomic check/record — race condition
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** rate-limit.md B1
+**Status:** `[x]` | **Effort:** S | **Ref:** rate-limit.md B1
 
 **Files:** `packages/backend/src/modules/.../rate-limit.service.ts:158, 167, 176`
 
@@ -499,7 +499,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.7.2 — `0` handling — `Number(...) || default` treats `0` as falsy
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** rate-limit.md B8
+**Status:** `[x]` | **Effort:** XS | **Ref:** rate-limit.md B8
 
 **Files:** `packages/backend/src/modules/.../rate-limit.service.ts:76-79`
 
@@ -522,7 +522,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.7.3 — Fail-open on Redis down — no fail-closed option
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** rate-limit.md
+**Status:** `[x]` | **Effort:** XS | **Ref:** rate-limit.md
 
 **Files:** `packages/backend/src/modules/.../rate-limit.service.ts:144-146`
 
@@ -548,7 +548,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.8.1 — `DbContentReader.markUsed` never called → topics reused
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** content-source.md
+**Status:** `[x]` | **Effort:** S | **Ref:** content-source.md
 
 **Files:** `packages/backend/src/infrastructure/content/content-reader.ts`, `packages/backend/src/modules/generation/generation.service.ts`
 
@@ -573,7 +573,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.8.2 — `ContentPillarTracker` TTL refresh = non-rolling window + records drafts
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** content-enhancements.md B1, S51-S53
+**Status:** `[x]` | **Effort:** S | **Ref:** content-enhancements.md B1, S51-S53
 
 **Files:** `packages/backend/src/modules/.../content-pillar.tracker.ts:177-181`
 
@@ -597,7 +597,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.8.3 — Recycling: `recycled` flag set before generation success
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** recycling.md B10
+**Status:** `[x]` | **Effort:** XS | **Ref:** recycling.md B10
 
 **Files:** `packages/backend/src/modules/generation/generation.service.ts:562-565`
 
@@ -619,7 +619,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.8.4 — Recycling: SimHash threshold inconsistent with GenerationService
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** recycling.md
+**Status:** `[x]` | **Effort:** XS | **Ref:** recycling.md
 
 **Files:** `packages/backend/src/modules/.../recycling.service.ts`
 
@@ -644,7 +644,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.8.5 — `ABVariantGenerator` hashtag regex ASCII-only — misses Cyrillic
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** content-enhancements.md B8
+**Status:** `[x]` | **Effort:** XS | **Ref:** content-enhancements.md B8
 
 **Files:** `packages/backend/src/modules/.../ab-variant.generator.ts:254`
 
@@ -668,7 +668,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.8.6 — `getDailyStats` uses `createdAt` instead of `postedAt`
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** analytics.md
+**Status:** `[x]` | **Effort:** XS | **Ref:** analytics.md
 
 **Files:** `packages/backend/src/modules/analytics/analytics.service.ts:84`
 
@@ -690,7 +690,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.8.7 — `getTopPosts` sorts by recency, not engagement
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** analytics.md
+**Status:** `[x]` | **Effort:** XS | **Ref:** analytics.md
 
 **Files:** `packages/backend/src/modules/analytics/analytics.service.ts:120-124`
 
@@ -715,7 +715,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.9.1 — Self-reply detection broken
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** replies.md
+**Status:** `[x]` | **Effort:** S | **Ref:** replies.md
 
 **Files:** `packages/backend/src/modules/replies/replies-monitor.service.ts:414-416`
 
@@ -737,7 +737,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.9.2 — Original post scraped as comment
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** replies.md
+**Status:** `[x]` | **Effort:** S | **Ref:** replies.md
 
 **Files:** `packages/backend/src/modules/replies/replies-monitor.service.ts`
 
@@ -759,7 +759,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.9.3 — `runMonitoringCycle` ignores flow control
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** replies.md
+**Status:** `[x]` | **Effort:** XS | **Ref:** replies.md
 
 **Files:** `packages/backend/src/modules/replies/replies-monitor.service.ts`
 
@@ -781,7 +781,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.9.4 — `page.evaluate` uses Playwright `:has-text` selector (invalid in browser)
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** trending.md
+**Status:** `[x]` | **Effort:** S | **Ref:** trending.md
 
 **Files:** `packages/backend/src/modules/trending/trending-scraper.service.ts:76`
 
@@ -803,7 +803,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.9.5 — `getMergedTrending` not cached
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** trending.md
+**Status:** `[x]` | **Effort:** XS | **Ref:** trending.md
 
 **Files:** `packages/backend/src/modules/trending/trending.service.ts`
 
@@ -829,7 +829,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.10.1 — Quote generation uses wrong temperature env var
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** engagement.md B24
+**Status:** `[x]` | **Effort:** XS | **Ref:** engagement.md B24
 
 **Files:** `packages/backend/src/modules/engagement/engagement-decision.service.ts:261`
 
@@ -851,7 +851,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.10.2 — `EngagementDecisionService` reads env vars at module load
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** engagement.md B24
+**Status:** `[x]` | **Effort:** XS | **Ref:** engagement.md B24
 
 **Files:** `packages/backend/src/modules/engagement/engagement-decision.service.ts:34-35`
 
@@ -876,7 +876,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.11.1 — Langfuse default base URL is EU instead of US
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** infrastructure-llm.md B8
+**Status:** `[x]` | **Effort:** XS | **Ref:** infrastructure-llm.md B8
 
 **Files:** `packages/backend/src/infrastructure/langfuse/langfuse.service.ts:75`, `packages/backend/src/infrastructure/langfuse/langfuse-instrumentation.ts:83`
 
@@ -898,7 +898,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.11.2 — `createHandler()` does not pass `baseUrl` to `CallbackHandler`
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** infrastructure-llm.md B9
+**Status:** `[x]` | **Effort:** XS | **Ref:** infrastructure-llm.md B9
 
 **Files:** `packages/backend/src/infrastructure/langfuse/langfuse.service.ts:92-101`
 
@@ -920,7 +920,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.11.3 — `PROMPT_VERSION` env var has no effect
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** infrastructure-llm.md B11
+**Status:** `[x]` | **Effort:** S | **Ref:** infrastructure-llm.md B11
 
 **Files:** `packages/backend/src/infrastructure/langfuse/prompt-registry.ts`, `packages/backend/src/infrastructure/langfuse/langfuse.service.ts:130, 162`
 
@@ -945,7 +945,7 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### 2.11.4 — `getAvailableModels()` misclassifies paid providers as free
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** infrastructure-llm.md B7
+**Status:** `[x]` | **Effort:** XS | **Ref:** infrastructure-llm.md B7
 
 **Files:** `packages/backend/src/infrastructure/llm/llm.service.ts:360-366`
 
