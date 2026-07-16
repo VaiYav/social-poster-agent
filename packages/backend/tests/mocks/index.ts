@@ -276,6 +276,9 @@ export function createMockPrismaService() {
     browsingSession: {
       ...createModelMock(),
     },
+    interaction: {
+      ...createModelMock(),
+    },
     contentSource: {
       ...createModelMock(),
     },

@@ -709,6 +709,9 @@ describe('GenerationService', () => {
       // Thread row + root link + continuations must be wrapped in one transaction.
       expect(prisma.$transaction).toHaveBeenCalled();
       expect(prisma.postThread.create).toHaveBeenCalled();
+      // P0 1.3: transactions must have a 30s timeout to avoid long-running locks.
+      const txCall = (prisma.$transaction.mock.calls as unknown[][]).find((c) => c[1]?.timeout === 30000);
+      expect(txCall).toBeTruthy();
     });
 
     it('UTC-221: multiStage=true without ThreadDepthController → F2 fallback (2 posts)', async () => {

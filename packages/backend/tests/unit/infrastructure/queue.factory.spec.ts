@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   queueResume: vi.fn().mockResolvedValue(undefined),
   queueIsPaused: vi.fn().mockResolvedValue(false),
   queueClose: vi.fn().mockResolvedValue(undefined),
+  queueClean: vi.fn().mockResolvedValue([]),
   workerClose: vi.fn().mockResolvedValue(undefined),
   workerOn: vi.fn(),
   QueueMock: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock('bullmq', () => ({
     resume: mocks.queueResume,
     isPaused: mocks.queueIsPaused,
     close: mocks.queueClose,
+    clean: mocks.queueClean,
   })),
   Worker: mocks.WorkerMock.mockImplementation(() => ({
     close: mocks.workerClose,
@@ -570,5 +572,19 @@ describe('QueueFactory (MOD-05 — Infrastructure Adapters)', () => {
     const paused = await factory.isQueuePaused('X');
 
     expect(paused).toBe(false);
+  });
+
+  // ── clearCompletedAndFailedJobs ──
+
+  it('P1-1.6: clearCompletedAndFailedJobs cleans completed and failed jobs', async () => {
+    mocks.queueClean
+      .mockResolvedValueOnce([{ id: 'completed-1' }] as never)
+      .mockResolvedValueOnce([{ id: 'failed-1' }] as never);
+
+    const count = await factory.clearCompletedAndFailedJobs('X');
+
+    expect(mocks.queueClean).toHaveBeenCalledWith(0, 1000, 'completed');
+    expect(mocks.queueClean).toHaveBeenCalledWith(0, 1000, 'failed');
+    expect(count).toBe(2);
   });
 });

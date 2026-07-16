@@ -15,6 +15,7 @@ import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 import { getEnabledNetworks, isNetworkEnabled } from '../../domain/enabled-networks.js';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
 import { EmailReaderService } from '../../infrastructure/email/email-reader.service.js';
+import type { Page } from '../../domain/ports/browser-primitives.js';
 
 /** Thrown when an auto-login attempt fails in an expected way (wrong credentials, captcha, 2FA, etc.). */
 class AutoLoginFailedError extends Error {
@@ -352,9 +353,10 @@ export class SessionsService implements OnModuleInit {
     }
 
     let context: Awaited<ReturnType<IBrowserPort['createContext']>> | null = null;
+    let page: Page | null = null;
     try {
       context = await this.browser.createContext(network);
-      const page = await context.newPage();
+      page = await context.newPage();
 
       // Add cookies to the browser context
       await context.addCookies(cookies);
@@ -416,6 +418,9 @@ export class SessionsService implements OnModuleInit {
       } catch {}
       return null;
     } finally {
+      if (page) {
+        await page.close().catch(() => void 0);
+      }
       if (context) {
         await context.close().catch(() => void 0);
       }
@@ -481,9 +486,10 @@ export class SessionsService implements OnModuleInit {
     this.logger.log(`Auto-login ${network} as ${username}`);
 
     let context: Awaited<ReturnType<IBrowserPort['createContext']>> | null = null;
+    let page: Page | null = null;
     try {
       context = await this.browser.createContext(network);
-      const page = await context.newPage();
+      page = await context.newPage();
 
       // Facebook: persistent context may already have valid cookies from previous run.
       // Check for c_user cookie before attempting login — skip login if already authenticated.
@@ -1222,6 +1228,9 @@ export class SessionsService implements OnModuleInit {
       } catch {}
       return null;
     } finally {
+      if (page) {
+        await page.close().catch(() => void 0);
+      }
       if (context) {
         await context.close().catch(() => void 0);
       }

@@ -2047,4 +2047,92 @@ describe('MOD-04: SessionsService', () => {
       else process.env.CAMOUFOX_HEADLESS = origHeadless;
     }
   });
+
+  describe('P1-1.1 cleanup: page before context', () => {
+    it('tryCookieAuth success closes page and context in order', async () => {
+      prisma.session.findFirst.mockResolvedValue(null);
+      prisma.session.create.mockResolvedValue({ id: 'sess-cookie-cleanup', accountId: ACCOUNT_X.id, status: SessionStatus.ACTIVE });
+
+      const page = createMockPage({ url: 'https://x.com/home', successVisible: true });
+      const context = createMockContext(page, {
+        cookies: [
+          { name: 'auth_token', value: 'test-auth-token', domain: '.x.com' },
+          { name: 'ct0', value: 'test-ct0', domain: '.x.com' },
+        ],
+      });
+      browser.createContext.mockResolvedValue(context);
+      browser.saveStorageState.mockResolvedValue(JSON.stringify({ cookies: [], origins: [] }));
+
+      const t = await setup({
+        accounts: createMockAccountsService({ X: ACCOUNT_X }),
+        config: createMockConfigService({
+          SOCIAL_X_COOKIES: 'auth_token=test-auth-token; ct0=test-ct0',
+        }),
+      });
+
+      const result = await t.service.getOrCreateSession(SocialNetwork.X);
+
+      expect(result).toEqual(expect.objectContaining({ id: 'sess-cookie-cleanup' }));
+      expect(page.close).toHaveBeenCalled();
+      expect(context.close).toHaveBeenCalled();
+      const pageCloseLast = page.close.mock.invocationCallOrder[page.close.mock.invocationCallOrder.length - 1];
+      const contextCloseFirst = context.close.mock.invocationCallOrder[0];
+      expect(pageCloseLast).toBeLessThan(contextCloseFirst);
+    });
+
+    it('tryCookieAuth failure still closes page and context', async () => {
+      prisma.session.findFirst.mockResolvedValue(null);
+
+      const page = createMockPage({ url: 'https://x.com/login', successVisible: true });
+      const context = createMockContext(page, {
+        cookies: [
+          { name: 'auth_token', value: 'test-auth-token', domain: '.x.com' },
+          { name: 'ct0', value: 'test-ct0', domain: '.x.com' },
+        ],
+      });
+      browser.createContext.mockResolvedValue(context);
+
+      const t = await setup({
+        accounts: createMockAccountsService({ X: ACCOUNT_X }),
+        config: createMockConfigService({
+          SOCIAL_X_COOKIES: 'auth_token=test-auth-token; ct0=test-ct0',
+        }),
+      });
+
+      const result = await t.service.getOrCreateSession(SocialNetwork.X);
+
+      expect(result).toBeNull();
+      expect(page.close).toHaveBeenCalled();
+      expect(context.close).toHaveBeenCalled();
+      const pageCloseLast = page.close.mock.invocationCallOrder[page.close.mock.invocationCallOrder.length - 1];
+      const contextCloseFirst = context.close.mock.invocationCallOrder[0];
+      expect(pageCloseLast).toBeLessThan(contextCloseFirst);
+    });
+
+    it('autoLogin closes page and context when navigation fails', async () => {
+      prisma.session.findFirst.mockResolvedValue(null);
+
+      const page = createMockPage({ url: 'https://x.com/home', successVisible: true });
+      page.goto.mockRejectedValue(new Error('navigation failed'));
+      const context = createMockContext(page);
+      browser.createContext.mockResolvedValue(context);
+
+      const t = await setup({
+        accounts: createMockAccountsService({ X: ACCOUNT_X }),
+        config: createMockConfigService({
+          SOCIAL_X_USERNAME: 'myzodiacai',
+          SOCIAL_X_PASSWORD: 'secret-pass',
+        }),
+      });
+
+      const result = await t.service.getOrCreateSession(SocialNetwork.X);
+
+      expect(result).toBeNull();
+      expect(page.close).toHaveBeenCalled();
+      expect(context.close).toHaveBeenCalled();
+      const pageCloseLast = page.close.mock.invocationCallOrder[page.close.mock.invocationCallOrder.length - 1];
+      const contextCloseFirst = context.close.mock.invocationCallOrder[0];
+      expect(pageCloseLast).toBeLessThan(contextCloseFirst);
+    });
+  });
 });
