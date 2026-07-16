@@ -21,10 +21,65 @@ import { parseBool } from '../../infrastructure/config/parse-bool.js';
  * - RATE_LIMIT_{NETWORK}_MAX_PER_WEEK (default: 5)
  * - RATE_LIMIT_MIN_DELAY_MS (default: 300000 = 5 min, applied to all networks)
  *
- * Uses Redis INCR + EXPIRE for atomic sliding window counters.
+ * Uses Redis Lua script (EVAL) for atomic sliding window counters.
+ * The script checks daily/weekly/interval limits and only increments if under the limit,
+ * preventing the TOCTOU race between checkRateLimit and recordPost.
  *
  * Sprint L: Uses shared Redis connection from RedisModule.
  */
+
+const DAILY_TTL_SECONDS = 86400 + 3600; // 25h
+const WEEKLY_TTL_SECONDS = 7 * 86400 + 3600; // 7 days + 1h
+
+/**
+ * Lua script that atomically checks the current counters and only increments
+ * the daily/weekly counters if the post is still within the configured limits.
+ * Returns an array: { allowed, dailyCount, weeklyCount }.
+ */
+export const RECORD_POST_SCRIPT = `
+local dailyKey = KEYS[1]
+local weeklyKey = KEYS[2]
+local intervalKey = KEYS[3]
+local lastPostAtKey = KEYS[4]
+local dailyLimit = tonumber(ARGV[1])
+local weeklyLimit = tonumber(ARGV[2])
+local intervalMs = tonumber(ARGV[3])
+local now = tonumber(ARGV[4])
+local dailyTtl = tonumber(ARGV[5])
+local weeklyTtl = tonumber(ARGV[6])
+
+local dailyCount = tonumber(redis.call('get', dailyKey) or '0')
+if dailyLimit > 0 and dailyCount >= dailyLimit then
+  return {0, dailyCount, tonumber(redis.call('get', weeklyKey) or '0')}
+end
+
+local weeklyCount = tonumber(redis.call('get', weeklyKey) or '0')
+if weeklyLimit > 0 and weeklyCount >= weeklyLimit then
+  return {0, dailyCount, weeklyCount}
+end
+
+local intervalTs = tonumber(redis.call('get', intervalKey) or '0')
+if intervalMs > 0 and intervalTs > 0 and now - intervalTs < intervalMs then
+  return {0, dailyCount, weeklyCount}
+end
+
+local newDaily = redis.call('incr', dailyKey)
+if newDaily == 1 then
+  redis.call('expire', dailyKey, dailyTtl)
+end
+
+local newWeekly = redis.call('incr', weeklyKey)
+if newWeekly == 1 then
+  redis.call('expire', weeklyKey, weeklyTtl)
+end
+
+redis.call('set', lastPostAtKey, now, 'PX', weeklyTtl)
+if intervalMs > 0 then
+  redis.call('set', intervalKey, now, 'PX', intervalMs)
+end
+
+return {1, newDaily, newWeekly}
+`;
 @Injectable()
 export class RateLimitService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RateLimitService.name);
@@ -239,11 +294,16 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Record that a post was made — increments daily/weekly counters + updates interval timestamp.
+   * Record that a post was made — atomically checks daily/weekly/interval limits
+   * and increments the counters only if the post is still within the limit.
    * Called after a successful post.
+   *
+   * 2.7: Uses a single Lua script to avoid the TOCTOU race between the read in
+   * checkRateLimit and the increments in recordPost.
    */
-  async recordPost(network: string): Promise<void> {
-    if (!this.redis) return;
+  async recordPost(network: string): Promise<{ allowed: boolean; dailyCount: number; weeklyCount: number }> {
+    const empty = { allowed: true, dailyCount: 0, weeklyCount: 0 };
+    if (!this.redis) return empty;
 
     const today = new Date().toISOString().slice(0, 10);
     const weekStart = this.getWeekStart().toISOString().slice(0, 10);
@@ -251,30 +311,39 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     const weeklyKey = `${this.prefix}:${network}:weekly:${weekStart}`;
     const intervalKey = `${this.prefix}:${network}:interval`;
     const lastPostAtKey = `${this.prefix}:${network}:lastPostAt`;
-    const intervalMs = this.resolveLimits(network).intervalMs;
-
-    // Increment daily counter (set TTL on first increment)
-    const dailyCount = await this.redis.incr(dailyKey);
-    if (dailyCount === 1) {
-      await this.redis.expire(dailyKey, 86400 + 3600); // 25h TTL
-    }
-
-    // Increment weekly counter (set TTL on first increment)
-    const weeklyCount = await this.redis.incr(weeklyKey);
-    if (weeklyCount === 1) {
-      await this.redis.expire(weeklyKey, 7 * 86400 + 3600); // 7 days + 1h TTL
-    }
-
-    // Persist last post timestamp for the current window (7 days + 1h so it
-    // survives the shorter minInterval TTL and remains available for posting
-    // rotation and orchestrator decisions).
+    const { daily: dailyLimit, weekly: weeklyLimit, intervalMs } = this.resolveLimits(network);
     const now = Date.now();
-    await this.redis.set(lastPostAtKey, now.toString(), 'PX', 7 * 86400 + 3600);
 
-    // Update interval timestamp (skip when no interval gate is configured)
-    if (intervalMs > 0) {
-      await this.redis.set(intervalKey, now.toString(), 'PX', intervalMs);
+    const result = (await this.redis.eval(
+      RECORD_POST_SCRIPT,
+      4,
+      dailyKey,
+      weeklyKey,
+      intervalKey,
+      lastPostAtKey,
+      String(dailyLimit),
+      String(weeklyLimit),
+      String(intervalMs),
+      String(now),
+      String(DAILY_TTL_SECONDS),
+      String(WEEKLY_TTL_SECONDS),
+    )) as unknown as [number, number, number] | undefined;
+
+    if (!result || !Array.isArray(result)) {
+      this.logger.warn(`Redis eval returned unexpected result for ${network} — rate limit not recorded`);
+      return empty;
     }
+
+    const [allowed, dailyCount, weeklyCount] = result;
+    if (!allowed) {
+      this.logger.warn(
+        `recordPost raced past rate limit for ${network} (` +
+          `daily=${dailyCount}/${dailyLimit}, weekly=${weeklyCount}/${weeklyLimit}` +
+          `) — not incrementing counter`,
+      );
+    }
+
+    return { allowed: allowed === 1, dailyCount, weeklyCount };
   }
 
   /**

@@ -484,9 +484,9 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 - [x] Read `rate-limit.service.ts:158-176` to find the check/record logic
 - [x] Replace sequential `get` calls with atomic `MGET` for read and atomic `INCR` for record
-- [ ] Write a Lua script that atomically checks the current count and increments if under limit
-- [ ] Use `redis.eval(luaScript, ...)` to execute the script
-- [ ] Add a unit/integration test that fires concurrent posts and verifies the limit is not exceeded
+- [x] Write a Lua script that atomically checks the current count and increments if under limit
+- [x] Use `redis.eval(luaScript, ...)` to execute the script
+- [x] Add a unit/integration test that fires concurrent posts and verifies the limit is not exceeded
 - [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria

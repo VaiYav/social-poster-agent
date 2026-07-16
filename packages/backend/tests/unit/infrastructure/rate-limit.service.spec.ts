@@ -13,10 +13,54 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { ConfigService } from '@nestjs/config';
-import { RateLimitService } from '../../../src/modules/rate-limit/rate-limit.service';
+import { RateLimitService, RECORD_POST_SCRIPT } from '../../../src/modules/rate-limit/rate-limit.service';
 import { createMockRedis } from '../../mocks/index';
 
 // ── Helpers ──
+
+/**
+ * In-test mirror of the Redis Lua script in RECORD_POST_SCRIPT.
+ * Uses the same logic so unit tests can exercise the atomic
+ * check-and-increment path without a live Redis server.
+ */
+function executeRecordPostScript(
+  keys: string[],
+  args: string[],
+  store: Map<string, string>,
+): [number, number, number] {
+  const [dailyKey, weeklyKey, intervalKey, lastPostAtKey] = keys;
+  const [dailyLimitStr, weeklyLimitStr, intervalMsStr, nowStr] = args;
+  const dailyLimit = Number(dailyLimitStr);
+  const weeklyLimit = Number(weeklyLimitStr);
+  const intervalMs = Number(intervalMsStr);
+  const now = Number(nowStr);
+
+  const dailyCount = Number(store.get(dailyKey) ?? '0');
+  if (dailyLimit > 0 && dailyCount >= dailyLimit) {
+    return [0, dailyCount, Number(store.get(weeklyKey) ?? '0')];
+  }
+
+  const weeklyCount = Number(store.get(weeklyKey) ?? '0');
+  if (weeklyLimit > 0 && weeklyCount >= weeklyLimit) {
+    return [0, dailyCount, weeklyCount];
+  }
+
+  const intervalTs = Number(store.get(intervalKey) ?? '0');
+  if (intervalMs > 0 && intervalTs > 0 && now - intervalTs < intervalMs) {
+    return [0, dailyCount, weeklyCount];
+  }
+
+  const newDaily = String(dailyCount + 1);
+  const newWeekly = String(weeklyCount + 1);
+  store.set(dailyKey, newDaily);
+  store.set(weeklyKey, newWeekly);
+  store.set(lastPostAtKey, nowStr);
+  if (intervalMs > 0) {
+    store.set(intervalKey, nowStr);
+  }
+
+  return [1, Number(newDaily), Number(newWeekly)];
+}
 
 function createMockConfigService(overrides: Record<string, unknown> = {}): ConfigService {
   const defaults: Record<string, unknown> = {
@@ -45,6 +89,16 @@ describe('RateLimitService (MOD-05 — Infrastructure Adapters)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRedis = createMockRedis();
+    // Wire the mock eval to execute the rate-limit Lua script in JS.
+    mockRedis.eval.mockImplementation((script: string, numKeys: number, ...rest: unknown[]) => {
+      if (script !== RECORD_POST_SCRIPT) {
+        return Promise.resolve(undefined);
+      }
+      const keys = rest.slice(0, Number(numKeys)) as string[];
+      const args = rest.slice(Number(numKeys)) as string[];
+      const result = executeRecordPostScript(keys, args, mockRedis._store);
+      return Promise.resolve(result);
+    });
     configService = createMockConfigService();
     // Sprint L: RateLimitService now receives Redis via DI (SHARED_REDIS token)
     service = new RateLimitService(configService, mockRedis as never);
@@ -116,31 +170,39 @@ describe('RateLimitService (MOD-05 — Infrastructure Adapters)', () => {
   });
 
   // ── UTC-081 ──
-  it('UTC-081: recordPost() sets TTL on daily key only when count is 1 (first post of day)', async () => {
-    mockRedis.incr.mockResolvedValue(1);
+  it('UTC-081: recordPost() increments daily and weekly counters on first post', async () => {
+    const result = await service.recordPost('THREADS');
 
-    await service.recordPost('THREADS');
-
-    // expire called for daily key with TTL 86400 + 3600 = 90000 (25h)
-    expect(mockRedis.expire).toHaveBeenCalled();
-    const dailyExpire = mockRedis.expire.mock.calls.find(
-      (c: unknown[]) => typeof c[0] === 'string' && c[0].includes(':daily:'),
-    );
-    expect(dailyExpire).toBeDefined();
-    expect(dailyExpire![1]).toBe(86400 + 3600);
+    expect(result.allowed).toBe(true);
+    expect(result.dailyCount).toBe(1);
+    expect(result.weeklyCount).toBe(1);
+    expect(mockRedis.eval).toHaveBeenCalled();
+    const scriptCall = mockRedis.eval.mock.calls[0];
+    expect(scriptCall![0]).toBe(RECORD_POST_SCRIPT);
+    expect(scriptCall![1]).toBe(4); // 4 keys
+    expect(
+      mockRedis._store.get('spa:ratelimit:THREADS:daily:' + new Date().toISOString().slice(0, 10)),
+    ).toBe('1');
+    expect(
+      mockRedis._store.get(
+        'spa:ratelimit:THREADS:weekly:' + (service as unknown as { getWeekStart(): Date }).getWeekStart().toISOString().slice(0, 10),
+      ),
+    ).toBe('1');
   });
 
   // ── UTC-082 ──
-  it('UTC-082: recordPost() does NOT set TTL when count > 1 (subsequent posts)', async () => {
-    mockRedis.incr.mockResolvedValue(5);
-
-    await service.recordPost('THREADS');
-
-    // expire should NOT be called for daily key (count > 1)
-    const dailyExpire = mockRedis.expire.mock.calls.find(
-      (c: unknown[]) => typeof c[0] === 'string' && c[0].includes(':daily:'),
+  it('UTC-082: recordPost() increments counters for subsequent posts', async () => {
+    mockRedis._store.set('spa:ratelimit:THREADS:daily:' + new Date().toISOString().slice(0, 10), '5');
+    mockRedis._store.set(
+      'spa:ratelimit:THREADS:weekly:' + (service as unknown as { getWeekStart(): Date }).getWeekStart().toISOString().slice(0, 10),
+      '2',
     );
-    expect(dailyExpire).toBeUndefined();
+
+    const result = await service.recordPost('THREADS');
+
+    expect(result.allowed).toBe(true);
+    expect(result.dailyCount).toBe(6);
+    expect(result.weeklyCount).toBe(3);
   });
 
   // ── UTC-083 ──
@@ -155,29 +217,73 @@ describe('RateLimitService (MOD-05 — Infrastructure Adapters)', () => {
   });
 
   // ── UTC-084 ──
-  it('UTC-084: recordPost() sets interval timestamp with PX TTL when Redis connected', async () => {
-    mockRedis.incr.mockResolvedValue(1);
+  it('UTC-084: recordPost() sets interval and lastPostAt timestamps when Redis connected', async () => {
+    const result = await service.recordPost('X');
 
-    await service.recordPost('X');
-
-    expect(mockRedis.set).toHaveBeenCalled();
-    const setCall = mockRedis.set.mock.calls.find(
-      (c: unknown[]) => typeof c[0] === 'string' && c[0].includes(':interval'),
-    );
-    expect(setCall).toBeDefined();
-    expect(setCall![0]).toContain('spa:ratelimit:X:interval');
-    expect(setCall![1]).toMatch(/^\d+$/); // timestamp as string
-    expect(setCall![2]).toBe('PX');
-    expect(setCall![3]).toBe(300_000); // X interval is 300000ms
+    expect(result.allowed).toBe(true);
+    expect(mockRedis._store.get('spa:ratelimit:X:interval')).toMatch(/^\d+$/);
+    expect(mockRedis._store.get('spa:ratelimit:X:lastPostAt')).toMatch(/^\d+$/);
   });
 
   // ── UTC-085 ──
   it('UTC-085: recordPost() does nothing when Redis not connected', async () => {
     (service as unknown).redis = null;
 
-    await service.recordPost('X');
+    const result = await service.recordPost('X');
 
-    expect(mockRedis.set).not.toHaveBeenCalled();
+    expect(result.allowed).toBe(true);
+    expect(mockRedis.eval).not.toHaveBeenCalled();
+  });
+
+  // ── UTC-091 ──
+  it('UTC-091: recordPost() refuses to increment when daily limit already reached', async () => {
+    mockRedis._store.set('spa:ratelimit:X:daily:' + new Date().toISOString().slice(0, 10), '50');
+
+    const result = await service.recordPost('X');
+
+    expect(result.allowed).toBe(false);
+    expect(result.dailyCount).toBe(50);
+    expect(result.weeklyCount).toBe(0);
+  });
+
+  // ── UTC-092 ──
+  it('UTC-092: recordPost() refuses to increment when weekly limit already reached', async () => {
+    mockRedis._store.set(
+      'spa:ratelimit:X:weekly:' + (service as unknown as { getWeekStart(): Date }).getWeekStart().toISOString().slice(0, 10),
+      '10',
+    );
+
+    const result = await service.recordPost('X');
+
+    expect(result.allowed).toBe(false);
+    expect(result.dailyCount).toBe(0);
+    expect(result.weeklyCount).toBe(10);
+  });
+
+  // ── UTC-093 ──
+  it('UTC-093: recordPost() refuses to increment when minimum interval not elapsed', async () => {
+    const now = Date.now();
+    mockRedis._store.set('spa:ratelimit:X:interval', String(now - 60_000));
+
+    const result = await service.recordPost('X');
+
+    expect(result.allowed).toBe(false);
+  });
+
+  // ── UTC-094 ──
+  it('UTC-094: recordPost() is atomic under concurrent calls — only one post passes the daily limit', async () => {
+    configService = createMockConfigService({ RATE_LIMIT_X_MAX_PER_DAY: 1 });
+    service = new RateLimitService(configService, mockRedis as never);
+
+    const results = await Promise.all(Array.from({ length: 10 }, () => service.recordPost('X')));
+
+    const allowedCount = results.filter((r) => r.allowed).length;
+    const dailyCount = Number(
+      mockRedis._store.get('spa:ratelimit:X:daily:' + new Date().toISOString().slice(0, 10)) ?? '0',
+    );
+
+    expect(allowedCount).toBe(1);
+    expect(dailyCount).toBe(1);
   });
 
   // ── UTC-086 ──
