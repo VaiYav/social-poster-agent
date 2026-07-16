@@ -93,12 +93,12 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `auto-approve.service.ts:113-120` to understand the fallback logic
-- [ ] Decide: accept fail-open (add comment + doc) OR switch to fail-closed (route to HUMAN_REVIEW)
-- [ ] If switching: add condition `if (qualityScore === undefined) return HUMAN_REVIEW`
-- [ ] If accepting: add a clear comment explaining why
-- [ ] Add/update unit test to cover the missing-score case
-- [ ] Run `npx vitest run tests/unit/autonomy/`
+- [x] Read `auto-approve.service.ts:113-120` to understand the fallback logic
+- [x] Decide: accept fail-open (add comment + doc) OR switch to fail-closed (route to HUMAN_REVIEW)
+- [x] If switching: add condition `if (qualityScore === undefined) return HUMAN_REVIEW`
+- [x] If accepting: add a clear comment explaining why
+- [x] Add/update unit test to cover the missing-score case
+- [x] Run `npx vitest run tests/unit/autonomy/`
 
 ### Acceptance criteria
 
@@ -117,11 +117,11 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `auto-check.service.ts:136-147` to find the query
-- [ ] Add `where: { status: 'POSTED' }` (or appropriate statuses)
-- [ ] Add `orderBy: { createdAt: 'desc' }`
-- [ ] Update unit tests to verify the filter and ordering
-- [ ] Run `npx vitest run tests/unit/autonomy/`
+- [x] Read `auto-check.service.ts:136-147` to find the query
+- [x] Add `where: { status: 'POSTED' }` (or appropriate statuses)
+- [x] Add `orderBy: { createdAt: 'desc' }`
+- [x] Update unit tests to verify the filter and ordering
+- [x] Run `npx vitest run tests/unit/autonomy/`
 
 ### Acceptance criteria
 
@@ -141,10 +141,10 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `auto-approve.service.ts:216-220` to understand the current streak logic
-- [ ] Rewrite to iterate through posts and count consecutive rejects, resetting on any non-reject
-- [ ] Add unit tests for: all rejects, mixed, streak broken by approve, streak at end
-- [ ] Run `npx vitest run tests/unit/autonomy/`
+- [x] Read `auto-approve.service.ts:216-220` to understand the current streak logic
+- [x] Rewrite to iterate through posts and count consecutive rejects, resetting on any non-reject
+- [x] Add unit tests for: all rejects, mixed, streak broken by approve, streak at end
+- [x] Run `npx vitest run tests/unit/autonomy/`
 
 ### Acceptance criteria
 
@@ -163,11 +163,11 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `auto-approve.listener.ts` to confirm `PostsService` is unused
-- [ ] Remove the `@Inject` and constructor parameter
-- [ ] Remove the import statement
-- [ ] Run `npx tsc --noEmit` to verify no broken references
-- [ ] Run `npx vitest run tests/unit/` to verify no regressions
+- [x] Read `auto-approve.listener.ts` to confirm `PostsService` is unused
+- [x] Remove the `@Inject` and constructor parameter
+- [x] Remove the import statement
+- [x] Run `npx tsc --noEmit` to verify no broken references
+- [x] Run `npx vitest run tests/unit/` to verify no regressions
 
 ### Acceptance criteria
 

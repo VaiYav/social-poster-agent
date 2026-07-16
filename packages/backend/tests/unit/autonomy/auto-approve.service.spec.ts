@@ -48,7 +48,7 @@ function build(opts: { enabled?: boolean; checkPassed?: boolean; status?: PostSt
     sseService as never,
     autoCheck as never,
   );
-  return { service, prisma, autoCheck, configService };
+  return { service, prisma, sseService, autoCheck, configService };
 }
 
 const evalArgs = (score?: number) => ['p1', 'some clean content', SocialNetwork.X, score] as const;
@@ -122,5 +122,35 @@ describe('AutoApproveService.evaluate (A1/BUG-12 — single decision-gate)', () 
 
     expect(res.decision).toBe('SKIP');
     expect(prisma.post.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('P2-2.2.3: consecutive reject streak within 1 hour triggers health alert', async () => {
+    const { service, prisma, sseService } = build();
+    const now = new Date();
+    prisma.post.findMany.mockResolvedValue([
+      { status: PostStatus.REJECTED, createdAt: now },
+      { status: PostStatus.REJECTED, createdAt: now },
+      { status: PostStatus.REJECTED, createdAt: now },
+    ]);
+
+    await service.evaluate(...evalArgs(3));
+
+    const alert = sseService.publish.mock.calls.find((c: unknown[]) => (c[0] as { type: string }).type === 'health_alert');
+    expect(alert).toBeDefined();
+  });
+
+  it('P2-2.2.3: non-consecutive rejects do NOT trigger health alert', async () => {
+    const { service, prisma, sseService } = build();
+    const now = new Date();
+    prisma.post.findMany.mockResolvedValue([
+      { status: PostStatus.REJECTED, createdAt: now },
+      { status: PostStatus.APPROVED, createdAt: now },
+      { status: PostStatus.REJECTED, createdAt: now },
+    ]);
+
+    await service.evaluate(...evalArgs(3));
+
+    const alert = sseService.publish.mock.calls.find((c: unknown[]) => (c[0] as { type: string }).type === 'health_alert');
+    expect(alert).toBeUndefined();
   });
 });

@@ -82,4 +82,12 @@ describe('AutoCheckService (A1/BUG-12 — pure content-safety gate)', () => {
     const where = (prisma.post.findMany.mock.calls[0]![0] as { where: { id?: unknown } }).where;
     expect(where.id).toBeUndefined();
   });
+
+  it('P2-2.2.2: loadRecentHashes filters to POSTED status and orders by createdAt desc', async () => {
+    const { service, prisma } = build();
+    await service.check('any content', SocialNetwork.X);
+    const args = prisma.post.findMany.mock.calls[0]![0] as { where: { status?: string }; orderBy: { createdAt: string } };
+    expect(args.where.status).toBe('POSTED');
+    expect(args.orderBy).toEqual({ createdAt: 'desc' });
+  });
 });
