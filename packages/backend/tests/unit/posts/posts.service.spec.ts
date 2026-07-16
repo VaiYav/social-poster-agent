@@ -8,9 +8,10 @@
  * Spec:   CONSTITUTION.md §14 (Testing) — test case IDs are inline (UTC-026..041)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { PostStatus } from '@prisma/client';
 import { PostsService } from '../../../src/modules/posts/posts.service';
+import { PostEvents } from '../../../src/events/enums/post-events.enum';
 import {
   createMockPrismaService,
   fixturePost,
@@ -19,10 +20,11 @@ import {
 describe('MOD-02: PostsService', () => {
   let service: PostsService;
   let prisma: ReturnType<typeof createMockPrismaService>;
+  let eventEmitter: { emit: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
     prisma = createMockPrismaService();
-    const eventEmitter = { emit: vi.fn() };
+    eventEmitter = { emit: vi.fn() };
     service = new PostsService(prisma as never, eventEmitter as never);
   });
 
@@ -302,5 +304,62 @@ describe('MOD-02: PostsService', () => {
 
     const arg = prisma.post.findMany.mock.calls[0][0];
     expect(arg.where.status).toEqual({ in: ['APPROVED', 'POSTING', 'POSTED'] });
+  });
+
+  // ── approve() ───────────────────────────────────────────────
+
+  it('P2-2.3.1: approve() with editedContent recomputes simhash and re-runs AutoCheck', async () => {
+    const existing = { ...fixturePost, id: 'post-1', status: 'DRAFT' };
+    prisma.post.findUnique.mockResolvedValue(existing);
+    prisma.post.findMany.mockResolvedValue([]);
+    prisma.post.update.mockResolvedValue({ ...existing, status: 'APPROVED' });
+
+    const editedContent = 'Mercury stations direct today.';
+    await service.approve('post-1', editedContent);
+
+    const arg = prisma.post.update.mock.calls[0][0];
+    expect(arg.data.content).toBe(editedContent);
+    expect(arg.data.simhash).toBeDefined();
+    expect(arg.data.status).toBe(PostStatus.APPROVED);
+    expect(eventEmitter.emit).toHaveBeenCalledWith(PostEvents.APPROVED, { postId: 'post-1', network: 'X' });
+  });
+
+  it('P2-2.3.1: approve() with editedContent fails AutoCheck throws BadRequestException', async () => {
+    const existing = { ...fixturePost, id: 'post-1', status: 'DRAFT' };
+    prisma.post.findUnique.mockResolvedValue(existing);
+    prisma.post.findMany.mockResolvedValue([]);
+
+    await expect(service.approve('post-1', 'This is financial advice.')).rejects.toThrow(BadRequestException);
+    expect(prisma.post.update).not.toHaveBeenCalled();
+  });
+
+  it('P2-2.3.2: updateStatus() throws BadRequestException for invalid transition', async () => {
+    const existing = { ...fixturePost, id: 'post-1', status: 'POSTED' };
+    prisma.post.findUnique.mockResolvedValue(existing);
+
+    await expect(service.updateStatus('post-1', { status: 'DRAFT' })).rejects.toThrow(BadRequestException);
+    expect(prisma.post.update).not.toHaveBeenCalled();
+  });
+
+  // ── reject() ────────────────────────────────────────────────
+
+  it('P2-2.3.3: reject() emits PostEvents.REJECTED and only works from DRAFT', async () => {
+    const existing = { ...fixturePost, id: 'post-1', status: 'DRAFT' };
+    prisma.post.findUnique.mockResolvedValue(existing);
+    prisma.post.update.mockResolvedValue({ ...existing, status: 'REJECTED' });
+
+    await service.reject('post-1');
+
+    const arg = prisma.post.update.mock.calls[0][0];
+    expect(arg.data.status).toBe(PostStatus.REJECTED);
+    expect(eventEmitter.emit).toHaveBeenCalledWith(PostEvents.REJECTED, { postId: 'post-1', network: 'X' });
+  });
+
+  it('P2-2.3.3: reject() throws ConflictException when post is not DRAFT', async () => {
+    const existing = { ...fixturePost, id: 'post-1', status: 'POSTED' };
+    prisma.post.findUnique.mockResolvedValue(existing);
+
+    await expect(service.reject('post-1')).rejects.toThrow(ConflictException);
+    expect(prisma.post.update).not.toHaveBeenCalled();
   });
 });

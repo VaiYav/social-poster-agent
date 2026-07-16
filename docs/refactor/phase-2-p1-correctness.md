@@ -188,12 +188,12 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `posts.service.ts:172-184` to find the `approve` method
-- [ ] After updating content, recalculate `simhash` using the same method as generation
-- [ ] Re-run `AutoCheckService.check()` with the new content and hash
-- [ ] If AutoCheck fails, return an error to the operator
-- [ ] Add unit tests for: approve with edit → simhash updated, approve with edit → AutoCheck re-run
-- [ ] Run `npx vitest run tests/unit/posts/`
+- [x] Read `posts.service.ts:172-184` to find the `approve` method
+- [x] After updating content, recalculate `simhash` using the same method as generation
+- [x] Re-run `AutoCheckService.check()` with the new content and hash
+- [x] If AutoCheck fails, return an error to the operator
+- [x] Add unit tests for: approve with edit → simhash updated, approve with edit → AutoCheck re-run
+- [x] Run `npx vitest run tests/unit/posts/`
 
 ### Acceptance criteria
 
@@ -213,12 +213,12 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `posts.service.ts:111-139` to find `updateStatus`
-- [ ] Define a transition map: `PENDING → APPROVED|REJECTED`, `APPROVED → POSTED|FAILED|PENDING`, etc.
-- [ ] Add validation that checks the current status against the transition map
-- [ ] Throw a `BadRequestException` for invalid transitions
-- [ ] Add unit tests for valid and invalid transitions
-- [ ] Run `npx vitest run tests/unit/posts/`
+- [x] Read `posts.service.ts:111-139` to find `updateStatus`
+- [x] Define a transition map: `PENDING → APPROVED|REJECTED`, `APPROVED → POSTED|FAILED|PENDING`, etc.
+- [x] Add validation that checks the current status against the transition map
+- [x] Throw a `BadRequestException` for invalid transitions
+- [x] Add unit tests for valid and invalid transitions
+- [x] Run `npx vitest run tests/unit/posts/`
 
 ### Acceptance criteria
 
@@ -238,11 +238,11 @@ Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 ### Checklist
 
-- [ ] Read `posts.service.ts:192-205` to find the rejection path
-- [ ] Add `eventBus.emit(PostEvents.REJECTED, { postId, network, ... })` after status update
-- [ ] Verify `PostEvents.REJECTED` is defined in the events enum
-- [ ] Add a unit test that verifies the event is emitted on rejection
-- [ ] Run `npx vitest run tests/unit/posts/`
+- [x] Read `posts.service.ts:192-205` to find the rejection path
+- [x] Add `eventBus.emit(PostEvents.REJECTED, { postId, network, ... })` after status update
+- [x] Verify `PostEvents.REJECTED` is defined in the events enum
+- [x] Add a unit test that verifies the event is emitted on rejection
+- [x] Run `npx vitest run tests/unit/posts/`
 
 ### Acceptance criteria
 
