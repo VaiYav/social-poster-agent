@@ -140,7 +140,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     // sweep closes it as leaked. Must be longer than the max browsing session duration
     // (F1_BROWSING_SESSION_MINUTES, default 15 min) plus buffer, otherwise the sweep
     // closes contexts mid-session. Default: max(3 × idle TTL, 25 min).
-    const browsingMinutes = this.configService.get<number>('F1_BROWSING_SESSION_MINUTES', 15);
+    const browsingMinutes = Number(this.configService.get<string>('F1_BROWSING_SESSION_MINUTES', '15'));
     const minOrphanGrace = (browsingMinutes + 10) * 60 * 1000; // browsing + 10 min buffer
     const defaultOrphanGrace = Math.max(this.contextIdleTtlMs * 3, minOrphanGrace);
     this.orphanGraceMs = Math.max(60000, this.configService.get<number>('BROWSER_ORPHAN_GRACE_MS', defaultOrphanGrace));

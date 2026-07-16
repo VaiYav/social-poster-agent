@@ -8,7 +8,7 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.1.1 — `DATABASE_URL` — validate as PostgreSQL URI
 
-**Status:** `[ ]` | **Effort:** XS
+**Status:** `[x]` | **Effort:** XS
 
 **Files:** `packages/backend/src/env.validation.ts`
 
@@ -29,7 +29,7 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.1.2 — `REDIS_URL` — validate as URI
 
-**Status:** `[ ]` | **Effort:** XS
+**Status:** `[x]` | **Effort:** XS
 
 **Files:** `packages/backend/src/env.validation.ts`
 
@@ -50,7 +50,7 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.1.3 — `DISCORD_WEBHOOK_URL`, `DISCORD_ALERTS_ENABLED` validation
 
-**Status:** `[ ]` | **Effort:** XS
+**Status:** `[x]` | **Effort:** XS
 
 **Files:** `packages/backend/src/env.validation.ts`
 
@@ -73,7 +73,7 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.1.4 — `SSE_CHANNEL` — declare + align default
 
-**Status:** `[ ]` | **Effort:** XS
+**Status:** `[x]` | **Effort:** XS
 
 **Files:** `packages/backend/src/env.validation.ts`, `packages/backend/src/infrastructure/sse/sse.service.ts`
 
@@ -95,18 +95,18 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.1.5 — `CAMOUFOX_*`, `BROWSER_*`, `PROXY_*`, `CAPTCHA_*` numeric checks
 
-**Status:** `[ ]` | **Effort:** S
+**Status:** `[x]` | **Effort:** S
 
-**Files:** `packages/backend/src/env.validation.ts`
+**Files:** `packages/backend/src/infrastructure/config/env.validation.ts`, `packages/backend/tests/unit/config/env.validation.spec.ts`
 
 **Description:** Many `CAMOUFOX_*`, `BROWSER_*`, `PROXY_*`, and `CAPTCHA_*` env vars are numeric but not validated as numbers. A non-numeric value (e.g., `BROWSER_POOL_SIZE=abc`) would cause a runtime NaN. Add numeric validation for all these vars.
 
 ### Checklist
 
-- [ ] Search for all `CAMOUFOX_*`, `BROWSER_*`, `PROXY_*`, `CAPTCHA_*` env vars in the codebase
-- [ ] Add each to `env.validation.ts` with `number().default(...)` or `number().optional()`
-- [ ] Add a test that rejects non-numeric values
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Search for all `CAMOUFOX_*`, `BROWSER_*`, `PROXY_*`, `CAPTCHA_*` env vars in the codebase
+- [x] Add each to `env.validation.ts` with `number().default(...)` or `number().optional()`
+- [x] Add a test that rejects non-numeric values
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -117,17 +117,17 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.1.6 — `RATE_LIMIT_PREFIX`, `CHECKPOINT_*`, `HOOK_*` — declare
 
-**Status:** `[ ]` | **Effort:** S
+**Status:** `[x]` | **Effort:** S
 
-**Files:** `packages/backend/src/env.validation.ts`
+**Files:** `packages/backend/src/infrastructure/config/env.validation.ts`
 
 **Description:** `RATE_LIMIT_PREFIX`, `CHECKPOINT_*`, and `HOOK_*` env vars are used in the code but not declared in the validation schema. Declare them with appropriate types and defaults.
 
 ### Checklist
 
-- [ ] Search for these env vars in the codebase
-- [ ] Add each to `env.validation.ts` with appropriate type and default
-- [ ] Run `npx tsc --noEmit`
+- [x] Search for these env vars in the codebase
+- [x] Add each to `env.validation.ts` with appropriate type and default
+- [x] Run `npx tsc --noEmit`
 
 ### Acceptance criteria
 
@@ -137,18 +137,18 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.1.7 — `PRISMA_CONNECTION_LIMIT`, `PRISMA_POOL_TIMEOUT_MS`, `PRISMA_TRANSACTION_TIMEOUT_MS`
 
-**Status:** `[ ]` | **Effort:** S
+**Status:** `[x]` | **Effort:** S
 
-**Files:** `packages/backend/src/env.validation.ts`, `packages/backend/src/infrastructure/prisma/prisma.service.ts`
+**Files:** `packages/backend/src/infrastructure/config/env.validation.ts`, `packages/backend/src/infrastructure/prisma/prisma.service.ts`, `packages/backend/src/modules/generation/generation.service.ts`
 
 **Description:** Prisma connection tuning env vars are referenced in `prisma.service.ts` but not declared in env validation. Declare them with numeric types and sensible defaults. Also wire `PRISMA_TRANSACTION_TIMEOUT_MS` into the `$transaction` calls (see task 1.3).
 
 ### Checklist
 
-- [ ] Read `prisma.service.ts` to find which env vars are used
-- [ ] Add all three to `env.validation.ts` with `number().default(...)` 
-- [ ] Wire `PRISMA_TRANSACTION_TIMEOUT_MS` into `generation.service.ts` transaction options
-- [ ] Run `npx tsc --noEmit`
+- [x] Read `prisma.service.ts` to find which env vars are used
+- [x] Add all three to `env.validation.ts` with `number().default(...)`
+- [x] Wire `PRISMA_TRANSACTION_TIMEOUT_MS` into `generation.service.ts` transaction options
+- [x] Run `npx tsc --noEmit`
 
 ### Acceptance criteria
 
@@ -415,7 +415,7 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.3.2 — `PrismaService` — connection pool tuning
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** infrastructure-prisma.md
+**Status:** `[x]` | **Effort:** S | **Ref:** infrastructure-prisma.md
 
 **Files:** `packages/backend/src/infrastructure/prisma/prisma.service.ts`
 
@@ -423,11 +423,11 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### Checklist
 
-- [ ] Read `prisma.service.ts` to find the Prisma client initialization
-- [ ] Add `connection_limit` and `pool_timeout` parameters from env vars
-- [ ] Add env vars to `env.validation.ts` (see task 3.1.7)
+- [x] Read `prisma.service.ts` to find the Prisma client initialization
+- [x] Add `connection_limit` and `pool_timeout` parameters from env vars
+- [x] Add env vars to `env.validation.ts` (see task 3.1.7)
 - [ ] Document recommended values in `.env.example`
-- [ ] Run `npx tsc --noEmit`
+- [x] Run `npx tsc --noEmit`
 
 ### Acceptance criteria
 

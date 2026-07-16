@@ -1068,7 +1068,7 @@ export class GenerationService {
                   `P4: Created ${plan.continuations.length} continuation posts for ${genPost.network} thread ${thread.id} — ${plan.reasoning}`,
                 );
                 return created;
-              }, { timeout: 30000 });
+              }, { timeout: Number(process.env.PRISMA_TRANSACTION_TIMEOUT_MS ?? '30000') });
               // H1: emit DRAFT_GENERATED only AFTER the tx commits, so the async
               // auto-approve + SSE listeners never read a not-yet-committed row.
               for (const cp of contPosts) {
@@ -1154,7 +1154,7 @@ export class GenerationService {
       );
       this.logger.debug(`F2: Created continuation post for ${genPost.network} thread ${thread.id}`);
       return created;
-    }, { timeout: 30000 });
+    }, { timeout: Number(process.env.PRISMA_TRANSACTION_TIMEOUT_MS ?? '30000') });
     // H1: emit DRAFT_GENERATED only AFTER the tx commits.
     this.postsService.emitDraftGenerated(continuationPost.id, genPost.network);
     savedPosts.push(continuationPost);

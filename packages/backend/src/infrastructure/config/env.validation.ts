@@ -117,6 +117,10 @@ const envSchema = Joi.object({
   DATABASE_URL: Joi.string()
     .uri({ scheme: ['postgres', 'postgresql'] })
     .default('postgresql://spa:spa@localhost:5433/social_poster'),
+  // Prisma client connection pool / transaction tuning (see prisma.service.ts)
+  PRISMA_CONNECTION_LIMIT: Joi.number().integer().min(1).default(20),
+  PRISMA_POOL_TIMEOUT_MS: Joi.number().integer().min(0).default(30000),
+  PRISMA_TRANSACTION_TIMEOUT_MS: Joi.number().integer().min(0).default(30000),
 
   // ── Redis ──
   REDIS_URL: Joi.string()
@@ -131,6 +135,28 @@ const envSchema = Joi.object({
   SPA_API_PREFIX: Joi.string().default('/api/v1'),
   SPA_SWAGGER_PATH: Joi.string().default('docs'),
   NODE_ENV: Joi.string().valid('development', 'production', 'test').default('development'),
+
+  // ── Browser / Camoufox ──
+  CAMOUFOX_HEADLESS: Joi.string().valid('true', 'false').default('true'),
+  CAMOUFOX_HUMANIZE: Joi.string().valid('true', 'false').default('true'),
+  CAMOUFOX_GEOIP: Joi.string().valid('true', 'false').default('true'),
+  CAMOUFOX_LOCALE: Joi.string().default('en-US'),
+  CAMOUFOX_OS: Joi.string().valid('windows', 'macos', 'linux').default('windows'),
+  CAMOUFOX_PROXY_URL: Joi.string().uri().allow('').default(''),
+  CAMOUFOX_PROFILE_DIR: Joi.string().default('/tmp/spa-profiles'),
+  CAMOUFOX_MEMORY_PREFS: Joi.string().valid('true', 'false').default('true'),
+  CAMOUFOX_IMAGE_DECODE_CHUNK: Joi.number().integer().min(1024).default(8192),
+  CAMOUFOX_BLOCK_IMAGES_READONLY: Joi.string().valid('true', 'false').default('true'),
+  BROWSER_POOL_SIZE: Joi.number().integer().min(1).default(1),
+  BROWSER_POOL_ACQUIRE_TIMEOUT_MS: Joi.number().integer().min(1000).default(60000),
+  BROWSER_CONTEXT_IDLE_TTL_MS: Joi.number().integer().min(60000).default(3 * 60 * 1000),
+  BROWSER_ORPHAN_GRACE_MS: Joi.number().integer().min(60000).optional(),
+  BROWSER_MAX_LIFETIME_MS: Joi.number().integer().min(60000).default(15 * 60 * 1000),
+  F1_BROWSING_SESSION_MINUTES: Joi.number().integer().min(1).default(15),
+  PERSISTENT_CONTEXT_IDLE_TTL_MS: Joi.number().integer().min(60000).default(15 * 60 * 1000),
+  SPA_SCREENSHOT_DIR: Joi.string().default('/tmp/spa-screenshots'),
+  SPA_SCREENSHOTS: Joi.string().valid('true', 'false').default('false'),
+  SPA_SCREENSHOT_FULLPAGE: Joi.string().valid('true', 'false').default('false'),
 
   // ── Feature flags ──
   ENGAGEMENT_ENABLED: Joi.string().valid('true', 'false').default('false'),
@@ -169,6 +195,37 @@ const envSchema = Joi.object({
   ORCHESTRATOR_LEADER_RENEW_INTERVAL_MS: Joi.number().integer().min(1000).default(10000),
   ORCHESTRATOR_RESTART_DELAY_MS: Joi.number().integer().min(0).default(3000),
   ORCHESTRATOR_WATCHDOG_RESTART_DELAY_MS: Joi.number().integer().min(0).default(5000),
+
+  // ── Redis checkpointing (LangGraph persistence) ──
+  CHECKPOINT_PREFIX: Joi.string().default('spa:checkpoint'),
+  CHECKPOINT_TTL_SECONDS: Joi.number().integer().min(1).default(3600),
+  CHECKPOINT_REDIS_URL: Joi.string().uri().allow('').default(''),
+
+  // ── Rate limits (posting + engagement) ──
+  RATE_LIMIT_PREFIX: Joi.string().default('spa:ratelimit'),
+  RATE_LIMIT_FAIL_CLOSED: Joi.string().valid('true', 'false').default('false'),
+  RATE_LIMIT_MIN_DELAY_MS: Joi.number().integer().min(0).default(300000),
+  RATE_LIMIT_INTERACTION_MIN_DELAY_MS: Joi.number().integer().min(0).default(0),
+  // Posting limits per network
+  RATE_LIMIT_X_MAX_PER_DAY: Joi.number().integer().min(0).default(1),
+  RATE_LIMIT_X_MAX_PER_WEEK: Joi.number().integer().min(0).default(5),
+  RATE_LIMIT_THREADS_MAX_PER_DAY: Joi.number().integer().min(0).default(1),
+  RATE_LIMIT_THREADS_MAX_PER_WEEK: Joi.number().integer().min(0).default(5),
+  RATE_LIMIT_FACEBOOK_MAX_PER_DAY: Joi.number().integer().min(0).default(1),
+  RATE_LIMIT_FACEBOOK_MAX_PER_WEEK: Joi.number().integer().min(0).default(5),
+  // Interaction limits per action (daily / weekly)
+  RATE_LIMIT_INTERACTION_LIKE_MAX_PER_DAY: Joi.number().integer().min(0).default(60),
+  RATE_LIMIT_INTERACTION_LIKE_MAX_PER_WEEK: Joi.number().integer().min(0).default(300),
+  RATE_LIMIT_INTERACTION_COMMENT_MAX_PER_DAY: Joi.number().integer().min(0).default(20),
+  RATE_LIMIT_INTERACTION_COMMENT_MAX_PER_WEEK: Joi.number().integer().min(0).default(100),
+  RATE_LIMIT_INTERACTION_FOLLOW_MAX_PER_DAY: Joi.number().integer().min(0).default(15),
+  RATE_LIMIT_INTERACTION_FOLLOW_MAX_PER_WEEK: Joi.number().integer().min(0).default(75),
+  RATE_LIMIT_INTERACTION_REPLY_MAX_PER_DAY: Joi.number().integer().min(0).default(20),
+  RATE_LIMIT_INTERACTION_REPLY_MAX_PER_WEEK: Joi.number().integer().min(0).default(100),
+  RATE_LIMIT_INTERACTION_REPOST_MAX_PER_DAY: Joi.number().integer().min(0).default(10),
+  RATE_LIMIT_INTERACTION_REPOST_MAX_PER_WEEK: Joi.number().integer().min(0).default(50),
+  RATE_LIMIT_INTERACTION_QUOTE_MAX_PER_DAY: Joi.number().integer().min(0).default(5),
+  RATE_LIMIT_INTERACTION_QUOTE_MAX_PER_WEEK: Joi.number().integer().min(0).default(25),
 
   // ── Posting windows (Smart — data-driven from PostMetrics) ──
   POSTING_WINDOW_MIN_SAMPLES: Joi.number().integer().min(1).default(10),
@@ -220,6 +277,8 @@ const envSchema = Joi.object({
   ADMIN_PASSWORD: Joi.string().allow('').default(''),
   // Comma-separated list of additional CORS origins (e.g. Vercel UI deployment URL)
   CORS_ORIGIN: Joi.string().allow('').default(''),
+  // Comma-separated list of trusted reverse proxy IPs (e.g. nginx). Empty → XFF ignored.
+  TRUSTED_PROXY_IPS: Joi.string().allow('').default(''),
 
   // ── Content paths ──
   BLOG_DIR: Joi.string().allow('').default(''),
@@ -272,6 +331,8 @@ const envSchema = Joi.object({
   REPLIES_CRON_SCHEDULE: Joi.string().default('0 */4 * * *'),
   REPLIES_AUTO_REPLY_COMPLEXITY: Joi.string().valid('low', 'medium', 'high').default('medium'),
   REPLIES_TEMPERATURE: Joi.number().min(0).max(2).default(0.6),
+  // Hook performance bank aggregation cron
+  HOOK_BANK_AGGREGATE_SCHEDULE: Joi.string().default('0 7 * * *'),
 
   // ── Multi-instance distribution ──
   INSTANCE_ID: Joi.string().allow('').default(''),
