@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import api from '../composables/useApi';
-import type { Post } from '@spa/shared';
+import type { Post, SSEvent } from '@spa/shared';
 
 /**
  * Posts store — manages post list, drafts, and CRUD operations.
@@ -106,7 +106,7 @@ export const usePostsStore = defineStore('posts', () => {
    * B6: Handle SSE event — update post status in real-time.
    * Called by useSSE composable when a post_status event arrives.
    */
-  function handleSseEvent(event: { type: string; postId?: string; status?: string; network?: string; error?: string }) {
+  function handleSseEvent(event: SSEvent) {
     lastSseEvent.value = event;
 
     if (event.type === 'post_status' && event.postId) {

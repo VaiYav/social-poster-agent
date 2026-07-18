@@ -90,7 +90,7 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
    * Dynamically registered (not @Cron) so it is NOT created when orchestrator is enabled.
    */
   private registerDailyCron(): void {
-    const cronExpr = process.env.ENGAGEMENT_SCHEDULE_CRON ?? '0 0 * * *';
+    const cronExpr = this.configService.get<string>('ENGAGEMENT_SCHEDULE_CRON', '0 0 * * *');
     const job = new CronJob(cronExpr, () => this.scheduleDailySessions());
     try {
       this.schedulerRegistry.addCronJob('engagement-daily', job);

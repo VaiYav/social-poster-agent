@@ -27,6 +27,7 @@ import {
   createMockRateLimitService,
   createMockEventEmitter,
   createMockThreadProgressService,
+  createMockConfigService,
 } from '../../mocks/index';
 
 // ── Mock Factories ───────────────────────────────────────────────────────────
@@ -129,6 +130,7 @@ interface TestContext {
   xPoster: ReturnType<typeof createMockPoster>;
   threadsPoster: ReturnType<typeof createMockPoster>;
   facebookPoster: ReturnType<typeof createMockPoster>;
+  configService: ReturnType<typeof createMockConfigService>;
 }
 
 function buildContext(): TestContext {
@@ -143,6 +145,7 @@ function buildContext(): TestContext {
   const xPoster = createMockPoster();
   const threadsPoster = createMockPoster();
   const facebookPoster = createMockPoster();
+  const configService = createMockConfigService();
 
   // Override checkRateLimit to return { allowed: true } by default
   // (the shared mock returns undefined which doesn't match the service contract)
@@ -160,6 +163,7 @@ function buildContext(): TestContext {
     xPoster as unknown,
     threadsPoster as unknown,
     facebookPoster as unknown,
+    configService as unknown,
   );
 
   return {
@@ -175,6 +179,7 @@ function buildContext(): TestContext {
     xPoster,
     threadsPoster,
     facebookPoster,
+    configService,
   };
 }
 

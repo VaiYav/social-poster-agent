@@ -76,7 +76,7 @@ export class AutonomousRunnerService implements OnModuleInit {
     }
     if (!this.enabled) return;
 
-    const cronExpr = process.env.AUTONOMOUS_RUNNER_SCHEDULE ?? '0 */4 * * *';
+    const cronExpr = this.configService.get<string>('AUTONOMOUS_RUNNER_SCHEDULE', '0 */4 * * *');
     const job = new CronJob(cronExpr, async () => { await this.runAutonomousCycle(); });
     try {
       this.schedulerRegistry.addCronJob('autonomous-runner', job);

@@ -1,11 +1,8 @@
 export {
-  ENGAGEMENT_DECISION_SYSTEM_PROMPT,
-  ENGAGEMENT_COMMENT_SYSTEM_PROMPT,
-  ENGAGEMENT_QUOTE_SYSTEM_PROMPT,
-  buildDecisionUserPrompt,
-  buildCommentUserPrompt,
-  buildQuoteUserPrompt,
+  ENGAGEMENT_DECISION_PROMPT,
+  ENGAGEMENT_BATCH_DECISION_PROMPT,
+  ENGAGEMENT_COMMENT_PROMPT,
+  ENGAGEMENT_QUOTE_PROMPT,
   parseDecisionResponse,
-  buildBatchDecisionUserPrompt,
   parseBatchDecisionResponse,
 } from './v0.4.0/index.js'

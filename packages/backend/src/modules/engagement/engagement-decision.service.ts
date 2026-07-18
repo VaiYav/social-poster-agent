@@ -11,24 +11,24 @@
 import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ILlmPort } from '../../domain/ports/llm.port.js';
+import { IPromptPort, type CompiledChatPrompt } from '../../domain/ports/prompt.port.js';
 import {
   IEngagementDecisionPort,
   type PostContext,
   type ActionDecision,
 } from '../../domain/ports/engagement-decision.port.js';
 import {
-  ENGAGEMENT_DECISION_SYSTEM_PROMPT,
-  ENGAGEMENT_COMMENT_SYSTEM_PROMPT,
-  ENGAGEMENT_QUOTE_SYSTEM_PROMPT,
-  buildDecisionUserPrompt,
-  buildCommentUserPrompt,
-  buildQuoteUserPrompt,
+  ENGAGEMENT_DECISION_PROMPT,
+  ENGAGEMENT_BATCH_DECISION_PROMPT,
+  ENGAGEMENT_COMMENT_PROMPT,
+  ENGAGEMENT_QUOTE_PROMPT,
   parseDecisionResponse,
-  buildBatchDecisionUserPrompt,
   parseBatchDecisionResponse,
   parseCommentResponse,
   parseQuoteResponse,
 } from '../../infrastructure/llm/prompts/v0.4.0/engagement-decision.js';
+import { interpolate } from '../../domain/prompt-interpolation.js';
+import { sanitizeUntrustedInput } from '../../infrastructure/llm/sanitize-untrusted-input.js';
 import { matchesScript, normalizeLanguage } from '../../infrastructure/util/script-check.js';
 import { detectLanguage, isLanguageDetectable } from '../../infrastructure/util/language-detector.js';
 
@@ -41,6 +41,7 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
   constructor(
     @Inject(ILlmPort) @Optional() private readonly llm: ILlmPort,
     private readonly configService: ConfigService,
+    @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
   ) {
     this.commentTemperature = Number(this.configService.get('ENGAGEMENT_COMMENT_TEMPERATURE', 0.8));
     this.quoteTemperature = Number(this.configService.get('ENGAGEMENT_QUOTE_TEMPERATURE', 0.8));
@@ -57,10 +58,30 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
     }
 
     try {
-      const userPrompt = buildDecisionUserPrompt(context);
+      const detectedLanguage = detectLanguage(context.postText);
+      const compiled = await this.getCompiledChat(
+        'engagement-decision',
+        {
+          network: context.network,
+          source: sanitizeUntrustedInput(context.source, 80),
+          authorHandle: sanitizeUntrustedInput(context.authorHandle ?? 'unknown', 80),
+          hasMedia: String(context.hasMedia),
+          postText: sanitizeUntrustedInput(context.postText, 500),
+          detectedLanguage,
+          likesThisSession: String(context.likesThisSession),
+          likesMaxPerSession: String(context.likesMaxPerSession),
+          commentsThisSession: String(context.commentsThisSession),
+          commentsMaxPerSession: String(context.commentsMaxPerSession),
+          repostsThisSession: String(context.repostsThisSession ?? 0),
+          repostsMaxPerSession: String(context.repostsMaxPerSession ?? 0),
+          quotesThisSession: String(context.quotesThisSession ?? 0),
+          quotesMaxPerSession: String(context.quotesMaxPerSession ?? 0),
+        },
+        ENGAGEMENT_DECISION_PROMPT,
+      );
       const response = await this.llm.generateChat(
-        ENGAGEMENT_DECISION_SYSTEM_PROMPT,
-        userPrompt,
+        compiled.systemPrompt,
+        compiled.userPrompt,
         { temperature: 0.3, maxTokens: 200 },
       );
 
@@ -136,10 +157,17 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
     }
 
     try {
-      const userPrompt = buildBatchDecisionUserPrompt(contexts);
+      const compiled = await this.getCompiledChat(
+        'engagement-batch-decision',
+        {
+          count: String(contexts.length),
+          posts: this.buildBatchPostsVariable(contexts),
+        },
+        ENGAGEMENT_BATCH_DECISION_PROMPT,
+      );
       const response = await this.llm.generateChat(
-        ENGAGEMENT_DECISION_SYSTEM_PROMPT,
-        userPrompt,
+        compiled.systemPrompt,
+        compiled.userPrompt,
         { temperature: 0.3, maxTokens: 200 * contexts.length },
       );
 
@@ -196,11 +224,19 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
 
     try {
       const detectedLanguage = detectLanguage(context.postText);
-      const systemPrompt = ENGAGEMENT_COMMENT_SYSTEM_PROMPT.replaceAll('{detectedLanguage}', detectedLanguage);
-      const userPrompt = buildCommentUserPrompt(context);
+      const compiled = await this.getCompiledChat(
+        'engagement-comment',
+        {
+          network: context.network,
+          authorHandle: sanitizeUntrustedInput(context.authorHandle ?? 'unknown', 80),
+          postText: sanitizeUntrustedInput(context.postText, 500),
+          detectedLanguage,
+        },
+        ENGAGEMENT_COMMENT_PROMPT,
+      );
       const response = await this.llm.generateChat(
-        systemPrompt,
-        userPrompt,
+        compiled.systemPrompt,
+        compiled.userPrompt,
         { temperature: this.commentTemperature, maxTokens: 150 },
       );
 
@@ -234,11 +270,19 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
 
     try {
       const detectedLanguage = detectLanguage(context.postText);
-      const systemPrompt = ENGAGEMENT_QUOTE_SYSTEM_PROMPT.replaceAll('{detectedLanguage}', detectedLanguage);
-      const userPrompt = buildQuoteUserPrompt(context);
+      const compiled = await this.getCompiledChat(
+        'engagement-quote',
+        {
+          network: context.network,
+          authorHandle: sanitizeUntrustedInput(context.authorHandle ?? 'unknown', 80),
+          postText: sanitizeUntrustedInput(context.postText, 500),
+          detectedLanguage,
+        },
+        ENGAGEMENT_QUOTE_PROMPT,
+      );
       const response = await this.llm.generateChat(
-        systemPrompt,
-        userPrompt,
+        compiled.systemPrompt,
+        compiled.userPrompt,
         { temperature: this.quoteTemperature, maxTokens: 150 },
       );
 
@@ -403,5 +447,42 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       return { action: 'read', reason: 'Quote budget exhausted', confidence: 0.8 };
     }
     return null;
+  }
+
+  /**
+   * Fetch the prompt from Langfuse Prompt Management when available,
+   * otherwise interpolate the local fallback.
+   */
+  private async getCompiledChat(
+    name: string,
+    variables: Record<string, string>,
+    fallback: CompiledChatPrompt,
+  ): Promise<CompiledChatPrompt> {
+    if (this.promptPort) {
+      return this.promptPort.getCompiledChat(name, variables, fallback);
+    }
+    return {
+      systemPrompt: interpolate(fallback.systemPrompt, variables),
+      userPrompt: interpolate(fallback.userPrompt, variables),
+      isFallback: true,
+    };
+  }
+
+  /**
+   * Build the pre-formatted posts block for the batched decision prompt.
+   */
+  private buildBatchPostsVariable(contexts: PostContext[]): string {
+    return contexts
+      .map((ctx, i) => {
+        const postNum = i + 1;
+        return `--- Post ${postNum} ---
+|- Platform: ${ctx.network}
+|- From: ${sanitizeUntrustedInput(ctx.source, 80)} (@${sanitizeUntrustedInput(ctx.authorHandle ?? 'unknown', 80)})
+|- Has media: ${ctx.hasMedia}
+|- Text: "${sanitizeUntrustedInput(ctx.postText, 300)}"
+||- Detected language: ${detectLanguage(ctx.postText)}
+|- Budget: likes ${ctx.likesThisSession}/${ctx.likesMaxPerSession}, comments ${ctx.commentsThisSession}/${ctx.commentsMaxPerSession}, reposts ${ctx.repostsThisSession ?? 0}/${ctx.repostsMaxPerSession ?? 0}, quotes ${ctx.quotesThisSession ?? 0}/${ctx.quotesMaxPerSession ?? 0}`;
+      })
+      .join('\n\n');
   }
 }

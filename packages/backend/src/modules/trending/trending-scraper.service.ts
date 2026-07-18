@@ -28,12 +28,16 @@ import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import { IBrowserPort } from '../../domain/ports/browser.port.js';
 import { ILlmPort } from '../../domain/ports/llm.port.js';
+import { IPromptPort, type CompiledChatPrompt } from '../../domain/ports/prompt.port.js';
 import { SessionsService } from '../sessions/sessions.service.js';
 import type { BrowserContext, Page } from '../../domain/ports/browser-primitives';
 import { SocialNetwork } from '@prisma/client';
 import { parseGoogleTrendsRss as parseGoogleTrendsRssPure } from './google-trends-rss.js';
 import { parseBool } from '../../infrastructure/config/parse-bool';
+import { sanitizeUntrustedInput } from '../../infrastructure/llm/sanitize-untrusted-input.js';
+import { interpolate } from '../../domain/prompt-interpolation.js';
 import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
+import { TRENDING_RELEVANCE_PROMPT } from './prompts/trending-relevance-prompt.js';
 
 // ── Types ──
 
@@ -156,6 +160,7 @@ export class TrendingScraperService implements OnModuleInit {
     @Optional() @Inject(ILlmPort) private readonly llmService?: ILlmPort,
     @Optional() @Inject(IBrowserPort) private readonly browser?: IBrowserPort,
     @Optional() private readonly sessionsService?: SessionsService,
+    @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
   ) {
     this.cacheTtlMs = this.configService.get<number>('TRENDING_CACHE_TTL_MS', DEFAULT_CACHE_TTL_MS);
     this.enabled = parseBool(this.configService.get<string>('TRENDING_SCRAPING_ENABLED', 'true'));
@@ -503,25 +508,15 @@ export class TrendingScraperService implements OnModuleInit {
       return false;
     }
 
-    const systemPrompt =
-      'You are a relevance classifier for a social media content agent focused on ' +
-      'astrology, wellness, women\'s cycles, love & relationships, business & mindset, ' +
-      'personal growth, mental health, and spirituality. ' +
-      'Respond with ONLY "YES" or "NO" — no explanation.';
-    const userPrompt =
-      `Is the trending topic "${topic}" relevant to any of these niches for a social media audience?\n` +
-      '- Astrology, zodiac, horoscopes, cosmic events\n' +
-      '- Wellness, self-care, meditation, mindfulness\n' +
-      "- Women's cycles, feminine energy, hormones\n" +
-      '- Love, relationships, dating, romance\n' +
-      '- Business, entrepreneurship, mindset, productivity\n' +
-      '- Personal growth, purpose, manifestation\n' +
-      '- Mental health, emotional wellbeing, therapy\n' +
-      '- Spirituality, intuition, soul work\n\n' +
-      'Answer YES if the topic can be meaningfully connected to any of these niches, NO otherwise.';
+    const safeTopic = sanitizeUntrustedInput(topic, 200);
+    const compiled = await this.getCompiledChat(
+      'trending-relevance',
+      { topic: safeTopic },
+      TRENDING_RELEVANCE_PROMPT,
+    );
 
     try {
-      const response = await this.llmService.generateChat(systemPrompt, userPrompt, {
+      const response = await this.llmService.generateChat(compiled.systemPrompt, compiled.userPrompt, {
         temperature: 0,
       });
       const answer = response.content.trim().toUpperCase();
@@ -740,6 +735,25 @@ export class TrendingScraperService implements OnModuleInit {
         topics: this.xTrendsCache?.topics.length ?? 0,
         expiresAt: this.xTrendsCache ? new Date(this.xTrendsCache.expiresAt) : undefined,
       },
+    };
+  }
+
+  /**
+   * Fetch the prompt from Langfuse Prompt Management when available,
+   * otherwise interpolate the local fallback.
+   */
+  private async getCompiledChat(
+    name: string,
+    variables: Record<string, string>,
+    fallback: CompiledChatPrompt,
+  ): Promise<CompiledChatPrompt> {
+    if (this.promptPort) {
+      return this.promptPort.getCompiledChat(name, variables, fallback);
+    }
+    return {
+      systemPrompt: interpolate(fallback.systemPrompt, variables),
+      userPrompt: interpolate(fallback.userPrompt, variables),
+      isFallback: true,
     };
   }
 }

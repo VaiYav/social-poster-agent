@@ -1,4 +1,5 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { BrowserContext, Page, Locator } from '../../../domain/ports/browser-primitives';
 import { IBrowserPort } from '../../../domain/ports/browser.port.js';
 import { BasePoster, type PostResult } from './base.poster.js';
@@ -19,9 +20,11 @@ export class ThreadsPoster extends BasePoster {
   protected readonly logger = new Logger(ThreadsPoster.name);
   protected readonly network = 'THREADS' as const;
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  constructor(@Inject(IBrowserPort) browser: IBrowserPort) {
-    super(browser);
+  constructor(
+    @Inject(IBrowserPort) browser: IBrowserPort,
+    @Inject(ConfigService) configService: ConfigService,
+  ) {
+    super(browser, configService);
   }
 
   async post(

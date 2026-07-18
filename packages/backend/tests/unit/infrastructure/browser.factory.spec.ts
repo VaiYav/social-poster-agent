@@ -596,4 +596,39 @@ describe('BrowserFactory', () => {
     expect(page.locator).toHaveBeenCalled();
     expect(visibleLocator.click).toHaveBeenCalled();
   });
+
+  // ── Camoufox patch verification ──
+
+  describe('verifyCamoufoxPatch', () => {
+    it('throws in production when the coreBundle.js patch is missing', () => {
+      const prodConfig = createMockConfigService({ NODE_ENV: 'production' });
+      const prodFactory = new BrowserFactory(prodConfig);
+
+      expect(() =>
+        (prodFactory as unknown as Record<string, (src?: string) => void>).verifyCamoufoxPatch(
+          'unpatched playwright source',
+        ),
+      ).toThrow(/Camoufox patch MISSING/);
+    });
+
+    it('logs a warning in non-production when the patch is missing', () => {
+      const warnSpy = vi.spyOn(factory['logger'], 'warn').mockImplementation(() => undefined);
+
+      (factory as unknown as Record<string, (src?: string) => void>).verifyCamoufoxPatch(
+        'unpatched playwright source',
+      );
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Camoufox patch MISSING'));
+    });
+
+    it('logs verification success when the patch is present', () => {
+      const logSpy = vi.spyOn(factory['logger'], 'log').mockImplementation(() => undefined);
+
+      (factory as unknown as Record<string, (src?: string) => void>).verifyCamoufoxPatch(
+        'params2.location ?? { url: \'\'',
+      );
+
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Camoufox patch verified'));
+    });
+  });
 });

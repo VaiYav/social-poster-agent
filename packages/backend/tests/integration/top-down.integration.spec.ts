@@ -200,7 +200,7 @@ import { DiscordNotificationService } from '../../src/infrastructure/notificatio
 import { NotificationsModule } from '../../src/infrastructure/notifications/notifications.module.js';
 import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service.js';
 import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator.js';
-import { ThreadDepthController } from '../../src/modules/content-enhancements/thread-depth.controller.js';
+import { ThreadDepthService } from '../../src/modules/content-enhancements/thread-depth.service.js';
 import { ContentPillarTracker } from '../../src/modules/content-enhancements/content-pillar.tracker.js';
 import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook-performance-bank.js';
 import { SseModule } from '../../src/infrastructure/sse/sse.module';

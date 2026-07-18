@@ -1,12 +1,13 @@
 import { Injectable, type OnModuleInit, type OnModuleDestroy, Logger } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { ConfigService } from '@nestjs/config';
+import { Prisma, PrismaClient } from '@prisma/client';
 
-function buildPrismaUrl(): string | undefined {
-  const rawUrl = process.env.DATABASE_URL;
+function buildPrismaUrl(configService: ConfigService): string | undefined {
+  const rawUrl = configService.get<string>('DATABASE_URL');
   if (!rawUrl) return undefined;
 
-  const connectionLimit = process.env.PRISMA_CONNECTION_LIMIT ?? '20';
-  const poolTimeoutMs = process.env.PRISMA_POOL_TIMEOUT_MS ?? '30000';
+  const connectionLimit = configService.get<string>('PRISMA_CONNECTION_LIMIT', '20');
+  const poolTimeoutMs = configService.get<string>('PRISMA_POOL_TIMEOUT_MS', '30000');
 
   const url = new URL(rawUrl);
   if (!url.searchParams.has('connection_limit')) {
@@ -22,20 +23,40 @@ function buildPrismaUrl(): string | undefined {
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PrismaService.name);
 
-  constructor() {
+  private readonly slowQueryThresholdMs: number;
+
+  constructor(private readonly configService: ConfigService) {
     super({
-      log: ['warn', 'error'],
-      datasourceUrl: buildPrismaUrl(),
+      log: [
+        { emit: 'event', level: 'query' },
+        { emit: 'stdout', level: 'warn' },
+        { emit: 'stdout', level: 'error' },
+      ],
+      datasourceUrl: buildPrismaUrl(configService),
       transactionOptions: {
         maxWait: 5000,
-        timeout: Number(process.env.PRISMA_TRANSACTION_TIMEOUT_MS ?? '30000'),
+        timeout: Number(configService.get<string>('PRISMA_TRANSACTION_TIMEOUT_MS', '30000')),
       },
     });
+    const parsedThreshold = Number(configService.get<string>('SLOW_QUERY_THRESHOLD_MS', '500'));
+    this.slowQueryThresholdMs = Number.isFinite(parsedThreshold) ? parsedThreshold : 500;
   }
 
   async onModuleInit(): Promise<void> {
     await this.$connect();
+    this.attachSlowQueryLogger();
     this.logger.log('Prisma connected to PostgreSQL');
+  }
+
+  private attachSlowQueryLogger(): void {
+    if (this.slowQueryThresholdMs <= 0) return;
+    (this as any).$on('query', (event: Prisma.QueryEvent) => {
+      if (event.duration >= this.slowQueryThresholdMs) {
+        this.logger.warn(
+          `Slow query (${event.duration}ms >= ${this.slowQueryThresholdMs}ms): ${event.query}`,
+        );
+      }
+    });
   }
 
   async onModuleDestroy(): Promise<void> {

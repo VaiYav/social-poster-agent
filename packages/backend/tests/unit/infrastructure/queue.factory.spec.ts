@@ -59,6 +59,7 @@ vi.mock('bullmq', () => ({
 }));
 
 import { ConfigService } from '@nestjs/config';
+import IORedis from 'ioredis';
 import { QueueFactory } from '../../../src/infrastructure/queue/queue.factory';
 
 // ── Helpers ──
@@ -136,6 +137,36 @@ describe('QueueFactory (MOD-05 — Infrastructure Adapters)', () => {
 
     expect(qX).not.toBe(qT);
     expect(mocks.QueueMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('getQueue() reuses injected shared Redis connections for client and subscriber', () => {
+    const sharedClient = { quit: vi.fn() } as unknown as IORedis;
+    const sharedSubscriber = { quit: vi.fn() } as unknown as IORedis;
+    const injectedFactory = new QueueFactory(configService, discord as never, sharedClient, sharedSubscriber);
+
+    injectedFactory.getQueue('X');
+
+    const opts = mocks.QueueMock.mock.calls[0]![1] as { createClient: (type: string) => unknown };
+    expect(opts.createClient('client')).toBe(sharedClient);
+    expect(opts.createClient('subscriber')).toBe(sharedSubscriber);
+
+    // bclient must be unique per queue and not the shared client
+    const bclient1 = opts.createClient('bclient');
+    const bclient2 = opts.createClient('bclient');
+    expect(bclient1).not.toBe(sharedClient);
+    expect(bclient1).not.toBe(bclient2);
+  });
+
+  it('onModuleDestroy() does not quit injected shared Redis connections', async () => {
+    const sharedClient = { quit: vi.fn() } as unknown as IORedis;
+    const sharedSubscriber = { quit: vi.fn() } as unknown as IORedis;
+    const injectedFactory = new QueueFactory(configService, discord as never, sharedClient, sharedSubscriber);
+
+    injectedFactory.getQueue('X');
+    await injectedFactory.onModuleDestroy();
+
+    expect(sharedClient.quit).not.toHaveBeenCalled();
+    expect(sharedSubscriber.quit).not.toHaveBeenCalled();
   });
 
   // ── enqueuePosting ──

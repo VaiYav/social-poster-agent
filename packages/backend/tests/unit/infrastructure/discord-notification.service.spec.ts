@@ -134,15 +134,19 @@ describe('DiscordNotificationService (UTC-500 — Discord alerts)', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('UTC-506: sendAlert() logs error and does not throw when fetch aborts (timeout)', async () => {
+  it('UTC-506: sendAlert() retries on transient fetch failures and does not throw', async () => {
     const abortError = new DOMException('The operation was aborted', 'AbortError');
-    fetchMock.mockRejectedValueOnce(abortError);
+    // First two attempts fail, third succeeds
+    fetchMock
+      .mockRejectedValueOnce(abortError)
+      .mockRejectedValueOnce(abortError);
 
     await expect(
       service.sendAlert({ severity: 'critical', title: 'X', message: 'Y' }),
     ).resolves.toBeUndefined();
 
-    expect(fetchMock).toHaveBeenCalledOnce();
+    // 3 total attempts (2 retries + the final one that succeeds)
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it('UTC-507: sendAlert() renders fields in embed as [{name, value, inline}]', async () => {
@@ -176,5 +180,51 @@ describe('DiscordNotificationService (UTC-500 — Discord alerts)', () => {
       createMockConfigService({ DISCORD_ALERTS_ENABLED: 'false' }),
     );
     expect(disabledService.isEnabled()).toBe(false);
+  });
+
+  // ── retry + circuit breaker ──
+
+  describe('Retry and circuit breaker', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('retries up to 3 attempts and succeeds when the final attempt works', async () => {
+      fetchMock
+        .mockRejectedValueOnce(new Error('transient'))
+        .mockRejectedValueOnce(new Error('transient'));
+
+      const promise = service.sendAlert({ severity: 'critical', title: 'Retry', message: 'Test' });
+      await vi.runAllTimersAsync();
+      await promise;
+
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it('opens the circuit after 3 consecutive sendAlert failures and skips further calls', async () => {
+      fetchMock.mockRejectedValue(new Error('persistent failure'));
+
+      // 3 failing alerts, each exhausts its 3 retries
+      for (let i = 0; i < 3; i++) {
+        const promise = service.sendAlert({ severity: 'critical', title: 'Circuit', message: 'Test' });
+        await vi.runAllTimersAsync();
+        await promise;
+      }
+
+      // Each alert attempted 3 times
+      expect(fetchMock).toHaveBeenCalledTimes(9);
+
+      // 4th alert should be skipped by the circuit breaker, no new fetch calls
+      const promise = service.sendAlert({ severity: 'critical', title: 'Circuit', message: 'Skipped' });
+      await vi.runAllTimersAsync();
+      await promise;
+
+      expect(fetchMock).toHaveBeenCalledTimes(9);
+    });
   });
 });

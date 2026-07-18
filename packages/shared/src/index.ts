@@ -8,3 +8,5 @@ export type * from './types/domain.js';
 // Schemas (Zod) + inferred types
 export * from './schemas/index.js';
 export * from './schemas/content.js';
+export * from './schemas/sse-event.js';
+export * from './schemas/events.js';

@@ -27,6 +27,7 @@ import { buildOrchestratorGraph, createInitialOrchestratorState } from './orches
 import type { OrchestratorStateType } from './orchestrator.graph.js';
 import type { CompiledStateGraph } from '@langchain/langgraph';
 import type { ActionResult, WorldState } from './types.js';
+import type { OrchestratorCycleEndEvent } from '@spa/shared';
 import { OrchestratorEvents } from '../../events/enums/post-events.enum.js';
 import { EngagementSchedulerService } from '../engagement/engagement-scheduler.service.js';
 import {
@@ -151,6 +152,10 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
           onCycleEnd: (cycle: number, result: ActionResult | null, sleepMs: number) =>
             this.onCycleEnd(cycle, result, sleepMs),
           onEngagementCheck: (world: WorldState) => this.onEngagementCheck(world),
+          timeoutConfig: {
+            f1BrowsingSessionMinutes: Number(this.configService.get<string>('F1_BROWSING_SESSION_MINUTES', '15')),
+            orchestratorGenerateTimeoutMs: Number(this.configService.get<string>('ORCHESTRATOR_GENERATE_TIMEOUT_MS', '1200000')),
+          },
         };
 
         // Build and compile graph
@@ -396,7 +401,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
         success: result?.success,
         duration: result?.duration,
         sleepMs,
-      });
+      } satisfies OrchestratorCycleEndEvent);
     }
   }
 

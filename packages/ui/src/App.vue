@@ -11,6 +11,7 @@ import { useToast } from './composables/useToast';
 import { useSSE } from './composables/useSSE';
 import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts';
 import { Sidebar, StatusDot } from './components/ui';
+import type { SSEvent } from '@spa/shared';
 import ToastContainer from './components/ToastContainer.vue';
 
 /**
@@ -55,26 +56,25 @@ watch(sseError, (err) => {
 });
 
 // Dispatch SSE events to stores + toasts
-watch(sseData, (data) => {
-  if (!data || typeof data !== 'object') return;
-  const evt = data as { type: string; postId?: string; status?: string; network?: string; error?: string; repliesPosted?: number; humanReview?: number; action?: string; flow?: string };
-  postsStore.handleSseEvent(evt);
-  monitoringStore.handleSseEvent(evt);
-  agentsStore.handleSseEvent(evt);
-  flowControlStore.handleSseEvent(evt as { type: string; action?: string; flow?: string });
+watch(sseData, (data: SSEvent | null) => {
+  if (!data) return;
+  postsStore.handleSseEvent(data);
+  monitoringStore.handleSseEvent(data);
+  agentsStore.handleSseEvent(data);
+  flowControlStore.handleSseEvent(data);
 
-  if (evt.type === 'post_status') {
-    if (evt.status === 'POSTED') {
-      toast.success(`Post ${evt.postId?.slice(0, 8)}… posted on ${evt.network}`);
-    } else if (evt.status === 'FAILED') {
-      toast.error(`Post ${evt.postId?.slice(0, 8)}… failed on ${evt.network}: ${evt.error ?? 'unknown error'}`);
+  if (data.type === 'post_status') {
+    if (data.status === 'POSTED') {
+      toast.success(`Post ${data.postId?.slice(0, 8)}… posted on ${data.network}`);
+    } else if (data.status === 'FAILED') {
+      toast.error(`Post ${data.postId?.slice(0, 8)}… failed on ${data.network}: ${data.error ?? 'unknown error'}`);
     }
-  } else if (evt.type === 'health_alert') {
-    toast.warning(`Health alert: ${evt.error ?? 'session issue detected'}`);
-  } else if (evt.type === 'reply_posted') {
-    toast.success(`Reply posted on ${evt.network}`);
-  } else if (evt.type === 'replies_monitor') {
-    toast.info(`Replies cycle: ${evt.repliesPosted ?? 0} posted, ${evt.humanReview ?? 0} need review`);
+  } else if (data.type === 'health_alert') {
+    toast.warning(`Health alert: ${data.error ?? 'session issue detected'}`);
+  } else if (data.type === 'reply_posted') {
+    toast.success(`Reply posted on ${data.network}`);
+  } else if (data.type === 'replies_monitor') {
+    toast.info(`Replies cycle: ${data.repliesPosted ?? 0} posted, ${data.humanReview ?? 0} need review`);
   }
 });
 

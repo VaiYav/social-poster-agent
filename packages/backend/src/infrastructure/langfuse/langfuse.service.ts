@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { CallbackHandler } from '@langfuse/langchain';
 import { LangfuseClient, type ChatPromptClient, type TextPromptClient } from '@langfuse/client';
 import { shutdownLangfuse } from '../../langfuse-instrumentation.js';
@@ -55,7 +56,7 @@ export class LangfuseService implements OnModuleDestroy {
   private readonly logger = new Logger(LangfuseService.name);
 
   /** Whether Langfuse tracing is enabled (LANGFUSE_PUBLIC_KEY is set). */
-  readonly isEnabled: boolean = !!process.env.LANGFUSE_PUBLIC_KEY;
+  readonly isEnabled: boolean;
 
   /** Langfuse client for prompt management (null when disabled). */
   private readonly client: LangfuseClient | null = null;
@@ -65,14 +66,16 @@ export class LangfuseService implements OnModuleDestroy {
 
   constructor(
     @Inject(LANGFUSE_PROMPT_BREAKER) promptCircuitBreaker: CircuitBreaker,
+    private readonly configService: ConfigService,
   ) {
     this.promptCircuitBreaker = promptCircuitBreaker;
+    this.isEnabled = !!this.configService.get<string>('LANGFUSE_PUBLIC_KEY');
     if (this.isEnabled) {
       try {
         this.client = new LangfuseClient({
-          publicKey: process.env.LANGFUSE_PUBLIC_KEY!,
-          secretKey: process.env.LANGFUSE_SECRET_KEY!,
-          baseUrl: process.env.LANGFUSE_BASE_URL || 'https://us.cloud.langfuse.com',
+          publicKey: this.configService.get<string>('LANGFUSE_PUBLIC_KEY')!,
+          secretKey: this.configService.get<string>('LANGFUSE_SECRET_KEY')!,
+          baseUrl: this.configService.get<string>('LANGFUSE_BASE_URL', 'https://us.cloud.langfuse.com'),
         });
       } catch (err) {
         this.logger.warn(`Failed to init LangfuseClient — prompt management disabled: ${getErrorMessage(err)}`);

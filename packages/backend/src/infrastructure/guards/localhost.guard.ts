@@ -20,6 +20,7 @@ import {
   ForbiddenException,
   Logger,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { Request } from 'express';
 import type { Socket } from 'net';
 
@@ -27,9 +28,11 @@ import type { Socket } from 'net';
 export class LocalhostGuard implements CanActivate {
   private readonly logger = new Logger(LocalhostGuard.name);
 
+  constructor(private readonly configService: ConfigService) {}
+
   canActivate(context: ExecutionContext): boolean {
     // Bypass in test env — supertest connects via localhost but NODE_ENV=test
-    if (process.env.NODE_ENV === 'test') return true;
+    if (this.configService.get<string>('NODE_ENV') === 'test') return true;
 
     const request = context.switchToHttp().getRequest<Request>();
     const socket = request.socket as Socket | undefined;
@@ -41,7 +44,7 @@ export class LocalhostGuard implements CanActivate {
     // SEC1: only consult X-Forwarded-For when the DIRECT peer is a configured trusted
     // proxy. Otherwise any client could send `X-Forwarded-For: 127.0.0.1` and bypass
     // the guard. TRUSTED_PROXY_IPS is empty by default → XFF is ignored entirely.
-    const trustedProxies = (process.env.TRUSTED_PROXY_IPS ?? '')
+    const trustedProxies = (this.configService.get<string>('TRUSTED_PROXY_IPS', '') ?? '')
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);

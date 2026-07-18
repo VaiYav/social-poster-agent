@@ -17,7 +17,7 @@
  *   - ContentPillarTracker (recommendPillar, recordPillar) — optional
  *   - HookPerformanceBank — optional
  *   - VisualConceptService — optional
- *   - ThreadDepthController (planThread) — optional
+ *   - ThreadDepthService (planThread) — optional
  *   - ABVariantGenerator (generateVariants, isEnabled) — optional
  *
  * The LangGraph workflow is mocked via vi.mock to return controlled posts.
@@ -58,7 +58,7 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 import { GenerationService } from '../../../src/modules/generation/generation.service';
-import { createMockLlmPort, createMockPrismaService, createMockSseService, createMockCheckpointSaver } from '../../mocks/index';
+import { createMockLlmPort, createMockPrismaService, createMockSseService, createMockCheckpointSaver, createMockConfigService } from '../../mocks/index';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -181,7 +181,7 @@ function createMockPillarTracker() {
   };
 }
 
-function createMockThreadDepthController() {
+function createMockThreadDepthService() {
   return {
     planThread: vi.fn().mockResolvedValue({
       depth: 1,
@@ -223,6 +223,7 @@ let contentSource: ReturnType<typeof createMockContentSourceService>;
 let accounts: ReturnType<typeof createMockAccountsService>;
 let posts: ReturnType<typeof createMockPostsService>;
 let checkpoint: ReturnType<typeof createMockCheckpointSaver>;
+let configService: ReturnType<typeof createMockConfigService>;
 let abVariantService: { createVariants: ReturnType<typeof vi.fn> };
 
 beforeEach(() => {
@@ -253,6 +254,7 @@ beforeEach(() => {
   prisma.postThread.create.mockResolvedValue({ id: 'thread-001' });
   sse = createMockSseService();
   checkpoint = createMockCheckpointSaver();
+  configService = createMockConfigService();
   abVariantService = { createVariants: vi.fn().mockResolvedValue(undefined) };
 
   service = new GenerationService(
@@ -263,6 +265,7 @@ beforeEach(() => {
     prisma as any,
     checkpoint as any,
     sse as any,
+    configService as any,
   );
   // Inject the mock A/B variant service so persistPostVariants runs in tests.
   (service as any).abVariantService = abVariantService;
@@ -492,7 +495,7 @@ describe('GenerationService', () => {
 
       const svc = new GenerationService(
         llm, contentSource as any, accounts as any, posts as any,
-        prisma as any, checkpoint as any, sse as any,
+        prisma as any, checkpoint as any, sse as any, configService as any,
         undefined, trendingScraper as any,
       );
 
@@ -511,7 +514,7 @@ describe('GenerationService', () => {
 
       const svc = new GenerationService(
         llm, contentSource as any, accounts as any, posts as any,
-        prisma as any, checkpoint as any, sse as any,
+        prisma as any, checkpoint as any, sse as any, configService as any,
         undefined, trendingScraper as any,
       );
 
@@ -529,7 +532,7 @@ describe('GenerationService', () => {
 
       const svc = new GenerationService(
         llm, contentSource as any, accounts as any, posts as any,
-        prisma as any, checkpoint as any, sse as any,
+        prisma as any, checkpoint as any, sse as any, configService as any,
         trendingService as any, trendingScraper as any,
       );
 
@@ -612,7 +615,7 @@ describe('GenerationService', () => {
 
       const svc = new GenerationService(
         llm, contentSource as any, accounts as any, posts as any,
-        prisma as any, checkpoint as any, sse as any,
+        prisma as any, checkpoint as any, sse as any, configService as any,
         undefined, undefined, pillarTracker as any,
       );
 
@@ -632,7 +635,7 @@ describe('GenerationService', () => {
 
       const svc = new GenerationService(
         llm, contentSource as any, accounts as any, posts as any,
-        prisma as any, checkpoint as any, sse as any,
+        prisma as any, checkpoint as any, sse as any, configService as any,
         undefined, undefined, pillarTracker as any,
       );
 
@@ -656,9 +659,9 @@ describe('GenerationService', () => {
 
   describe('generate() — multi-stage thread (F2/P4)', () => {
 
-    it('UTC-220: multiStage=true with ThreadDepthController → depth>1 creates continuations', async () => {
+    it('UTC-220: multiStage=true with ThreadDepthService → depth>1 creates continuations', async () => {
       contentSource.getTopics.mockResolvedValue([TOPIC_1]);
-      const threadDepth = createMockThreadDepthController();
+      const threadDepth = createMockThreadDepthService();
       threadDepth.planThread.mockResolvedValue({
         depth: 3,
         continuations: [
@@ -671,7 +674,7 @@ describe('GenerationService', () => {
 
       const svc = new GenerationService(
         llm, contentSource as any, accounts as any, posts as any,
-        prisma as any, checkpoint as any, sse as any,
+        prisma as any, checkpoint as any, sse as any, configService as any,
         undefined, undefined, undefined, undefined, undefined, threadDepth as any,
       );
 
@@ -690,7 +693,7 @@ describe('GenerationService', () => {
 
     it('UTC-223: P4 thread assembly runs inside a DB transaction (A4 atomicity)', async () => {
       contentSource.getTopics.mockResolvedValue([TOPIC_1]);
-      const threadDepth = createMockThreadDepthController();
+      const threadDepth = createMockThreadDepthService();
       threadDepth.planThread.mockResolvedValue({
         depth: 2,
         continuations: [{ position: 1, content: 'Continuation 1' }],
@@ -700,7 +703,7 @@ describe('GenerationService', () => {
 
       const svc = new GenerationService(
         llm, contentSource as any, accounts as any, posts as any,
-        prisma as any, checkpoint as any, sse as any,
+        prisma as any, checkpoint as any, sse as any, configService as any,
         undefined, undefined, undefined, undefined, undefined, threadDepth as any,
       );
 
@@ -714,7 +717,7 @@ describe('GenerationService', () => {
       expect(txCall).toBeTruthy();
     });
 
-    it('UTC-221: multiStage=true without ThreadDepthController → F2 fallback (2 posts)', async () => {
+    it('UTC-221: multiStage=true without ThreadDepthService → F2 fallback (2 posts)', async () => {
       contentSource.getTopics.mockResolvedValue([TOPIC_1]);
       llm.generateChat.mockResolvedValue({ content: 'Continuation content here', model: 'gpt-4o-mini', tokens: 50, cost: 0.001 });
       mockInvoke.mockResolvedValue({ posts: [genPost(SocialNetwork.X, 'Root post')], facts: [] });
@@ -739,15 +742,15 @@ describe('GenerationService', () => {
       expect(prisma.postThread.create).not.toHaveBeenCalled();
     });
 
-    it('UTC-223: ThreadDepthController returns depth=1 → no continuations', async () => {
+    it('UTC-223: ThreadDepthService returns depth=1 → no continuations', async () => {
       contentSource.getTopics.mockResolvedValue([TOPIC_1]);
-      const threadDepth = createMockThreadDepthController();
+      const threadDepth = createMockThreadDepthService();
       // depth=1 is the default mock
       mockInvoke.mockResolvedValue({ posts: [genPost(SocialNetwork.X, 'Single post')], facts: [] });
 
       const svc = new GenerationService(
         llm, contentSource as any, accounts as any, posts as any,
-        prisma as any, checkpoint as any, sse as any,
+        prisma as any, checkpoint as any, sse as any, configService as any,
         undefined, undefined, undefined, undefined, undefined, threadDepth as any,
       );
 

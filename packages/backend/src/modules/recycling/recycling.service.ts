@@ -5,6 +5,7 @@
  * new draft variants with updated angles/hooks. Avoids exact duplicates via SimHash.
  */
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -19,6 +20,7 @@ export class RecyclingService implements OnModuleInit {
   private readonly logger = new Logger(RecyclingService.name);
 
   constructor(
+    private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
     // RC3: recycling re-writes content through the generation graph (no verbatim copies).
     private readonly generationService: GenerationService,
@@ -111,11 +113,11 @@ export class RecyclingService implements OnModuleInit {
       this.logger.log('Orchestrator is enabled — recycling cron NOT registered');
       return;
     }
-    if (!parseBool(process.env.RECYCLING_CRON_ENABLED ?? 'false')) {
+    if (!parseBool(this.configService.get<string>('RECYCLING_CRON_ENABLED', 'false'))) {
       return;
     }
 
-    const cronExpr = process.env.RECYCLING_CRON_SCHEDULE ?? '0 8 * * 1';
+    const cronExpr = this.configService.get<string>('RECYCLING_CRON_SCHEDULE', '0 8 * * 1');
     const job = new CronJob(cronExpr, async () => {
       this.logger.log('RC2: scheduled recycling run starting');
       await this.runRecycling();

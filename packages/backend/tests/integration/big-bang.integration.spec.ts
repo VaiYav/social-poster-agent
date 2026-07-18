@@ -94,8 +94,8 @@ import { ContentSourceController } from '../../src/modules/content-source/conten
 import { QueueService } from '../../src/modules/queue/queue.service';
 import { QueueController } from '../../src/modules/queue/queue.controller';
 import { QueueModule } from '../../src/modules/queue/queue.module';
-import { EventsController } from '../../src/modules/events/events.controller';
-import { AutoApproveListener } from '../../src/events/listeners/auto-approve.listener';
+import { SseController } from '../../src/modules/sse/sse.controller';
+import { AutoApproveListener } from '../../src/modules/autonomy/auto-approve.listener';
 import { HealthController } from '../../src/modules/health/health.controller';
 import { EngagementService } from '../../src/modules/engagement/engagement.service';
 import { EngagementController } from '../../src/modules/engagement/engagement.controller';
@@ -129,7 +129,7 @@ import { NotificationsModule } from '../../src/infrastructure/notifications/noti
 import { TopicGenerationService } from '../../src/infrastructure/content/topic-generation.service';
 import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service';
 import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator';
-import { ThreadDepthController } from '../../src/modules/content-enhancements/thread-depth.controller';
+import { ThreadDepthService } from '../../src/modules/content-enhancements/thread-depth.service';
 import { ContentPillarTracker } from '../../src/modules/content-enhancements/content-pillar.tracker';
 import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook-performance-bank';
 import { AuthService } from '../../src/modules/auth/auth.service';

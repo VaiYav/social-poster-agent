@@ -10,6 +10,7 @@ import { PrismaService } from '../../src/infrastructure/prisma/prisma.service';
 // Infrastructure
 import { BrowserFactory } from '../../src/infrastructure/browser/browser.factory';
 import { LlmService } from '../../src/infrastructure/llm/llm.service';
+import { LlmController } from '../../src/infrastructure/llm/llm.controller';
 import { ContentReader } from '../../src/infrastructure/content/content-reader';
 import { DbContentReader } from '../../src/infrastructure/content/db-content-reader';
 import { ContentAdapterRegistry } from '../../src/infrastructure/content/adapters/content-adapter.registry.js';
@@ -86,8 +87,8 @@ import { AutoApproveService } from '../../src/modules/autonomy/auto-approve.serv
 import { AutonomousRunnerService } from '../../src/modules/autonomy/autonomous-runner.service';
 
 // Events
-import { EventsController } from '../../src/modules/events/events.controller';
-import { AutoApproveListener } from '../../src/events/listeners/auto-approve.listener';
+import { SseController } from '../../src/modules/sse/sse.controller';
+import { AutoApproveListener } from '../../src/modules/autonomy/auto-approve.listener';
 import { SseEventListener } from '../../src/events/listeners/sse-event.listener';
 
 // Health
@@ -108,7 +109,7 @@ import { RepliesController } from '../../src/modules/replies/replies.controller'
 import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service.js';
 import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator.js';
 import { ABVariantService } from '../../src/modules/content-enhancements/ab-variant.service.js';
-import { ThreadDepthController } from '../../src/modules/content-enhancements/thread-depth.controller.js';
+import { ThreadDepthService } from '../../src/modules/content-enhancements/thread-depth.service.js';
 import { ContentPillarTracker } from '../../src/modules/content-enhancements/content-pillar.tracker.js';
 import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook-performance-bank.js';
 
@@ -118,6 +119,13 @@ import { GuardrailsService } from '../../src/modules/orchestrator/guardrails.ser
 import { LlmDecisionService } from '../../src/modules/orchestrator/llm-decision.service.js';
 import { PostingWindowService } from '../../src/modules/orchestrator/posting-window.service.js';
 import { DecisionEngineService } from '../../src/modules/orchestrator/decision-engine.service.js';
+import { ActionExecutorService } from '../../src/modules/orchestrator/action-executor.service.js';
+import {
+  GenerateTopicsHandler,
+  GeneratePostsHandler,
+  PostHandler,
+  BrowseHandler,
+} from '../../src/modules/orchestrator/action-handlers.js';
 
 // Sprint O / New features
 import { CaptchaSolverService } from '../../src/infrastructure/captcha/captcha-solver.service';
@@ -135,6 +143,7 @@ import { QuoteCardController } from '../../src/modules/quote-cards/quote-card.co
 import { AuthService } from '../../src/modules/auth/auth.service';
 import { AuthController } from '../../src/modules/auth/auth.controller';
 import { JwtAuthGuard } from '../../src/modules/auth/jwt-auth.guard';
+import { LocalhostGuard } from '../../src/infrastructure/guards/localhost.guard';
 
 /**
  * Set `design:paramtypes` metadata for a class. Vitest transforms source with
@@ -160,8 +169,9 @@ export function defineParamtypes(target: unknown, types: unknown[]): void {
  */
 export function restoreAllDesignParamtypes(): void {
   // ── Infrastructure ───────────────────────────────────────────────────────
-  defineParamtypes(PrismaService, []);
+  defineParamtypes(PrismaService, [ConfigService]);
   defineParamtypes(LlmService, [ConfigService, Object, Object]); // Object = SHARED_REDIS, Object = IPromptPort (@Optional @Inject)
+  defineParamtypes(LlmController, [LlmService]);
   defineParamtypes(ContentReader, [ConfigService]);
   defineParamtypes(DbContentReader, [PrismaService]);
   defineParamtypes(ContentAdapterRegistry, [ConfigService, Object]); // Object = CONTENT_ADAPTERS (@Inject)
@@ -170,12 +180,12 @@ export function restoreAllDesignParamtypes(): void {
   defineParamtypes(MetricsPublisher, [ConfigService, SseService, Object]); // Object = @Inject(IMetricsCollector)
   defineParamtypes(MonitoringController, [MetricsPublisher]);
   defineParamtypes(RedisCheckpointSaver, [ConfigService, Object]); // Object = SHARED_REDIS
-  defineParamtypes(QueueFactory, [ConfigService, DiscordNotificationService]);
+  defineParamtypes(QueueFactory, [ConfigService, DiscordNotificationService, Object, Object]); // Object = @Optional() @Inject(SHARED_REDIS), Object = @Optional() @Inject(SHARED_REDIS_SUBSCRIBER)
   defineParamtypes(EncryptionService, [ConfigService]);
   defineParamtypes(DiscordNotificationService, [ConfigService]);
-  defineParamtypes(TopicGenerationService, [PrismaService, ConfigService, SchedulerRegistry, LlmService]);
-  defineParamtypes(EmailReaderService, []);
-  defineParamtypes(LangfuseService, [Object]); // Object = LANGFUSE_PROMPT_BREAKER
+  defineParamtypes(TopicGenerationService, [PrismaService, ConfigService, SchedulerRegistry, LlmService, Object]); // Object = @Optional() @Inject(IPromptPort)
+  defineParamtypes(EmailReaderService, [ConfigService]);
+  defineParamtypes(LangfuseService, [Object, ConfigService]); // Object = LANGFUSE_PROMPT_BREAKER
   defineParamtypes(DistributedLockService, [Object]); // Object = SHARED_REDIS
   defineParamtypes(InstanceHeartbeatService, [ConfigService, Object]); // Object = SHARED_REDIS
 
@@ -192,7 +202,7 @@ export function restoreAllDesignParamtypes(): void {
   defineParamtypes(ContentSourceController, [ContentSourceService]);
 
   // ── Generation ───────────────────────────────────────────────────────────
-  // 17 params: 7 required + 10 @Optional()
+  // 18 params: 8 required + 10 @Optional()
   defineParamtypes(GenerationService, [
     Object, // @Inject(ILlmPort)
     ContentSourceService,
@@ -201,12 +211,13 @@ export function restoreAllDesignParamtypes(): void {
     PrismaService,
     RedisCheckpointSaver,
     SseService,
+    ConfigService,
     Object, // @Optional() TrendingService
     Object, // @Optional() TrendingScraperService
     Object, // @Optional() ContentPillarTracker
     Object, // @Optional() HookPerformanceBank
     Object, // @Optional() VisualConceptService
-    Object, // @Optional() ThreadDepthController
+    Object, // @Optional() ThreadDepthService
     Object, // @Optional() ABVariantGenerator
     Object, // @Optional() ABVariantService
     LangfuseService, // @Optional() langfuse
@@ -233,14 +244,15 @@ export function restoreAllDesignParamtypes(): void {
     XPoster,
     ThreadsPoster,
     FacebookPoster,
+    ConfigService,
     Object, // @Optional() QueueFactory
     Object, // @Optional() FlowControlService
     Object, // @Optional() ContentPillarTracker
     Object, // @Optional() ABVariantService
   ]);
   defineParamtypes(PostingController, [PostingService]);
-  defineParamtypes(XPoster, [Object]); // @Inject(IBrowserPort)
-  defineParamtypes(ThreadsPoster, [Object]); // @Inject(IBrowserPort)
+  defineParamtypes(XPoster, [Object, ConfigService]); // @Inject(IBrowserPort), @Inject(ConfigService)
+  defineParamtypes(ThreadsPoster, [Object, ConfigService]); // @Inject(IBrowserPort), @Inject(ConfigService)
   defineParamtypes(FacebookPoster, [Object, ConfigService]); // @Inject(IBrowserPort)
 
   // ── Sessions ─────────────────────────────────────────────────────────────
@@ -262,8 +274,8 @@ export function restoreAllDesignParamtypes(): void {
   defineParamtypes(RateLimitService, [ConfigService, Object]); // Object = @Inject(SHARED_REDIS)
 
   // ── Engagement ───────────────────────────────────────────────────────────
-  defineParamtypes(XEngager, [Object]); // @Inject(IBrowserPort)
-  defineParamtypes(ThreadsEngager, [Object]); // @Inject(IBrowserPort)
+  defineParamtypes(XEngager, [Object, ConfigService]); // @Inject(IBrowserPort), @Inject(ConfigService)
+  defineParamtypes(ThreadsEngager, [Object, ConfigService]); // @Inject(IBrowserPort), @Inject(ConfigService)
   defineParamtypes(FacebookEngager, [Object, ConfigService]); // @Inject(IBrowserPort)
   defineParamtypes(BrowsingSessionService, [
     PrismaService,
@@ -293,7 +305,7 @@ export function restoreAllDesignParamtypes(): void {
   ]);
   defineParamtypes(EngagementController, [EngagementService]);
   defineParamtypes(HumanBehaviorEngine, [PrismaService, Object, SseService, RateLimitService, Object]); // Object = IBrowserPort, IEngagementDecisionPort
-  defineParamtypes(EngagementDecisionService, [Object, ConfigService]); // Object = @Inject(ILlmPort)
+  defineParamtypes(EngagementDecisionService, [Object, ConfigService, Object]); // Object = @Inject(ILlmPort), Object = @Optional() @Inject(IPromptPort)
   defineParamtypes(TargetingService, [ConfigService]);
   defineParamtypes(EngagementSchedulerService, [ConfigService, QueueFactory, SchedulerRegistry]);
 
@@ -314,7 +326,7 @@ export function restoreAllDesignParamtypes(): void {
   ]);
 
   // ── Events ───────────────────────────────────────────────────────────────
-  defineParamtypes(EventsController, [SseService]);
+  defineParamtypes(SseController, [SseService]);
   defineParamtypes(AutoApproveListener, [PrismaService, ModuleRef, ConfigService, Object]); // Object = @Inject(IPostingQueuePort)
   defineParamtypes(SseEventListener, [SseService]);
 
@@ -323,7 +335,7 @@ export function restoreAllDesignParamtypes(): void {
   defineParamtypes(QueueController, [QueueService]);
 
   // ── Health ───────────────────────────────────────────────────────────────
-  defineParamtypes(HealthController, [PrismaService, Object, ConfigService]); // Object = @Inject(SHARED_REDIS)
+  defineParamtypes(HealthController, [PrismaService, Object, ConfigService, QueueFactory]); // Object = @Inject(SHARED_REDIS)
   defineParamtypes(HealthMonitorService, [PrismaService, SseService, DiscordNotificationService, QueueService, QueueFactory, ConfigService, SchedulerRegistry]);
   defineParamtypes(HealthMonitorController, [HealthMonitorService]);
 
@@ -335,6 +347,7 @@ export function restoreAllDesignParamtypes(): void {
     Object, // @Optional() LlmService
     Object, // @Optional() @Inject(IBrowserPort)
     SessionsService, // @Optional()
+    Object, // @Optional() @Inject(IPromptPort)
   ]);
   defineParamtypes(TrendingController, [TrendingService, TrendingScraperService]);
 
@@ -359,10 +372,10 @@ export function restoreAllDesignParamtypes(): void {
   // ── Content Enhancements ─────────────────────────────────────────────────
   defineParamtypes(VisualConceptService, [ConfigService, Object]); // Object = @Optional() ILlmPort
   defineParamtypes(ABVariantGenerator, [ConfigService, Object]); // Object = @Optional() ILlmPort
-  defineParamtypes(ThreadDepthController, [ConfigService, Object]); // Object = @Optional() ILlmPort
+  defineParamtypes(ThreadDepthService, [ConfigService, Object]); // Object = @Optional() ILlmPort
   defineParamtypes(ContentPillarTracker, [Object]); // Object = @Inject(SHARED_REDIS)
   defineParamtypes(ABVariantService, [ConfigService, PrismaService]);
-  defineParamtypes(HookPerformanceBank, [Object, PrismaService]); // Object = @Inject(SHARED_REDIS), PrismaService @Optional()
+  defineParamtypes(HookPerformanceBank, [ConfigService, Object, PrismaService]); // Object = @Inject(SHARED_REDIS), PrismaService @Optional()
 
   // ── Orchestrator ─────────────────────────────────────────────────────────
   defineParamtypes(HardRulesService, [Object]); // Object = @Inject(SHARED_REDIS)
@@ -377,6 +390,32 @@ export function restoreAllDesignParamtypes(): void {
     LlmDecisionService,
     GuardrailsService,
   ]);
+  defineParamtypes(GenerateTopicsHandler, [ConfigService, ModuleRef, PrismaService]);
+  defineParamtypes(GeneratePostsHandler, [ConfigService, ModuleRef, PrismaService]);
+  defineParamtypes(PostHandler, [ConfigService, ModuleRef, PrismaService]);
+  defineParamtypes(BrowseHandler, [ConfigService, Object]); // Object = @Optional() @Inject(IBrowsingSessionPort)
+  defineParamtypes(RecoverSessionHandler, [ModuleRef]);
+  defineParamtypes(CheckRepliesHandler, [Object]); // Object = @Optional() @Inject(IRepliesMonitorPort)
+  defineParamtypes(RefreshTrendsHandler, [ModuleRef]);
+  defineParamtypes(HealthCheckHandler, [ModuleRef]);
+  defineParamtypes(ReconcileHandler, [ModuleRef]);
+  defineParamtypes(ScrapeMetricsHandler, [ModuleRef]);
+  defineParamtypes(RecycleContentHandler, [ModuleRef]);
+  defineParamtypes(AggregateHooksHandler, [ModuleRef]);
+  defineParamtypes(ActionExecutorService, [
+    GenerateTopicsHandler,
+    GeneratePostsHandler,
+    PostHandler,
+    BrowseHandler,
+    RecoverSessionHandler,
+    CheckRepliesHandler,
+    RefreshTrendsHandler,
+    HealthCheckHandler,
+    ReconcileHandler,
+    ScrapeMetricsHandler,
+    RecycleContentHandler,
+    AggregateHooksHandler,
+  ]);
 
   // ── Sprint O / New Features ──────────────────────────────────────────────
   defineParamtypes(CaptchaSolverService, [ConfigService]);
@@ -384,8 +423,8 @@ export function restoreAllDesignParamtypes(): void {
   defineParamtypes(AnalyticsService, [PrismaService]);
   defineParamtypes(ABTestService, [PrismaService]);
   defineParamtypes(AnalyticsController, [AnalyticsService, MetricsScraperService, ABTestService, Object]); // Object = @Optional() HookPerformanceBank
-  defineParamtypes(MetricsScraperService, [PrismaService, SseService, SchedulerRegistry, Object, Object]); // Object = @Optional() @Inject(IBrowserPort), Object = @Optional() ABVariantService
-  defineParamtypes(RecyclingService, [PrismaService, GenerationService, SchedulerRegistry]);
+  defineParamtypes(MetricsScraperService, [ConfigService, PrismaService, SseService, SchedulerRegistry, Object, Object, Object]); // Object = @Optional() @Inject(IBrowserPort), Object = @Optional() ABVariantService, Object = @Optional() @Inject(SHARED_REDIS)
+  defineParamtypes(RecyclingService, [ConfigService, PrismaService, GenerationService, SchedulerRegistry]);
   defineParamtypes(RecyclingController, [RecyclingService]);
   defineParamtypes(QuoteCardService, [ConfigService]);
   defineParamtypes(QuoteCardController, [QuoteCardService]);
@@ -394,4 +433,5 @@ export function restoreAllDesignParamtypes(): void {
   defineParamtypes(AuthService, [PrismaService, JwtService, ConfigService]);
   defineParamtypes(AuthController, [AuthService, ConfigService]);
   defineParamtypes(JwtAuthGuard, [JwtService, ConfigService]);
+  defineParamtypes(LocalhostGuard, [ConfigService]);
 }

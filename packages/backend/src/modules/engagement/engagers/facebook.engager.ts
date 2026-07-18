@@ -19,9 +19,9 @@ export class FacebookEngager extends BaseEngager {
 
   constructor(
     @Inject(IBrowserPort) browser: IBrowserPort,
-    configService: ConfigService,
+    @Inject(ConfigService) configService: ConfigService,
   ) {
-    super(browser);
+    super(browser, configService);
     this.pageSlug = configService.get<string>('SOCIAL_FACEBOOK_PAGE_SLUG', '');
   }
 

@@ -30,6 +30,7 @@ import { AuthService } from './auth.service';
 import { LoginDtoSchema, type LoginDto, type AuthUser } from '@spa/shared';
 import { parseBool } from '../../infrastructure/config/parse-bool';
 import { LoginRateLimitGuard } from './login-rate-limit.guard';
+import { Public } from './public.decorator';
 
 const COOKIE_NAME = 'spa_token';
 
@@ -51,6 +52,7 @@ export class AuthController {
   }
 
   @Post('login')
+  @Public()
   @UseGuards(LoginRateLimitGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Login with username/password — sets httpOnly JWT cookie' })
@@ -78,6 +80,7 @@ export class AuthController {
   }
 
   @Post('logout')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Clear the auth cookie' })
   async logout(@Res({ passthrough: true }) res: Response): Promise<{ success: true }> {

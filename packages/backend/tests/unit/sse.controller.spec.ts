@@ -1,8 +1,8 @@
 /**
- * MOD-07: Cross-Cutting Concerns — EventsController (SSE) unit tests.
+ * MOD-07: Cross-Cutting Concerns — SseController (SSE) unit tests.
  *
  * The unit-test-cases.md MOD-07 section (UTC-115..125) covers HealthController
- * and RedactInterceptor; EventsController has no dedicated UTC IDs there.
+ * and RedactInterceptor; SseController has no dedicated UTC IDs there.
  * These tests supplement MOD-07 by verifying the SSE endpoint behaviour
  * described in the controller source:
  *   - SSE headers are set and flushHeaders is called
@@ -17,22 +17,22 @@ import { EventEmitter } from 'node:events';
 import { createMockSseService } from '../mocks/index';
 import { createControllerTestingModule } from '../helpers/nest';
 import { defineParamtypes, restoreAllDesignParamtypes } from '../helpers/restore-paramtypes';
-import { EventsController } from '../../src/modules/events/events.controller';
+import { SseController } from '../../src/modules/sse/sse.controller';
 import { SseService } from '../../src/infrastructure/sse/sse.service';
 
 // vitest transpiles via esbuild which does NOT emit `design:paramtypes` metadata,
 // so NestJS DI-by-type fails. We attach it explicitly to the controller class.
-defineParamtypes(EventsController, [SseService]);
+defineParamtypes(SseController, [SseService]);
 
-describe('EventsController (MOD-07 — SSE supplement)', () => {
+describe('SseController (MOD-07 — SSE supplement)', () => {
   let sseService: ReturnType<typeof createMockSseService>;
-  let controller: EventsController;
+  let controller: SseController;
 
   beforeEach(async () => {
     sseService = createMockSseService();
     sseService.addClient.mockReturnValue('sse-client-1');
 
-    const { controller: ctrl } = await createControllerTestingModule(EventsController, [
+    const { controller: ctrl } = await createControllerTestingModule(SseController, [
       { provide: SseService, useValue: sseService },
     ]);
     controller = ctrl;

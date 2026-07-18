@@ -26,7 +26,7 @@ import { ConfigService } from '@nestjs/config';
 import { PostStatus, SocialNetwork } from '@prisma/client';
 import { IPostingQueuePort } from '../../domain/ports/posting-queue.port.js';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { PostEvents } from '../enums/post-events.enum';
+import { PostEvents } from '../../events/enums/post-events.enum';
 import { parseBool } from '../../infrastructure/config/parse-bool';
 
 @Injectable()
@@ -77,7 +77,7 @@ export class AutoApproveListener {
       // quality thresholds and is fail-closed on a missing score. Resolved lazily via
       // ModuleRef (AutonomyModule) so this listener's constructor — and the 11 test
       // paramtypes restorations that pin it — stay unchanged.
-      const { AutoApproveService } = await import('../../modules/autonomy/auto-approve.service.js');
+      const { AutoApproveService } = await import('./auto-approve.service.js');
       const autoApprove = this.moduleRef.get(AutoApproveService, { strict: false });
       if (!autoApprove) {
         this.logger.warn(`AutoApproveService not available — post ${payload.postId} left as DRAFT`);

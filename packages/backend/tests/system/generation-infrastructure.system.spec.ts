@@ -24,7 +24,7 @@ import { TopicGenerationService } from '../../src/infrastructure/content/topic-g
 import http from 'node:http';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SseEventListener } from '../../src/events/listeners/sse-event.listener';
-import { AutoApproveListener } from '../../src/events/listeners/auto-approve.listener';
+import { AutoApproveListener } from '../../src/modules/autonomy/auto-approve.listener';
 import { AutoCheckService } from '../../src/modules/autonomy/auto-check.service';
 import { AutoApproveService } from '../../src/modules/autonomy/auto-approve.service';
 import { AutonomousRunnerService } from '../../src/modules/autonomy/autonomous-runner.service';
@@ -32,7 +32,7 @@ import { FlowControlService } from '../../src/modules/flow-control/flow-control.
 import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service';
 import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service';
 import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator';
-import { ThreadDepthController } from '../../src/modules/content-enhancements/thread-depth.controller';
+import { ThreadDepthService } from '../../src/modules/content-enhancements/thread-depth.service';
 import { ContentPillarTracker } from '../../src/modules/content-enhancements/content-pillar.tracker';
 import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook-performance-bank';
 import { ThreadProgressService } from '../../src/modules/posting/thread-progress.service';
@@ -99,7 +99,7 @@ import { ContentSourceService } from '../../src/modules/content-source/content-s
 import { ContentSourceController } from '../../src/modules/content-source/content-source.controller';
 import { QueueService } from '../../src/modules/queue/queue.service';
 import { QueueController } from '../../src/modules/queue/queue.controller';
-import { EventsController } from '../../src/modules/events/events.controller';
+import { SseController } from '../../src/modules/sse/sse.controller';
 import { HealthController } from '../../src/modules/health/health.controller';
 import { AuthService } from '../../src/modules/auth/auth.service';
 import { AuthController } from '../../src/modules/auth/auth.controller';

@@ -5,6 +5,7 @@
 // network-specific engagement logic using the selectors from the selector files.
 
 import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { Page } from '../../../domain/ports/browser-primitives';
 import type { SocialNetwork } from '@spa/shared';
 import type { IBrowserPort } from '../../../domain/ports/browser.port.js';
@@ -20,8 +21,8 @@ export abstract class BaseEngager extends BasePoster {
   protected abstract readonly logger: Logger;
   protected abstract readonly network: SocialNetwork;
 
-  constructor(browser: IBrowserPort) {
-    super(browser);
+  constructor(browser: IBrowserPort, configService: ConfigService) {
+    super(browser, configService);
   }
 
   // ── Engagement Actions (implemented by concrete engagers) ──────

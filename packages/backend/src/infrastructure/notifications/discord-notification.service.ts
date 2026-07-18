@@ -15,6 +15,7 @@
  */
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { CircuitBreaker, CircuitOpenError } from '../../domain/circuit-breaker';
 
 export type AlertSeverity = 'info' | 'warning' | 'critical';
 
@@ -47,9 +48,16 @@ const DISCORD_LIMITS = {
   authorName: 256,
 } as const;
 
+const RETRY_ATTEMPTS = 3;
+const RETRY_BASE_MS = 500;
+
 function truncate(str: string, limit: number): string {
   if (str.length <= limit) return str;
   return `${str.slice(0, limit - 1)}…`;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 @Injectable()
@@ -57,6 +65,10 @@ export class DiscordNotificationService implements OnModuleInit {
   private readonly logger = new Logger(DiscordNotificationService.name);
   private readonly webhookUrl: string | null;
   private readonly enabled: boolean;
+  private readonly circuitBreaker = new CircuitBreaker('discord-webhook', {
+    failureThreshold: 3,
+    resetTimeoutMs: 5 * 60 * 1000, // 5 minutes
+  });
 
   constructor(private readonly configService: ConfigService) {
     const rawUrl = this.configService.get<string>('DISCORD_WEBHOOK_URL');
@@ -79,49 +91,72 @@ export class DiscordNotificationService implements OnModuleInit {
 
   /**
    * Send an alert to Discord. Non-blocking — errors are logged but never thrown.
+   *
+   * Retries transient failures up to 3 attempts with exponential backoff and
+   * uses a circuit breaker to stop sending after 3 consecutive failures.
    */
   async sendAlert(alert: DiscordAlert): Promise<void> {
     if (!this.enabled || !this.webhookUrl) return;
 
     try {
-      const payload = {
-        embeds: [
-          {
-            title: truncate(`${SEVERITY_EMOJI[alert.severity]} ${alert.title}`, DISCORD_LIMITS.title),
-            description: truncate(alert.message, DISCORD_LIMITS.description),
-            color: SEVERITY_COLORS[alert.severity],
-            fields: alert.fields?.map((field) => ({
-              name: truncate(field.name, DISCORD_LIMITS.fieldName),
-              value: truncate(field.value, DISCORD_LIMITS.fieldValue),
-              inline: field.inline,
-            })),
-            footer: alert.footer ? { text: truncate(alert.footer, DISCORD_LIMITS.footerText) } : undefined,
-            timestamp: new Date().toISOString(),
-          },
-        ],
-      };
+      await this.circuitBreaker.execute(async () => {
+        const payload = {
+          embeds: [
+            {
+              title: truncate(`${SEVERITY_EMOJI[alert.severity]} ${alert.title}`, DISCORD_LIMITS.title),
+              description: truncate(alert.message, DISCORD_LIMITS.description),
+              color: SEVERITY_COLORS[alert.severity],
+              fields: alert.fields?.map((field) => ({
+                name: truncate(field.name, DISCORD_LIMITS.fieldName),
+                value: truncate(field.value, DISCORD_LIMITS.fieldValue),
+                inline: field.inline,
+              })),
+              footer: alert.footer ? { text: truncate(alert.footer, DISCORD_LIMITS.footerText) } : undefined,
+              timestamp: new Date().toISOString(),
+            },
+          ],
+        };
 
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
+        let lastError: Error | undefined;
+        for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt++) {
+          try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 10000);
 
-      const response = await fetch(this.webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
+            const response = await fetch(this.webhookUrl!, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+              signal: controller.signal,
+            });
+
+            clearTimeout(timeout);
+
+            if (response.ok) return response;
+
+            const body = await response.text().catch(() => 'unknown');
+            lastError = new Error(`Discord webhook returned ${response.status}: ${body}`);
+          } catch (err) {
+            lastError = err as Error;
+          }
+
+          if (attempt < RETRY_ATTEMPTS - 1) {
+            const backoff = RETRY_BASE_MS * 2 ** attempt;
+            this.logger.warn(
+              `Discord alert attempt ${attempt + 1} failed, retrying in ${backoff}ms: ${lastError.message}`,
+            );
+            await sleep(backoff);
+          }
+        }
+
+        throw lastError ?? new Error('Discord webhook failed after all retries');
       });
-
-      clearTimeout(timeout);
-
-      if (!response.ok) {
-        this.logger.warn(
-          `Discord webhook returned ${response.status}: ${await response.text().catch(() => 'unknown')}`,
-        );
-      }
     } catch (err) {
-      this.logger.warn(
-        `Failed to send Discord alert: ${(err as Error).message}`,
-      );
+      if (err instanceof CircuitOpenError) {
+        this.logger.warn(`Discord alert skipped: ${err.message}`);
+        return;
+      }
+      this.logger.warn(`Failed to send Discord alert: ${(err as Error).message}`);
     }
   }
 

@@ -10,6 +10,7 @@ import { defineStore } from 'pinia';
 import { ref, computed, type Component } from 'vue';
 import { isMetricsSnapshot, type MonitoringSnapshot, type AgentState } from '../types/monitoring';
 import api from '../composables/useApi';
+import type { SSEvent } from '@spa/shared';
 import { useToast } from '../composables/useToast';
 import {
   Activity,
@@ -533,10 +534,8 @@ export const useAgentsStore = defineStore('agents', () => {
     }
   }
 
-  function handleSseEvent(data: unknown) {
-    const payload =
-      data !== null && typeof data === 'object' ? (data as Record<string, unknown>) : {};
-    lastSseEvent.value = { type: String(payload.type ?? 'unknown'), timestamp: Date.now() };
+  function handleSseEvent(data: SSEvent) {
+    lastSseEvent.value = { type: data.type, timestamp: Date.now() };
     if (isMetricsSnapshot(data)) {
       snapshot.value = data;
     }

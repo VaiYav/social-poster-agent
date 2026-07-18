@@ -8,19 +8,15 @@ import { PostStatus, SocialNetwork } from '@prisma/client';
 import { GeneratePostsHandler } from '../../../src/modules/orchestrator/action-handlers';
 import { AutoApproveService } from '../../../src/modules/autonomy/auto-approve.service';
 import { GenerationService } from '../../../src/modules/generation/generation.service';
+import { createMockConfigService } from '../../mocks/index';
 
 describe('GeneratePostsHandler', () => {
-  const originalEnv = process.env;
-
-  beforeEach(() => {
-    process.env = { ...originalEnv, AUTO_APPROVE_ENABLED: 'true', AUTONOMOUS_POSTS_PER_RUN: '2', AUTONOMOUS_TARGET_NETWORKS: 'X,THREADS' };
-  });
-
-  afterEach(() => {
-    process.env = originalEnv;
-  });
-
   function buildHandler() {
+    const configService = createMockConfigService({
+      AUTO_APPROVE_ENABLED: 'true',
+      AUTONOMOUS_POSTS_PER_RUN: '2',
+      AUTONOMOUS_TARGET_NETWORKS: 'X,THREADS',
+    });
     const runId = 'run-001';
     const generationService = {
       generate: vi.fn().mockResolvedValue(runId),
@@ -55,7 +51,7 @@ describe('GeneratePostsHandler', () => {
       }),
     };
 
-    const handler = new GeneratePostsHandler(moduleRef as never, prisma as never);
+    const handler = new GeneratePostsHandler(configService as never, moduleRef as never, prisma as never);
 
     return { handler, generationService, autoApprove, prisma, posts, autoApproveResults };
   }

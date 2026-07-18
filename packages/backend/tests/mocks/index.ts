@@ -9,10 +9,23 @@
  */
 
 import { vi } from 'vitest';
+import type { ConfigService } from '@nestjs/config';
 import type { ILlmPort, LlmResponse, GenerateOptions } from '../../src/domain/ports/llm.port';
 import type { IContentPort } from '../../src/domain/ports/content.port';
 import type { IBrowserPort } from '../../src/domain/ports/browser.port';
 import type { ContentTopic } from '@spa/shared';
+
+// ── ConfigService Mock ──
+
+export function createMockConfigService(values: Record<string, unknown> = {}): ConfigService {
+  return {
+    get: vi.fn((key: string, defaultValue?: unknown) => (key in values ? values[key] : defaultValue)),
+    getOrThrow: vi.fn((key: string) => {
+      if (!(key in values)) throw new Error(`Missing required config key: ${key}`);
+      return values[key];
+    }),
+  } as unknown as ConfigService;
+}
 
 // ── LLM Port Mock ──
 

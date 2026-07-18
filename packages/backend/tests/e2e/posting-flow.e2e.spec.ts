@@ -70,10 +70,10 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ModuleRef } from '@nestjs/core';
 import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service';
 import { SseEventListener } from '../../src/events/listeners/sse-event.listener';
-import { AutoApproveListener } from '../../src/events/listeners/auto-approve.listener';
+import { AutoApproveListener } from '../../src/modules/autonomy/auto-approve.listener';
 import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service';
 import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator';
-import { ThreadDepthController } from '../../src/modules/content-enhancements/thread-depth.controller';
+import { ThreadDepthService } from '../../src/modules/content-enhancements/thread-depth.service';
 import { ContentPillarTracker } from '../../src/modules/content-enhancements/content-pillar.tracker';
 import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook-performance-bank';
 import { HumanBehaviorEngine } from '../../src/modules/engagement/human-behavior-engine';
@@ -92,7 +92,7 @@ import { GenerationController } from '../../src/modules/generation/generation.co
 import { QueueController } from '../../src/modules/queue/queue.controller';
 import { AccountsController } from '../../src/modules/accounts/accounts.controller';
 import { SessionsController } from '../../src/modules/sessions/sessions.controller';
-import { EventsController } from '../../src/modules/events/events.controller';
+import { SseController } from '../../src/modules/sse/sse.controller';
 import { restoreAllDesignParamtypes } from '../helpers/restore-paramtypes';
 import { clearHookCache } from '../../src/modules/generation/generation.graph';
 

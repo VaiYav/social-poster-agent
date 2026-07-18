@@ -33,7 +33,7 @@ import { EncryptionService } from '../../src/infrastructure/crypto/encryption.se
 import { AccountsService } from '../../src/modules/accounts/accounts.service';
 import { RateLimitService } from '../../src/modules/rate-limit/rate-limit.service';
 import { SseService } from '../../src/infrastructure/sse/sse.service';
-import { EventsController } from '../../src/modules/events/events.controller';
+import { SseController } from '../../src/modules/sse/sse.controller';
 import { ContentSourceService } from '../../src/modules/content-source/content-source.service';
 import { ContentReader } from '../../src/infrastructure/content/content-reader';
 import { ILlmPort } from '../../src/domain/ports/llm.port';
@@ -455,7 +455,7 @@ describe('Bottom-Up Integration Tests', () => {
       moduleRef = await Test.createTestingModule({
         providers: [
           SseService,
-          EventsController,
+          SseController,
           { provide: ConfigService, useValue: configService },
           { provide: SHARED_REDIS, useValue: mockSharedRedis },
           { provide: SHARED_REDIS_SUBSCRIBER, useValue: mockSharedRedis },

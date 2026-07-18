@@ -1,8 +1,8 @@
 /**
- * P4: Thread Depth Controller — configurable multi-tweet thread expansion.
+ * P4: Thread Depth Service — configurable multi-tweet thread expansion.
  *
  * Replaces the fixed 2-post F2 multi-stage posting with a configurable
- * thread depth (1-5 tweets). The controller decides:
+ * thread depth (1-5 tweets). The service decides:
  *   - Whether to expand a post into a thread (based on content richness)
  *   - How many tweets the thread should have
  *   - What angle each continuation tweet takes
@@ -62,8 +62,8 @@ export interface ThreadPlan {
 }
 
 @Injectable()
-export class ThreadDepthController {
-  private readonly logger = new Logger(ThreadDepthController.name);
+export class ThreadDepthService {
+  private readonly logger = new Logger(ThreadDepthService.name);
   private readonly defaultDepth: number;
 
   constructor(

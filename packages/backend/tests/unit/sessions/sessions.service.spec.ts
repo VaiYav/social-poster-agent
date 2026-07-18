@@ -1732,19 +1732,13 @@ describe('MOD-04: SessionsService', () => {
       config: createMockConfigService({
         SOCIAL_FACEBOOK_USERNAME: 'myzodiacai@fb.com',
         SOCIAL_FACEBOOK_PASSWORD: 'fb-pass',
+        SPA_DRY_RUN: 'true',
       }),
     });
 
-    const origDryRun = process.env.SPA_DRY_RUN;
-    process.env.SPA_DRY_RUN = 'true';
-    try {
-      const result = await t.service.getOrCreateSession(SocialNetwork.FACEBOOK);
-      // Login should still succeed with SPA_DRY_RUN enabled
-      expect(result).toEqual(expect.objectContaining({ id: 'sess-dry' }));
-    } finally {
-      if (origDryRun === undefined) delete process.env.SPA_DRY_RUN;
-      else process.env.SPA_DRY_RUN = origDryRun;
-    }
+    const result = await t.service.getOrCreateSession(SocialNetwork.FACEBOOK);
+    // Login should still succeed with SPA_DRY_RUN enabled
+    expect(result).toEqual(expect.objectContaining({ id: 'sess-dry' }));
   });
 
   // ── X username empty after all strategies → return null ────────────────────
@@ -1950,21 +1944,15 @@ describe('MOD-04: SessionsService', () => {
       config: createMockConfigService({
         SOCIAL_X_USERNAME: 'myzodiacai',
         SOCIAL_X_PASSWORD: 'secret-pass',
+        CAMOUFOX_HEADLESS: 'false',
       }),
     });
 
-    const origHeadless = process.env.CAMOUFOX_HEADLESS;
-    process.env.CAMOUFOX_HEADLESS = 'false';
-    try {
-      const result = await t.service.getOrCreateSession(SocialNetwork.X);
+    const result = await t.service.getOrCreateSession(SocialNetwork.X);
 
-      // 2FA resolved (URL=/home) → login succeeds
-      expect(result).toEqual(expect.objectContaining({ id: 'sess-2fa-headed' }));
-      expect(t.prisma.session.create).toHaveBeenCalledOnce();
-    } finally {
-      if (origHeadless === undefined) delete process.env.CAMOUFOX_HEADLESS;
-      else process.env.CAMOUFOX_HEADLESS = origHeadless;
-    }
+    // 2FA resolved (URL=/home) → login succeeds
+    expect(result).toEqual(expect.objectContaining({ id: 'sess-2fa-headed' }));
+    expect(t.prisma.session.create).toHaveBeenCalledOnce();
   });
 
   // ── Facebook challenge page in headed mode → c_user cookie → success ───────
@@ -1991,21 +1979,15 @@ describe('MOD-04: SessionsService', () => {
       config: createMockConfigService({
         SOCIAL_FACEBOOK_USERNAME: 'myzodiacai@fb.com',
         SOCIAL_FACEBOOK_PASSWORD: 'fb-pass',
+        CAMOUFOX_HEADLESS: 'false',
       }),
     });
 
-    const origHeadless = process.env.CAMOUFOX_HEADLESS;
-    process.env.CAMOUFOX_HEADLESS = 'false';
-    try {
-      const result = await t.service.getOrCreateSession(SocialNetwork.FACEBOOK);
+    const result = await t.service.getOrCreateSession(SocialNetwork.FACEBOOK);
 
-      // Challenge resolved (c_user cookie) → session saved
-      expect(result).toEqual(expect.objectContaining({ id: 'sess-fb-challenge' }));
-      expect(t.prisma.session.create).toHaveBeenCalledOnce();
-    } finally {
-      if (origHeadless === undefined) delete process.env.CAMOUFOX_HEADLESS;
-      else process.env.CAMOUFOX_HEADLESS = origHeadless;
-    }
+    // Challenge resolved (c_user cookie) → session saved
+    expect(result).toEqual(expect.objectContaining({ id: 'sess-fb-challenge' }));
+    expect(t.prisma.session.create).toHaveBeenCalledOnce();
   });
 
   // ── Facebook challenge resolved but still on challenge page → fail ─────────
@@ -2028,24 +2010,18 @@ describe('MOD-04: SessionsService', () => {
       config: createMockConfigService({
         SOCIAL_FACEBOOK_USERNAME: 'myzodiacai@fb.com',
         SOCIAL_FACEBOOK_PASSWORD: 'fb-pass',
+        CAMOUFOX_HEADLESS: 'false',
       }),
     });
     const errorSpy = vi.spyOn(t.service['logger'], 'error');
 
-    const origHeadless = process.env.CAMOUFOX_HEADLESS;
-    process.env.CAMOUFOX_HEADLESS = 'false';
-    try {
-      const result = await t.service.getOrCreateSession(SocialNetwork.FACEBOOK);
+    const result = await t.service.getOrCreateSession(SocialNetwork.FACEBOOK);
 
-      // Challenge resolved but post-challenge check fails (no c_user, still on challenge page)
-      expect(result).toBeNull();
-      expect(t.prisma.session.create).not.toHaveBeenCalled();
-      const failErr = errorSpy.mock.calls.find((c) => /Login failed.*still on.*challenge/i.test(String(c[0])));
-      expect(failErr).toBeTruthy();
-    } finally {
-      if (origHeadless === undefined) delete process.env.CAMOUFOX_HEADLESS;
-      else process.env.CAMOUFOX_HEADLESS = origHeadless;
-    }
+    // Challenge resolved but post-challenge check fails (no c_user, still on challenge page)
+    expect(result).toBeNull();
+    expect(t.prisma.session.create).not.toHaveBeenCalled();
+    const failErr = errorSpy.mock.calls.find((c) => /Login failed.*still on.*challenge/i.test(String(c[0])));
+    expect(failErr).toBeTruthy();
   });
 
   describe('P1-1.1 cleanup: page before context', () => {

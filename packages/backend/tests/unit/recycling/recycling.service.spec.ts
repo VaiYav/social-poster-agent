@@ -9,6 +9,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { RecyclingService } from '../../../src/modules/recycling/recycling.service';
+import { createMockConfigService } from '../../mocks/index';
 
 function mockPrisma() {
   return {
@@ -38,12 +39,9 @@ describe('RecyclingService (RC2/RC3)', () => {
   beforeEach(() => {
     prisma = mockPrisma();
     gen = mockGeneration();
+    const config = createMockConfigService();
     const schedulerRegistry = { addCronJob: vi.fn(), deleteCronJob: vi.fn() } as unknown as import('@nestjs/schedule').SchedulerRegistry;
-    service = new RecyclingService(prisma, gen, schedulerRegistry);
-  });
-
-  afterEach(() => {
-    delete process.env.RECYCLING_CRON_ENABLED;
+    service = new RecyclingService(config, prisma, gen, schedulerRegistry);
   });
 
   it('RC3: recyclePost re-writes via the generation graph (delegates to recycleById)', async () => {

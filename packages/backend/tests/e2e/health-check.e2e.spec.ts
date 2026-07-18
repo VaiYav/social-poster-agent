@@ -61,10 +61,10 @@ import { ModuleRef } from '@nestjs/core';
 import { createMockLlmPort, createMockBrowserPort, createMockPrismaService } from '../mocks/index';
 import { restoreAllDesignParamtypes } from '../helpers/restore-paramtypes';
 import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service';
-import { AutoApproveListener } from '../../src/events/listeners/auto-approve.listener';
+import { AutoApproveListener } from '../../src/modules/autonomy/auto-approve.listener';
 import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service';
 import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator';
-import { ThreadDepthController } from '../../src/modules/content-enhancements/thread-depth.controller';
+import { ThreadDepthService } from '../../src/modules/content-enhancements/thread-depth.service';
 import { ContentPillarTracker } from '../../src/modules/content-enhancements/content-pillar.tracker';
 import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook-performance-bank';
 import { ThreadProgressService } from '../../src/modules/posting/thread-progress.service';
@@ -85,7 +85,7 @@ import { AccountsController } from '../../src/modules/accounts/accounts.controll
 import { PostingService } from '../../src/modules/posting/posting.service';
 import { AccountsService } from '../../src/modules/accounts/accounts.service';
 import { MetricsScraperService } from '../../src/modules/analytics/metrics-scraper.service';
-import { EventsController } from '../../src/modules/events/events.controller';
+import { SseController } from '../../src/modules/sse/sse.controller';
 import { clearHookCache } from '../../src/modules/generation/generation.graph';
 
 // ── ioredis mock (Map-backed shared store) ──────────────────────────────────

@@ -8,7 +8,6 @@
 // All use the local LlmService (multi-provider fallback chain).
 
 import type { PostContext, ActionDecision, EngagementAction } from '../../../../domain/ports/engagement-decision.port.js';
-import { detectLanguage } from '../../../../infrastructure/util/language-detector.js';
 
 // ── Decision Prompt ──────────────────────────────────────────────────────────
 
@@ -164,35 +163,15 @@ export const ENGAGEMENT_QUOTE_USER_TEMPLATE = `You're about to quote-post this p
 
 |Write a short, original take that adds value to the post. Match the language exactly. One quote only. Make it count.`;
 
-// ── Prompt Builders ──────────────────────────────────────────────────────────
-
-/**
- * Build the user prompt for the engagement decision LLM call.
- */
-export function buildDecisionUserPrompt(ctx: PostContext): string {
-  const detectedLanguage = detectLanguage(ctx.postText);
-  return ENGAGEMENT_DECISION_USER_TEMPLATE
-    .replace('{network}', ctx.network)
-    .replace('{source}', ctx.source)
-    .replace('{authorHandle}', ctx.authorHandle ?? 'unknown')
-    .replace('{hasMedia}', String(ctx.hasMedia))
-    .replace('{postText}', ctx.postText.slice(0, 500)) // truncate to fit token budget
-    .replace('{detectedLanguage}', detectedLanguage)
-    .replace('{likesThisSession}', String(ctx.likesThisSession))
-    .replace('{likesMaxPerSession}', String(ctx.likesMaxPerSession))
-    .replace('{commentsThisSession}', String(ctx.commentsThisSession))
-    .replace('{commentsMaxPerSession}', String(ctx.commentsMaxPerSession))
-    .replace('{repostsThisSession}', String(ctx.repostsThisSession ?? 0))
-    .replace('{repostsMaxPerSession}', String(ctx.repostsMaxPerSession ?? 0))
-    .replace('{quotesThisSession}', String(ctx.quotesThisSession ?? 0))
-    .replace('{quotesMaxPerSession}', String(ctx.quotesMaxPerSession ?? 0));
-}
-
-// ── Batch Decision Prompt ────────────────────────────────────────────────────
+// ── Batch Decision Prompt ───────────────────────────────────────────────────
 
 /**
  * User prompt template for batched decisions — multiple posts in one LLM call.
  * Each post is a numbered entry. The LLM returns a JSON array of decisions.
+ *
+ * Variables:
+ *   - {count}: number of posts
+ *   - {posts}: pre-formatted block of numbered post contexts
  */
 export const ENGAGEMENT_BATCH_DECISION_USER_TEMPLATE = `You're scrolling through your feed. Here are {count} posts you've encountered.
 For EACH post, decide what you'd actually do. Be honest — most posts get scrolled past. Respect your budget.
@@ -208,28 +187,31 @@ Posts:
 
 {posts}`;
 
-/**
- * Build the user prompt for a batched engagement decision LLM call.
- * Each post context becomes a numbered entry in the prompt.
- */
-export function buildBatchDecisionUserPrompt(contexts: PostContext[]): string {
-  const posts = contexts
-    .map((ctx, i) => {
-      const postNum = i + 1;
-      return `--- Post ${postNum} ---
-|- Platform: ${ctx.network}
-|- From: ${ctx.source} (@${ctx.authorHandle ?? 'unknown'})
-|- Has media: ${ctx.hasMedia}
-|- Text: "${ctx.postText.slice(0, 300)}"
-||- Detected language: ${detectLanguage(ctx.postText)}
-|- Budget: likes ${ctx.likesThisSession}/${ctx.likesMaxPerSession}, comments ${ctx.commentsThisSession}/${ctx.commentsMaxPerSession}, reposts ${ctx.repostsThisSession ?? 0}/${ctx.repostsMaxPerSession ?? 0}, quotes ${ctx.quotesThisSession ?? 0}/${ctx.quotesMaxPerSession ?? 0}`;
-    })
-    .join('\n\n');
+// ── Langfuse Prompt Management Fallbacks ───────────────────────────────────
 
-  return ENGAGEMENT_BATCH_DECISION_USER_TEMPLATE
-    .replaceAll('{count}', String(contexts.length))
-    .replace('{posts}', posts);
-}
+/** Fallback chat prompt for engagement-decision. */
+export const ENGAGEMENT_DECISION_PROMPT = {
+  systemPrompt: ENGAGEMENT_DECISION_SYSTEM_PROMPT,
+  userPrompt: ENGAGEMENT_DECISION_USER_TEMPLATE,
+};
+
+/** Fallback chat prompt for engagement-batch-decision. */
+export const ENGAGEMENT_BATCH_DECISION_PROMPT = {
+  systemPrompt: ENGAGEMENT_DECISION_SYSTEM_PROMPT,
+  userPrompt: ENGAGEMENT_BATCH_DECISION_USER_TEMPLATE,
+};
+
+/** Fallback chat prompt for engagement-comment. */
+export const ENGAGEMENT_COMMENT_PROMPT = {
+  systemPrompt: ENGAGEMENT_COMMENT_SYSTEM_PROMPT,
+  userPrompt: ENGAGEMENT_COMMENT_USER_TEMPLATE,
+};
+
+/** Fallback chat prompt for engagement-quote. */
+export const ENGAGEMENT_QUOTE_PROMPT = {
+  systemPrompt: ENGAGEMENT_QUOTE_SYSTEM_PROMPT,
+  userPrompt: ENGAGEMENT_QUOTE_USER_TEMPLATE,
+};
 
 /**
  * Parse a batched LLM response into an array of ActionDecisions.
@@ -279,30 +261,6 @@ export function parseBatchDecisionResponse(content: string, expectedCount: numbe
   } catch {
     return Array.from({ length: expectedCount }, () => ({ ...fallback }));
   }
-}
-
-/**
- * Build the user prompt for the comment generation LLM call.
- */
-export function buildCommentUserPrompt(ctx: PostContext): string {
-  const detectedLanguage = detectLanguage(ctx.postText);
-  return ENGAGEMENT_COMMENT_USER_TEMPLATE
-    .replaceAll('{detectedLanguage}', detectedLanguage)
-    .replace('{network}', ctx.network)
-    .replace('{authorHandle}', ctx.authorHandle ?? 'unknown')
-    .replace('{postText}', ctx.postText.slice(0, 500));
-}
-
-/**
- * Build the user prompt for the quote generation LLM call.
- */
-export function buildQuoteUserPrompt(ctx: PostContext): string {
-  const detectedLanguage = detectLanguage(ctx.postText);
-  return ENGAGEMENT_QUOTE_USER_TEMPLATE
-    .replaceAll('{detectedLanguage}', detectedLanguage)
-    .replace('{network}', ctx.network)
-    .replace('{authorHandle}', ctx.authorHandle ?? 'unknown')
-    .replace('{postText}', ctx.postText.slice(0, 500));
 }
 
 /**

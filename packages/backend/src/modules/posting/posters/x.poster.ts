@@ -1,4 +1,5 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { BrowserContext, Page, Locator } from '../../../domain/ports/browser-primitives';
 import { IBrowserPort } from '../../../domain/ports/browser.port.js';
 import { BasePoster, type PostResult } from './base.poster.js';
@@ -26,8 +27,11 @@ export class XPoster extends BasePoster {
   protected readonly logger = new Logger(XPoster.name);
   protected readonly network = 'X' as const;
 
-  constructor(@Inject(IBrowserPort) browser: IBrowserPort) {
-    super(browser);
+  constructor(
+    @Inject(IBrowserPort) browser: IBrowserPort,
+    @Inject(ConfigService) configService: ConfigService,
+  ) {
+    super(browser, configService);
   }
 
   async post(
@@ -95,7 +99,7 @@ export class XPoster extends BasePoster {
 
       // Debug logging — only when SPA_DEBUG_SELECTORS env var is set
       // (avoids overhead in production while keeping diagnostic capability)
-      if (parseBool(process.env.SPA_DEBUG_SELECTORS)) {
+      if (parseBool(this.configService.get<string>('SPA_DEBUG_SELECTORS', 'false'))) {
         const composeHtml = await page.content().catch(() => '');
         this.logger.debug(`X compose page HTML length: ${composeHtml.length}`);
         const testIds = await page.locator('[data-testid]').evaluateAll((els) =>
@@ -421,7 +425,7 @@ export class XPoster extends BasePoster {
         } else {
           // Third try: navigate to profile and find the tweet there
           this.logger.log(`X tweet not on current page — checking profile...`);
-          const handle = accountHandle ?? await this.getAccountHandleFromEnv();
+          const handle = accountHandle ?? await this.getAccountHandleFromConfig();
           if (handle) {
             // Retry profile validation up to 3 times — X may have a delay showing new posts.
             // Break early if the page crashed/closed — retrying on a dead page is futile
@@ -1004,7 +1008,7 @@ export class XPoster extends BasePoster {
       }
 
       // Check profile
-      const handle = accountHandle ?? await this.getAccountHandleFromEnv();
+      const handle = accountHandle ?? await this.getAccountHandleFromConfig();
       if (handle) {
         const postUrl = await this.validatePostOnProfile(
           page,
@@ -1107,14 +1111,13 @@ export class XPoster extends BasePoster {
   }
 
   /**
-   * Get account handle from env var (SOCIAL_X_USERNAME) as fallback.
+   * Get account handle from config (SOCIAL_X_USERNAME) as fallback.
    */
-  private async getAccountHandleFromEnv(): Promise<string | null> {
+  private async getAccountHandleFromConfig(): Promise<string | null> {
     try {
-      // Access ConfigService via the browser port's config
-      const username = process.env.SOCIAL_X_USERNAME;
+      const username = this.configService.get<string>('SOCIAL_X_USERNAME', '');
       if (username) {
-        this.logger.debug(`X account handle from env: @${username}`);
+        this.logger.debug(`X account handle from config: @${username}`);
         return username;
       }
     } catch {

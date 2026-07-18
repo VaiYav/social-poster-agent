@@ -21,9 +21,9 @@ export class FacebookPoster extends BasePoster {
 
   constructor(
     @Inject(IBrowserPort) browser: IBrowserPort,
-    private readonly configService: ConfigService,
+    @Inject(ConfigService) configService: ConfigService,
   ) {
-    super(browser);
+    super(browser, configService);
     this.pageSlug = this.configService.get<string>('SOCIAL_FACEBOOK_PAGE_SLUG', '');
   }
 

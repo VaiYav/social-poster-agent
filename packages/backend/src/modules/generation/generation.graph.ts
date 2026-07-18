@@ -43,11 +43,7 @@ function qualityScoreFromJudgeScores(judgeScores?: JudgeScores): number | undefi
   return Math.round(avg * 10);
 }
 
-// Temperature overrides — read once at module load. Reasoning models ignore
-// temperature by design, but these values are used for the non-reasoning chain.
-const HOOK_TEMPERATURE = Number(process.env.GENERATION_TEMPERATURE_HOOK ?? 0.95);
-const DRAFT_TEMPERATURE = Number(process.env.GENERATION_TEMPERATURE_DRAFT ?? 0.8);
-const REFINE_TEMPERATURE = Number(process.env.GENERATION_TEMPERATURE_REFINE ?? 0.6);
+
 
 // ============================================================
 // Hook cache — avoids re-calling LLM for identical topics across runs.
@@ -427,6 +423,7 @@ async function hookGenerationNode(
   llm: ILlmPort,
   hookBank: HookPerformanceBank | undefined,
   promptPort: IPromptPort,
+  hookTemperature = 0.95,
 ): Promise<Partial<GenerationStateType>> {
   // Check cache first — avoids re-calling LLM for identical topics across runs.
   // Cache is keyed by topic + keywords + facts (the deterministic inputs).
@@ -473,7 +470,7 @@ async function hookGenerationNode(
 
   let response;
   try {
-    response = await llm.generateChat(systemPrompt, userPrompt, { temperature: HOOK_TEMPERATURE, role: 'hook', maxTokens: maxTokensForRole('hook') });
+    response = await llm.generateChat(systemPrompt, userPrompt, { temperature: hookTemperature, role: 'hook', maxTokens: maxTokensForRole('hook') });
   } catch (err) {
     logger.error(`hook_generation LLM call failed: ${(err as Error).message}`);
     throw err; // Re-throw — GenerationService.generate() catches per-topic
@@ -549,7 +546,7 @@ function anglePerNetworkNode(state: GenerationStateType): Partial<GenerationStat
  * Create a draft generation node for a specific network.
  * Each network gets its own node so LangGraph can run them in parallel.
  */
-function makeDraftNode(network: SocialNetwork, promptPort: IPromptPort) {
+function makeDraftNode(network: SocialNetwork, promptPort: IPromptPort, draftTemperature = 0.8) {
   return async function draftNode(
     state: GenerationStateType,
     llm: ILlmPort,
@@ -620,7 +617,7 @@ function makeDraftNode(network: SocialNetwork, promptPort: IPromptPort) {
     const { systemPrompt, userPrompt } = await promptPort.getCompiledChat('draft-post', variables, DRAFT_POST_PROMPT);
 
     try {
-      const response = await llm.generateChat(systemPrompt, userPrompt, { temperature: DRAFT_TEMPERATURE, role: 'draft', maxTokens: maxTokensForRole('draft', network) });
+      const response = await llm.generateChat(systemPrompt, userPrompt, { temperature: draftTemperature, role: 'draft', maxTokens: maxTokensForRole('draft', network) });
 
       // B5: Return ONLY the updated network — the results reducer merges concurrent updates
       return {
@@ -748,7 +745,7 @@ function makeCritiqueNode(network: SocialNetwork, promptPort: IPromptPort) {
 /**
  * Create a refine node for a specific network.
  */
-function makeRefineNode(network: SocialNetwork, promptPort: IPromptPort) {
+function makeRefineNode(network: SocialNetwork, promptPort: IPromptPort, refineTemperature = 0.6) {
   return async function refineNode(
     state: GenerationStateType,
     llm: ILlmPort,
@@ -818,7 +815,7 @@ function makeRefineNode(network: SocialNetwork, promptPort: IPromptPort) {
     const refinePrompt = await promptPort.getCompiledText('refine-post', refineVariables, REFINE_POST_PROMPT);
 
     try {
-      const response = await llm.generateChat('', refinePrompt, { temperature: REFINE_TEMPERATURE, role: 'refine', maxTokens: maxTokensForRole('refine', network) });
+      const response = await llm.generateChat('', refinePrompt, { temperature: refineTemperature, role: 'refine', maxTokens: maxTokensForRole('refine', network) });
 
       let refined = response.content.trim();
       let refineTokens = response.tokens ?? 0;
@@ -1308,6 +1305,11 @@ export function buildGenerationGraph(
      */
     judgeRefineThreshold?: number;
     /**
+     * Per-generation-stage temperature overrides. Reasoning models ignore
+     * temperature, but these values are used for the non-reasoning chain.
+     */
+    temperatures?: { hook?: number; draft?: number; refine?: number };
+    /**
      * Callback that returns the prompt labels recorded during this graph run.
      * Injected by the orchestrator so the graph does not depend on the
      * infrastructure label context directly.
@@ -1317,6 +1319,9 @@ export function buildGenerationGraph(
 ) {
   const logger = new Logger('GenerationGraph');
   const judgeRefineThreshold = options?.judgeRefineThreshold ?? 0.6;
+  const HOOK_TEMPERATURE = options?.temperatures?.hook ?? 0.95;
+  const DRAFT_TEMPERATURE = options?.temperatures?.draft ?? 0.8;
+  const REFINE_TEMPERATURE = options?.temperatures?.refine ?? 0.6;
 
   /** Wrap a node to publish progress after execution. */
   function withProgress(nodeName: string, fn: (s: GenerationStateType) => Promise<Partial<GenerationStateType>> | Partial<GenerationStateType>) {
@@ -1343,21 +1348,21 @@ export function buildGenerationGraph(
     // Step 1: research_extract
     .addNode('research_extract', withProgress('research_extract', (s) => researchExtractNode(s, llm, promptPort)))
     // Step 2: hook_generation (3-5 variants)
-    .addNode('hook_generation', withProgress('hook_generation', (s) => hookGenerationNode(s, llm, hookBank, promptPort)))
+    .addNode('hook_generation', withProgress('hook_generation', (s) => hookGenerationNode(s, llm, hookBank, promptPort, HOOK_TEMPERATURE)))
     // Step 3: angle_per_network (assign hooks + angles)
     .addNode('angle_per_network', withProgress('angle_per_network', (s) => anglePerNetworkNode(s)))
     // Step 4: parallel draft per network
-    .addNode('draft_x', withProgress('draft_x', (s) => makeDraftNode(SocialNetwork.X, promptPort)(s, llm)))
-    .addNode('draft_threads', withProgress('draft_threads', (s) => makeDraftNode(SocialNetwork.THREADS, promptPort)(s, llm)))
-    .addNode('draft_facebook', withProgress('draft_facebook', (s) => makeDraftNode(SocialNetwork.FACEBOOK, promptPort)(s, llm)))
+    .addNode('draft_x', withProgress('draft_x', (s) => makeDraftNode(SocialNetwork.X, promptPort, DRAFT_TEMPERATURE)(s, llm)))
+    .addNode('draft_threads', withProgress('draft_threads', (s) => makeDraftNode(SocialNetwork.THREADS, promptPort, DRAFT_TEMPERATURE)(s, llm)))
+    .addNode('draft_facebook', withProgress('draft_facebook', (s) => makeDraftNode(SocialNetwork.FACEBOOK, promptPort, DRAFT_TEMPERATURE)(s, llm)))
     // Step 5: parallel critique per network
     .addNode('critique_x', withProgress('critique_x', (s) => makeCritiqueNode(SocialNetwork.X, promptPort)(s, llm)))
     .addNode('critique_threads', withProgress('critique_threads', (s) => makeCritiqueNode(SocialNetwork.THREADS, promptPort)(s, llm)))
     .addNode('critique_facebook', withProgress('critique_facebook', (s) => makeCritiqueNode(SocialNetwork.FACEBOOK, promptPort)(s, llm)))
     // Step 6: parallel refine per network
-    .addNode('refine_x', withProgress('refine_x', (s) => makeRefineNode(SocialNetwork.X, promptPort)(s, llm)))
-    .addNode('refine_threads', withProgress('refine_threads', (s) => makeRefineNode(SocialNetwork.THREADS, promptPort)(s, llm)))
-    .addNode('refine_facebook', withProgress('refine_facebook', (s) => makeRefineNode(SocialNetwork.FACEBOOK, promptPort)(s, llm)))
+    .addNode('refine_x', withProgress('refine_x', (s) => makeRefineNode(SocialNetwork.X, promptPort, REFINE_TEMPERATURE)(s, llm)))
+    .addNode('refine_threads', withProgress('refine_threads', (s) => makeRefineNode(SocialNetwork.THREADS, promptPort, REFINE_TEMPERATURE)(s, llm)))
+    .addNode('refine_facebook', withProgress('refine_facebook', (s) => makeRefineNode(SocialNetwork.FACEBOOK, promptPort, REFINE_TEMPERATURE)(s, llm)))
     // Stage 2: parallel judge per network (LLM-as-a-Judge quality evaluation)
     .addNode('judge_x', withProgress('judge_x', (s) => makeJudgeNode(SocialNetwork.X, promptPort, judgeRefineThreshold)(s, llm)))
     .addNode('judge_threads', withProgress('judge_threads', (s) => makeJudgeNode(SocialNetwork.THREADS, promptPort, judgeRefineThreshold)(s, llm)))

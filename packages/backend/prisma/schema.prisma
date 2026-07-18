@@ -223,6 +223,7 @@ model Post {
   language         String           @default("en") // ISO 639-1: en, ru, uk, es, it
   content          String           // final post text
   sourceRef        Json?            // { type: 'brief'|'article'|'topic', path: '...', topic: '...' }
+  sourcePath       String?          // extracted sourceRef.path for indexed queries
   status           PostStatus       @default(DRAFT)
   postUrl          String?          // URL after posting
   errorMessage     String?
@@ -242,6 +243,7 @@ model Post {
   @@index([generationRunId])
   @@index([threadId])
   @@index([simhash])
+  @@index([sourcePath, network])
 }
 
 // A/B testing: variants generated for a post and their real-world outcomes.

@@ -2,6 +2,7 @@
 // Uses data-testid selectors (relatively stable) with fallbacks.
 
 import { Injectable, Logger, Inject } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { Page } from '../../../domain/ports/browser-primitives';
 import { IBrowserPort } from '../../../domain/ports/browser.port.js';
 import { BaseEngager } from './base.engager.js';
@@ -14,8 +15,11 @@ export class XEngager extends BaseEngager {
   protected readonly logger = new Logger(XEngager.name);
   protected readonly network = 'X' as const;
 
-  constructor(@Inject(IBrowserPort) browser: IBrowserPort) {
-    super(browser);
+  constructor(
+    @Inject(IBrowserPort) browser: IBrowserPort,
+    @Inject(ConfigService) configService: ConfigService,
+  ) {
+    super(browser, configService);
   }
 
   /**

@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { IBrowserPort } from '../../domain/ports/browser.port.js';
 import { AccountsService } from '../accounts/accounts.service';
@@ -21,7 +22,7 @@ import { RetryableError, SpaError } from '../../domain/errors.js';
 import { isNetworkEnabled } from '../../domain/enabled-networks.js';
 import { ContentPillarTracker } from '../content-enhancements/content-pillar.tracker.js';
 import { ABVariantService } from '../content-enhancements/ab-variant.service.js';
-import type { SourceRef } from '@spa/shared';
+import type { SourceRef, PostingStartedEvent, PostPostedEvent, PostFailedEvent } from '@spa/shared';
 
 /**
  * Posting service — orchestrates browser-based posting.
@@ -70,6 +71,7 @@ export class PostingService {
     private readonly xPoster: XPoster,
     private readonly threadsPoster: ThreadsPoster,
     private readonly facebookPoster: FacebookPoster,
+    private readonly configService: ConfigService,
     @Optional() private readonly queueFactory?: QueueFactory,
     @Optional() private readonly flowControl?: FlowControlService,
     @Optional() private readonly pillarTracker?: ContentPillarTracker,
@@ -221,7 +223,7 @@ export class PostingService {
     this.eventEmitter.emit(PostEvents.POSTING_STARTED, {
       postId,
       network: networkKey,
-    });
+    } satisfies PostingStartedEvent);
 
     // P0-H1: Context leak fix — track context so it's always released in finally.
     // Sprint K: Use context pool (acquireContext/releaseContext) instead of
@@ -514,7 +516,7 @@ export class PostingService {
           network: networkKey,
           error: result.error,
           retryable: false,
-        });
+        } satisfies PostFailedEvent);
 
         return { success: false, error: result.error, retryable: false };
       }
@@ -536,7 +538,7 @@ export class PostingService {
             network: networkKey,
             error: errorMsg,
             retryable: false,
-          });
+          } satisfies PostFailedEvent);
 
           return { success: false, error: errorMsg, retryable: false };
         }
@@ -572,7 +574,7 @@ export class PostingService {
               postId: cp.id,
               network: networkKey,
               postUrl: result.url,
-            });
+            } satisfies PostPostedEvent);
             // P0-H2: Persist per-reply success for crash recovery
             await this.threadProgressService.markReplyPosted(postId, cp.id, result.url ?? '');
             // 2.8.2: Record continuation post against its pillar (only after POSTED).
@@ -589,7 +591,7 @@ export class PostingService {
               network: networkKey,
               error: replyError,
               retryable: false,
-            });
+            } satisfies PostFailedEvent);
             // P0-H2: Persist per-reply failure for crash recovery
             await this.threadProgressService.markReplyFailed(postId, cp.id, replyError);
           }
@@ -613,7 +615,7 @@ export class PostingService {
             postId: cp.id,
             network: networkKey,
             postUrl: result.url,
-          });
+          } satisfies PostPostedEvent);
           // P0-H2: Persist per-reply success for crash recovery
           await this.threadProgressService.markReplyPosted(postId, cp.id, result.url ?? '');
           // 2.8.2: Record continuation post against its pillar (only after POSTED).
@@ -630,7 +632,7 @@ export class PostingService {
         postId,
         network: networkKey,
         postUrl: result.url,
-      });
+      } satisfies PostPostedEvent);
 
       this.logger.log(`Post ${postId} posted successfully to ${post.network as string}`);
       return { success: true, url: result.url };
@@ -659,7 +661,7 @@ export class PostingService {
         network: networkKey,
         error: message,
         retryable,
-      });
+      } satisfies PostFailedEvent);
 
       return { success: false, error: message, retryable };
     } finally {
@@ -827,7 +829,7 @@ export class PostingService {
     this.logger.log(`F2: Enqueued root post ${rootPostId} → ${rootPost.network} (immediate)`);
 
     // Enqueue continuations with delay = position × delayMs
-    const delayMs = parseInt(process.env.THREAD_CONTINUATION_DELAY_MS ?? '1800000', 10); // default 30 min
+    const delayMs = parseInt(this.configService.get<string>('THREAD_CONTINUATION_DELAY_MS', '1800000'), 10); // default 30 min
     let scheduled = 0;
     for (const cont of approvedConts) {
       const delay = cont.threadPosition * delayMs;

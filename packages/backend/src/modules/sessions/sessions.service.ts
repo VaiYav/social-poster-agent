@@ -283,7 +283,7 @@ export class SessionsService implements OnModuleInit {
     }
     if (!this.deferredLogin) return;
 
-    const cronExpr = process.env.SESSION_RELOGIN_CRON ?? '*/15 * * * *';
+    const cronExpr = this.configService.get<string>('SESSION_RELOGIN_CRON', '*/15 * * * *');
     const job = new CronJob(cronExpr, async () => { await this.refreshSessions(); });
     try {
       this.schedulerRegistry.addCronJob('session-relogin', job);
@@ -550,7 +550,7 @@ export class SessionsService implements OnModuleInit {
       this.logger.log(`Login page loaded for ${network}: ${page.url()}`);
 
       // DEBUG: dump page HTML for login troubleshooting (only in dry-run mode)
-      if (parseBool(process.env.SPA_DRY_RUN)) {
+      if (parseBool(this.configService.get<string>('SPA_DRY_RUN', 'false'))) {
         try {
           const html = await page.content();
           const fs = await import('node:fs/promises');
@@ -673,7 +673,7 @@ export class SessionsService implements OnModuleInit {
         const hasPasswordField = await page.locator(selectors.passwordInput).first().isVisible({ timeout: 1000 }).catch(() => false);
         if (hasVerifyInput && !hasPasswordField) {
           this.logger.warn(`X: identity verification challenge detected (Step 1.5) — username input reappeared without password field`);
-          const isHeaded = process.env.CAMOUFOX_HEADLESS === 'false';
+          const isHeaded = this.configService.get<string>('CAMOUFOX_HEADLESS', 'true') === 'false';
           if (isHeaded) {
             this.logger.warn(
               `X: identity verification required — waiting up to 120s for manual completion (headed mode).\n` +
@@ -793,7 +793,7 @@ export class SessionsService implements OnModuleInit {
           /verify_code|two_factor/.test(page.url());
         if (has2FA) {
           this.logger.warn(`X: two-factor authentication detected (Step 3)`);
-          const isHeaded = process.env.CAMOUFOX_HEADLESS === 'false';
+          const isHeaded = this.configService.get<string>('CAMOUFOX_HEADLESS', 'true') === 'false';
           if (isHeaded) {
             this.logger.warn(
               `X: 2FA required — waiting up to 120s for manual completion (headed mode).\n` +
@@ -976,7 +976,7 @@ export class SessionsService implements OnModuleInit {
         // the challenge manually. We detect success by checking for the `c_user`
         // cookie (Facebook's authenticated user ID cookie) — same approach as
         // tas33n/fb-login-bot's waitForCUserCookie().
-        const isHeaded = process.env.CAMOUFOX_HEADLESS === 'false';
+        const isHeaded = this.configService.get<string>('CAMOUFOX_HEADLESS', 'true') === 'false';
 
         if (isHeaded) {
           this.logger.warn(

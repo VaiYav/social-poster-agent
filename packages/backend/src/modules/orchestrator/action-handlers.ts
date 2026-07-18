@@ -7,6 +7,7 @@
  */
 
 import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ModuleRef } from '@nestjs/core';
 import { PostStatus, SocialNetwork, GenerationTrigger } from '@prisma/client';
 import { RateLimitService } from '../rate-limit/rate-limit.service.js';
@@ -53,6 +54,7 @@ export class GenerateTopicsHandler implements IActionHandler {
   private readonly logger = new Logger(GenerateTopicsHandler.name);
 
   constructor(
+    private readonly configService: ConfigService,
     private readonly moduleRef: ModuleRef,
     private readonly prisma: PrismaService,
   ) {}
@@ -60,7 +62,7 @@ export class GenerateTopicsHandler implements IActionHandler {
   async execute(_action: Action, _options?: { signal?: AbortSignal }): Promise<Record<string, unknown>> {
     const service = resolveOptional(this.moduleRef, TopicGenerationService);
     if (!service) throw new Error('TopicGenerationService not available');
-    const count = Number(process.env.TOPIC_BATCH_SIZE ?? '20');
+    const count = Number(this.configService.get<string>('TOPIC_BATCH_SIZE', '20'));
     const generated = await service.generateBatch(count);
     return { topicsGenerated: generated };
   }
@@ -74,6 +76,7 @@ export class GeneratePostsHandler implements IActionHandler {
   private readonly logger = new Logger(GeneratePostsHandler.name);
 
   constructor(
+    private readonly configService: ConfigService,
     private readonly moduleRef: ModuleRef,
     private readonly prisma: PrismaService,
   ) {}
@@ -82,10 +85,10 @@ export class GeneratePostsHandler implements IActionHandler {
     const service = resolveOptional(this.moduleRef, GenerationService);
     if (!service) throw new Error('GenerationService not available');
 
-    const postsPerRun = Number(process.env.AUTONOMOUS_POSTS_PER_RUN ?? '3');
+    const postsPerRun = Number(this.configService.get<string>('AUTONOMOUS_POSTS_PER_RUN', '3'));
     let networks = action.network
       ? [action.network]
-      : (process.env.AUTONOMOUS_TARGET_NETWORKS ?? 'X,THREADS').split(',').map((n) => n.trim()) as SocialNetwork[];
+      : (this.configService.get<string>('AUTONOMOUS_TARGET_NETWORKS', 'X,THREADS')).split(',').map((n) => n.trim()) as SocialNetwork[];
 
     // Skip generation for networks whose daily/weekly budget is already consumed
     // by successful posts plus in-flight approved/posting posts. This prevents the
@@ -142,7 +145,7 @@ export class GeneratePostsHandler implements IActionHandler {
     const runId = await service.generate(effectivePostsPerRun, networks, GenerationTrigger.AUTONOMOUS, false, false, options?.signal);
 
     let postsApproved = 0;
-    if (parseBool(process.env.AUTO_APPROVE_ENABLED ?? 'false')) {
+    if (parseBool(this.configService.get<string>('AUTO_APPROVE_ENABLED', 'false'))) {
       const autoApprove = resolveOptional(this.moduleRef, AutoApproveService);
       if (autoApprove) {
         const posts = await this.prisma.post.findMany({
@@ -180,6 +183,7 @@ export class PostHandler implements IActionHandler {
   readonly actionType = 'POST';
 
   constructor(
+    private readonly configService: ConfigService,
     private readonly moduleRef: ModuleRef,
     private readonly prisma: PrismaService,
   ) {}
@@ -199,8 +203,8 @@ export class PostHandler implements IActionHandler {
     const queueService = resolveOptional(this.moduleRef, QueueService);
     if (!queueService) throw new Error('QueueService not available');
 
-    const delayMin = Number(process.env.AUTONOMOUS_POSTING_DELAY_MIN_MS ?? '600000');
-    const delayMax = Number(process.env.AUTONOMOUS_POSTING_DELAY_MAX_MS ?? '3600000');
+    const delayMin = Number(this.configService.get<string>('AUTONOMOUS_POSTING_DELAY_MIN_MS', '600000'));
+    const delayMax = Number(this.configService.get<string>('AUTONOMOUS_POSTING_DELAY_MAX_MS', '3600000'));
     const delay = delayMin + Math.random() * (delayMax - delayMin);
     const delayMs = Math.round(delay);
 
@@ -217,6 +221,7 @@ export class BrowseHandler implements IActionHandler {
   readonly actionType = 'BROWSE';
 
   constructor(
+    private readonly configService: ConfigService,
     @Optional() @Inject(IBrowsingSessionPort) private readonly browsingSession?: IBrowsingSessionPort,
   ) {}
 
@@ -227,7 +232,7 @@ export class BrowseHandler implements IActionHandler {
       return { browsed: false, reason: 'Engagement module not enabled' };
     }
 
-    const durationSec = Number(process.env.F1_BROWSING_SESSION_MINUTES ?? '15') * 60;
+    const durationSec = Number(this.configService.get<string>('F1_BROWSING_SESSION_MINUTES', '15')) * 60;
     const result = await this.browsingSession.runBrowsingSession(action.network, durationSec, options?.signal);
     return { browsed: true, sessionId: result.sessionId, interactions: result.interactionsCount };
   }

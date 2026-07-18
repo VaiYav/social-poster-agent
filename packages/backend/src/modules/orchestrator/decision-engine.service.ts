@@ -43,8 +43,8 @@ export class DecisionEngineService {
     private readonly llmDecision: LlmDecisionService,
     private readonly guardrails: GuardrailsService,
   ) {
-    this.llmEnabled = parseBool(process.env.ORCHESTRATOR_LLM_ENABLED ?? 'true');
-    this.maxActionsPerHour = Number(process.env.ORCHESTRATOR_MAX_ACTIONS_PER_HOUR ?? '60');
+    this.llmEnabled = parseBool(this.configService.get<string>('ORCHESTRATOR_LLM_ENABLED', 'true'));
+    this.maxActionsPerHour = Number(this.configService.get<number>('ORCHESTRATOR_MAX_ACTIONS_PER_HOUR', 60));
   }
 
   /**

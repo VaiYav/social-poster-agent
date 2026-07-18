@@ -1,8 +1,9 @@
-import { Injectable, Logger, type OnModuleInit, type OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, type OnModuleInit, type OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Queue, Worker, type Job } from 'bullmq';
 import IORedis from 'ioredis';
 import { DiscordNotificationService } from '../notifications/discord-notification.service';
+import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER } from '../redis/redis.module.js';
 import { isJobInFlight } from './queue-state-utils.js';
 
 /**
@@ -51,10 +52,14 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
   // the total to ~15. Each connection holds TCP buffers + ioredis internal state.
   private sharedClient: IORedis | null = null;
   private sharedSubscriber: IORedis | null = null;
+  private sharedClientInjected = false;
+  private sharedSubscriberInjected = false;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly discord: DiscordNotificationService,
+    @Optional() @Inject(SHARED_REDIS) private readonly injectedClient?: IORedis,
+    @Optional() @Inject(SHARED_REDIS_SUBSCRIBER) private readonly injectedSubscriber?: IORedis,
   ) {
     this.redisUrl = this.configService.get<string>('REDIS_URL', 'redis://localhost:6381');
     // NOTE: parse env ints with an explicit fallback that preserves a valid 0.
@@ -97,8 +102,9 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit(): void {
+    const connectionSource = this.injectedClient ? 'shared Redis' : 'dedicated Redis';
     this.logger.log(
-      `BullMQ configured for Redis (${this.redisUrl}, prefix=${this.queuePrefix}, retries=${this.maxRetries}, postingRetries=${this.postingMaxRetries})`,
+      `BullMQ configured (${connectionSource}, prefix=${this.queuePrefix}, retries=${this.maxRetries}, postingRetries=${this.postingMaxRetries})`,
     );
   }
 
@@ -109,12 +115,13 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
     for (const queue of this.queues.values()) {
       await queue.close();
     }
-    // MEM: close shared connections created by getConnectionOpts()
-    if (this.sharedClient) {
+    // MEM: close only dedicated connections created by getConnectionOpts().
+    // Injected shared Redis connections are owned by RedisModule / RedisLifecycleService.
+    if (this.sharedClient && !this.sharedClientInjected) {
       await this.sharedClient.quit().catch(() => void 0);
       this.sharedClient = null;
     }
-    if (this.sharedSubscriber) {
+    if (this.sharedSubscriber && !this.sharedSubscriberInjected) {
       await this.sharedSubscriber.quit().catch(() => void 0);
       this.sharedSubscriber = null;
     }
@@ -130,18 +137,20 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
    */
   private getConnectionOpts() {
     if (!this.sharedClient) {
-      this.sharedClient = new IORedis(this.redisUrl, {
+      this.sharedClient = this.injectedClient ?? new IORedis(this.redisUrl, {
         maxRetriesPerRequest: null,
         lazyConnect: false,
         retryStrategy: (times: number) => Math.min(times * 500, 5000),
       });
+      this.sharedClientInjected = !!this.injectedClient;
     }
     if (!this.sharedSubscriber) {
-      this.sharedSubscriber = new IORedis(this.redisUrl, {
+      this.sharedSubscriber = this.injectedSubscriber ?? new IORedis(this.redisUrl, {
         maxRetriesPerRequest: null,
         lazyConnect: false,
         retryStrategy: (times: number) => Math.min(times * 500, 5000),
       });
+      this.sharedSubscriberInjected = !!this.injectedSubscriber;
     }
 
     // Capture in locals so TypeScript can prove non-null inside the closure.

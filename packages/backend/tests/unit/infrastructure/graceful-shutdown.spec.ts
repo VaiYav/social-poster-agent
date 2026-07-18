@@ -251,7 +251,7 @@ describe('B10: SseService graceful shutdown', () => {
 
 describe('B10: PrismaService graceful shutdown', () => {
   it('B10-PRISMA-001: onModuleDestroy calls $disconnect', async () => {
-    const service = new PrismaService();
+    const service = new PrismaService(createMockConfigService());
     const disconnectSpy = vi.spyOn(service, '$disconnect').mockResolvedValue(undefined);
 
     await service.onModuleDestroy();
@@ -293,7 +293,7 @@ describe('B10: Graceful shutdown integration — all services shut down', () => 
       { unsubscribe: vi.fn().mockResolvedValue(undefined) },
       { publish: vi.fn() },
     );
-    const prismaService = new PrismaService();
+    const prismaService = new PrismaService(createMockConfigService());
     vi.spyOn(prismaService, '$disconnect').mockResolvedValue(undefined);
 
     await expect(

@@ -74,6 +74,11 @@ export interface OrchestratorGraphDeps {
   onCycleEnd?: (cycle: number, result: ActionResult | null, sleepMs: number) => void;
   /** Fire-and-forget engagement check — enqueues stale browsing sessions in parallel */
   onEngagementCheck?: (world: WorldState) => void;
+  /** Action timeout configuration (from ConfigService). */
+  timeoutConfig?: {
+    f1BrowsingSessionMinutes: number;
+    orchestratorGenerateTimeoutMs: number;
+  };
 }
 
 // ── Node Functions ──────────────────────────────────────────────────────────
@@ -121,11 +126,15 @@ function decideNode(deps: OrchestratorGraphDeps) {
  * EXECUTE — dispatch action to existing services.
  * WAIT actions skip execution entirely.
  */
-function getActionTimeoutMs(action: Action): number {
-  const browseSessionSec = Number(process.env.F1_BROWSING_SESSION_MINUTES ?? '15') * 60;
+function getActionTimeoutMs(
+  action: Action,
+  timeoutConfig?: OrchestratorGraphDeps['timeoutConfig'],
+): number {
+  const browseSessionMinutes = timeoutConfig?.f1BrowsingSessionMinutes ?? 15;
+  const browseSessionSec = browseSessionMinutes * 60;
   const browseTimeoutMs = browseSessionSec * 1000 + 180_000 + 10_000;
   // Number() does not parse numeric-literal underscores, so strip them first.
-  const rawGenerateTimeout = process.env.ORCHESTRATOR_GENERATE_TIMEOUT_MS ?? '1200000';
+  const rawGenerateTimeout = String(timeoutConfig?.orchestratorGenerateTimeoutMs ?? 1_200_000);
   const parsedGenerateTimeout = Number(rawGenerateTimeout.replaceAll('_', '').trim());
   const generateTimeoutMs = Number.isFinite(parsedGenerateTimeout) && parsedGenerateTimeout > 0
     ? parsedGenerateTimeout
@@ -170,7 +179,7 @@ function executeNode(deps: OrchestratorGraphDeps) {
     // would otherwise let the heartbeat go stale and trigger a watchdog restart mid-action.
     await deps.writeHeartbeat();
 
-    const timeoutMs = getActionTimeoutMs(state.action);
+    const timeoutMs = getActionTimeoutMs(state.action, deps.timeoutConfig);
     const timeoutCtrl = new AbortController();
 
     let timeoutReject: ((err: Error) => void) | undefined;

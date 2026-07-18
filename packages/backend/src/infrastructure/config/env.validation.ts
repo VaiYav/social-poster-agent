@@ -28,10 +28,16 @@ const envSchema = Joi.object({
   EMAIL_USER: Joi.string().allow('').default(''),
   EMAIL_PASSWORD: Joi.string().allow('').default(''),
   EMAIL_FROM_FILTER: Joi.string().default('x.com'),
+  EMAIL_IMAP_IDLE_TIMEOUT_MS: Joi.number().integer().min(0).default(300_000),
+
+  // ── Prisma observability ──
+  SLOW_QUERY_THRESHOLD_MS: Joi.number().integer().min(0).default(500),
 
   // ── AN1: metrics-scraper (free official read APIs — own account) ──
   METRICS_SCRAPER_ENABLED: Joi.string().valid('true', 'false').default('false'),
   METRICS_SCRAPER_SCHEDULE: Joi.string().default('0 6 * * *'),
+  METRICS_SCRAPER_LOCK_KEY: Joi.string().default('spa:lock:metrics-scraper'),
+  METRICS_SCRAPER_LOCK_TTL_MS: Joi.number().integer().min(0).default(600_000),
   THREADS_ACCESS_TOKEN: Joi.string().allow('').default(''), // Threads Insights API (own account)
   FACEBOOK_PAGE_TOKEN: Joi.string().allow('').default(''), // Graph API Page insights (next increment)
 
@@ -74,6 +80,8 @@ const envSchema = Joi.object({
   GENERATION_TEMPERATURE_REFINE: Joi.number().min(0).max(2).default(0.6),
   // Q8: Judge-gated refine loop threshold
   JUDGE_REFINE_THRESHOLD: Joi.number().min(0).max(1).default(0.6),
+  // Multilingual generation: comma-separated ISO 639-1 codes (default: en)
+  POSTING_LANGUAGES: Joi.string().default('en'),
   // Q2: Global concurrency cap and 429 retry delay
   LLM_MAX_CONCURRENT: Joi.number().integer().min(1).default(4),
   LLM_RATE_LIMIT_RETRY_MS: Joi.number().integer().min(0).default(2500),
@@ -157,9 +165,23 @@ const envSchema = Joi.object({
   SPA_SCREENSHOT_DIR: Joi.string().default('/tmp/spa-screenshots'),
   SPA_SCREENSHOTS: Joi.string().valid('true', 'false').default('false'),
   SPA_SCREENSHOT_FULLPAGE: Joi.string().valid('true', 'false').default('false'),
+  SPA_DEBUG_SELECTORS: Joi.string().valid('true', 'false').default('false'),
+  // SE1: deferred login + out-of-band re-login schedule
+  SESSION_DEFERRED_LOGIN: Joi.string().valid('true', 'false').default('false'),
+  SESSION_RELOGIN_CRON: Joi.string().default('*/15 * * * *'),
+  FORM_LOGIN_COOLDOWN_MS: Joi.number().integer().min(0).default(1800000),
+  // Global dry-run: posting/interactions are intercepted (no real side effects)
+  SPA_DRY_RUN: Joi.string().valid('true', 'false').default('false'),
 
   // ── Feature flags ──
   ENGAGEMENT_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  // Engagement scheduler config
+  ENGAGEMENT_SCHEDULER_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  ENGAGEMENT_SCHEDULE_CRON: Joi.string().default('0 0 * * *'),
+  ENGAGEMENT_SESSIONS_PER_DAY: Joi.number().integer().min(1).default(3),
+  ENGAGEMENT_SESSION_WINDOWS: Joi.string().default('09:00,13:00,18:00'),
+  ENGAGEMENT_JITTER_MINUTES: Joi.number().integer().min(0).default(30),
+  ENGAGEMENT_NETWORKS: Joi.string().default('X,THREADS'),
   // Engagement decision LLM temperature (default 0.8)
   ENGAGEMENT_COMMENT_TEMPERATURE: Joi.number().min(0).max(2).default(0.8),
   ENGAGEMENT_QUOTE_TEMPERATURE: Joi.number().min(0).max(2).default(0.8),
@@ -171,9 +193,14 @@ const envSchema = Joi.object({
   AUTONOMOUS_POSTS_PER_RUN: Joi.number().integer().min(1).max(20).default(3),
   AUTONOMOUS_TARGET_NETWORKS: Joi.string().default('X,THREADS'),
   ENABLED_NETWORKS: Joi.string().default('X,THREADS'),
+  // F13: content recycling cron
+  RECYCLING_CRON_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  RECYCLING_CRON_SCHEDULE: Joi.string().default('0 8 * * 1'),
   DEDUP_SINCE_DAYS: Joi.number().integer().min(1).max(90).default(14),
   AUTONOMOUS_POSTING_DELAY_MIN_MS: Joi.number().integer().min(0).default(600000),
   AUTONOMOUS_POSTING_DELAY_MAX_MS: Joi.number().integer().min(1000).default(3600000),
+  // F2: delay between thread continuation posts (position × delayMs)
+  THREAD_CONTINUATION_DELAY_MS: Joi.number().integer().min(0).default(1800000),
   AUTO_APPROVE_MIN_SCORE: Joi.number().integer().min(1).max(10).default(7),
   AUTO_APPROVE_REVIEW_SCORE: Joi.number().integer().min(1).max(10).default(4),
   AUTO_APPROVE_REJECT_STREAK_ALERT: Joi.number().integer().min(1).default(3),
@@ -195,6 +222,7 @@ const envSchema = Joi.object({
   ORCHESTRATOR_LEADER_RENEW_INTERVAL_MS: Joi.number().integer().min(1000).default(10000),
   ORCHESTRATOR_RESTART_DELAY_MS: Joi.number().integer().min(0).default(3000),
   ORCHESTRATOR_WATCHDOG_RESTART_DELAY_MS: Joi.number().integer().min(0).default(5000),
+  ORCHESTRATOR_GENERATE_TIMEOUT_MS: Joi.number().integer().min(60000).default(1200000),
 
   // ── Redis checkpointing (LangGraph persistence) ──
   CHECKPOINT_PREFIX: Joi.string().default('spa:checkpoint'),

@@ -14,9 +14,11 @@
  *   - Cookie `spa_token` (primary — used by the UI / browser / EventSource)
  *   - `Authorization: Bearer <token>` (for API clients / curl)
  *
- * Public routes (no auth required):
+ * Public routes are declared with the `@Public()` decorator consumed by
+ * `Reflector`. Current public handlers:
  *   - /auth/login — must be reachable to obtain a token
- *   - /health — liveness probe
+ *   - /auth/logout — should work even with an expired token
+ *   - /health — liveness/readiness probes
  */
 import {
   Injectable,
@@ -27,12 +29,11 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import { parseBool } from '../../infrastructure/config/parse-bool';
 import type { JwtPayload } from './auth.service';
-
-/** Public route suffixes (matched after the global /api/v1 prefix). */
-const PUBLIC_SUFFIXES = ['/auth/login', '/auth/logout', '/health'];
+import { IS_PUBLIC_KEY } from './public.decorator';
 
 /** Cookie name — must match AuthController. */
 const COOKIE_NAME = 'spa_token';
@@ -50,6 +51,7 @@ export class JwtAuthGuard implements CanActivate {
   constructor(
     private readonly jwtService?: JwtService,
     private readonly config?: ConfigService,
+    private readonly reflector?: Reflector,
   ) {
     this.enabled = parseBool(this.config?.get<string>('AUTH_ENABLED', 'false') ?? 'false');
     this.jwtSecret = this.config?.get<string>('JWT_SECRET', '') ?? '';
@@ -58,7 +60,7 @@ export class JwtAuthGuard implements CanActivate {
         'AUTH_ENABLED=true but JWT_SECRET is empty — all non-public requests will be DENIED (fail-closed). Set JWT_SECRET.',
       );
     } else if (this.enabled) {
-      this.logger.log('JWT auth enabled — all routes require a valid token except /auth/login and /health.');
+      this.logger.log('JWT auth enabled — all routes require a valid token except those marked @Public().');
     }
   }
 
@@ -66,9 +68,8 @@ export class JwtAuthGuard implements CanActivate {
     if (!this.enabled) return true; // default / VPN-only / tests: no gating
 
     const req = context.switchToHttp().getRequest<Request>();
-    const path = (req.path || req.url || '').split('?')[0] as string;
 
-    if (this.isPublic(path)) return true;
+    if (this.isPublicRoute(context)) return true;
 
     // Enabled but no secret configured → fail closed.
     if (!this.jwtSecret) {
@@ -77,7 +78,7 @@ export class JwtAuthGuard implements CanActivate {
 
     const token = this.extractToken(req);
     if (!token) {
-      this.logger.warn(`Unauthorized access blocked (no token): ${req.method} ${path}`);
+      this.logger.warn(`Unauthorized access blocked (no token): ${req.method} ${req.path}`);
       throw new UnauthorizedException('Authentication required');
     }
 
@@ -91,7 +92,7 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     if (!payload) {
-      this.logger.warn(`Unauthorized access blocked (invalid token): ${req.method} ${path}`);
+      this.logger.warn(`Unauthorized access blocked (invalid token): ${req.method} ${req.path}`);
       throw new UnauthorizedException('Invalid or expired token');
     }
 
@@ -100,8 +101,12 @@ export class JwtAuthGuard implements CanActivate {
     return true;
   }
 
-  private isPublic(path: string): boolean {
-    return PUBLIC_SUFFIXES.some((suffix) => path === suffix || path.endsWith(suffix));
+  private isPublicRoute(context: ExecutionContext): boolean {
+    if (!this.reflector) return false;
+    return !!this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
   }
 
   private extractToken(req: Request): string | null {

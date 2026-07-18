@@ -16,10 +16,10 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### Checklist
 
-- [ ] Read `env.validation.ts` to find the `DATABASE_URL` declaration
-- [ ] Add `string().uri({ scheme: ['postgres', 'postgresql'] })` or a regex pattern
-- [ ] Add a test that rejects an invalid URI
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `env.validation.ts` to find the `DATABASE_URL` declaration
+- [x] Add `string().uri({ scheme: ['postgres', 'postgresql'] })` or a regex pattern
+- [x] Add a test that rejects an invalid URI
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -37,10 +37,10 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### Checklist
 
-- [ ] Read `env.validation.ts` to find the `REDIS_URL` declaration
-- [ ] Add `string().uri({ scheme: ['redis', 'rediss'] })` or a regex pattern
-- [ ] Add a test that rejects an invalid URI
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `env.validation.ts` to find the `REDIS_URL` declaration
+- [x] Add `string().uri({ scheme: ['redis', 'rediss'] })` or a regex pattern
+- [x] Add a test that rejects an invalid URI
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -58,11 +58,11 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### Checklist
 
-- [ ] Read `env.validation.ts` to find the Discord-related vars
-- [ ] Add `DISCORD_WEBHOOK_URL: string().uri().optional()`
-- [ ] Add `DISCORD_ALERTS_ENABLED: boolean().default(false)`
-- [ ] Add a test that verifies validation
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `env.validation.ts` to find the Discord-related vars
+- [x] Add `DISCORD_WEBHOOK_URL: string().uri().optional()`
+- [x] Add `DISCORD_ALERTS_ENABLED: boolean().default(false)`
+- [x] Add a test that verifies validation
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -81,10 +81,10 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### Checklist
 
-- [ ] Search for `SSE_CHANNEL` across the codebase
-- [ ] Add it to `env.validation.ts` with default `spa:sse` (matching `.env.example`)
-- [ ] Ensure all code that reads it uses the same default
-- [ ] Run `npx tsc --noEmit`
+- [x] Search for `SSE_CHANNEL` across the codebase
+- [x] Add it to `env.validation.ts` with default `spa:sse` (matching `.env.example`)
+- [x] Ensure all code that reads it uses the same default
+- [x] Run `npx tsc --noEmit`
 
 ### Acceptance criteria
 
@@ -317,7 +317,7 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.2.8 — Stop logging partial API keys in `LlmService.onModuleInit`
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** infrastructure-llm.md B17
+**Status:** `[x]` | **Effort:** XS | **Ref:** infrastructure-llm.md B17
 
 **Files:** `packages/backend/src/infrastructure/llm/llm.service.ts`
 
@@ -325,10 +325,10 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### Checklist
 
-- [ ] Read `llm.service.ts` `onModuleInit` to find the key logging
-- [ ] Replace key logging with `logger.log('Provider X: API key configured')`
-- [ ] Remove any partial key display
-- [ ] Run `npx tsc --noEmit`
+- [x] Read `llm.service.ts` `onModuleInit` to find the key logging
+- [x] Replace key logging with `logger.log('Provider X: API key configured')`
+- [x] Remove any partial key display
+- [x] Run `npx tsc --noEmit`
 
 ### Acceptance criteria
 
@@ -339,7 +339,7 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.2.9 — `sanitizeUntrustedInput` in all prompt builders with external text
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** infrastructure-llm.md B12
+**Status:** `[x]` | **Effort:** S | **Ref:** infrastructure-llm.md B12
 
 **Files:** `packages/backend/src/modules/engagement/engagement-decision.service.ts`, `packages/backend/src/modules/replies/replies-monitor.service.ts`
 
@@ -347,12 +347,12 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### Checklist
 
-- [ ] Find or create a `sanitizeUntrustedInput` utility
-- [ ] Apply it to all external text before it enters a prompt in `engagement-decision.service.ts`
-- [ ] Apply it in `replies-monitor.service.ts` for scraped comment text
-- [ ] Apply it in `trending-scraper.service.ts` for scraped trend text
-- [ ] Add unit tests that verify sanitization strips dangerous content
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Find or create a `sanitizeUntrustedInput` utility
+- [x] Apply it to all external text before it enters a prompt in `engagement-decision.service.ts`
+- [x] Apply it in `replies-monitor.service.ts` for scraped comment text
+- [x] Apply it in `trending-scraper.service.ts` for scraped trend text
+- [x] Add unit tests that verify sanitization strips dangerous content
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -363,7 +363,7 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.2.10 — `JwtAuthGuard` — replace `endsWith` with `@Public()` decorator
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** auth.md
+**Status:** `[x]` | **Effort:** S | **Ref:** auth.md
 
 **Files:** `packages/backend/src/modules/auth/jwt-auth.guard.ts`
 
@@ -371,13 +371,13 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### Checklist
 
-- [ ] Read `jwt-auth.guard.ts` to find the `endsWith` checks
-- [ ] Create a `@Public()` decorator using `SetMetadata`
-- [ ] Update `JwtAuthGuard` to use `Reflector.getAllAndOverride` to check for `@Public()`
-- [ ] Apply `@Public()` to all currently-public routes (`/auth/login`, `/health`, `/auth/logout`)
-- [ ] Remove the `endsWith` logic
-- [ ] Add unit tests for both public and protected routes
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `jwt-auth.guard.ts` to find the `endsWith` checks
+- [x] Create a `@Public()` decorator using `SetMetadata`
+- [x] Update `JwtAuthGuard` to use `Reflector.getAllAndOverride` to check for `@Public()`
+- [x] Apply `@Public()` to all currently-public routes (`/auth/login`, `/health`, `/auth/logout`)
+- [x] Remove the `endsWith` logic
+- [x] Add unit tests for both public and protected routes
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -391,7 +391,7 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.3.1 — `PrismaClientExceptionFilter` — P2002/P2025/P2024 → HTTP exceptions
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** infrastructure-prisma.md B3
+**Status:** `[x]` | **Effort:** S | **Ref:** infrastructure-prisma.md B3
 
 **Files:** `packages/backend/src/infrastructure/filters/` (new file)
 
@@ -399,11 +399,11 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### Checklist
 
-- [ ] Create `prisma-exception.filter.ts` implementing `ExceptionFilter`
-- [ ] Map P2002 → 409 Conflict, P2025 → 404 Not Found, P2024 → 504 Gateway Timeout
-- [ ] Register the filter globally in `main.ts`
-- [ ] Add unit tests for each error code mapping
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Create `prisma-exception.filter.ts` implementing `ExceptionFilter`
+- [x] Map P2002 → 409 Conflict, P2025 → 404 Not Found, P2024 → 504 Gateway Timeout
+- [x] Register the filter globally in `main.ts`
+- [x] Add unit tests for each error code mapping
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -415,7 +415,7 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.3.2 — `PrismaService` — connection pool tuning
 
-**Status:** `[~]` | **Effort:** S | **Ref:** infrastructure-prisma.md
+**Status:** `[x]` | **Effort:** S | **Ref:** infrastructure-prisma.md
 
 **Files:** `packages/backend/src/infrastructure/prisma/prisma.service.ts`
 
@@ -426,7 +426,7 @@ Security hardening, environment variable validation, and infrastructure resilien
 - [x] Read `prisma.service.ts` to find the Prisma client initialization
 - [x] Add `connection_limit` and `pool_timeout` parameters from env vars
 - [x] Add env vars to `env.validation.ts` (see task 3.1.7)
-- [ ] Document recommended values in `.env.example`
+- [x] Document recommended values in `.env.example`
 - [x] Run `npx tsc --noEmit`
 
 ### Acceptance criteria
@@ -462,7 +462,7 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.3.4 — Discord notifications — retry + circuit breaker
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** infrastructure-notifications.md
+**Status:** `[x]` | **Effort:** S | **Ref:** infrastructure-notifications.md
 
 **Files:** `packages/backend/src/infrastructure/notifications/discord-notification.service.ts`
 
@@ -470,11 +470,11 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### Checklist
 
-- [ ] Read `discord-notification.service.ts` to find the send logic
-- [ ] Add retry logic (2 attempts, exponential backoff)
-- [ ] Add a circuit breaker (3 failures → 5 min cooldown)
-- [ ] Add unit tests for retry and circuit breaker behavior
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `discord-notification.service.ts` to find the send logic
+- [x] Add retry logic (2 attempts, exponential backoff)
+- [x] Add a circuit breaker (3 failures → 5 min cooldown)
+- [x] Add unit tests for retry and circuit breaker behavior
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -486,7 +486,7 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.3.5 — Discord embed fields — truncate to 1024 chars
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** infrastructure-notifications.md
+**Status:** `[x]` | **Effort:** XS | **Ref:** infrastructure-notifications.md
 
 **Files:** `packages/backend/src/infrastructure/notifications/discord-notification.service.ts`
 
@@ -494,10 +494,10 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### Checklist
 
-- [ ] Read `discord-notification.service.ts` to find embed field construction
-- [ ] Add a `truncate(text, 1024)` utility and apply to all field values
-- [ ] Add a unit test with a >1024 char field value
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `discord-notification.service.ts` to find embed field construction
+- [x] Add a `truncate(text, 1024)` utility and apply to all field values
+- [x] Add a unit test with a >1024 char field value
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -508,7 +508,7 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.3.6 — `EncryptionService` — strict 64-hex key validation
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** infrastructure-crypto.md B1
+**Status:** `[x]` | **Effort:** XS | **Ref:** infrastructure-crypto.md B1
 
 **Files:** `packages/backend/src/infrastructure/crypto/encryption.service.ts`
 
@@ -516,11 +516,11 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### Checklist
 
-- [ ] Read `encryption.service.ts` to find the key validation
-- [ ] Add strict check: `/^[0-9a-f]{64}$/i`
-- [ ] Share the regex between `encryption.service.ts` and `env.validation.ts`
-- [ ] Add a unit test that rejects malformed keys
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `encryption.service.ts` to find the key validation
+- [x] Add strict check: `/^[0-9a-f]{64}$/i`
+- [x] Share the regex between `encryption.service.ts` and `env.validation.ts`
+- [x] Add a unit test that rejects malformed keys
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -531,16 +531,16 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.3.7 — `isEncrypted` — improve check
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** infrastructure-crypto.md B5
+**Status:** `[x]` | **Effort:** XS | **Ref:** infrastructure-crypto.md B5
 
 **Description:** `isEncrypted` checks if a value starts with `v1:` to determine if it's encrypted. This is fragile — a plaintext value that happens to start with `v1:` would be treated as encrypted. Improve the check by verifying the parts after `v1:` are valid hex and have the expected structure (IV + ciphertext + tag).
 
 ### Checklist
 
-- [ ] Read `encryption.service.ts` to find `isEncrypted`
-- [ ] Improve: split by `:`, verify 3 parts, verify each is valid hex, verify expected lengths
-- [ ] Add unit tests for: valid encrypted, plaintext starting with `v1:`, malformed encrypted
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `encryption.service.ts` to find `isEncrypted`
+- [x] Improve: split by `:`, verify 3 parts, verify each is valid hex, verify expected lengths
+- [x] Add unit tests for: valid encrypted, plaintext starting with `v1:`, malformed encrypted
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -551,7 +551,7 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.3.8 — Camoufox patch — fail fast in production if not applied
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** infrastructure-browser.md
+**Status:** `[x]` | **Effort:** S | **Ref:** infrastructure-browser.md
 
 **Files:** `packages/backend/src/infrastructure/browser/browser.factory.ts`
 
@@ -559,12 +559,12 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### Checklist
 
-- [ ] Read `patch-playwright.js` to understand what the patch modifies
-- [ ] Add a check in `browser.factory.ts` `onModuleInit` that verifies a known patch site exists in `coreBundle.js`
-- [ ] If `NODE_ENV=production` and patch is missing, throw an error
-- [ ] If not production, log a warning
-- [ ] Add a unit test for both production and non-production behavior
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `patch-playwright.js` to understand what the patch modifies
+- [x] Add a check in `browser.factory.ts` `onModuleInit` that verifies a known patch site exists in `coreBundle.js`
+- [x] If `NODE_ENV=production` and patch is missing, throw an error
+- [x] If not production, log a warning
+- [x] Add a unit test for both production and non-production behavior
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -576,7 +576,7 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.3.9 — `QueueFactory` — reuse `SHARED_REDIS` connections
 
-**Status:** `[ ]` | **Effort:** M | **Ref:** infrastructure-redis.md B2, cross-module-synthesis.md #5
+**Status:** `[x]` | **Effort:** M | **Ref:** infrastructure-redis.md B2, cross-module-synthesis.md #5
 
 **Files:** `packages/backend/src/infrastructure/queue/queue.factory.ts:120-131`
 
@@ -584,13 +584,13 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### Checklist
 
-- [ ] Read `queue.factory.ts:120-131` to find the Redis connection creation
-- [ ] Read `redis.module.ts` to find the shared Redis connections
-- [ ] Inject the shared Redis connections into `QueueFactory`
-- [ ] Remove the duplicate connection creation
-- [ ] Verify BullMQ works with the shared connections (BullMQ may need specific connection settings)
-- [ ] Add a unit test that verifies no new connections are created
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `queue.factory.ts:120-131` to find the Redis connection creation
+- [x] Read `redis.module.ts` to find the shared Redis connections
+- [x] Inject the shared Redis connections into `QueueFactory`
+- [x] Remove the duplicate connection creation
+- [x] Verify BullMQ works with the shared connections (BullMQ may need specific connection settings)
+- [x] Add a unit test that verifies no new connections are created
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -604,7 +604,7 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.4.1 — Split `/health` into `/health/live` + `/health/ready`
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** health.md B2/A1/F1
+**Status:** `[x]` | **Effort:** S | **Ref:** health.md B2/A1/F1
 
 **Files:** `packages/backend/src/modules/health/health.controller.ts`
 
@@ -612,12 +612,12 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### Checklist
 
-- [ ] Read `health.controller.ts` to find the current `/health` endpoint
-- [ ] Create `/health/live` — always returns 200
-- [ ] Create `/health/ready` — checks DB, Redis, queue; returns 503 if any is down
-- [ ] Keep `/health` as a redirect or alias to `/health/live` for backward compat
-- [ ] Add unit tests for both endpoints
-- [ ] Run `npx vitest run tests/unit/`
+- [x] Read `health.controller.ts` to find the current `/health` endpoint
+- [x] Create `/health/live` — always returns 200
+- [x] Create `/health/ready` — checks DB, Redis, queue; returns 503 if any is down
+- [x] Keep `/health` as a redirect or alias to `/health/live` for backward compat
+- [x] Add unit tests for both endpoints
+- [x] Run `npx vitest run tests/unit/`
 
 ### Acceptance criteria
 
@@ -629,7 +629,7 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### 3.4.2 — `HEALTH_CHECK_TIMEOUT_MS` — env-driven
 
-**Status:** `[ ]` | **Effort:** XS | **Ref:** health.md B1/F2
+**Status:** `[x]` | **Effort:** XS | **Ref:** health.md B1/F2
 
 **Files:** `packages/backend/src/modules/health/health.controller.ts`
 
@@ -637,10 +637,10 @@ Security hardening, environment variable validation, and infrastructure resilien
 
 ### Checklist
 
-- [ ] Read `health.controller.ts` to find the hardcoded timeout
-- [ ] Replace with `ConfigService.get('HEALTH_CHECK_TIMEOUT_MS', 2000)`
-- [ ] Add `HEALTH_CHECK_TIMEOUT_MS` to `env.validation.ts`
-- [ ] Run `npx tsc --noEmit`
+- [x] Read `health.controller.ts` to find the hardcoded timeout
+- [x] Replace with `ConfigService.get('HEALTH_CHECK_TIMEOUT_MS', 2000)`
+- [x] Add `HEALTH_CHECK_TIMEOUT_MS` to `env.validation.ts`
+- [x] Run `npx tsc --noEmit`
 
 ### Acceptance criteria
 

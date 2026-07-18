@@ -1152,36 +1152,48 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
    * Runtime check that the Camoufox/Playwright uncaughtError patch is present.
    * If the patch is missing, browsing sessions will crash with
    * "Target page, context or browser has been closed" when X/Threads feeds throw
-   * uncaught JS errors. Logs the result so production issues can be diagnosed.
+   * uncaught JS errors. In production this is a hard failure; in other envs it
+   * is a warning so local development/tests can run without the postinstall patch.
    */
-  private verifyCamoufoxPatch(): void {
+  private verifyCamoufoxPatch(coreBundleSource?: string): void {
+    let isPatched: boolean | undefined;
     try {
-      const fs = require('fs') as typeof import('fs');
-      const path = require('path') as typeof import('path');
-      let pwDir: string | undefined;
-      try {
-        pwDir = path.dirname(require.resolve('playwright-core/package.json'));
-      } catch {
-        this.logger.warn('Camoufox patch check: playwright-core not resolvable');
-        return;
-      }
-      const coreBundle = path.join(pwDir, 'lib', 'coreBundle.js');
-      if (!fs.existsSync(coreBundle)) {
-        this.logger.warn(`Camoufox patch check: coreBundle.js not found at ${coreBundle}`);
-        return;
-      }
-      const src = fs.readFileSync(coreBundle, 'utf8');
-      const patched = src.includes('params2.location ?? { url:');
-      if (patched) {
-        this.logger.log('Camoufox patch verified: coreBundle.js is patched for uncaughtError crash');
+      if (coreBundleSource !== undefined) {
+        isPatched = coreBundleSource.includes('params2.location ?? { url:');
       } else {
-        this.logger.error(
-          'Camoufox patch MISSING: coreBundle.js is not patched. Browsing sessions will likely crash with "Target page, context or browser has been closed" on X/Threads feeds.',
-        );
+        const fs = require('fs') as typeof import('fs');
+        const path = require('path') as typeof import('path');
+        let pwDir: string | undefined;
+        try {
+          pwDir = path.dirname(require.resolve('playwright-core/package.json'));
+        } catch {
+          this.logger.warn('Camoufox patch check: playwright-core not resolvable');
+          return;
+        }
+        const coreBundle = path.join(pwDir, 'lib', 'coreBundle.js');
+        if (!fs.existsSync(coreBundle)) {
+          this.logger.warn(`Camoufox patch check: coreBundle.js not found at ${coreBundle}`);
+          return;
+        }
+        const src = fs.readFileSync(coreBundle, 'utf8');
+        isPatched = src.includes('params2.location ?? { url:');
       }
     } catch (err) {
       this.logger.warn(`Camoufox patch check failed: ${(err as Error).message}`);
+      return;
     }
+
+    if (isPatched) {
+      this.logger.log('Camoufox patch verified: coreBundle.js is patched for uncaughtError crash');
+      return;
+    }
+
+    const message =
+      'Camoufox patch MISSING: coreBundle.js is not patched. Browsing sessions will likely crash with "Target page, context or browser has been closed" on X/Threads feeds.';
+    if (this.configService.get<string>('NODE_ENV') === 'production') {
+      throw new Error(message);
+    }
+    this.logger.warn(message);
   }
 
   async onModuleDestroy(): Promise<void> {

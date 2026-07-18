@@ -6,6 +6,7 @@
 // and implement the network-specific posting and engagement logic.
 
 import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { BrowserContext, Locator, Page } from '../../../domain/ports/browser-primitives';
 import type { SocialNetwork } from '@spa/shared';
 import type { IBrowserPort, ScreenshotPhase } from '../../../domain/ports/browser.port.js';
@@ -54,7 +55,10 @@ export abstract class BasePoster {
   protected abstract readonly logger: Logger;
   protected abstract readonly network: SocialNetwork;
 
-  constructor(protected readonly browser: IBrowserPort) {}
+  constructor(
+    protected readonly browser: IBrowserPort,
+    protected readonly configService: ConfigService,
+  ) {}
 
   // ── Selector Resolution ────────────────────────────────────────
 
@@ -867,19 +871,19 @@ export abstract class BasePoster {
     }
   }
 
-  /** Resolve the account's public profile URL for verification (from env, per network). */
+  /** Resolve the account's public profile URL for verification (from config, per network). */
   private getVerificationProfileUrl(): string | null {
     switch (this.network) {
       case 'X': {
-        const handle = process.env.SOCIAL_X_USERNAME;
+        const handle = this.configService.get<string>('SOCIAL_X_USERNAME', '');
         return handle ? `https://x.com/${handle}` : null;
       }
       case 'THREADS': {
-        const handle = process.env.SOCIAL_THREADS_USERNAME;
+        const handle = this.configService.get<string>('SOCIAL_THREADS_USERNAME', '');
         return handle ? `https://www.threads.com/@${handle}` : null;
       }
       case 'FACEBOOK': {
-        const slug = process.env.SOCIAL_FACEBOOK_PAGE_SLUG;
+        const slug = this.configService.get<string>('SOCIAL_FACEBOOK_PAGE_SLUG', '');
         return slug ? `https://www.facebook.com/${slug}` : null;
       }
       default: {

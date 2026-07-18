@@ -13,7 +13,6 @@ import { PrismaModule } from '../infrastructure/prisma/prisma.module';
 import { PostsModule } from '../modules/posts/posts.module';
 import { QueueModule as QueueInfraModule } from '../infrastructure/queue/queue.module';
 import { SseEventListener } from './listeners/sse-event.listener';
-import { AutoApproveListener } from './listeners/auto-approve.listener';
 
 @Module({
   imports: [
@@ -29,9 +28,9 @@ import { AutoApproveListener } from './listeners/auto-approve.listener';
     SseModule,
     PrismaModule,
     PostsModule,
-    QueueInfraModule, // A5: provides IPostingQueuePort for AutoApproveListener
+    QueueInfraModule,
   ],
-  providers: [SseEventListener, AutoApproveListener],
+  providers: [SseEventListener],
   exports: [EventEmitterModule],
 })
 export class EventsEdaModule {}

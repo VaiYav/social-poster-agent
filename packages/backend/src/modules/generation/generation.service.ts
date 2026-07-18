@@ -1,11 +1,12 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ILlmPort } from '../../domain/ports/llm.port.js';
 import type { BaseCallbackHandler } from '../../domain/ports/llm-primitives.js';
 import { ContentSourceService } from '../content-source/content-source.service';
 import { AccountsService } from '../accounts/accounts.service';
-import { PostsService } from '../posts/posts.service';
+import { PostsService, extractSourcePath } from '../posts/posts.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import type { Prisma } from '@prisma/client';
 import { RedisCheckpointSaver } from '../../infrastructure/checkpoint/redis-checkpoint.js';
@@ -37,7 +38,7 @@ import { checkTrendSafety } from '../content-enhancements/trend-guardrail.js';
 import { ContentPillarTracker } from '../content-enhancements/content-pillar.tracker.js';
 import { HookPerformanceBank } from '../content-enhancements/hook-performance-bank.js';
 import { VisualConceptService } from '../content-enhancements/visual-concept.service.js';
-import { ThreadDepthController } from '../content-enhancements/thread-depth.controller.js';
+import { ThreadDepthService } from '../content-enhancements/thread-depth.service.js';
 import { ABVariantGenerator } from '../content-enhancements/ab-variant.generator.js';
 import { ABVariantService } from '../content-enhancements/ab-variant.service.js';
 
@@ -95,20 +96,21 @@ export class GenerationService {
     private readonly prisma: PrismaService,
     private readonly checkpointSaver: RedisCheckpointSaver,
     private readonly sseService: SseService,
+    private readonly configService: ConfigService,
     @Optional() private readonly trendingService?: TrendingService,
     @Optional() private readonly trendingScraper?: TrendingScraperService,
     @Optional() private readonly pillarTracker?: ContentPillarTracker,
     @Optional() private readonly hookBank?: HookPerformanceBank,
     @Optional() private readonly visualService?: VisualConceptService,
-    @Optional() private readonly threadDepthController?: ThreadDepthController,
+    @Optional() private readonly threadDepthController?: ThreadDepthService,
     @Optional() private readonly abGenerator?: ABVariantGenerator,
     @Optional() private readonly abVariantService?: ABVariantService,
     @Optional() private readonly langfuse?: LangfuseService,
     @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
   ) {
-    // Read POSTING_LANGUAGES from env — comma-separated ISO 639-1 codes.
+    // Read POSTING_LANGUAGES from config — comma-separated ISO 639-1 codes.
     // Default: en only (backward compatible). Round-robin rotation across topics.
-    const langEnv = process.env.POSTING_LANGUAGES?.trim() || 'en';
+    const langEnv = this.configService.get<string>('POSTING_LANGUAGES', 'en').trim();
     this.postingLanguages = langEnv
       .split(',')
       .map((s) => s.trim().toLowerCase())
@@ -135,10 +137,15 @@ export class GenerationService {
         });
       };
       // Q8: judge-gated refine loop threshold (0 disables the retry loop)
-      const rawThreshold = Number(process.env.JUDGE_REFINE_THRESHOLD ?? '0.6');
+      const rawThreshold = Number(this.configService.get<string>('JUDGE_REFINE_THRESHOLD', '0.6'));
       const graphBuilder = buildGenerationGraph(this.llm, progressPublisher, this.hookBank, this.visualService, this.abGenerator, this.abVariantService, this.promptPort, {
         judgeRefineThreshold: Number.isFinite(rawThreshold) ? rawThreshold : 0.6,
         getRecordedPromptLabels,
+        temperatures: {
+          hook: Number(this.configService.get<number>('GENERATION_TEMPERATURE_HOOK', 0.95)),
+          draft: Number(this.configService.get<number>('GENERATION_TEMPERATURE_DRAFT', 0.8)),
+          refine: Number(this.configService.get<number>('GENERATION_TEMPERATURE_REFINE', 0.6)),
+        },
       });
       this.compiledGraph = graphBuilder.compile({ checkpointer: this.checkpointSaver });
       this.logger.log('LangGraph workflow compiled with Redis checkpoint saver + SSE progress (§10.3 parallel graph)');
@@ -248,6 +255,68 @@ export class GenerationService {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.warn(`Failed to persist default variant for ${postId}: ${message}`);
     }
+  }
+
+  /**
+   * Persist generated posts to the DB with SimHash dedup + A/B variants.
+   * Shared by generate, resume, and review-resume paths.
+   */
+  private async persistGeneratedPosts(
+    generatedPosts: GeneratedPost[],
+    accountByNetwork: Map<SocialNetwork, AccountResult | null | undefined>,
+    runId: string,
+    sourceRef: { type: string; path: string; topic: string; keywords: string[] },
+    options: {
+      language?: string;
+      recentHashes?: string[];
+      promptLabels?: Record<string, { label: string; isFallback?: boolean }>;
+    } = {},
+  ): Promise<{ id: string; network: SocialNetwork; llmMetadata: Prisma.JsonValue }[]> {
+    const savedPosts: { id: string; network: SocialNetwork; llmMetadata: Prisma.JsonValue }[] = [];
+    const recentHashes = options.recentHashes ?? [];
+
+    for (const genPost of generatedPosts) {
+      if (!genPost.content) {
+        this.logger.warn(`Generated post empty for ${genPost.network} / "${sourceRef.topic}"`);
+        continue;
+      }
+
+      const candidateHash = simhash(genPost.content);
+      if (isDuplicateHash(candidateHash, recentHashes)) {
+        this.logger.warn(
+          `Skipping near-duplicate post for ${genPost.network} / "${sourceRef.topic}" — SimHash match`,
+        );
+        continue;
+      }
+
+      const account = accountByNetwork.get(genPost.network) ?? (await this.accountsService.findByNetwork(genPost.network));
+      if (!account) continue;
+
+      const post = await this.postsService.create({
+        accountId: account.id,
+        network: genPost.network,
+        language: options.language ?? 'en',
+        content: genPost.content,
+        generationRunId: runId,
+        simhash: candidateHash,
+        sourceRef,
+        llmMetadata: this.buildPostLlmMetadata(
+          genPost,
+          candidateHash,
+          genPost.promptLabels ?? options.promptLabels ?? {},
+        ) as Prisma.InputJsonValue,
+      });
+
+      await this.persistPostVariants(post.id, genPost, genPost.judgeScores);
+
+      savedPosts.push(post);
+      recentHashes.push(candidateHash);
+      this.logger.debug(
+        `Created draft post for ${genPost.network} (score: ${genPost.qualityScore ?? 'n/a'}/10): ${genPost.content.slice(0, 50)}...`,
+      );
+    }
+
+    return savedPosts;
   }
 
   /**
@@ -476,9 +545,8 @@ export class GenerationService {
       if (judgeScoreSamples.length > 0) {
         const avg = (key: 'anti_ai_tone' | 'hook_strength' | 'factual_accuracy' | 'character_limit') =>
           Number((judgeScoreSamples.reduce((s, x) => s + x[key], 0) / judgeScoreSamples.length).toFixed(2));
-        const belowThreshold = judgeScoreSamples.filter(
-          (s) => s.anti_ai_tone < (Number(process.env.JUDGE_REFINE_THRESHOLD ?? '0.6') || 0.6),
-        ).length;
+        const threshold = Number(this.configService.get<string>('JUDGE_REFINE_THRESHOLD', '0.6')) || 0.6;
+        const belowThreshold = judgeScoreSamples.filter((s) => s.anti_ai_tone < threshold).length;
         const promptVersion = this.llm.getPromptVersion?.() ?? 'unknown';
         this.logger.log(
           `Judge calibration [run ${run.id}]: ${judgeScoreSamples.length} posts scored — ` +
@@ -584,16 +652,18 @@ export class GenerationService {
             const posts = await this.generatePostsForTopic(factTopic, targetNetworks, brandVoice, run.id, false);
             // Tag posts with fact_index in sourceRef
             for (const post of posts) {
+              const sourceRef = {
+                type: 'article' as const,
+                path: article.path,
+                topic: article.topic,
+                factIndex: factIdx,
+                keywords: article.keywords,
+              };
               await this.prisma.post.update({
                 where: { id: post.id },
                 data: {
-                  sourceRef: {
-                    type: 'article',
-                    path: article.path,
-                    topic: article.topic,
-                    factIndex: factIdx,
-                    keywords: article.keywords,
-                  },
+                  sourceRef,
+                  sourcePath: extractSourcePath(sourceRef),
                 },
               });
             }
@@ -729,17 +799,20 @@ export class GenerationService {
 
           // Tag posts with recycle metadata
           for (const post of posts) {
+            const sourceRef = {
+              type: 'recycle' as const,
+              path: recycledTopic.path,
+              originalPostId: oldPost.id,
+              originalTopic: topicStr,
+              topic: recycledTopic.topic,
+              keywords: recycledTopic.keywords,
+              recycledAt: new Date().toISOString(),
+            };
             await this.prisma.post.update({
               where: { id: post.id },
               data: {
-                sourceRef: {
-                  type: 'recycle',
-                  originalPostId: oldPost.id,
-                  originalTopic: topicStr,
-                  topic: recycledTopic.topic,
-                  keywords: recycledTopic.keywords,
-                  recycledAt: new Date().toISOString(),
-                },
+                sourceRef,
+                sourcePath: extractSourcePath(sourceRef),
               },
             });
           }
@@ -824,17 +897,20 @@ export class GenerationService {
       };
       const posts = await this.generatePostsForTopic(recycledTopic, targetNetworks, brandVoice, run.id, false, false, recycledTopic.language);
       for (const post of posts) {
+        const sourceRef = {
+          type: 'recycle' as const,
+          path: recycledTopic.path,
+          originalPostId: original.id,
+          originalTopic: topicStr,
+          topic: recycledTopic.topic,
+          keywords: recycledTopic.keywords,
+          recycledAt: new Date().toISOString(),
+        };
         await this.prisma.post.update({
           where: { id: post.id },
           data: {
-            sourceRef: {
-              type: 'recycle',
-              originalPostId: original.id,
-              originalTopic: topicStr,
-              topic: recycledTopic.topic,
-              keywords: recycledTopic.keywords,
-              recycledAt: new Date().toISOString(),
-            },
+            sourceRef,
+            sourcePath: extractSourcePath(sourceRef),
           },
         });
       }
@@ -887,7 +963,7 @@ export class GenerationService {
         const recent = await this.postsService.findBySourceAndNetwork(
           topic.path,
           network,
-          Number(process.env.DEDUP_SINCE_DAYS ?? '14') || 14,
+          Number(this.configService.get<string>('DEDUP_SINCE_DAYS', '14')) || 14,
         );
         return { network, account, recentCount: recent.length };
       }),
@@ -947,65 +1023,37 @@ export class GenerationService {
 
     // Save each generated post as DRAFT
     // B5: SimHash dedup — skip near-duplicate posts (Hamming distance ≤ 8)
-    const savedPosts: { id: string; network: SocialNetwork; llmMetadata: Prisma.JsonValue }[] = [];
-
-    // Load recent post hashes for this network to check against
     const recentHashes = await this.loadRecentPostHashes(topic.topic);
 
+    const savedPosts = await this.persistGeneratedPosts(
+      generatedPosts,
+      accountByNetwork,
+      runId,
+      {
+        type: topic.sourceType,
+        path: topic.path,
+        topic: topic.topic,
+        keywords: topic.keywords,
+      },
+      { language, recentHashes, promptLabels },
+    );
+
+    // F2/P4: Multi-Stage Posting with Thread Depth Service.
+    // Map persisted root posts by network so the continuation loop can reuse them.
+    const rootPostsByNetwork = new Map<SocialNetwork, (typeof savedPosts)[0]>();
+    for (const post of savedPosts) {
+      rootPostsByNetwork.set(post.network, post);
+    }
+
     for (const genPost of generatedPosts) {
-      if (!genPost.content) {
-        this.logger.warn(`Graph produced empty content for ${genPost.network} / "${topic.topic}"`);
-        continue;
-      }
+      if (!genPost.content) continue;
 
-      // B5: SimHash dedup check
-      const candidateHash = simhash(genPost.content);
-      const isDup = isDuplicateHash(candidateHash, recentHashes);
+      const post = rootPostsByNetwork.get(genPost.network);
+      if (!post) continue;
 
-      if (isDup) {
-        this.logger.warn(
-          `Skipping near-duplicate post for ${genPost.network} / "${topic.topic}" — SimHash match`,
-        );
-        continue;
-      }
-
-      // Q11: reuse the account loaded before the graph run (was an N+1 re-query)
-      const account = accountByNetwork.get(genPost.network) ?? await this.accountsService.findByNetwork(genPost.network);
+      const account = accountByNetwork.get(genPost.network) ?? (await this.accountsService.findByNetwork(genPost.network));
       if (!account) continue;
 
-      const post = await this.postsService.create({
-        accountId: account.id,
-        network: genPost.network,
-        language,
-        content: genPost.content,
-        generationRunId: runId,
-        simhash: candidateHash, // Sprint L: dedicated field for fast dedup
-        sourceRef: {
-          type: topic.sourceType,
-          path: topic.path,
-          topic: topic.topic,
-          keywords: topic.keywords,
-        },
-        llmMetadata: this.buildPostLlmMetadata(
-          genPost,
-          candidateHash,
-          genPost.promptLabels ?? promptLabels,
-        ) as Prisma.InputJsonValue,
-      });
-
-      await this.persistPostVariants(post.id, genPost, genPost.judgeScores);
-
-      savedPosts.push(post);
-      recentHashes.push(candidateHash); // add to in-memory set for this run
-      this.logger.debug(
-        `Created draft post for ${genPost.network} (score: ${genPost.qualityScore ?? 'n/a'}/10): ${genPost.content.slice(0, 50)}...`,
-      );
-
-      // F2/P4: Multi-Stage Posting with Thread Depth Controller.
-      // P4 replaces the fixed 2-post F2 with configurable thread depth (1-5).
-      // When ThreadDepthController is available, it decides depth based on
-      // content richness, network, and pillar. Falls back to fixed F2 when
-      // the controller is unavailable (backward compatibility).
       if (multiStage && (genPost.network === SocialNetwork.X || genPost.network === SocialNetwork.THREADS)) {
         if (this.threadDepthController) {
           // P4: Configurable thread depth
@@ -1068,7 +1116,7 @@ export class GenerationService {
                   `P4: Created ${plan.continuations.length} continuation posts for ${genPost.network} thread ${thread.id} — ${plan.reasoning}`,
                 );
                 return created;
-              }, { timeout: Number(process.env.PRISMA_TRANSACTION_TIMEOUT_MS ?? '30000') });
+              }, { timeout: Number(this.configService.get<string>('PRISMA_TRANSACTION_TIMEOUT_MS', '30000')) });
               // H1: emit DRAFT_GENERATED only AFTER the tx commits, so the async
               // auto-approve + SSE listeners never read a not-yet-committed row.
               for (const cp of contPosts) {
@@ -1154,7 +1202,7 @@ export class GenerationService {
       );
       this.logger.debug(`F2: Created continuation post for ${genPost.network} thread ${thread.id}`);
       return created;
-    }, { timeout: Number(process.env.PRISMA_TRANSACTION_TIMEOUT_MS ?? '30000') });
+    }, { timeout: Number(this.configService.get<string>('PRISMA_TRANSACTION_TIMEOUT_MS', '30000')) });
     // H1: emit DRAFT_GENERATED only AFTER the tx commits.
     this.postsService.emitDraftGenerated(continuationPost.id, genPost.network);
     savedPosts.push(continuationPost);
@@ -1563,36 +1611,19 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
 
             // B5: SimHash dedup — load recent hashes and skip near-duplicates
             const recentHashes = await this.loadRecentPostHashes(topic.topic);
-
-            for (const genPost of generatedPosts) {
-              if (!genPost.content) continue;
-
-              const candidateHash = simhash(genPost.content);
-              const isDup = isDuplicateHash(candidateHash, recentHashes);
-              if (isDup) {
-                this.logger.warn(`Resume: skipping near-duplicate for ${genPost.network} / "${topic.topic}"`);
-                continue;
-              }
-
-              const account = accountByNetwork.get(genPost.network);
-              if (!account) continue;
-
-              const post = await this.postsService.create({
-                accountId: account.id,
-                network: genPost.network,
-                content: genPost.content,
-                generationRunId: runId,
-                sourceRef: { type: topic.sourceType, path: topic.path, topic: topic.topic, keywords: topic.keywords },
-                llmMetadata: this.buildPostLlmMetadata(
-                  genPost,
-                  candidateHash,
-                  genPost.promptLabels ?? promptLabels,
-                ) as Prisma.InputJsonValue,
-              });
-              await this.persistPostVariants(post.id, genPost, genPost.judgeScores);
-              postIds.push(post.id);
-              recentHashes.push(candidateHash);
-            }
+            const savedPosts = await this.persistGeneratedPosts(
+              generatedPosts,
+              accountByNetwork,
+              runId,
+              {
+                type: topic.sourceType,
+                path: topic.path,
+                topic: topic.topic,
+                keywords: topic.keywords,
+              },
+              { recentHashes, promptLabels },
+            );
+            postIds.push(...savedPosts.map((p) => p.id));
           } catch (err) {
             this.logger.error(`Resume failed for topic "${topic.topic}": ${(err as Error).message}`);
           }
@@ -1673,36 +1704,14 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
     // Save the generated posts (same logic as generatePostsForTopic)
     const postIds: string[] = [];
     const recentHashes = await this.loadRecentPostHashes(topic);
-
-    for (const genPost of generatedPosts) {
-      if (!genPost.content) continue;
-
-      const candidateHash = simhash(genPost.content);
-      const isDup = isDuplicateHash(candidateHash, recentHashes);
-      if (isDup) {
-        this.logger.warn(`Review resume: skipping near-duplicate for ${genPost.network} / "${topic}"`);
-        continue;
-      }
-
-      const account = accountByNetwork.get(genPost.network);
-      if (!account) continue;
-
-      const post = await this.postsService.create({
-        accountId: account.id,
-        network: genPost.network,
-        content: genPost.content,
-        generationRunId: runId,
-        sourceRef: { type: 'review', path: '', topic, keywords: [] },
-        llmMetadata: this.buildPostLlmMetadata(
-          genPost,
-          candidateHash,
-          genPost.promptLabels ?? promptLabels,
-        ) as Prisma.InputJsonValue,
-      });
-      await this.persistPostVariants(post.id, genPost, genPost.judgeScores);
-      postIds.push(post.id);
-      recentHashes.push(candidateHash);
-    }
+    const savedPosts = await this.persistGeneratedPosts(
+      generatedPosts,
+      accountByNetwork,
+      runId,
+      { type: 'review', path: '', topic, keywords: [] },
+      { recentHashes, promptLabels },
+    );
+    postIds.push(...savedPosts.map((p) => p.id));
 
     await this.sseService.publish({
       type: 'generation_completed',

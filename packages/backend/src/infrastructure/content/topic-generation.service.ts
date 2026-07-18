@@ -1,11 +1,14 @@
-import { Injectable, Logger, Inject, type OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, Inject, Optional, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import { PrismaService } from '../prisma/prisma.service';
 import { ILlmPort } from '../../domain/ports/llm.port.js';
+import { IPromptPort, type CompiledChatPrompt } from '../../domain/ports/prompt.port.js';
 import { parseBool } from '../config/parse-bool';
 import { isOrchestratorEnabled } from '../../domain/feature-flags.js';
+import { interpolate } from '../../domain/prompt-interpolation.js';
+import { TOPIC_GENERATION_PROMPT } from './prompts/topic-generation-prompt.js';
 
 interface LlmTopic {
   topic: string;
@@ -43,6 +46,7 @@ export class TopicGenerationService implements OnModuleInit {
     private readonly configService: ConfigService,
     private readonly schedulerRegistry: SchedulerRegistry,
     @Inject(ILlmPort) private readonly llmService: ILlmPort,
+    @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
   ) {
     this.enabled = parseBool(this.configService.get<string>('TOPIC_GENERATION_ENABLED', 'true'));
     this.cronSchedule = this.configService.get<string>('TOPIC_GENERATION_CRON', '0 */2 * * *');
@@ -106,32 +110,14 @@ export class TopicGenerationService implements OnModuleInit {
    * Deduplicates against existing topics (by exact topic string).
    */
   async generateBatch(count: number): Promise<number> {
-    const systemPrompt = `You're a content strategist who actually knows astrology — not the "what's your sign" small-talk kind, but the "I can tell you what degree Saturn was at when you were born" kind. You're brainstorming social media post topics for an astrology brand.
-
-Each topic needs:
-- topic: A SPECIFIC, scroll-stopping topic title. Not "Mercury Retrograde" but "Mercury Retrograde in Leo: Why You're Suddenly Re-Texting Your Ex." Not "Moon Signs" but "Your Moon Sign Explains Why You Cry at Commercials." Be specific, be provocative, be human.
-- keywords: 3-5 relevant tags
-- facts: 2-3 REAL astrological/astronomical facts (no made-up data — real orbital periods, real dates, real traditions)
-- category: One of: "zodiac-signs", "planetary", "lunar", "retrograde", "relationships", "career", "wellness", "spiritual", "trending"
-
-TOPIC RULES:
-- Be SPECIFIC. "Aries horoscope" is not a topic, it's a category. "Why Aries Always Apologize With Actions Not Words" is a topic.
-- Be TIMELY. Reference current or upcoming transits when possible (check what's happening astrologically right now).
-- Mix ANGLES: some educational, some entertaining, some provocative, some relatable.
-- Don't repeat yourself. If you already have "Mercury retrograde communication," don't also generate "Mercury retrograde texts."
-- Think like a CONTENT CREATOR, not an encyclopedia. What would make someone stop scrolling?
-- It's okay to be funny, weird, or slightly unhinged. Boring topics = boring posts.
-
-Return a JSON array:
-[{"topic": "...", "keywords": ["...", "..."], "facts": ["...", "..."], "category": "..."}]`;
-
-    const userPrompt = `Generate ${count} diverse astrology/wellness topics for social media posts.
-Mix categories. Be specific, provocative, and fun. Think "what would I actually stop scrolling to read?"
-
-Return ONLY the JSON array, no markdown, no explanation.`;
+    const compiled = await this.getCompiledChat(
+      'topic-generation',
+      { count: String(count) },
+      TOPIC_GENERATION_PROMPT,
+    );
 
     try {
-      const response = await this.llmService.generateChat(systemPrompt, userPrompt, {
+      const response = await this.llmService.generateChat(compiled.systemPrompt, compiled.userPrompt, {
         temperature: 0.8,
         maxTokens: 4000,
       });
@@ -238,5 +224,24 @@ Return ONLY the JSON array, no markdown, no explanation.`;
       this.logger.warn(`Topic generation failed: ${(err as Error).message}`);
       return 0;
     }
+  }
+
+  /**
+   * Fetch the prompt from Langfuse Prompt Management when available,
+   * otherwise interpolate the local fallback.
+   */
+  private async getCompiledChat(
+    name: string,
+    variables: Record<string, string>,
+    fallback: CompiledChatPrompt,
+  ): Promise<CompiledChatPrompt> {
+    if (this.promptPort) {
+      return this.promptPort.getCompiledChat(name, variables, fallback);
+    }
+    return {
+      systemPrompt: interpolate(fallback.systemPrompt, variables),
+      userPrompt: interpolate(fallback.userPrompt, variables),
+      isFallback: true,
+    };
   }
 }

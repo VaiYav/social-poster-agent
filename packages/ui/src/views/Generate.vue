@@ -13,6 +13,7 @@ import {
 import { useStatsStore } from '../stores/stats';
 import { useToast } from '../composables/useToast';
 import { useSSE } from '../composables/useSSE';
+import type { SSEvent } from '@spa/shared';
 import { Card, Button, Input, Select, Checkbox, ProgressBar, Badge, SectionHeader } from '../components/ui';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import ErrorState from '../components/ErrorState.vue';
@@ -45,34 +46,33 @@ const progressPct = computed(() => {
 const apiBase = import.meta.env.VITE_API_URL ?? '/api/v1';
 const { data: sseData } = useSSE(`${apiBase}/events/sse`, { maxRetries: 50 });
 
-watch(sseData, (data) => {
-  if (!data || typeof data !== 'object') return;
-  const evt = data as { type: string; runId?: string; node?: string; topic?: string; postsCount?: number; error?: string; postCount?: number };
-  if (evt.type === 'generation_started') {
-    activeRunId.value = evt.runId ?? null;
+watch(sseData, (data: SSEvent | null) => {
+  if (!data) return;
+  if (data.type === 'generation_started') {
+    activeRunId.value = data.runId ?? null;
     progressEvents.value = [];
-  } else if (evt.type === 'generation_progress') {
+  } else if (data.type === 'generation_progress') {
     progressEvents.value.push({
-      node: evt.node ?? '',
-      topic: evt.topic ?? '',
-      postsCount: evt.postsCount ?? 0,
-      error: evt.error ?? null,
+      node: data.node ?? '',
+      topic: data.topic ?? '',
+      postsCount: data.postsCount ?? 0,
+      error: data.error ?? null,
     });
-  } else if (evt.type === 'generation_completed') {
+  } else if (data.type === 'generation_completed') {
     activeRunId.value = null;
     generating.value = false;
-    toast.success(`Generation completed: ${evt.postCount} posts created`);
+    toast.success(`Generation completed: ${data.postCount} posts created`);
     statsStore.fetchRuns();
-  } else if (evt.type === 'generation_failed') {
+  } else if (data.type === 'generation_failed') {
     activeRunId.value = null;
     generating.value = false;
-    toast.error(`Generation failed: ${evt.error}`);
-  } else if (evt.type === 'generation_paused') {
+    toast.error(`Generation failed: ${data.error}`);
+  } else if (data.type === 'generation_paused') {
     activeRunId.value = null;
     generating.value = false;
     toast.warning('Generation paused');
-  } else if (evt.type === 'generation_resumed') {
-    activeRunId.value = evt.runId ?? null;
+  } else if (data.type === 'generation_resumed') {
+    activeRunId.value = data.runId ?? null;
     generating.value = true;
     toast.success('Generation resumed');
   }

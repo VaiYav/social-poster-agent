@@ -17,14 +17,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Logger } from '@nestjs/common';
 
 import { BasePoster } from '../../../src/modules/posting/posters/base.poster';
-import { createMockPage, createMockContext, createMockBrowserPort } from '../../mocks/index';
+import { createMockPage, createMockContext, createMockBrowserPort, createMockConfigService } from '../../mocks/index';
 
 // Minimal concrete poster (network=X) exposing the protected verification methods.
 // getVerificationProfileUrl/Pattern + getProfilePostContentSelector are private and
-// network-driven, so X + the SOCIAL_X_USERNAME env var control verifyPosted's path.
+// network-driven, so X + the SOCIAL_X_USERNAME config value control verifyPosted's path.
 class VerifyPoster extends BasePoster {
   protected readonly logger = new Logger('VerifyPoster');
   protected readonly network = 'X' as const;
+
+  constructor(browser: any, configService: any) {
+    super(browser, configService);
+  }
 
   detectPostShadowbanPublic(page: any, postUrl: string, expected: string) {
     return this.detectPostShadowban(page, postUrl, expected);
@@ -38,16 +42,12 @@ const POST_URL = 'https://x.com/myhandle/status/1788000000000000001';
 
 describe('BasePoster verification (A3-2 / M1 — mock-DOM post checks)', () => {
   let poster: VerifyPoster;
-  let savedUsername: string | undefined;
 
   beforeEach(() => {
-    poster = new VerifyPoster(createMockBrowserPort() as unknown as never);
-    savedUsername = process.env.SOCIAL_X_USERNAME;
-  });
-
-  afterEach(() => {
-    if (savedUsername === undefined) delete process.env.SOCIAL_X_USERNAME;
-    else process.env.SOCIAL_X_USERNAME = savedUsername;
+    poster = new VerifyPoster(
+      createMockBrowserPort() as unknown as never,
+      createMockConfigService({ SOCIAL_X_USERNAME: '' }) as unknown as never,
+    );
   });
 
   describe('detectPostShadowban', () => {
@@ -99,7 +99,6 @@ describe('BasePoster verification (A3-2 / M1 — mock-DOM post checks)', () => {
 
   describe('verifyPosted (M1 anti-duplicate guard)', () => {
     it('returns null and opens no page when no profile URL is configured', async () => {
-      delete process.env.SOCIAL_X_USERNAME; // X profile URL → null
       const context = createMockContext(createMockPage());
 
       expect(await poster.verifyPosted(context as unknown as never, 'content')).toBeNull();
@@ -107,21 +106,27 @@ describe('BasePoster verification (A3-2 / M1 — mock-DOM post checks)', () => {
     });
 
     it('returns null and closes the page when the content is not found on the profile', async () => {
-      process.env.SOCIAL_X_USERNAME = 'myhandle';
+      const posterWithUser = new VerifyPoster(
+        createMockBrowserPort() as unknown as never,
+        createMockConfigService({ SOCIAL_X_USERNAME: 'myhandle' }) as unknown as never,
+      );
       const page = createMockPage({ url: 'https://x.com/myhandle', bodyText: '' }); // empty → not found → throws
       const context = createMockContext(page);
 
-      expect(await poster.verifyPosted(context as unknown as never, 'a brand new post')).toBeNull();
+      expect(await posterWithUser.verifyPosted(context as unknown as never, 'a brand new post')).toBeNull();
       expect(page.close).toHaveBeenCalled();
     });
 
     it('returns the profile URL (and closes the page) when the content is found', async () => {
-      process.env.SOCIAL_X_USERNAME = 'myhandle';
+      const posterWithUser = new VerifyPoster(
+        createMockBrowserPort() as unknown as never,
+        createMockConfigService({ SOCIAL_X_USERNAME: 'myhandle' }) as unknown as never,
+      );
       const content = 'a brand new post';
       const page = createMockPage({ url: 'https://x.com/myhandle', bodyText: `feed ${content} more` });
       const context = createMockContext(page);
 
-      const result = await poster.verifyPosted(context as unknown as never, content);
+      const result = await posterWithUser.verifyPosted(context as unknown as never, content);
       expect(result).toBe('https://x.com/myhandle');
       expect(page.close).toHaveBeenCalled();
     });

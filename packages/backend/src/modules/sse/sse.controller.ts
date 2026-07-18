@@ -4,7 +4,7 @@ import type { Request, Response } from 'express';
 import { SseService } from '../../infrastructure/sse/sse.service';
 
 /**
- * Events controller — SSE endpoint for real-time post status updates.
+ * SSE controller — SSE endpoint for real-time post status updates.
  *
  * UI connects: GET /events/sse
  * Content-Type: text/event-stream
@@ -13,9 +13,9 @@ import { SseService } from '../../infrastructure/sse/sse.service';
  * - { type: 'connected', clientId }
  * - { type: 'post_status', postId, status, network, url?, error? }
  */
-@ApiTags('events')
+@ApiTags('sse')
 @Controller('events')
-export class EventsController {
+export class SseController {
   constructor(private readonly sseService: SseService) {}
 
   @Get('sse')

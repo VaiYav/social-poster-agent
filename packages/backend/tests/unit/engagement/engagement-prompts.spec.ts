@@ -7,18 +7,16 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  buildDecisionUserPrompt,
-  buildCommentUserPrompt,
-  buildQuoteUserPrompt,
+  ENGAGEMENT_DECISION_PROMPT,
+  ENGAGEMENT_COMMENT_PROMPT,
+  ENGAGEMENT_QUOTE_PROMPT,
+  ENGAGEMENT_BATCH_DECISION_PROMPT,
   parseDecisionResponse,
   parseBatchDecisionResponse,
   parseCommentResponse,
   parseQuoteResponse,
-  buildBatchDecisionUserPrompt,
-  ENGAGEMENT_DECISION_SYSTEM_PROMPT,
-  ENGAGEMENT_COMMENT_SYSTEM_PROMPT,
-  ENGAGEMENT_QUOTE_SYSTEM_PROMPT,
 } from '../../../src/infrastructure/llm/prompts/v0.4.0/engagement-decision';
+import { interpolate } from '../../../src/domain/prompt-interpolation';
 import type { PostContext } from '../../../src/domain/ports/engagement-decision.port';
 
 function createPostContext(overrides: Partial<PostContext> = {}): PostContext {
@@ -37,51 +35,6 @@ function createPostContext(overrides: Partial<PostContext> = {}): PostContext {
 }
 
 describe('Engagement Prompts', () => {
-  // ── buildDecisionUserPrompt ──
-
-  it('PR-001: builds decision prompt with all context fields', () => {
-    const ctx = createPostContext({ authorHandle: 'astrologer' });
-    const prompt = buildDecisionUserPrompt(ctx);
-    expect(prompt).toContain('X');
-    expect(prompt).toContain('hashtag');
-    expect(prompt).toContain('astrologer');
-    expect(prompt).toContain('true'); // hasMedia
-    expect(prompt).toContain('Mars in Aries brings energy.');
-    expect(prompt).toContain('3/15'); // likes budget
-    expect(prompt).toContain('1/4'); // comments budget
-  });
-
-  it('PR-002: truncates long post text to 500 chars', () => {
-    const longText = 'x'.repeat(1000);
-    const ctx = createPostContext({ postText: longText });
-    const prompt = buildDecisionUserPrompt(ctx);
-    // The text should be truncated (500 chars max in the prompt)
-    expect(prompt).not.toContain('x'.repeat(600));
-  });
-
-  it('PR-003: handles missing author handle', () => {
-    const ctx = createPostContext({ authorHandle: undefined });
-    const prompt = buildDecisionUserPrompt(ctx);
-    expect(prompt).toContain('unknown');
-  });
-
-  // ── buildCommentUserPrompt ──
-
-  it('PR-004: builds comment prompt with post context', () => {
-    const ctx = createPostContext({ authorHandle: 'costar' });
-    const prompt = buildCommentUserPrompt(ctx);
-    expect(prompt).toContain('X');
-    expect(prompt).toContain('costar');
-    expect(prompt).toContain('Mars in Aries brings energy.');
-  });
-
-  it('PR-005: truncates long post text in comment prompt', () => {
-    const longText = 'y'.repeat(1000);
-    const ctx = createPostContext({ postText: longText });
-    const prompt = buildCommentUserPrompt(ctx);
-    expect(prompt).not.toContain('y'.repeat(600));
-  });
-
   // ── parseDecisionResponse ──
 
   it('PR-006: parses valid JSON decision', () => {
@@ -143,72 +96,72 @@ describe('Engagement Prompts', () => {
   // ── System prompts ──
 
   it('PR-015: decision system prompt contains budget awareness', () => {
-    expect(ENGAGEMENT_DECISION_SYSTEM_PROMPT).toContain('budget');
-    expect(ENGAGEMENT_DECISION_SYSTEM_PROMPT).toContain('BUDGET');
+    expect(ENGAGEMENT_DECISION_PROMPT.systemPrompt).toContain('budget');
+    expect(ENGAGEMENT_DECISION_PROMPT.systemPrompt).toContain('BUDGET');
   });
 
   it('PR-016: decision system prompt contains anti-spam rules', () => {
-    expect(ENGAGEMENT_DECISION_SYSTEM_PROMPT).toContain('generic');
-    expect(ENGAGEMENT_DECISION_SYSTEM_PROMPT).toContain('ChatGPT');
+    expect(ENGAGEMENT_DECISION_PROMPT.systemPrompt).toContain('generic');
+    expect(ENGAGEMENT_DECISION_PROMPT.systemPrompt).toContain('ChatGPT');
   });
 
   it('PR-017: comment system prompt contains brand voice guidelines', () => {
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('astrology');
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('dispositing planet');
+    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('astrology');
+    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('dispositing planet');
   });
 
   it('PR-018: comment system prompt forbids self-promo', () => {
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('NO links');
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('NO self-promotion');
+    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('NO links');
+    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('NO self-promotion');
   });
 
   // ── Language Adaptation (Sprint Q+) ──
 
   it('PR-018a: comment system prompt contains LANGUAGE section', () => {
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('LANGUAGE');
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('CRITICAL');
+    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('LANGUAGE');
+    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('CRITICAL');
   });
 
   it('PR-018b: comment system prompt instructs to match post language', () => {
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('EXACTLY this language');
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('Ukrainian');
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('Russian');
+    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('EXACTLY this language');
+    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('Ukrainian');
+    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('Russian');
   });
 
   it('PR-018c: comment system prompt forbids language mismatch', () => {
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('English on a non-English');
+    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('English on a non-English');
   });
 
   it('PR-018d: comment system prompt includes Ukrainian example comments', () => {
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('GOOD comments (Ukrainian)');
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('Сатурн повернувся');
+    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('GOOD comments (Ukrainian)');
+    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('Сатурн повернувся');
   });
 
   it('PR-018e: comment system prompt includes Russian example comments', () => {
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('GOOD comments (Russian)');
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('Сатурн вернулся');
+    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('GOOD comments (Russian)');
+    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('Сатурн вернулся');
   });
 
   it('PR-018f: comment system prompt includes JSON language schema', () => {
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('Respond as JSON');
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('"language"');
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('en|ru|uk|es|it');
+    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('Respond as JSON');
+    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('"language"');
+    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('en|ru|uk|es|it');
   });
 
   it('PR-018g: quote system prompt includes JSON language schema', () => {
-    expect(ENGAGEMENT_QUOTE_SYSTEM_PROMPT).toContain('Respond as JSON');
-    expect(ENGAGEMENT_QUOTE_SYSTEM_PROMPT).toContain('"language"');
-    expect(ENGAGEMENT_QUOTE_SYSTEM_PROMPT).toContain('en|ru|uk|es|it');
+    expect(ENGAGEMENT_QUOTE_PROMPT.systemPrompt).toContain('Respond as JSON');
+    expect(ENGAGEMENT_QUOTE_PROMPT.systemPrompt).toContain('"language"');
+    expect(ENGAGEMENT_QUOTE_PROMPT.systemPrompt).toContain('en|ru|uk|es|it');
   });
 
   it('PR-018h: comment system prompt includes detectedLanguage placeholder', () => {
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('{detectedLanguage}');
-    expect(ENGAGEMENT_COMMENT_SYSTEM_PROMPT).toContain('EXACTLY this language');
+    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('{detectedLanguage}');
+    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('EXACTLY this language');
   });
 
   it('PR-018i: quote system prompt includes detectedLanguage placeholder', () => {
-    expect(ENGAGEMENT_QUOTE_SYSTEM_PROMPT).toContain('{detectedLanguage}');
-    expect(ENGAGEMENT_QUOTE_SYSTEM_PROMPT).toContain('EXACTLY this language');
+    expect(ENGAGEMENT_QUOTE_PROMPT.systemPrompt).toContain('{detectedLanguage}');
+    expect(ENGAGEMENT_QUOTE_PROMPT.systemPrompt).toContain('EXACTLY this language');
   });
 
   // ── parseCommentResponse ──
@@ -265,49 +218,6 @@ describe('Engagement Prompts', () => {
   it('PR-QUO-004: returns null for empty response', () => {
     expect(parseQuoteResponse('').quote).toBeNull();
     expect(parseQuoteResponse('   ').quote).toBeNull();
-  });
-
-  // ── buildBatchDecisionUserPrompt ──
-
-  it('PR-019: builds batch prompt with correct post count', () => {
-    const contexts = [
-      createPostContext({ postText: 'Post one' }),
-      createPostContext({ postText: 'Post two' }),
-      createPostContext({ postText: 'Post three' }),
-    ];
-    const prompt = buildBatchDecisionUserPrompt(contexts);
-    expect(prompt).toContain('3 posts');
-    expect(prompt).toContain('3 elements');
-    expect(prompt).toContain('Post 1');
-    expect(prompt).toContain('Post 2');
-    expect(prompt).toContain('Post 3');
-  });
-
-  it('PR-020: batch prompt includes post text and budget for each post', () => {
-    const contexts = [
-      createPostContext({ postText: 'Mars in Aries', likesThisSession: 5, likesMaxPerSession: 10 }),
-      createPostContext({ postText: 'Moon in Cancer', likesThisSession: 6, likesMaxPerSession: 10 }),
-    ];
-    const prompt = buildBatchDecisionUserPrompt(contexts);
-    expect(prompt).toContain('Mars in Aries');
-    expect(prompt).toContain('Moon in Cancer');
-    expect(prompt).toContain('5/10');
-    expect(prompt).toContain('6/10');
-  });
-
-  it('PR-021: batch prompt truncates post text to 300 chars', () => {
-    const longText = 'z'.repeat(500);
-    const ctx = createPostContext({ postText: longText });
-    const prompt = buildBatchDecisionUserPrompt([ctx]);
-    expect(prompt).not.toContain('z'.repeat(301));
-  });
-
-  it('PR-022: batch prompt handles single post', () => {
-    const ctx = createPostContext({ postText: 'Single post' });
-    const prompt = buildBatchDecisionUserPrompt([ctx]);
-    expect(prompt).toContain('1 posts');
-    expect(prompt).toContain('Post 1');
-    expect(prompt).toContain('Single post');
   });
 
   // ── parseBatchDecisionResponse ──
@@ -372,8 +282,4 @@ describe('Engagement Prompts', () => {
     }
   });
 
-  it('PR-031: handles empty batch', () => {
-    const prompt = buildBatchDecisionUserPrompt([]);
-    expect(prompt).toContain('0 posts');
-  });
 });

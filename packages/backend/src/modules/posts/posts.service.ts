@@ -3,10 +3,21 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { PostStatus, type SocialNetwork, type Prisma, type Post } from '@prisma/client';
 import type { PostQueryDto, UpdatePostStatusDto } from '../../domain/dtos';
+import type { PostDraftGeneratedEvent, PostApprovedEvent, PostRejectedEvent } from '@spa/shared';
 import { PostEvents } from '../../events/enums/post-events.enum';
 import { checkContentLength } from './network-limits.js';
 import { simhash } from '../generation/simhash.js';
 import { AutoCheckService } from '../autonomy/auto-check.service.js';
+
+/**
+ * Extract the source path from a sourceRef JSON object when it is present.
+ * Returns `null` when the ref is not an object or has no string `path`.
+ */
+export function extractSourcePath(sourceRef: unknown): string | null {
+  if (!sourceRef || typeof sourceRef !== 'object') return null;
+  const path = (sourceRef as Record<string, unknown>)['path'];
+  return typeof path === 'string' ? path : null;
+}
 
 /**
  * Posts service — CRUD + status transitions for Post entities.
@@ -95,29 +106,24 @@ export class PostsService {
     });
   }
 
-  async create(data: {
-    accountId: string;
-    network: SocialNetwork;
-    language?: string; // ISO 639-1: en, ru, uk, es, it (default: en)
-    content: string;
-    threadId?: string;
-    threadPosition?: number;
-    generationRunId?: string;
-    sourceRef?: Prisma.InputJsonValue;
-    llmMetadata?: Prisma.InputJsonValue;
-    simhash?: string; // Sprint L: precomputed SimHash for fast dedup
-  },
-  // A4: optional transaction client so callers can persist atomically (e.g.
-  // thread assembly in GenerationService). Defaults to the non-transactional
-  // client, so every existing caller is unaffected.
-  client: Prisma.TransactionClient = this.prisma,
-  // H1: when persisting inside a transaction, pass `{ emitEvent: false }` and
-  // emit DRAFT_GENERATED via emitDraftGenerated() AFTER the tx commits —
-  // otherwise the async auto-approve + SSE listeners query a row that is not
-  // yet committed (null read / pre-commit race).
-  opts: { emitEvent?: boolean } = {},
+  async create(
+    data: Prisma.PostUncheckedCreateInput,
+    // A4: optional transaction client so callers can persist atomically (e.g.
+    // thread assembly in GenerationService). Defaults to the non-transactional
+    // client, so every existing caller is unaffected.
+    client: Prisma.TransactionClient = this.prisma,
+    // H1: when persisting inside a transaction, pass `{ emitEvent: false }` and
+    // emit DRAFT_GENERATED via emitDraftGenerated() AFTER the tx commits —
+    // otherwise the async auto-approve + SSE listeners query a row that is not
+    // yet committed (null read / pre-commit race).
+    opts: { emitEvent?: boolean } = {},
   ) {
-    const post = await client.post.create({ data });
+    const post = await client.post.create({
+      data: {
+        ...data,
+        sourcePath: data.sourcePath ?? extractSourcePath(data.sourceRef),
+      },
+    });
     if (opts.emitEvent !== false) {
       this.emitDraftGenerated(post.id, post.network);
     }
@@ -129,7 +135,7 @@ export class PostsService {
    * commits when create() was used with `{ emitEvent: false }` inside that tx.
    */
   emitDraftGenerated(postId: string, network: SocialNetwork): void {
-    this.eventEmitter.emit(PostEvents.DRAFT_GENERATED, { postId, network });
+    this.eventEmitter.emit(PostEvents.DRAFT_GENERATED, { postId, network } satisfies PostDraftGeneratedEvent);
   }
 
   async updateStatus(id: string, dto: UpdatePostStatusDto) {
@@ -217,7 +223,7 @@ export class PostsService {
       data: updateData,
     });
 
-    this.eventEmitter.emit(PostEvents.APPROVED, { postId: id, network: post.network });
+    this.eventEmitter.emit(PostEvents.APPROVED, { postId: id, network: post.network } satisfies PostApprovedEvent);
     return updated;
   }
 
@@ -237,7 +243,7 @@ export class PostsService {
       data: { status: PostStatus.REJECTED },
     });
     this.logger.log(`Post ${id}: ${post.status} → REJECTED`);
-    this.eventEmitter.emit(PostEvents.REJECTED, { postId: id, network: post.network });
+    this.eventEmitter.emit(PostEvents.REJECTED, { postId: id, network: post.network } satisfies PostRejectedEvent);
     return updated;
   }
 
@@ -245,8 +251,9 @@ export class PostsService {
     const since = new Date();
     since.setDate(since.getDate() - sinceDays);
 
-    const posts = await this.prisma.post.findMany({
+    return this.prisma.post.findMany({
       where: {
+        sourcePath,
         network,
         // Only treat posts that are actually queued or published as "already covered".
         // DRAFT/HUMAN_REVIEW are not yet queued, and FAILED/REJECTED never reached
@@ -254,13 +261,6 @@ export class PostsService {
         status: { in: [PostStatus.APPROVED, PostStatus.POSTING, PostStatus.POSTED] },
         OR: [{ approvedAt: { gte: since } }, { postedAt: { gte: since } }],
       },
-    });
-
-    // Filter by sourceRef.path in code (Prisma JSON filtering is limited)
-    return posts.filter((p) => {
-      if (!p.sourceRef || typeof p.sourceRef !== 'object') return false;
-      const ref = p.sourceRef as Record<string, unknown>;
-      return ref['path'] === sourcePath;
     });
   }
 

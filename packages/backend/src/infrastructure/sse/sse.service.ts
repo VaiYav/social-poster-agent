@@ -2,197 +2,58 @@ import { Injectable, Logger, Inject, type OnModuleDestroy } from '@nestjs/common
 import type { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import IORedis from 'ioredis';
+import {
+  SSEventSchema,
+  type SSEvent,
+  type SseMetricsSnapshotEvent,
+  type SsePostStatusEvent,
+  type SseHealthAlertEvent,
+  type SseGenerationStartedEvent,
+  type SseGenerationProgressEvent,
+  type SseGenerationCompletedEvent,
+  type SseGenerationFailedEvent,
+  type SseGenerationPausedEvent,
+  type SseGenerationResumedEvent,
+  type SseInteractionEvent,
+  type SseBrowsingSessionStartedEvent,
+  type SseBrowsingSessionCompletedEvent,
+  type SseBrowsingSessionFailedEvent,
+  type SseRepliesMonitorEvent,
+  type SseReplyPostedEvent,
+  type SseReconciliationRequeueEvent,
+  type SseAutoApproveEvent,
+  type SseAutonomousCycleEvent,
+  type SseOrchestratorCycleEndEvent,
+  type SseFlowControlEvent,
+} from '@spa/shared';
 import { SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER } from '../redis/redis.module.js';
 
-export type SseEvent =
-  | SseMetricsSnapshotEvent
-  | SsePostStatusEvent
-  | SseHealthAlertEvent
-  | SseGenerationStartedEvent
-  | SseGenerationProgressEvent
-  | SseGenerationCompletedEvent
-  | SseGenerationFailedEvent
-  | SseGenerationPausedEvent
-  | SseGenerationResumedEvent
-  | SseInteractionEvent
-  | SseBrowsingSessionStartedEvent
-  | SseBrowsingSessionCompletedEvent
-  | SseBrowsingSessionFailedEvent
-  | SseRepliesMonitorEvent
-  | SseReplyPostedEvent
-  | SseReconciliationRequeueEvent
-  | SseAutoApproveEvent
-  | SseAutonomousCycleEvent
-  | SseOrchestratorCycleEndEvent
-  | SseFlowControlEvent;
+// Re-export SSE event types and schema from the shared package for backend consumers.
+export type {
+  SSEvent as SseEvent,
+  SseMetricsSnapshotEvent,
+  SsePostStatusEvent,
+  SseHealthAlertEvent,
+  SseGenerationStartedEvent,
+  SseGenerationProgressEvent,
+  SseGenerationCompletedEvent,
+  SseGenerationFailedEvent,
+  SseGenerationPausedEvent,
+  SseGenerationResumedEvent,
+  SseInteractionEvent,
+  SseBrowsingSessionStartedEvent,
+  SseBrowsingSessionCompletedEvent,
+  SseBrowsingSessionFailedEvent,
+  SseRepliesMonitorEvent,
+  SseReplyPostedEvent,
+  SseReconciliationRequeueEvent,
+  SseAutoApproveEvent,
+  SseAutonomousCycleEvent,
+  SseOrchestratorCycleEndEvent,
+  SseFlowControlEvent,
+};
 
-export interface SseMetricsSnapshotEvent {
-  type: 'metrics_snapshot';
-  timestamp: number;
-  agents: Record<string, unknown>;
-}
-
-export interface SsePostStatusEvent {
-  type: 'post_status';
-  postId: string;
-  status: string;
-  network: string;
-  url?: string;
-  error?: string;
-  retryable?: boolean;
-}
-
-export interface SseHealthAlertEvent {
-  type: 'health_alert';
-  severity: 'critical' | 'warning' | 'info';
-  error: string;
-}
-
-export interface SseGenerationStartedEvent {
-  type: 'generation_started';
-  runId: string;
-  count: number;
-}
-
-export interface SseGenerationProgressEvent {
-  type: 'generation_progress';
-  node: string;
-  topic: string;
-  postsCount: number;
-  error?: string;
-}
-
-export interface SseGenerationCompletedEvent {
-  type: 'generation_completed';
-  runId: string;
-  postCount: number;
-}
-
-export interface SseGenerationFailedEvent {
-  type: 'generation_failed';
-  runId: string;
-  error: string;
-}
-
-export interface SseGenerationPausedEvent {
-  type: 'generation_paused';
-  runId: string;
-}
-
-export interface SseGenerationResumedEvent {
-  type: 'generation_resumed';
-  runId: string;
-}
-
-export interface SseInteractionEvent {
-  type: 'interaction_started' | 'interaction_completed' | 'interaction_failed';
-  interactionId: string;
-  interactionType: string;
-  network: string;
-  targetUrl?: string;
-  error?: string;
-}
-
-export interface SseBrowsingSessionStartedEvent {
-  type: 'browsing_session_started';
-  sessionId: string;
-  network: string;
-  durationSec: number;
-}
-
-export interface SseBrowsingSessionCompletedEvent {
-  type: 'browsing_session_completed';
-  sessionId: string;
-  network: string;
-  postsViewed: number;
-  interactionsCount: number;
-}
-
-export interface SseBrowsingSessionFailedEvent {
-  type: 'browsing_session_failed';
-  sessionId: string;
-  network: string;
-  error: string;
-}
-
-export interface SseRepliesMonitorEvent {
-  type: 'replies_monitor';
-  postsChecked: number;
-  commentsScraped: number;
-  repliesPosted: number;
-  repliesScheduled: number;
-  humanReview: number;
-}
-
-export interface SseReplyPostedEvent {
-  type: 'reply_posted';
-  postId: string;
-  commentId: string;
-  network: string;
-}
-
-export interface SseReconciliationRequeueEvent {
-  type: 'reconciliation_requeue';
-  postId: string;
-  network: string;
-}
-
-export interface SseAutoApproveEvent {
-  type: 'auto_approve';
-  postId: string;
-  decision: string;
-  qualityScore?: number | null;
-  reason?: string | null;
-}
-
-export interface SseAutonomousCycleStartedEvent {
-  type: 'autonomous_cycle';
-  action: 'started';
-}
-
-export interface SseAutonomousCycleCompletedEvent {
-  type: 'autonomous_cycle';
-  action: 'completed';
-  generated: number;
-  autoApproved: number;
-  rejected: number;
-  humanReview: number;
-}
-
-export interface SseAutonomousCycleFailedEvent {
-  type: 'autonomous_cycle';
-  action: 'failed';
-  error: string;
-}
-
-export type SseAutonomousCycleEvent =
-  | SseAutonomousCycleStartedEvent
-  | SseAutonomousCycleCompletedEvent
-  | SseAutonomousCycleFailedEvent;
-
-export interface SseOrchestratorCycleEndEvent {
-  type: 'orchestrator_cycle_end';
-  cycle: number;
-  action?: string;
-  success?: boolean;
-  duration?: number;
-  sleepMs: number;
-}
-
-export interface SseFlowControlPausedEvent {
-  type: 'flow_control';
-  action: 'paused' | 'resumed';
-  flow: 'generation' | 'posting' | 'engagement' | 'replies';
-  reason?: string | null;
-}
-
-export interface SseFlowControlGlobalEvent {
-  type: 'flow_control';
-  action: 'pause_all' | 'resume_all';
-  reason?: string | null;
-}
-
-export type SseFlowControlEvent = SseFlowControlPausedEvent | SseFlowControlGlobalEvent;
+export { SSEventSchema };
 
 /**
  * SSE (Server-Sent Events) service — pushes real-time post status updates to UI.
@@ -342,10 +203,11 @@ export class SseService implements OnModuleDestroy {
    * Publish an event to Redis (called by workers/services).
    * Fire-and-forget safe: Redis errors are caught and logged, never thrown to callers.
    */
-  async publish(event: SseEvent): Promise<void> {
+  async publish(event: SSEvent): Promise<void> {
     if (!this.publisher) return;
     try {
-      await this.publisher.publish(this.channel, JSON.stringify(event));
+      const validated = SSEventSchema.parse(event);
+      await this.publisher.publish(this.channel, JSON.stringify(validated));
     } catch (err) {
       this.logger.error(
         `SSE publish to Redis failed: ${(err as Error).message}`,

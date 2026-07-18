@@ -173,6 +173,7 @@ describe('MOD-02: PostsService', () => {
     expect(arg.data.network).toBe('X');
     expect(arg.data.generationRunId).toBe('run-1');
     expect(arg.data.sourceRef).toEqual({ type: 'brief', path: 'briefs/test.json' });
+    expect(arg.data.sourcePath).toBe('briefs/test.json');
     expect(arg.data.llmMetadata).toEqual({ model: 'gpt-4o-mini', tokens: 120 });
   });
 
@@ -252,16 +253,18 @@ describe('MOD-02: PostsService', () => {
 
   // ── findBySourceAndNetwork() ────────────────────────────────
 
-  it('UTC-039: findBySourceAndNetwork() filters posts by sourceRef.path in code', async () => {
+  it('UTC-039: findBySourceAndNetwork() queries by indexed sourcePath column', async () => {
     prisma.post.findMany.mockResolvedValue([
-      { sourceRef: { path: '/a' } },
-      { sourceRef: { path: '/b' } },
+      { id: 'post-a', sourcePath: '/a', sourceRef: { path: '/a' } },
     ]);
 
     const result = await service.findBySourceAndNetwork('/a', 'X');
 
     expect(result).toHaveLength(1);
-    expect((result[0].sourceRef as { path: string }).path).toBe('/a');
+    const arg = prisma.post.findMany.mock.calls[0][0];
+    expect(arg.where.sourcePath).toBe('/a');
+    expect(arg.where.network).toBe('X');
+    expect(arg.where.status).toEqual({ in: ['APPROVED', 'POSTING', 'POSTED'] });
   });
 
   it('UTC-040: findBySourceAndNetwork() uses default 14-day lookback window', async () => {
@@ -272,6 +275,7 @@ describe('MOD-02: PostsService', () => {
 
     const after = Date.now();
     const arg = prisma.post.findMany.mock.calls[0][0];
+    expect(arg.where.sourcePath).toBe('/path');
     expect(arg.where.network).toBe('X');
     expect(arg.where.OR).toHaveLength(2);
     const approvedAt = arg.where.OR[0].approvedAt.gte as Date;
@@ -286,15 +290,15 @@ describe('MOD-02: PostsService', () => {
     expect(approvedAt.getTime()).toBeLessThanOrEqual(after - expectedMs + 5000);
   });
 
-  it('UTC-041: findBySourceAndNetwork() returns empty when sourceRef is null or not object', async () => {
+  it('UTC-041: findBySourceAndNetwork() returns the DB result without in-memory filtering', async () => {
     prisma.post.findMany.mockResolvedValue([
-      { sourceRef: null },
-      { sourceRef: 'string' },
+      { id: 'post-1', sourcePath: '/path', sourceRef: { path: '/path' } },
+      { id: 'post-2', sourcePath: '/path', sourceRef: null },
     ]);
 
     const result = await service.findBySourceAndNetwork('/path', 'X');
 
-    expect(result).toEqual([]);
+    expect(result).toHaveLength(2);
   });
 
   it('UTC-042: findBySourceAndNetwork() excludes FAILED/REJECTED posts from the dedup match', async () => {

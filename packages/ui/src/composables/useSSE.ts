@@ -13,6 +13,7 @@
  */
 
 import { ref, onUnmounted, type Ref } from 'vue';
+import { SSEvent, SSEventSchema } from '@spa/shared';
 
 export interface SSEOptions {
   /** Maximum reconnection attempts before giving up (default: 10) */
@@ -33,7 +34,7 @@ export function useSSE(url: string, options: SSEOptions = {}) {
     jitter = true,
   } = options;
 
-  const data: Ref<unknown> = ref(null);
+  const data: Ref<SSEvent | null> = ref(null);
   const error: Ref<string | null> = ref(null);
   const isConnected = ref(false);
   const retryCount = ref(0);
@@ -83,9 +84,17 @@ export function useSSE(url: string, options: SSEOptions = {}) {
 
     eventSource.onmessage = (event) => {
       try {
-        data.value = JSON.parse(event.data);
-      } catch {
-        data.value = event.data;
+        const parsed = JSON.parse(event.data);
+        const result = SSEventSchema.safeParse(parsed);
+        if (result.success) {
+          data.value = result.data;
+        } else {
+          data.value = null;
+          error.value = `Invalid SSE payload: ${result.error.message}`;
+        }
+      } catch (err) {
+        data.value = null;
+        error.value = `SSE payload parse error: ${(err as Error).message}`;
       }
     };
   }

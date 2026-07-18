@@ -21,6 +21,7 @@
  */
 
 import { Inject, Injectable, Logger, Optional, type OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import type { Redis } from 'ioredis';
@@ -107,6 +108,7 @@ export class HookPerformanceBank implements OnModuleInit {
   private readonly logger = new Logger(HookPerformanceBank.name);
 
   constructor(
+    private readonly configService: ConfigService,
     @Inject(SHARED_REDIS) private readonly redis: Redis,
     private readonly schedulerRegistry: SchedulerRegistry,
     @Optional() private readonly prisma?: PrismaService,
@@ -124,7 +126,7 @@ export class HookPerformanceBank implements OnModuleInit {
       return;
     }
 
-    const cronExpr = process.env.HOOK_BANK_AGGREGATE_SCHEDULE ?? '0 7 * * *';
+    const cronExpr = this.configService.get<string>('HOOK_BANK_AGGREGATE_SCHEDULE', '0 7 * * *');
     const job = new CronJob(cronExpr, async () => { await this.aggregateStats(); });
     try {
       this.schedulerRegistry.addCronJob('hook-bank-aggregate', job);

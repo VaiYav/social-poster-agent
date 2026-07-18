@@ -27,7 +27,7 @@ import { ContentModule } from './infrastructure/content/content.module';
 import { QueueModule } from './modules/queue/queue.module';
 import { QueueModule as QueueInfraModule } from './infrastructure/queue/queue.module';
 import { RateLimitModule } from './modules/rate-limit/rate-limit.module';
-import { EventsModule } from './modules/events/events.module';
+import { SseApiModule } from './modules/sse/sse-api.module';
 import { EngagementModule } from './modules/engagement/engagement.module';
 import { HealthMonitorModule } from './modules/health-monitor/health-monitor.module';
 import { TrendingModule } from './modules/trending/trending.module';
@@ -109,7 +109,7 @@ const orchestratorImports = parseBool(process.env.ORCHESTRATOR_ENABLED) ? [Orche
     SessionsModule,
     QueueModule,
     RateLimitModule,
-    EventsModule,
+    SseApiModule,
     ...engagementImports, // F1: Phase 2-3 — gated by ENGAGEMENT_ENABLED
     HealthMonitorModule, // F21: Account Health Monitor + B3: Reconciliation cron
     TrendingModule, // F22: Trending Topic Detection (astro events calendar)

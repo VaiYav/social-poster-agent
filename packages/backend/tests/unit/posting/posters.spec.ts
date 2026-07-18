@@ -46,7 +46,7 @@ describe('MOD-03: XPoster (BasePoster architecture)', () => {
 
   beforeEach(() => {
     browserPort = createMockBrowserPort();
-    poster = new XPoster(browserPort as unknown);
+    poster = new XPoster(browserPort as unknown, createMockConfigService());
   });
 
   it('UTC-057: XPoster.post() navigates to compose, types content, captures post URL', async () => {
@@ -185,7 +185,7 @@ describe('MOD-03: ThreadsPoster (BasePoster architecture)', () => {
 
   beforeEach(() => {
     browserPort = createMockBrowserPort();
-    poster = new ThreadsPoster(browserPort as unknown);
+    poster = new ThreadsPoster(browserPort as unknown, createMockConfigService());
   });
 
   it('UTC-058: ThreadsPoster.post() navigates to threads.net, types, submits, captures URL', async () => {
@@ -378,7 +378,7 @@ describe('MOD-03: XPoster (extended posting flow)', () => {
 
   beforeEach(() => {
     browserPort = createMockBrowserPort();
-    poster = new XPoster(browserPort as unknown);
+    poster = new XPoster(browserPort as unknown, createMockConfigService());
   });
 
   it('UTC-060: XPoster.post() single tweet — navigates to /compose/post, types content, validates URL', async () => {
@@ -498,7 +498,7 @@ describe('MOD-03: ThreadsPoster (extended posting flow)', () => {
 
   beforeEach(() => {
     browserPort = createMockBrowserPort();
-    poster = new ThreadsPoster(browserPort as unknown);
+    poster = new ThreadsPoster(browserPort as unknown, createMockConfigService());
   });
 
   it('UTC-066: ThreadsPoster.post() opens compose dialog via button click', async () => {

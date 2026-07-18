@@ -10,10 +10,11 @@ import { ABTestService } from './ab-test.service';
 import { BrowserModule } from '../../infrastructure/browser/browser.module';
 import { SseModule } from '../../infrastructure/sse/sse.module';
 import { PrismaModule } from '../../infrastructure/prisma/prisma.module';
+import { RedisModule } from '../../infrastructure/redis/redis.module.js';
 import { ContentEnhancementsModule } from '../content-enhancements/content-enhancements.module';
 
 @Module({
-  imports: [PrismaModule, BrowserModule, SseModule, ContentEnhancementsModule],
+  imports: [PrismaModule, RedisModule, BrowserModule, SseModule, ContentEnhancementsModule],
   controllers: [AnalyticsController],
   providers: [AnalyticsService, MetricsScraperService, ABTestService],
   exports: [AnalyticsService, MetricsScraperService, ABTestService],

@@ -4,6 +4,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { useApi } from '../composables/useApi';
+import type { SSEvent } from '@spa/shared';
 
 export type FlowName = 'generation' | 'posting' | 'engagement' | 'replies';
 
@@ -74,9 +75,9 @@ export const useFlowControlStore = defineStore('flowControl', () => {
     }
   }
 
-  function handleSseEvent(data: { type: string; action?: string; flow?: string }) {
+  function handleSseEvent(data: SSEvent) {
     if (data.type !== 'flow_control') return;
-    const flow = data.flow as FlowName | undefined;
+    const flow = data.flow;
     if (data.action === 'pause_all') {
       pauseAll.value = true;
       if (flow) flows.value[flow] = true;

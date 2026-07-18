@@ -2,6 +2,7 @@
 // Uses aria-label and role-based selectors for resilience.
 
 import { Injectable, Logger, Inject } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { Page } from '../../../domain/ports/browser-primitives';
 import { IBrowserPort } from '../../../domain/ports/browser.port.js';
 import { BaseEngager } from './base.engager.js';
@@ -14,8 +15,11 @@ export class ThreadsEngager extends BaseEngager {
   protected readonly logger = new Logger(ThreadsEngager.name);
   protected readonly network = 'THREADS' as const;
 
-  constructor(@Inject(IBrowserPort) browser: IBrowserPort) {
-    super(browser);
+  constructor(
+    @Inject(IBrowserPort) browser: IBrowserPort,
+    @Inject(ConfigService) configService: ConfigService,
+  ) {
+    super(browser, configService);
   }
 
   /**

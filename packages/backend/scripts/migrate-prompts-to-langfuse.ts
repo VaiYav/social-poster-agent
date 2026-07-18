@@ -20,6 +20,14 @@ import {
 } from '../src/modules/generation/prompts/fallback-prompts.js';
 import { JUDGE_SYSTEM_PROMPT, JUDGE_USER_PROMPT_TEMPLATE } from '../src/modules/generation/prompts/judge-prompt.js';
 import { ORCHESTRATOR_SYSTEM_PROMPT } from '../src/modules/orchestrator/prompts/orchestrator-prompt.js';
+import { TOPIC_GENERATION_PROMPT } from '../src/infrastructure/content/prompts/topic-generation-prompt.js';
+import { TRENDING_RELEVANCE_PROMPT } from '../src/modules/trending/prompts/trending-relevance-prompt.js';
+import {
+  ENGAGEMENT_DECISION_PROMPT,
+  ENGAGEMENT_BATCH_DECISION_PROMPT,
+  ENGAGEMENT_COMMENT_PROMPT,
+  ENGAGEMENT_QUOTE_PROMPT,
+} from '../src/infrastructure/llm/prompts/v0.4.0/engagement-decision.js';
 
 // Env vars loaded via: npx tsx --env-file=../../.env scripts/migrate-prompts-to-langfuse.ts
 
@@ -113,6 +121,42 @@ const PROMPTS: PromptDef[] = [
       { role: 'system', content: JUDGE_SYSTEM_PROMPT },
       { role: 'user', content: toMustache(JUDGE_USER_PROMPT_TEMPLATE) },
     ],
+  },
+  {
+    name: 'topic-generation',
+    type: 'chat' as const,
+    labels: ['production'],
+    prompt: chatMessages(TOPIC_GENERATION_PROMPT),
+  },
+  {
+    name: 'trending-relevance',
+    type: 'chat' as const,
+    labels: ['production'],
+    prompt: chatMessages(TRENDING_RELEVANCE_PROMPT),
+  },
+  {
+    name: 'engagement-decision',
+    type: 'chat' as const,
+    labels: ['production'],
+    prompt: chatMessages(ENGAGEMENT_DECISION_PROMPT),
+  },
+  {
+    name: 'engagement-batch-decision',
+    type: 'chat' as const,
+    labels: ['production'],
+    prompt: chatMessages(ENGAGEMENT_BATCH_DECISION_PROMPT),
+  },
+  {
+    name: 'engagement-comment',
+    type: 'chat' as const,
+    labels: ['production'],
+    prompt: chatMessages(ENGAGEMENT_COMMENT_PROMPT),
+  },
+  {
+    name: 'engagement-quote',
+    type: 'chat' as const,
+    labels: ['production'],
+    prompt: chatMessages(ENGAGEMENT_QUOTE_PROMPT),
   },
 ];
 

@@ -9,6 +9,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import api from '../composables/useApi';
+import type { SSEvent } from '@spa/shared';
 
 export interface QueueStats {
   network: string;
@@ -176,21 +177,25 @@ export const useMonitoringStore = defineStore('monitoring', () => {
   /**
    * Handle SSE events for real-time monitoring.
    */
-  function handleSseEvent(data: { type: string; [key: string]: unknown }) {
+  function handleSseEvent(data: SSEvent) {
     // Metrics snapshots are handled by the agents store; do not spam the live feed.
     if (data.type === 'metrics_snapshot') {
       return;
     }
 
     // Add to event feed
-    eventFeed.value.unshift({ type: data.type, timestamp: Date.now(), data });
+    eventFeed.value.unshift({
+      type: data.type,
+      timestamp: Date.now(),
+      data: data as unknown as Record<string, unknown>,
+    });
     if (eventFeed.value.length > 50) eventFeed.value.pop();
 
     // Handle specific event types
     if (data.type === 'health_alert') {
       healthAlerts.value.unshift({
-        severity: (data.severity as 'critical' | 'warning' | 'info') ?? 'warning',
-        message: (data.error as string) ?? 'Unknown health alert',
+        severity: data.severity,
+        message: data.error,
         timestamp: Date.now(),
       });
     }
