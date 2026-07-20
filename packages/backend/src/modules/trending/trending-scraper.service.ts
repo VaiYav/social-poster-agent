@@ -32,6 +32,7 @@ import { IPromptPort, type CompiledChatPrompt } from '../../domain/ports/prompt.
 import { SessionsService } from '../sessions/sessions.service.js';
 import type { BrowserContext, Page } from '../../domain/ports/browser-primitives';
 import { SocialNetwork } from '@prisma/client';
+import { isNetworkEnabled } from '../../domain/enabled-networks.js';
 import { parseGoogleTrendsRss as parseGoogleTrendsRssPure } from './google-trends-rss.js';
 import { parseBool } from '../../infrastructure/config/parse-bool';
 import { sanitizeUntrustedInput } from '../../infrastructure/llm/sanitize-untrusted-input.js';
@@ -164,7 +165,9 @@ export class TrendingScraperService implements OnModuleInit {
   ) {
     this.cacheTtlMs = this.configService.get<number>('TRENDING_CACHE_TTL_MS', DEFAULT_CACHE_TTL_MS);
     this.enabled = parseBool(this.configService.get<string>('TRENDING_SCRAPING_ENABLED', 'true'));
-    this.xScrapeEnabled = parseBool(this.configService.get<string>('X_TRENDS_SCRAPING_ENABLED', 'true'));
+    this.xScrapeEnabled =
+      parseBool(this.configService.get<string>('X_TRENDS_SCRAPING_ENABLED', 'true')) &&
+      isNetworkEnabled(SocialNetwork.X);
     this.llmFilterEnabled = parseBool(this.configService.get<string>('TRENDING_LLM_FILTER_ENABLED', 'true'));
     const rawConcurrency = Number(this.configService.get<string>('TRENDING_LLM_CONCURRENCY', '3'));
     this.llmConcurrency = Number.isFinite(rawConcurrency) && rawConcurrency > 0 ? rawConcurrency : 3;
