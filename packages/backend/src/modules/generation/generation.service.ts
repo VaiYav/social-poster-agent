@@ -16,6 +16,7 @@ import { TrendingScraperService } from '../trending/trending-scraper.service.js'
 import { LangfuseService, type LangfuseHandlerOptions } from '../../infrastructure/langfuse/langfuse.service.js';
 import { withLlmContext } from '../../infrastructure/llm/llm.service.js';
 import { combineSignals } from '../../infrastructure/util/abort-signal.js';
+import { parseBool } from '../../infrastructure/config/parse-bool';
 import { IPromptPort } from '../../domain/ports/prompt.port.js';
 import {
   withPromptLabelContext,
@@ -1299,7 +1300,10 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
     }
 
     // Get merged trending (astro + Google Trends + X)
-    const merged = await this.trendingScraper.getMergedTrending(astroTopics);
+    const skipXInDryRun = parseBool(process.env.SPA_DRY_RUN ?? 'false');
+    const merged = await this.trendingScraper.getMergedTrending(astroTopics, {
+      includeX: !skipXInDryRun,
+    });
 
     // Convert to ContentTopic format
     return merged.slice(0, limit).map((t) => {

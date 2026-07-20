@@ -289,6 +289,14 @@ export class DryRunBrowserPort implements IBrowserPort {
     realContext.close().catch(() => void 0);
   }
 
+  setEngagementMode(page: Page, enabled = true): void {
+    const realPage = extractRealPage(page);
+    const state = this.pageStates.get(realPage);
+    if (state) {
+      state.engagementMode = enabled;
+    }
+  }
+
   saveStorageState(context: BrowserContext): Promise<string> {
     // Unwrap the context before passing to real — real expects a real BrowserContext
     const realContext = this.proxyToRealContext.get(context) ?? context;

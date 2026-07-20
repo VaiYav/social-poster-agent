@@ -609,18 +609,30 @@ export class TrendingScraperService implements OnModuleInit {
    */
   async getMergedTrending(
     astroTopics: Array<{ topic: string; networks: string[] }>,
+    options?: { includeX?: boolean },
   ): Promise<MergedTrendingTopic[]> {
+    const includeX = options?.includeX ?? true;
+
     // 2.9.5: Cache the merged result by a stable key of astro topics.
-    const cacheKey = this.buildMergedCacheKey(astroTopics);
+    const cacheKey = `${this.buildMergedCacheKey(astroTopics)}:x=${includeX}`;
     if (this.mergedCache && this.mergedCache.key === cacheKey && Date.now() < this.mergedCache.expiresAt) {
       this.logger.debug(`Merged trends cache hit (${this.mergedCache.topics.length} topics)`);
       return this.mergedCache.topics.slice(0, 20);
     }
 
-    const [rawGoogle, rawX] = await Promise.all([
+    const [rawGoogleResult, rawXResult] = await Promise.allSettled([
       this.getGoogleTrends(20),
-      this.getXTrends(20),
+      includeX ? this.getXTrends(20) : Promise.resolve([]),
     ]);
+
+    const rawGoogle = rawGoogleResult.status === 'fulfilled' ? rawGoogleResult.value : [];
+    const rawX = rawXResult.status === 'fulfilled' ? rawXResult.value : [];
+    if (rawGoogleResult.status === 'rejected') {
+      this.logger.warn(`Google Trends failed: ${(rawGoogleResult.reason as Error).message}`);
+    }
+    if (includeX && rawXResult.status === 'rejected') {
+      this.logger.warn(`X Trends failed: ${(rawXResult.reason as Error).message}`);
+    }
 
     // Niche filter: only keep Google/X trends relevant to our content niche
     const [googleTopics, xTopics] = await Promise.all([

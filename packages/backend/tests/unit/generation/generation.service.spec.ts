@@ -541,6 +541,7 @@ describe('GenerationService', () => {
       expect(trendingService.getTrendingTopics).toHaveBeenCalled();
       expect(trendingScraper.getMergedTrending).toHaveBeenCalledWith(
         expect.arrayContaining([expect.objectContaining({ topic: 'Mercury transit' })]),
+        { includeX: true },
       );
     });
   });

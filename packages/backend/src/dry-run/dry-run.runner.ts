@@ -300,6 +300,11 @@ export class DryRunRunner {
       try {
         context = await browser.acquireContext(opts.network, storageState);
         page = await context.newPage();
+
+        if (typeof browser.setEngagementMode === 'function') {
+          browser.setEngagementMode(page, true);
+        }
+
         // 3. Get the engager for this network
         const engager = this.getEngagerForNetwork(opts.network);
         if (!engager) {
@@ -401,7 +406,7 @@ export class DryRunRunner {
           // best-effort
         }
         try { if (page?.close) await page.close(); } catch { /* best-effort */ }
-        try { if (context) await browser.releaseContext(context); } catch { /* best-effort */ }
+        try { if (context) await browser.releaseContext(opts.network, context); } catch { /* best-effort */ }
       }
 
       this.reporter.endFeature();

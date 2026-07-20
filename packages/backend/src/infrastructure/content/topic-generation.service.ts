@@ -17,6 +17,39 @@ interface LlmTopic {
   category: string;
 }
 
+function extractTopLevelJsonArray(text: string): string | null {
+  const start = text.indexOf('[');
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === '[') {
+      depth++;
+    } else if (ch === ']') {
+      depth--;
+      if (depth === 0) {
+        return text.slice(start, i + 1);
+      }
+    }
+  }
+  return null;
+}
+
 /**
  * TopicGenerationService — generates content topics via LLM and stores them in the Topic table.
  *
@@ -139,7 +172,14 @@ export class TopicGenerationService implements OnModuleInit {
       try {
         topics = JSON.parse(cleaned);
       } catch {
-        // not clean JSON, continue to next strategy
+        const arrayJson = extractTopLevelJsonArray(cleaned);
+        if (arrayJson) {
+          try {
+            topics = JSON.parse(arrayJson);
+          } catch {
+            // not clean JSON, continue to next strategy
+          }
+        }
       }
 
       // Strategy 2: extract first [ to last ] (regex)

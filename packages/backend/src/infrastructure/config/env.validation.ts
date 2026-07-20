@@ -95,7 +95,7 @@ const envSchema = Joi.object({
   GROQ_API_KEY: Joi.string().allow('').default(''),
   GROQ_MODEL: Joi.string().default('llama-3.3-70b-versatile'),
   OPENROUTER_API_KEY: Joi.string().allow('').default(''),
-  OPENROUTER_MODEL: Joi.string().default('meta-llama/llama-3.3-70b-instruct:free'),
+  OPENROUTER_MODEL: Joi.string().default('poolside/laguna-xs-2.1:free'),
   DEEPSEEK_API_KEY: Joi.string().allow('').default(''),
   DEEPSEEK_MODEL: Joi.string().default('deepseek-chat'),
   CEREBRAS_API_KEY: Joi.string().allow('').default(''),
