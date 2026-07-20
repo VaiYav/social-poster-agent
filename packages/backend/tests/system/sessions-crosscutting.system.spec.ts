@@ -144,133 +144,11 @@ const { sharedRedisStore, sharedPubSub } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('ioredis', () => {
-  const createMockRedis = () => {
-    const store = sharedRedisStore;
-    const listeners: Record<string, Array<(...args: unknown[]) => void>> = {};
-    const on = (ev: string, cb: (...args: unknown[]) => void) => {
-      (listeners[ev] ??= []).push(cb);
-      return inst;
-    };
-    const off = (ev: string, cb: (...args: unknown[]) => void) => {
-      listeners[ev] = (listeners[ev] ?? []).filter((l) => l !== cb);
-      return inst;
-    };
-    const once = (ev: string, cb: (...args: unknown[]) => void) => {
-      const wrap = (...a: unknown[]) => {
-        off(ev, wrap);
-        cb(...a);
-      };
-      return on(ev, wrap);
-    };
-    const emit = (ev: string, ...args: unknown[]) => {
-      (listeners[ev] ?? []).forEach((l) => l(...args));
-      return inst;
-    };
-    const inst: Record<string, unknown> = {
-      status: 'ready',
-      on,
-      off,
-      once,
-      emit,
-      removeAllListeners: (ev?: string) => {
-        if (ev) listeners[ev] = [];
-        else for (const k in listeners) listeners[k] = [];
-        return inst;
-      },
-      get: (k: string) => Promise.resolve(store.get(k) ?? null),
-      set: (k: string, v: unknown) => {
-        store.set(k, String(v));
-        return Promise.resolve('OK');
-      },
-      setex: (k: string, _t: number, v: string) => {
-        store.set(k, v);
-        return Promise.resolve('OK');
-      },
-      psetex: (k: string, _t: number, v: string) => {
-        store.set(k, v);
-        return Promise.resolve('OK');
-      },
-      incr: (k: string) => {
-        const v = parseInt(store.get(k) ?? '0', 10) + 1;
-        store.set(k, String(v));
-        return Promise.resolve(v);
-      },
-      decr: (k: string) => {
-        const v = parseInt(store.get(k) ?? '0', 10) - 1;
-        store.set(k, String(v));
-        return Promise.resolve(v);
-      },
-      expire: () => Promise.resolve(1),
-      pexpire: () => Promise.resolve(1),
-      del: (k: string) => {
-        store.delete(k);
-        return Promise.resolve(1);
-      },
-      unlink: (k: string) => {
-        store.delete(k);
-        return Promise.resolve(1);
-      },
-      exists: (k: string) => Promise.resolve(store.has(k) ? 1 : 0),
-      ping: () => Promise.resolve('PONG'),
-      publish: (_ch: string, msg: string) => {
-        // Broadcast to all subscribed instances (cross-instance pub/sub).
-        // SseService uses separate publisher/subscriber connections, so
-        // publish() on one instance must reach 'message' listeners on another.
-        for (const sub of sharedPubSub.subscribers) {
-          sub.emit('message', _ch, msg);
-        }
-        return Promise.resolve(1);
-      },
-      subscribe: () => {
-        // Register this instance's emit so cross-instance publish() reaches us
-        sharedPubSub.subscribers.push({ emit });
-        return Promise.resolve('OK');
-      },
-      unsubscribe: () => Promise.resolve('OK'),
-      psubscribe: () => Promise.resolve('OK'),
-      connect: () => Promise.resolve(undefined),
-      disconnect: () => undefined,
-      close: () => Promise.resolve(undefined),
-      quit: () => Promise.resolve(undefined),
-      duplicate: () => createMockRedis(),
-      keys: (pat: string) => {
-        const prefix = pat.replace(/\*$/, '');
-        const out: string[] = [];
-        for (const k of store.keys()) if (k.startsWith(prefix)) out.push(k);
-        return Promise.resolve(out);
-      },
-      scan: () => Promise.resolve(['0', []]),
-      hget: () => Promise.resolve(null),
-      hset: () => Promise.resolve(1),
-      hgetall: () => Promise.resolve({}),
-      hdel: () => Promise.resolve(1),
-      hlen: () => Promise.resolve(0),
-      type: () => Promise.resolve('none'),
-      eval: () => Promise.resolve(undefined),
-      evalsha: () => Promise.resolve(undefined),
-      multi: () => createMockRedis(),
-      pipeline: () => createMockRedis(),
-      batch: () => createMockRedis(),
-      exec: () => Promise.resolve([]),
-      rpush: () => Promise.resolve(1),
-      lrange: () => Promise.resolve([]),
-      llen: () => Promise.resolve(0),
-      info: () => Promise.resolve(''),
-      client: () => Promise.resolve('OK'),
-      defineCommand: () => undefined,
-      time: () => Promise.resolve(['0', '0']),
-      wait: () => Promise.resolve(0),
-    };
-    queueMicrotask(() => {
-      inst.status = 'ready';
-      emit('ready');
-    });
-    return inst;
-  };
+vi.mock('ioredis', async () => {
+  const { createMockRedis } = await import('../mocks/redis-mock.js');
   return {
     default: function MockIORedis(..._args: unknown[]) {
-      return createMockRedis();
+      return createMockRedis(sharedRedisStore);
     },
     __esModule: true,
   };
@@ -387,8 +265,10 @@ function createMockPage(opts: {
     textContent: vi.fn().mockResolvedValue(''),
     getAttribute: vi.fn().mockResolvedValue(null),
     count: vi.fn().mockResolvedValue(0),
-    all: vi.fn().mockResolvedValue([]),
+    all: vi.fn().mockImplementation(function () { return Promise.resolve([this]); }),
     evaluateAll: vi.fn().mockResolvedValue([]),
+    evaluate: vi.fn().mockResolvedValue(undefined),
+    boundingBox: vi.fn().mockResolvedValue({ x: 0, y: 0, width: 100, height: 50 }),
     or: vi.fn().mockReturnThis(),
   };
   // Separate locator for 2FA/verification selectors — isVisible returns false
@@ -396,9 +276,10 @@ function createMockPage(opts: {
   const hiddenLocator = {
     ...mockLocator,
     isVisible: vi.fn().mockResolvedValue(false),
+    all: vi.fn().mockResolvedValue([]),
   };
-  // Selectors that should appear hidden (2FA input, identity verification)
-  const HIDDEN_SELECTOR_PATTERN = /ocfEnterTextTextInput|name="text"/;
+  // Selectors that should appear hidden (2FA code inputs with type="text", ocfEnterText)
+  const HIDDEN_SELECTOR_PATTERN = /ocfEnterTextTextInput|\[type="text"\]/;
 
   return {
     goto: vi.fn().mockResolvedValue(undefined),

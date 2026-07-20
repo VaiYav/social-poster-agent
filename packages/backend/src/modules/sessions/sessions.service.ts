@@ -15,7 +15,7 @@ import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 import { getEnabledNetworks, isNetworkEnabled } from '../../domain/enabled-networks.js';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
 import { EmailReaderService } from '../../infrastructure/email/email-reader.service.js';
-import type { Page } from '../../domain/ports/browser-primitives.js';
+import type { Locator, Page } from '../../domain/ports/browser-primitives.js';
 
 /** Thrown when an auto-login attempt fails in an expected way (wrong credentials, captcha, 2FA, etc.). */
 class AutoLoginFailedError extends Error {
@@ -575,19 +575,31 @@ export class SessionsService implements OnModuleInit {
 
       // Fill username — use pressSequentially for React-controlled inputs
       // (fill() doesn't trigger React onChange in some apps like Threads/Instagram)
-      let usernameInput = page.locator(selectors.usernameInput).first();
+      let usernameInput: Locator | null = null;
       this.logger.debug(`Login: looking for username input with selector: ${selectors.usernameInput}`);
-      // Fallback: try getByLabel if CSS selector fails
-      if (!(await usernameInput.isVisible().catch(() => false))) {
-        // Facebook mobile uses "Phone or email" label; desktop uses "Email or mobile number"
-        const label = network === 'FACEBOOK' ? 'Phone or email' :
-          network === 'THREADS' ? 'Username, phone number or email address' : '';
-        if (label) {
-          this.logger.debug(`Login: CSS selector failed, trying getByLabel("${label}")`);
-          usernameInput = page.getByLabel(label).first();
+      if (network === 'X') {
+        // X's onboarding wizard keeps several hidden username clones; `first()` often
+        // resolves to an opacity:0 duplicate, so pick the actually rendered one.
+        usernameInput = await this.getVisibleUsernameInput(page, 15000);
+      } else {
+        usernameInput = page.locator(selectors.usernameInput).first();
+        // Fallback: try getByLabel if CSS selector fails
+        if (!(await usernameInput.isVisible().catch(() => false))) {
+          // Facebook mobile uses "Phone or email" label; desktop uses "Email or mobile number"
+          const label = network === 'FACEBOOK' ? 'Phone or email' :
+            network === 'THREADS' ? 'Username, phone number or email address' : '';
+          if (label) {
+            this.logger.debug(`Login: CSS selector failed, trying getByLabel("${label}")`);
+            usernameInput = page.getByLabel(label).first();
+          }
         }
+        await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
       }
-      await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
+      if (!usernameInput) {
+        this.logger.error(`Login: username input not found for ${network}`);
+        await page.close();
+        return null;
+      }
       this.logger.debug(`Login: username input found, filling with ${username.length} chars`);
       // X onboarding React inputs: fill() and pressSequentially() set DOM value but don't
       // trigger React's internal state. Use nativeInputValueSetter to set value through React.
@@ -651,27 +663,16 @@ export class SessionsService implements OnModuleInit {
         }
         this.logger.debug(`X: username filled (${usernameVal.length} chars), submitting step 1`);
 
-        // ── Step 1 submit: Click "Next" button (stealth-x: clickElement nextButton, fallback Enter) ──
-        const nextButton = page.locator(selectors.nextButton).first();
-        const hasNext = await nextButton.isVisible({ timeout: 3000 }).catch(() => false);
-        if (hasNext) {
-          this.logger.debug(`X: found Next button — clicking it`);
-          await nextButton.click({ force: true }).catch(() => {});
-        } else {
-          this.logger.debug(`X: no Next button — pressing Enter on input`);
-          await usernameInput.focus().catch(() => {});
-          await this.browser.randomDelay(200, 500);
-          await usernameInput.press('Enter');
-        }
+        // ── Step 1 submit: Click visible "Continue"/"Next" button (stealth-x) ──
+        await this.clickVisibleWizardButton(page, ['Continue', 'Next'], { fallbackInput: usernameInput, scopeInput: usernameInput });
         await this.browser.randomDelay(2000, 4000);
 
         // ── Step 1.5: Identity verification challenge (stealth-x Step 1.5) ──
         // X sometimes asks "Enter your phone number or email to verify" after username.
         // Detect: username input reappears BUT password input is NOT visible.
-        const verifyUsernameInput = page.locator(selectors.usernameInput).first();
-        const hasVerifyInput = await verifyUsernameInput.isVisible({ timeout: 3000 }).catch(() => false);
-        const hasPasswordField = await page.locator(selectors.passwordInput).first().isVisible({ timeout: 1000 }).catch(() => false);
-        if (hasVerifyInput && !hasPasswordField) {
+        const verifyUsernameInput = await this.getVisibleUsernameInput(page, 3000);
+        const hasPasswordField = await this.hasVisiblePasswordInput(page);
+        if (verifyUsernameInput && !hasPasswordField) {
           this.logger.warn(`X: identity verification challenge detected (Step 1.5) — username input reappeared without password field`);
           const isHeaded = this.configService.get<string>('CAMOUFOX_HEADLESS', 'true') === 'false';
           if (isHeaded) {
@@ -680,7 +681,7 @@ export class SessionsService implements OnModuleInit {
               `Please complete the verification in the browser window (enter phone/email, solve challenge).`,
             );
             // Wait for password field to appear (user completes verification)
-            await page.waitForSelector(selectors.passwordInput, { state: 'visible', timeout: 120000 }).catch(() => {});
+            await this.getVisiblePasswordInput(page, 120000);
             await this.browser.randomDelay(1000, 2000);
           } else {
             this.logger.error(`X: identity verification challenge — manual intervention needed (re-run with CAMOUFOX_HEADLESS=false)`);
@@ -703,77 +704,64 @@ export class SessionsService implements OnModuleInit {
 
         // Wait for step 1 → step 2 transition.
         // The password input becomes visible (opacity:1, pointer-events:auto) in step 2.
-        // Check by waiting for the password input to become visible (not just not-disabled)
-        const passwordInput = page.locator('input[name="password"]').first();
-        // Wait for the password input to become visible (opacity changes from 0 to 1)
-        await page.waitForFunction(
-          () => {
-            const el = document.querySelector('input[name="password"]') as HTMLInputElement;
-            if (!el) return false;
-            const style = window.getComputedStyle(el);
-            return style.opacity !== '0' && style.pointerEvents !== 'none' && el.getAttribute('aria-hidden') !== 'true';
-          },
-          { timeout: 15000 },
-        ).catch(() => {});
-        await this.browser.randomDelay(1000, 2000);
-
-        // Verify we're on step 2 by checking if password input is now visible
-        const isPasswordVisible = await passwordInput.isVisible().catch(() => false);
-        if (!isPasswordVisible) {
-          // Maybe step didn't transition — check page text for clues
+        const passwordInput = await this.getVisiblePasswordInput(page, 15000);
+        if (!passwordInput) {
           const bodyText = await page.locator('body').innerText().catch(() => '');
-          this.logger.warn(`X: password not visible after step 1 submit. Page text: ${bodyText.slice(0, 500)}`);
+          this.logger.warn(`X: password input not visible after step 1 submit. Page text: ${bodyText.slice(0, 500)}`);
+        } else {
+          await this.browser.randomDelay(1000, 2000);
         }
-        this.logger.debug(`X: step 1 done, URL: ${page.url()}, password visible: ${isPasswordVisible}`);
+        this.logger.debug(`X: step 1 done, URL: ${page.url()}, password visible: ${passwordInput !== null}`);
 
-        // ── Step 2: Password (stealth-x approach — typeHuman for human-like input) ──
-        this.logger.debug(`X: password field enabled, filling via typeHuman`);
+        // ── Step 2: Password (stealth-x approach — typeHuman, with fill fallback) ──
+        if (!passwordInput) {
+          throw new AutoLoginFailedError('X password input never became visible');
+        }
+        this.logger.debug(`X: password field enabled, filling`);
         await passwordInput.click({ force: true }).catch(() => {});
         await this.browser.randomDelay(300, 800);
         // Clear any existing value first
         await passwordInput.fill('').catch(() => {});
         await this.browser.randomDelay(200, 500);
-        // typeHuman: per-character with randomized delay (stealth-x) — real key events trigger React onChange
-        // Pass locator to ensure focus stays on the password field
-        await this.browser.typeHuman(page, password, passwordInput);
-        await this.browser.randomDelay(200, 500);
 
-        // Verify password was filled
-        const pwVal = await passwordInput.inputValue().catch(() => '');
-        this.logger.debug(`X: password value after typeHuman: "${pwVal ? '***' : '(empty)'}" (${pwVal.length} chars)`);
+        let pwVal = '';
+        try {
+          // typeHuman: per-character with randomized delay (stealth-x)
+          await this.browser.typeHuman(page, password, passwordInput);
+          await this.browser.randomDelay(200, 500);
+          pwVal = await passwordInput.inputValue().catch(() => '');
+        } catch {
+          this.logger.warn(`X: typeHuman failed for password — falling back to fill()`);
+        }
+
+        // Fallback 1: direct fill (React-controlled inputs sometimes need this)
         if (!pwVal) {
-          // Fallback: React-native setter
-          this.logger.warn(`X: typeHuman didn't work — trying React setter`);
+          this.logger.warn(`X: typeHuman didn't set password value — trying fill()`);
+          await passwordInput.fill(password).catch(() => {});
+          pwVal = await passwordInput.inputValue().catch(() => '');
+        }
+
+        // Fallback 2: React-native value setter
+        if (!pwVal) {
+          this.logger.warn(`X: fill didn't work — trying React-native setter`);
           await passwordInput.evaluate((el: HTMLInputElement, val: string) => {
             const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
             nativeSetter?.call(el, val);
             el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
           }, password).catch(() => {});
+          pwVal = await passwordInput.inputValue().catch(() => '');
+        }
+
+        this.logger.debug(`X: password value after fill: "${pwVal ? '***' : '(empty)'}" (${pwVal.length} chars)`);
+        if (!pwVal) {
+          throw new AutoLoginFailedError('X password field remained empty after all fill strategies');
         }
         await this.browser.randomDelay(1000, 2000);
 
-        // ── Step 2 submit: Click "Log in" button (stealth-x: clickElement loginButton, fallback Enter) ──
+        // ── Step 2 submit: Click visible "Log in"/"Continue" button (stealth-x) ──
         this.logger.debug(`X: submitting password step 2`);
-        // Find all submit buttons and pick the visible one (step 1's is hidden)
-        const submitButtons = page.locator('button[type="submit"]');
-        const submitCount = await submitButtons.count().catch(() => 0);
-        let clickedSubmit = false;
-        for (let i = 0; i < submitCount; i++) {
-          const btn = submitButtons.nth(i);
-          const isVisible = await btn.isVisible().catch(() => false);
-          if (isVisible) {
-            this.logger.debug(`X: found visible submit button (index ${i}) — clicking it`);
-            await btn.click({ force: true }).catch(() => {});
-            clickedSubmit = true;
-            break;
-          }
-        }
-        if (!clickedSubmit) {
-          this.logger.debug(`X: no visible submit button — pressing Enter on password`);
-          await passwordInput.focus().catch(() => {});
-          await this.browser.randomDelay(200, 500);
-          await passwordInput.press('Enter');
-        }
+        await this.clickVisibleWizardButton(page, ['Log in', 'Continue'], { fallbackInput: passwordInput, scopeInput: passwordInput });
         await this.browser.randomDelay(3000, 5000);
 
         // ── Step 3: 2FA check (stealth-x Step 3) ──
@@ -1599,6 +1587,149 @@ export class SessionsService implements OnModuleInit {
     }
 
     this.logger.error(`No verification code submitted for ${network} within ${timeoutMs / 1000}s`);
+    return null;
+  }
+
+  // ── X login helpers (updated for the current onboarding wizard) ─────────────────────────
+
+  /**
+   * Find the first element whose text is exactly `text` and is actually visible.
+   * X's onboarding buttons are `<div>` wrappers around `<p>` nodes with no ARIA role,
+   * so `getByRole` misses them and `locator.isVisible()` returns opacity:0 duplicates.
+   */
+  private async getVisibleByText(page: Page, text: string): Promise<Locator | null> {
+    const candidates = await page.getByText(text, { exact: true }).all();
+    for (const locator of candidates) {
+      const visible = await this.isActuallyRendered(locator);
+      if (visible) return locator;
+    }
+    return null;
+  }
+
+  private async isActuallyRendered(locator: Locator): Promise<boolean> {
+    const evaluated = await locator.evaluate((el) => {
+      const isRendered = (e: Element) => {
+        const s = window.getComputedStyle(e as HTMLElement);
+        if (s.display === 'none' || s.visibility === 'hidden' || s.contentVisibility === 'hidden' || parseFloat(s.opacity) === 0 || e.getAttribute('aria-hidden') === 'true' || (e as HTMLElement).inert) return false;
+        return e.getClientRects().length > 0;
+      };
+      if (!isRendered(el)) return false;
+      for (let p = el.parentElement; p; p = p.parentElement) {
+        if (!isRendered(p)) return false;
+      }
+      return true;
+    }).catch(() => undefined as unknown as boolean);
+    return typeof evaluated === 'boolean' ? evaluated : locator.isVisible().catch(() => false);
+  }
+
+  private async isPasswordInputVisible(locator: Locator): Promise<boolean> {
+    const evaluated = await locator.evaluate((el) => {
+      const isRendered = (e: Element) => {
+        const s = window.getComputedStyle(e as HTMLElement);
+        if (s.display === 'none' || s.visibility === 'hidden' || s.contentVisibility === 'hidden' || parseFloat(s.opacity) === 0 || e.getAttribute('aria-hidden') === 'true' || (e as HTMLElement).inert) return false;
+        return e.getClientRects().length > 0;
+      };
+      const s = window.getComputedStyle(el as HTMLElement);
+      if (!isRendered(el) || s.pointerEvents === 'none') return false;
+      for (let p = el.parentElement; p; p = p.parentElement) {
+        if (!isRendered(p)) return false;
+      }
+      return true;
+    }).catch(() => undefined as unknown as boolean);
+    return typeof evaluated === 'boolean' ? evaluated : locator.isVisible().catch(() => false);
+  }
+
+  /**
+   * Click the visible button-like element whose text matches one of `labels`.
+   * X's wizard keeps several <p>Continue</p> clones in the DOM; when there are
+   * multiple visible matches, `scopeInput` is used to pick the one closest to the
+   * active input (same wizard step). Falls back to pressing Enter on `fallbackInput`.
+   */
+  private async clickVisibleWizardButton(
+    page: Page,
+    labels: string[],
+    opts?: { fallbackInput?: Locator; scopeInput?: Locator },
+  ): Promise<boolean> {
+    const scopeBox = opts?.scopeInput ? await opts.scopeInput.boundingBox().catch(() => null) : null;
+    for (const label of labels) {
+      const candidates = await page.getByText(label, { exact: true }).all();
+      const visible = await Promise.all(candidates.map((l) => l.isVisible().catch(() => false)));
+      let visibleCandidates = candidates.filter((_, i) => visible[i]);
+      if (visibleCandidates.length === 0) continue;
+
+      let selected: Locator = visibleCandidates[0]!;
+      if (visibleCandidates.length > 1 && scopeBox) {
+        let bestScore = Infinity;
+        const scopeCenter = {
+          x: scopeBox.x + (scopeBox.width || 0) / 2,
+          y: scopeBox.y + (scopeBox.height || 0) / 2,
+        };
+        for (const cand of visibleCandidates) {
+          const box = await cand.boundingBox().catch(() => null);
+          if (!box) continue;
+          const dx = box.x + (box.width || 0) / 2 - scopeCenter.x;
+          const dy = box.y + (box.height || 0) / 2 - scopeCenter.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < bestScore) {
+            bestScore = dist;
+            selected = cand;
+          }
+        }
+      }
+
+      if (selected) {
+        this.logger.debug(`X: clicking visible "${label}" button`);
+        await selected.click({ force: true }).catch(() => {});
+        return true;
+      }
+    }
+    if (opts?.fallbackInput) {
+      this.logger.debug(`X: no visible ${labels.join('/')} button — pressing Enter on input`);
+      await opts.fallbackInput.focus().catch(() => {});
+      await this.browser.randomDelay(200, 500);
+      await opts.fallbackInput.press('Enter');
+    }
+    return false;
+  }
+
+  /**
+   * Return a Locator for the currently visible username input in X's multi-step wizard.
+   * The page keeps multiple hidden clones, so `first()` often matches an opacity:0 clone.
+   */
+  private async getVisibleUsernameInput(page: Page, timeoutMs = 15000): Promise<Locator | null> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const all = await page.locator(this.LOGIN_SELECTORS.X.usernameInput).all();
+      for (const input of all) {
+        if (await this.isActuallyRendered(input)) return input;
+      }
+      await this.browser.randomDelay(300, 600);
+    }
+    return null;
+  }
+
+  /**
+   * Return true if any `input[name="password"]` in the current X wizard step is
+   * actually visible (rendered, opacity > 0, pointer-events enabled).
+   */
+  private async hasVisiblePasswordInput(page: Page): Promise<boolean> {
+    return (await this.getVisiblePasswordInput(page, 3000)) !== null;
+  }
+
+  /**
+   * Return a Locator for the currently visible `input[name="password"]` in X's
+   * multi-step wizard. The wizard keeps hidden clones in the DOM, so `first()` often
+   * matches an opacity:0 clone; this helper selects by computed style.
+   */
+  private async getVisiblePasswordInput(page: Page, timeoutMs = 15000): Promise<Locator | null> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const all = await page.locator('input[name="password"]').all();
+      for (const input of all) {
+        if (await this.isPasswordInputVisible(input)) return input;
+      }
+      await this.browser.randomDelay(300, 600);
+    }
     return null;
   }
 }

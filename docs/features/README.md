@@ -1,5 +1,7 @@
 # Feature Proposals — SPA Backend
 
+> See also the active product expansion roadmap in `docs/roadmap/README.md` for the next wave of multi-account, per-account settings, image generation, token optimization, and resilience work.
+
 This directory contains high-level feature proposals that are **not yet prioritized** in `docs/reviews/ACTION_PLAN.md`. They are intentionally separate from the bug-fix and hardening backlog because most of them require schema, UI, or cross-module architecture work.
 
 Each proposal explains:

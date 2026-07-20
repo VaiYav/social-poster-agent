@@ -156,6 +156,7 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
       type: 'post_status',
       postId: 'p1',
       status: 'POSTED',
+      network: 'X',
       url: 'https://x.com/1',
     };
 
@@ -171,7 +172,9 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
     const error = new Error('Redis unavailable');
     mockPublisher.publish.mockRejectedValue(error);
 
-    await expect(service.publish({ type: 'post_status' })).resolves.toBeUndefined();
+    await expect(
+      service.publish({ type: 'post_status', postId: 'p2', status: 'FAILED', network: 'X' }),
+    ).resolves.toBeUndefined();
     expect(mockPublisher.publish).toHaveBeenCalledOnce();
   });
 
@@ -179,7 +182,7 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
   it('UTC-094: publish() does nothing when Redis not connected', async () => {
     (service as unknown).publisher = null;
 
-    await service.publish({ type: 'post_status' });
+    await service.publish({ type: 'post_status', postId: 'p3', status: 'POSTED', network: 'X' });
 
     expect(mockPublisher.publish).not.toHaveBeenCalled();
   });

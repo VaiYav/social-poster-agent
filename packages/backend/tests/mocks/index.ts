@@ -107,9 +107,12 @@ export function createMockLocator() {
   locator.allInnerTexts = vi.fn().mockResolvedValue([]);
   locator.evaluate = vi.fn().mockResolvedValue(undefined);
   locator.evaluateAll = vi.fn().mockResolvedValue([]);
+  locator.boundingBox = vi.fn().mockResolvedValue({ x: 0, y: 0, width: 100, height: 50 });
   locator.getAttribute = vi.fn().mockResolvedValue(null);
   locator.textContent = vi.fn().mockResolvedValue('');
   locator.innerText = vi.fn().mockImplementation(() => Promise.resolve(typedContent));
+  locator.inputValue = vi.fn().mockImplementation(() => Promise.resolve(typedContent));
+  locator.allTextContents = vi.fn().mockResolvedValue([]);
   locator.scrollIntoViewIfNeeded = vi.fn().mockResolvedValue(undefined);
   locator.pressSequentially = vi.fn().mockImplementation((value: string) => {
     typedContent = String(value ?? '');

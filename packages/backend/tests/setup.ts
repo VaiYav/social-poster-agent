@@ -31,6 +31,10 @@ process.env.RATE_LIMIT_THREADS_MAX_PER_WEEK = '15';
 process.env.RATE_LIMIT_FACEBOOK_MAX_PER_WEEK = '5';
 process.env.RATE_LIMIT_MIN_DELAY_MS = '300000';
 
+// Form login cooldown — disable in tests to avoid cross-test throttling when multiple
+// full-app specs run in the same Vitest process.
+process.env.FORM_LOGIN_COOLDOWN_MS = '0';
+
 // Social network credentials — mocked, but set placeholders
 process.env.X_USERNAME = 'test_x_user';
 process.env.X_PASSWORD = 'test_x_pass';

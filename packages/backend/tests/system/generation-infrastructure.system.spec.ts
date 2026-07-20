@@ -117,128 +117,11 @@ const { sharedRedisStore } = vi.hoisted(() => ({
   sharedRedisStore: new Map<string, string>(),
 }));
 
-vi.mock('ioredis', () => {
-  const createMockRedis = () => {
-    const store = sharedRedisStore;
-    const listeners: Record<string, Array<(...args: unknown[]) => void>> = {};
-    const on = (ev: string, cb: (...args: unknown[]) => void) => {
-      (listeners[ev] ??= []).push(cb);
-      return inst;
-    };
-    const off = (ev: string, cb: (...args: unknown[]) => void) => {
-      listeners[ev] = (listeners[ev] ?? []).filter((l) => l !== cb);
-      return inst;
-    };
-    const once = (ev: string, cb: (...args: unknown[]) => void) => {
-      const wrap = (...a: unknown[]) => {
-        off(ev, wrap);
-        cb(...a);
-      };
-      return on(ev, wrap);
-    };
-    const emit = (ev: string, ...args: unknown[]) => {
-      (listeners[ev] ?? []).forEach((l) => l(...args));
-      return inst;
-    };
-    const inst: Record<string, unknown> = {
-      status: 'ready',
-      on,
-      off,
-      once,
-      emit,
-      removeAllListeners: (ev?: string) => {
-        if (ev) listeners[ev] = [];
-        else for (const k in listeners) listeners[k] = [];
-        return inst;
-      },
-      get: (k: string) => Promise.resolve(store.get(k) ?? null),
-      set: (k: string, v: unknown) => {
-        store.set(k, String(v));
-        return Promise.resolve('OK');
-      },
-      setex: (k: string, _t: number, v: string) => {
-        store.set(k, v);
-        return Promise.resolve('OK');
-      },
-      psetex: (k: string, _t: number, v: string) => {
-        store.set(k, v);
-        return Promise.resolve('OK');
-      },
-      incr: (k: string) => {
-        const v = parseInt(store.get(k) ?? '0', 10) + 1;
-        store.set(k, String(v));
-        return Promise.resolve(v);
-      },
-      decr: (k: string) => {
-        const v = parseInt(store.get(k) ?? '0', 10) - 1;
-        store.set(k, String(v));
-        return Promise.resolve(v);
-      },
-      expire: () => Promise.resolve(1),
-      pexpire: () => Promise.resolve(1),
-      del: (k: string) => {
-        store.delete(k);
-        return Promise.resolve(1);
-      },
-      unlink: (k: string) => {
-        store.delete(k);
-        return Promise.resolve(1);
-      },
-      exists: (k: string) => Promise.resolve(store.has(k) ? 1 : 0),
-      ping: () => Promise.resolve('PONG'),
-      publish: (_ch: string, msg: string) => {
-        emit('message', _ch, msg);
-        return Promise.resolve(1);
-      },
-      subscribe: () => Promise.resolve('OK'),
-      unsubscribe: () => Promise.resolve('OK'),
-      psubscribe: () => Promise.resolve('OK'),
-      connect: () => Promise.resolve(undefined),
-      disconnect: () => undefined,
-      close: () => Promise.resolve(undefined),
-      quit: () => Promise.resolve(undefined),
-      duplicate: () => createMockRedis(),
-      keys: (pat: string) => {
-        const prefix = pat.replace(/\*$/, '');
-        const out: string[] = [];
-        for (const k of store.keys()) if (k.startsWith(prefix)) out.push(k);
-        return Promise.resolve(out);
-      },
-      scan: () => Promise.resolve(['0', []]),
-      hget: () => Promise.resolve(null),
-      hset: () => Promise.resolve(1),
-      hgetall: () => Promise.resolve({}),
-      hdel: () => Promise.resolve(1),
-      hlen: () => Promise.resolve(0),
-      type: () => Promise.resolve('none'),
-      eval: () => Promise.resolve(undefined),
-      evalsha: () => Promise.resolve(undefined),
-      multi: () => createMockRedis(),
-      pipeline: () => createMockRedis(),
-      batch: () => createMockRedis(),
-      exec: () => Promise.resolve([]),
-      rpush: (k: string, v: string) => {
-        const existing = store.get(k);
-        store.set(k, existing ? `${existing}\n${v}` : v);
-        return Promise.resolve(1);
-      },
-      lrange: () => Promise.resolve([]),
-      llen: () => Promise.resolve(0),
-      info: () => Promise.resolve(''),
-      client: () => Promise.resolve('OK'),
-      defineCommand: () => undefined,
-      time: () => Promise.resolve(['0', '0']),
-      wait: () => Promise.resolve(0),
-    };
-    queueMicrotask(() => {
-      inst.status = 'ready';
-      emit('ready');
-    });
-    return inst;
-  };
+vi.mock('ioredis', async () => {
+  const { createMockRedis } = await import('../mocks/redis-mock.js');
   return {
     default: function MockIORedis(..._args: unknown[]) {
-      return createMockRedis();
+      return createMockRedis(sharedRedisStore);
     },
     __esModule: true,
   };
@@ -883,7 +766,7 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
 
   it('STC-042: GET /health checks DB and Redis connectivity (REQ-036)', async () => {
     // Both DB and Redis up (default mocks: $queryRaw resolves, ioredis PONG)
-    const res = await request(app.getHttpServer()).get('/api/v1/health');
+    const res = await request(app.getHttpServer()).get('/api/v1/health/ready');
 
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('status');

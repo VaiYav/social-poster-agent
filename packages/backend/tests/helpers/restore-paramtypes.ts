@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { ModuleRef } from '@nestjs/core';
+import { ModuleRef, Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { JwtService } from '@nestjs/jwt';
@@ -125,6 +125,14 @@ import {
   GeneratePostsHandler,
   PostHandler,
   BrowseHandler,
+  RecoverSessionHandler,
+  CheckRepliesHandler,
+  RefreshTrendsHandler,
+  HealthCheckHandler,
+  ReconcileHandler,
+  ScrapeMetricsHandler,
+  RecycleContentHandler,
+  AggregateHooksHandler,
 } from '../../src/modules/orchestrator/action-handlers.js';
 
 // Sprint O / New features
@@ -143,6 +151,8 @@ import { QuoteCardController } from '../../src/modules/quote-cards/quote-card.co
 import { AuthService } from '../../src/modules/auth/auth.service';
 import { AuthController } from '../../src/modules/auth/auth.controller';
 import { JwtAuthGuard } from '../../src/modules/auth/jwt-auth.guard';
+import { AdminGuard } from '../../src/modules/auth/admin.guard';
+import { LoginRateLimitGuard } from '../../src/modules/auth/login-rate-limit.guard';
 import { LocalhostGuard } from '../../src/infrastructure/guards/localhost.guard';
 
 /**
@@ -432,6 +442,8 @@ export function restoreAllDesignParamtypes(): void {
   // ── Auth ─────────────────────────────────────────────────────────────────
   defineParamtypes(AuthService, [PrismaService, JwtService, ConfigService]);
   defineParamtypes(AuthController, [AuthService, ConfigService]);
-  defineParamtypes(JwtAuthGuard, [JwtService, ConfigService]);
+  defineParamtypes(JwtAuthGuard, [JwtService, ConfigService, Reflector]);
+  defineParamtypes(AdminGuard, [ConfigService]);
+  defineParamtypes(LoginRateLimitGuard, [ConfigService, Object]); // Object = @Inject(SHARED_REDIS)
   defineParamtypes(LocalhostGuard, [ConfigService]);
 }

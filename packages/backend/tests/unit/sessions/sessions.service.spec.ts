@@ -95,7 +95,18 @@ function createMockPage(opts: { url: string; successVisible: boolean } = { url: 
     if (selector.includes('ocfEnterText') || selector.includes('twoFactor')) {
       return false;
     }
-    return opts.successVisible;
+    // Login form inputs and action buttons are always visible; only success indicators
+    // (home/profile nav, account switcher, etc.) reflect `successVisible`.
+    if (
+      selector.includes('AppTabBar') ||
+      selector.includes('SideNav') ||
+      selector.includes('accountSwitcher') ||
+      selector.includes('primaryColumn') ||
+      selector.includes('NewTweet_Button')
+    ) {
+      return opts.successVisible;
+    }
+    return true;
   };
 
   const makeLocatorFirst = (selector: string) => ({
@@ -111,6 +122,8 @@ function createMockPage(opts: { url: string; successVisible: boolean } = { url: 
     pressSequentially: vi.fn().mockResolvedValue(undefined),
     inputValue: vi.fn().mockResolvedValue('filled-value'),
     count: vi.fn().mockResolvedValue(isVisibleForSelector(selector) ? 1 : 0),
+    evaluate: vi.fn().mockResolvedValue(undefined),
+    boundingBox: vi.fn().mockResolvedValue({ x: 0, y: 0, width: 100, height: 50 }),
     nth: vi.fn().mockReturnValue({
       isVisible: vi.fn().mockResolvedValue(isVisibleForSelector(selector)),
       click: vi.fn().mockResolvedValue(undefined),
@@ -118,6 +131,8 @@ function createMockPage(opts: { url: string; successVisible: boolean } = { url: 
   });
   const locatorResult = (selector: string) => ({
     first: () => makeLocatorFirst(selector),
+    // Use this.first() so test overrides that shadow first() also affect all().
+    all: vi.fn().mockImplementation(function () { return Promise.resolve([this.first()]); }),
     allTextContents: vi.fn().mockResolvedValue([]),
     innerText: vi.fn().mockResolvedValue(''),
     evaluateAll: vi.fn().mockResolvedValue([]),

@@ -116,6 +116,7 @@ function createMockPage(opts: { url?: string; successVisible?: boolean } = {}) {
     evaluate: vi.fn().mockResolvedValue(undefined),
     count: vi.fn().mockResolvedValue(1),
     all: vi.fn().mockResolvedValue([]),
+    boundingBox: vi.fn().mockResolvedValue({ x: 0, y: 0, width: 100, height: 50 }),
     or: vi.fn().mockImplementation(() => locatorFirst),
   };
   // Separate locatorFirst for 2FA/verification selectors — isVisible returns false
@@ -132,15 +133,17 @@ function createMockPage(opts: { url?: string; successVisible?: boolean } = {}) {
     evaluateAll: vi.fn().mockResolvedValue([]),
     evaluate: vi.fn().mockResolvedValue(undefined),
     count: vi.fn().mockResolvedValue(0),
-    all: vi.fn().mockResolvedValue([]),
+    all: vi.fn().mockResolvedValue([locatorFirst]),
+    boundingBox: vi.fn().mockResolvedValue({ x: 0, y: 0, width: 100, height: 50 }),
     or: vi.fn().mockImplementation(() => locatorResult),
   };
   const hiddenLocatorResult = {
     ...locatorResult,
     first: () => hiddenLocatorFirst,
+    all: vi.fn().mockResolvedValue([]),
   };
-  // Selectors that should appear hidden (2FA input, identity verification)
-  const HIDDEN_SELECTOR_PATTERN = /ocfEnterTextTextInput|name="text"/;
+  // Selectors that should appear hidden (2FA code inputs with type="text", ocfEnterText)
+  const HIDDEN_SELECTOR_PATTERN = /ocfEnterTextTextInput|\[type="text"\]/;
   return {
     goto: vi.fn().mockResolvedValue(undefined),
     url: vi.fn().mockReturnValue(url),
@@ -357,6 +360,7 @@ async function buildTestingModule(
   // Note: plain functions (not vi.fn) so vi.clearAllMocks() doesn't reset them.
   const mockSharedRedis = {
     get: (key: string) => Promise.resolve(redisStore.get(key) ?? null),
+    mget: (keys: string[]) => Promise.resolve(keys.map((k) => redisStore.get(k) ?? null)),
     set: (key: string, val: unknown) => { redisStore.set(key, String(val)); return Promise.resolve('OK'); },
     setex: (key: string, _ttl: number, val: string) => { redisStore.set(key, val); return Promise.resolve('OK'); },
     psetex: (key: string, _ttl: number, val: string) => { redisStore.set(key, val); return Promise.resolve('OK'); },
@@ -371,6 +375,27 @@ async function buildTestingModule(
     keys: (pat: string) => {
       const prefix = pat.replace(/\*$/, '');
       return Promise.resolve([...redisStore.keys()].filter((k) => k.startsWith(prefix)));
+    },
+    // Simulate RECORD_POST_SCRIPT atomic rate-limit logic for RateLimitService.recordPost()
+    eval: (_script: unknown, _numKeys: number, dailyKey: string, weeklyKey: string, intervalKey: string, _lastPostAtKey: string, dailyLimit: string, weeklyLimit: string, intervalMs: string, now: string) => {
+      const daily = parseInt(redisStore.get(dailyKey) ?? '0', 10);
+      const weekly = parseInt(redisStore.get(weeklyKey) ?? '0', 10);
+      if (parseInt(dailyLimit, 10) > 0 && daily >= parseInt(dailyLimit, 10)) {
+        return Promise.resolve([0, daily, weekly]);
+      }
+      if (parseInt(weeklyLimit, 10) > 0 && weekly >= parseInt(weeklyLimit, 10)) {
+        return Promise.resolve([0, daily, weekly]);
+      }
+      const intervalTs = parseInt(redisStore.get(intervalKey) ?? '0', 10);
+      if (parseInt(intervalMs, 10) > 0 && intervalTs > 0 && parseInt(now, 10) - intervalTs < parseInt(intervalMs, 10)) {
+        return Promise.resolve([0, daily, weekly]);
+      }
+      const newDaily = daily + 1;
+      const newWeekly = weekly + 1;
+      redisStore.set(dailyKey, String(newDaily));
+      redisStore.set(weeklyKey, String(newWeekly));
+      redisStore.set(intervalKey, now);
+      return Promise.resolve([1, newDaily, newWeekly]);
     },
     rpush: () => Promise.resolve(1),
     expire: () => Promise.resolve(1),

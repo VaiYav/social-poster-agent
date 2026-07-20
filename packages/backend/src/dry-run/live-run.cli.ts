@@ -243,6 +243,9 @@ async function main(): Promise<void> {
   console.log(`   Feature: ${args.feature} | Network: ${args.network} | Count: ${args.count}`);
   console.log('');
 
+  // Real runs must stay headless to minimize Camoufox memory consumption.
+  process.env.CAMOUFOX_HEADLESS = 'true';
+
   if (!args.yes) {
     process.stdout.write('Type "yes" to proceed with REAL actions: ');
     const answer = await new Promise<string>(r => {

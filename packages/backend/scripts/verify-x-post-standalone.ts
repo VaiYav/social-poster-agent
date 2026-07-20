@@ -69,7 +69,7 @@ async function main() {
 
   console.log(`\nLaunching Camoufox...`);
   const browser = await Camoufox({
-    headless: false,
+    headless: true,
     humanize: true,
     geoip: true,
   }) as any;

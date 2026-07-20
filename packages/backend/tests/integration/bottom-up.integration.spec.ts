@@ -164,10 +164,32 @@ const mockSharedRedis = {
       if (idx >= 0) sseMessageHandlers.splice(idx, 1);
     }
   }),
+  mget: (keys: string[]) => Promise.resolve(keys.map((k) => redisStore.get(k) ?? null)),
   publish: (ch: string, msg: string) => { sseMessageHandlers.forEach((h) => h(ch, msg)); return Promise.resolve(1); },
   keys: (pat: string) => {
     const prefix = pat.replace(/\*$/, '');
     return Promise.resolve([...redisStore.keys()].filter((k) => k.startsWith(prefix)));
+  },
+  // Simulate RECORD_POST_SCRIPT atomic rate-limit logic for RateLimitService.recordPost()
+  eval: (_script: unknown, _numKeys: number, dailyKey: string, weeklyKey: string, intervalKey: string, _lastPostAtKey: string, dailyLimit: string, weeklyLimit: string, intervalMs: string, now: string) => {
+    const daily = parseInt(redisStore.get(dailyKey) ?? '0', 10);
+    const weekly = parseInt(redisStore.get(weeklyKey) ?? '0', 10);
+    if (parseInt(dailyLimit, 10) > 0 && daily >= parseInt(dailyLimit, 10)) {
+      return Promise.resolve([0, daily, weekly]);
+    }
+    if (parseInt(weeklyLimit, 10) > 0 && weekly >= parseInt(weeklyLimit, 10)) {
+      return Promise.resolve([0, daily, weekly]);
+    }
+    const intervalTs = parseInt(redisStore.get(intervalKey) ?? '0', 10);
+    if (parseInt(intervalMs, 10) > 0 && intervalTs > 0 && parseInt(now, 10) - intervalTs < parseInt(intervalMs, 10)) {
+      return Promise.resolve([0, daily, weekly]);
+    }
+    const newDaily = daily + 1;
+    const newWeekly = weekly + 1;
+    redisStore.set(dailyKey, String(newDaily));
+    redisStore.set(weeklyKey, String(newWeekly));
+    redisStore.set(intervalKey, now);
+    return Promise.resolve([1, newDaily, newWeekly]);
   },
   rpush: () => Promise.resolve(1),
   expire: () => Promise.resolve(1),
@@ -275,7 +297,7 @@ describe('Bottom-Up Integration Tests', () => {
       expect(connectedData).toContain('connected');
 
       // Publish an event
-      await sseService.publish({ type: 'post_status', postId: 'p1', status: 'POSTING' });
+      await sseService.publish({ type: 'post_status', postId: 'p1', status: 'POSTING', network: 'X' });
 
       // Verify event data was written to client
       const lastWrite = mockRes._written[mockRes._written.length - 1];
@@ -319,18 +341,35 @@ describe('Bottom-Up Integration Tests', () => {
     });
 
     it('ITC-009: Health → Prisma + Redis (ok when both up, degraded when Redis down)', async () => {
+      function createMockRes() {
+        const data: Record<string, unknown> = {};
+        let statusCode = 200;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const res: any = {
+          status: (code: number) => { statusCode = code; return res; },
+          json: (payload: Record<string, unknown>) => {
+            Object.assign(data, payload, { statusCode });
+            return data;
+          },
+          _data: data,
+        };
+        return res;
+      }
+      const res1 = createMockRes();
+
       // Both up
       prisma.$queryRaw.mockResolvedValue([{ '?column?': 1 }]);
-      const result1 = await healthController.check();
-      expect(result1.status).toBe('ok');
+      await healthController.ready(res1 as unknown);
+      expect(res1._data.status).toBe('ok');
 
       // Redis down — simulate by making ping fail
       const redisInstance = (healthController as unknown).redis;
       if (redisInstance) {
         vi.spyOn(redisInstance, 'ping').mockRejectedValueOnce(new Error('Connection refused'));
       }
-      const result2 = await healthController.check();
-      expect(result2.status).toBe('degraded');
+      const res2 = createMockRes();
+      await healthController.ready(res2 as unknown);
+      expect(res2._data.status).toBe('degraded');
     });
   });
 
@@ -508,7 +547,7 @@ describe('Bottom-Up Integration Tests', () => {
       expect(sseService.getConnectedCount()).toBe(3);
 
       // Publish event
-      await sseService.publish({ type: 'post_status', status: 'POSTED', postId: 'p1' });
+      await sseService.publish({ type: 'post_status', status: 'POSTED', postId: 'p1', network: 'X' });
 
       // All 3 clients should have received the event (at least 2 writes: connected + event)
       for (const res of responses) {

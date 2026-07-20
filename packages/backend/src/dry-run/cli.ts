@@ -154,6 +154,10 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const reporter = new DryRunReporter();
 
+  // Real runs should always use a headless browser to keep Camoufox's memory
+  // footprint as small as possible. --headed may still override for debugging.
+  process.env.CAMOUFOX_HEADLESS = 'true';
+
   // Set dry-run env flag — BrowserModule checks this to wrap BrowserFactory
   process.env.SPA_DRY_RUN = 'true';
   if (args.headed) {
