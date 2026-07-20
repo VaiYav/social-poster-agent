@@ -257,8 +257,9 @@ export class DryRunBrowserPort implements IBrowserPort {
   async createContext(
     network: SocialNetwork,
     storageState?: string,
+    accountId?: string,
   ): Promise<BrowserContext> {
-    const realContext = await this.real.createContext(network, storageState);
+    const realContext = await this.real.createContext(network, storageState, accountId);
     const wrapped = wrapContext(realContext, network, this.pageStates);
     this.proxyToRealContext.set(wrapped, realContext);
     return wrapped;
@@ -267,19 +268,20 @@ export class DryRunBrowserPort implements IBrowserPort {
   acquireContext(
     network: SocialNetwork,
     storageState?: string,
+    accountId?: string,
   ): Promise<BrowserContext> {
     // In dry-run, bypass the context pool — create a fresh context each time
     // with the correct storageState. The pool may reuse a context that was
     // created without storageState (e.g. from auto-login), causing
     // "Error reading storage state" when Playwright tries to use it.
-    return this.real.createContext(network, storageState).then((realContext) => {
+    return this.real.createContext(network, storageState, accountId).then((realContext) => {
       const wrapped = wrapContext(realContext, network, this.pageStates);
       this.proxyToRealContext.set(wrapped, realContext);
       return wrapped;
     });
   }
 
-  releaseContext(network: SocialNetwork, context: BrowserContext): void {
+  releaseContext(network: SocialNetwork, context: BrowserContext, accountId?: string): void {
     // In dry-run, close the context instead of returning it to the pool.
     // We bypass the pool in acquireContext (createContext), so we must
     // also bypass it in releaseContext — otherwise the pool loses track.

@@ -121,10 +121,15 @@ function createMockContentSourceService(topics: ContentTopic[] = [TOPIC_1, TOPIC
 }
 
 function createMockAccountsService(accounts = [ACCOUNT_X, ACCOUNT_THREADS, ACCOUNT_FB]) {
+  const byNetwork = vi.fn((network: SocialNetwork) =>
+    accounts.find((a) => a.network === network) ?? null,
+  );
   return {
     findByNetwork: vi.fn((network: SocialNetwork) =>
-      accounts.find((a) => a.network === network) ?? null,
+      accounts.filter((a) => a.network === network),
     ),
+    findFirstActiveByNetwork: byNetwork,
+    getNextAccountForNetwork: byNetwork,
     findAll: vi.fn().mockResolvedValue(accounts),
     seedFromEnv: vi.fn().mockResolvedValue(undefined),
     getCredentials: vi.fn(),
@@ -424,7 +429,7 @@ describe('GenerationService', () => {
 
     it('UTC-207: no active account for network → post skipped', async () => {
       contentSource.getTopics.mockResolvedValue([TOPIC_1]);
-      accounts.findByNetwork.mockImplementation((network: SocialNetwork) =>
+      accounts.getNextAccountForNetwork.mockImplementation((network: SocialNetwork) =>
         network === SocialNetwork.X ? ACCOUNT_X : null,
       );
       mockInvoke.mockResolvedValue({

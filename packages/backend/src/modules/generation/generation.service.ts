@@ -63,7 +63,7 @@ import { ABVariantService } from '../content-enhancements/ab-variant.service.js'
  */
 
 type CompiledGraph = ReturnType<ReturnType<typeof buildGenerationGraph>['compile']>;
-type AccountResult = Awaited<ReturnType<AccountsService['findByNetwork']>>;
+type AccountResult = Awaited<ReturnType<AccountsService['findFirstActiveByNetwork']>>;
 
 /**
  * Config object passed to `graph.invoke()`. Includes `callbacks` in the type
@@ -290,7 +290,7 @@ export class GenerationService {
         continue;
       }
 
-      const account = accountByNetwork.get(genPost.network) ?? (await this.accountsService.findByNetwork(genPost.network));
+      const account = accountByNetwork.get(genPost.network) ?? (await this.accountsService.getNextAccountForNetwork(genPost.network));
       if (!account) continue;
 
       const post = await this.postsService.create({
@@ -959,7 +959,7 @@ export class GenerationService {
     const activeNetworks: SocialNetwork[] = [];
     const networkChecks = await Promise.all(
       resolvedTargetNetworks.map(async (network) => {
-        const account = await this.accountsService.findByNetwork(network);
+        const account = await this.accountsService.getNextAccountForNetwork(network);
         if (!account) return { network, account: null as AccountResult, recentCount: 0 };
         const recent = await this.postsService.findBySourceAndNetwork(
           topic.path,
@@ -1052,7 +1052,7 @@ export class GenerationService {
       const post = rootPostsByNetwork.get(genPost.network);
       if (!post) continue;
 
-      const account = accountByNetwork.get(genPost.network) ?? (await this.accountsService.findByNetwork(genPost.network));
+      const account = accountByNetwork.get(genPost.network) ?? (await this.accountsService.getNextAccountForNetwork(genPost.network));
       if (!account) continue;
 
       if (multiStage && (genPost.network === SocialNetwork.X || genPost.network === SocialNetwork.THREADS)) {
@@ -1586,7 +1586,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
       const accountByNetwork = new Map<SocialNetwork, AccountResult>();
       await Promise.all(
         targetNetworks.map(async (network) => {
-          const account = await this.accountsService.findByNetwork(network);
+          const account = await this.accountsService.getNextAccountForNetwork(network);
           accountByNetwork.set(network, account);
         }),
       );
@@ -1700,7 +1700,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
     const postNetworks = [...new Set(generatedPosts.map((p) => p.network))];
     await Promise.all(
       postNetworks.map(async (network) => {
-        const account = await this.accountsService.findByNetwork(network);
+        const account = await this.accountsService.getNextAccountForNetwork(network);
         accountByNetwork.set(network, account);
       }),
     );

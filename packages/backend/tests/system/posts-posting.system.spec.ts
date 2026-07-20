@@ -184,17 +184,17 @@ const NOW = new Date('2026-07-15T10:00:00Z');
 
 const ACCOUNT_X = {
   id: 'acc-001', network: SocialNetwork.X, handle: 'myzodiacai',
-  credentialsRef: 'SOCIAL_X_USERNAME/PASSWORD', active: true,
+  credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD', active: true,
   createdAt: NOW, updatedAt: NOW,
 };
 const ACCOUNT_THREADS = {
   id: 'acc-002', network: SocialNetwork.THREADS, handle: 'myzodiacai',
-  credentialsRef: 'SOCIAL_THREADS_USERNAME/PASSWORD', active: true,
+  credentialsRef: 'SOCIAL_THREADS_USERNAME,SOCIAL_THREADS_PASSWORD', active: true,
   createdAt: NOW, updatedAt: NOW,
 };
 const ACCOUNT_FB = {
   id: 'acc-003', network: SocialNetwork.FACEBOOK, handle: 'myzodiacai@facebook.com',
-  credentialsRef: 'SOCIAL_FACEBOOK_EMAIL/PASSWORD', active: true,
+  credentialsRef: 'SOCIAL_FACEBOOK_EMAIL,SOCIAL_FACEBOOK_PASSWORD', active: true,
   createdAt: NOW, updatedAt: NOW,
 };
 
@@ -335,6 +335,22 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
     xPoster.post.mockResolvedValue({ url: 'https://x.com/test_x_user/status/123' });
     threadsPoster.post.mockResolvedValue({ url: 'https://www.threads.com/@user/post/abc123' });
     facebookPoster.post.mockResolvedValue({ url: 'https://www.facebook.com/myzodiacai/posts/789' });
+
+    // Multi-account: postById uses SessionsService.getOrCreateSession(accountId, network)
+    // which calls AccountsService.findById -> prisma.socialAccount.findUnique.
+    prisma.socialAccount.findUnique.mockImplementation(({ where }: unknown) => {
+      if (where?.id === 'acc-001') return Promise.resolve({ ...ACCOUNT_X });
+      if (where?.id === 'acc-002') return Promise.resolve({ ...ACCOUNT_THREADS });
+      if (where?.id === 'acc-003') return Promise.resolve({ ...ACCOUNT_FB });
+      return Promise.resolve(null);
+    });
+    // Legacy per-network account lookup used by some flows.
+    prisma.socialAccount.findFirst.mockImplementation(({ where }: unknown) => {
+      if (where?.network === SocialNetwork.X) return Promise.resolve({ ...ACCOUNT_X });
+      if (where?.network === SocialNetwork.THREADS) return Promise.resolve({ ...ACCOUNT_THREADS });
+      if (where?.network === SocialNetwork.FACEBOOK) return Promise.resolve({ ...ACCOUNT_FB });
+      return Promise.resolve(null);
+    });
   });
 
   // Helper: set up standard mocks for a successful posting flow

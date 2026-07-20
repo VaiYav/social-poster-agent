@@ -1,9 +1,10 @@
 // Engagement service — orchestrates individual engagement actions (like, comment, follow).
 // Unlike browsing sessions (which are autonomous), these are explicit API-triggered actions.
 
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service.js';
 import { SessionsService } from '../sessions/sessions.service.js';
+import { AccountsService } from '../accounts/accounts.service.js';
 import { IBrowserPort } from '../../domain/ports/browser.port.js';
 import { SseService } from '../../infrastructure/sse/sse.service.js';
 import { RateLimitService } from '../rate-limit/rate-limit.service.js';
@@ -36,6 +37,7 @@ export class EngagementService {
     private readonly xEngager: XEngager,
     private readonly threadsEngager: ThreadsEngager,
     private readonly facebookEngager: FacebookEngager,
+    @Optional() private readonly accountsService?: AccountsService,
   ) {}
 
   /**
@@ -171,8 +173,15 @@ export class EngagementService {
       };
     }
 
-    // Get or create session
-    const session = await this.sessionsService.getOrCreateSession(network);
+    // Get or create session for an account on this network
+    let accountId: string | undefined;
+    if (this.accountsService) {
+      const account = await this.accountsService.getNextAccountForNetwork(network);
+      accountId = account?.id;
+    }
+    const session = accountId
+      ? await this.sessionsService.getOrCreateSession(accountId, network)
+      : await this.sessionsService.getOrCreateSession(network);
     if (!session) {
       return {
         success: false,
@@ -214,7 +223,7 @@ export class EngagementService {
     let result: EngagementResult | null = null;
 
     try {
-      context = await this.browser.createContext(network, storageState);
+      context = await this.browser.createContext(network, storageState, accountId);
       page = await context.newPage();
 
       // Perform the engagement action

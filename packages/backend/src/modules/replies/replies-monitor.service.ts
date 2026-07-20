@@ -43,32 +43,27 @@ import { EngagementService } from '../engagement/engagement.service.js';
 import { QueueFactory } from '../../infrastructure/queue/queue.factory.js';
 import { FlowControlService } from '../flow-control/flow-control.service.js';
 import { PostStatus, SocialNetwork, CommentStatus } from '@prisma/client';
+import type { IncomingComment } from '@prisma/client';
 import type { Locator, Page } from '../../domain/ports/browser-primitives';
 import { IPromptPort } from '../../domain/ports/prompt.port.js';
-import { interpolate } from '../../domain/prompt-interpolation.js';
-import { REPLY_DECISION_PROMPT } from './prompts/reply-decision.prompt.js';
 import { parseBool } from '../../infrastructure/config/parse-bool';
 import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 import { matchesScript, normalizeLanguage } from '../../infrastructure/util/script-check.js';
 import { detectLanguage } from '../../infrastructure/util/language-detector.js';
 import { getEnabledNetworks } from '../../domain/enabled-networks.js';
+import { DialogueService, type DialogueDecision } from './dialogue.service.js';
+import { QuestionClassifierService } from './question-classifier.service.js';
 
 export interface ScrapedComment {
-  commentId: string;
+  commentId: string; // platform native id or h:hash
   author: string;
   text: string;
   authorProfileUrl?: string | null;
+  commentUrl?: string | null; // absolute platform permalink of this comment
+  nativeId?: string | null; // platform-native id (status id / post id / comment id)
 }
 
-export interface ReplyDecision {
-  action: 'auto_reply' | 'human_review' | 'skip';
-  reason: string;
-  replyText?: string;
-  reviewReason?: string;
-  /** Language the LLM detected in the comment (en/ru/uk/es/it).
-   * Used for post-validation: if replyText script doesn't match, downgrade to human_review. */
-  detectedLanguage?: string;
-}
+export type ReplyDecision = DialogueDecision;
 
 @Injectable()
 export class RepliesMonitorService implements OnModuleInit {
@@ -76,6 +71,7 @@ export class RepliesMonitorService implements OnModuleInit {
   private readonly enabled: boolean;
   private readonly cronSchedule: string;
   private readonly maxRepliesPerPost: number;
+  private readonly maxConversationDepth: number;
   private readonly autoReplyComplexity: 'low' | 'medium' | 'high';
   private readonly repliesTemperature: number;
 
@@ -87,6 +83,7 @@ export class RepliesMonitorService implements OnModuleInit {
     private readonly schedulerRegistry: SchedulerRegistry,
     private readonly discord: DiscordNotificationService,
     private readonly sseService: SseService,
+    private readonly dialogueService: DialogueService,
     @Optional() @Inject(ILlmPort) private readonly llmService?: ILlmPort,
     @Optional() @Inject(IBrowserPort) private readonly browser?: IBrowserPort,
     @Optional() private readonly engagementService?: EngagementService,
@@ -101,6 +98,8 @@ export class RepliesMonitorService implements OnModuleInit {
     this.cronSchedule = this.configService.get<string>('REPLIES_CRON_SCHEDULE', '0 */4 * * *');
     const rawMax = Number(this.configService.get<string>('REPLIES_MAX_PER_POST', '3'));
     this.maxRepliesPerPost = Number.isFinite(rawMax) && rawMax >= 0 ? Math.floor(rawMax) : 3;
+    const rawDepth = Number(this.configService.get<string>('REPLIES_MAX_CONVERSATION_DEPTH', '3'));
+    this.maxConversationDepth = Number.isFinite(rawDepth) && rawDepth > 0 ? Math.floor(rawDepth) : 3;
     const rawComplexity = this.configService.get<string>('REPLIES_AUTO_REPLY_COMPLEXITY', 'medium');
     this.autoReplyComplexity = rawComplexity === 'low' || rawComplexity === 'medium' || rawComplexity === 'high' ? rawComplexity : 'medium';
     // B1: read temperature from ConfigService (validated by Joi) instead of process.env at import time.
@@ -157,12 +156,23 @@ export class RepliesMonitorService implements OnModuleInit {
         try {
           if (!post.postUrl) continue;
 
-          const comments = await this.scrapeComments(post.network as SocialNetwork, post.postUrl, post.content);
+          // 1. Scrape top-level comments on the post page
+          const comments = await this.scrapeCommentsFromUrl(
+            post.accountId,
+            post.network as SocialNetwork,
+            post.postUrl,
+            [post.content],
+          );
           stats.postsChecked++;
           stats.commentsScraped += comments.length;
 
           // Save new comments to DB (dedup by commentId)
-          const newComments = await this.saveNewComments(post.id, post.network as SocialNetwork, comments);
+          let newComments = await this.saveNewComments(post.id, post.network as SocialNetwork, comments);
+
+          // 2. Scrape nested replies to already-posted agent replies. This opens the
+          // reply permalink and looks for follow-up comments in the thread.
+          const nested = await this.scrapeNestedReplies(post);
+          newComments = newComments.concat(nested);
 
           // Process each new comment
           for (const comment of newComments) {
@@ -210,7 +220,7 @@ export class RepliesMonitorService implements OnModuleInit {
   /**
    * Get posts that are eligible for reply monitoring (posted in last 24h).
    */
-  private async getMonitorablePosts(): Promise<{ id: string; network: string; postUrl: string | null; content: string }[]> {
+  private async getMonitorablePosts(): Promise<{ id: string; accountId: string; network: string; postUrl: string | null; content: string }[]> {
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     return this.prisma.post.findMany({
@@ -222,6 +232,7 @@ export class RepliesMonitorService implements OnModuleInit {
       },
       select: {
         id: true,
+        accountId: true,
         network: true,
         postUrl: true,
         content: true,
@@ -230,13 +241,65 @@ export class RepliesMonitorService implements OnModuleInit {
   }
 
   /**
-   * Scrape comments from a post page using browser automation.
-   * Navigates to the post URL, extracts comment text + authors.
+   * Scrape nested replies to any agent replies already posted on this post.
+   * Only parents with depth < maxConversationDepth are eligible (the hard limit
+   * protects against infinite reply loops). Returns all newly discovered nested comments.
    */
-  private async scrapeComments(
+  private async scrapeNestedReplies(
+    post: { id: string; accountId: string; network: string; postUrl: string | null; content: string },
+  ): Promise<IncomingComment[]> {
+    const allNested: IncomingComment[] = [];
+    if (!this.browser || !post.postUrl) return allNested;
+
+    const parents = await this.prisma.incomingComment.findMany({
+      where: {
+        postId: post.id,
+        status: { in: [CommentStatus.REPLIED, CommentStatus.REPLIED_MANUAL] },
+        replyPostedAt: { not: null },
+        depth: { lt: this.maxConversationDepth },
+        OR: [{ replyUrl: { not: null } }, { commentUrl: { not: null } }],
+      },
+      take: 10,
+      orderBy: { replyPostedAt: 'desc' },
+    });
+
+    for (const parent of parents) {
+      try {
+        const targetUrl = parent.replyUrl ?? parent.commentUrl;
+        if (!targetUrl) continue;
+
+        const skipTexts = [post.content, parent.text, parent.replyText ?? ''];
+        const scraped = await this.scrapeCommentsFromUrl(
+          post.accountId,
+          post.network as SocialNetwork,
+          targetUrl,
+          skipTexts,
+        );
+
+        const nested = await this.saveNewComments(
+          post.id,
+          post.network as SocialNetwork,
+          scraped,
+          parent,
+        );
+        allNested.push(...nested);
+      } catch (err) {
+        this.logger.warn(`Failed to scrape nested replies for parent ${parent.id}: ${(err as Error).message}`);
+      }
+    }
+
+    return allNested;
+  }
+
+  /**
+   * Scrape comments from a URL using browser automation.
+   * Used for both root posts and nested reply pages.
+   */
+  private async scrapeCommentsFromUrl(
+    accountId: string,
     network: SocialNetwork,
-    postUrl: string,
-    postContent: string,
+    url: string,
+    skipTexts: string[],
   ): Promise<ScrapedComment[]> {
     if (!this.browser) {
       this.logger.warn('Browser port not available — cannot scrape comments');
@@ -247,8 +310,8 @@ export class RepliesMonitorService implements OnModuleInit {
     let page: Page | null = null;
 
     try {
-      // Get or create a session for this network
-      const session = await this.sessionsService.getOrCreateSession(network);
+      // Get or create a session for this account
+      const session = await this.sessionsService.getOrCreateSession(accountId, network);
       if (!session) {
         this.logger.warn(`No active session for ${network} — cannot scrape comments`);
         return [];
@@ -264,7 +327,7 @@ export class RepliesMonitorService implements OnModuleInit {
         return [];
       }
       const storageState = this.sessionsService.decryptStorageState(sessionWithData);
-      context = await this.browser.acquireContext(network, storageState);
+      context = await this.browser.acquireContext(network, storageState, accountId);
       page = await context.newPage();
 
       // Suppress uncaught page-side JS errors (social feeds throw many) that can
@@ -275,25 +338,25 @@ export class RepliesMonitorService implements OnModuleInit {
       // scenario from camoufox#87. Blocking images prevents renderer memory blowup.
       await this.browser.applyResourceBlocking(page, { blockImages: true });
 
-      await page.goto(postUrl, { waitUntil: 'networkidle', timeout: 30_000 });
+      await page.goto(url, { waitUntil: 'networkidle', timeout: 30_000 });
       await page.waitForTimeout(3000); // Let comments load
 
       // Scroll to load more comments
       await this.scrollForComments(page);
 
       // Extract comments using network-specific selectors
-      const comments = await this.extractComments(page, network, postContent);
+      const comments = await this.extractComments(page, network, skipTexts);
 
-      this.logger.debug(`Scraped ${comments.length} comments from ${network} post ${postUrl}`);
+      this.logger.debug(`Scraped ${comments.length} comments from ${network} URL ${url}`);
       return comments;
     } catch (err) {
-      this.logger.warn(`Comment scraping failed for ${postUrl}: ${(err as Error).message}`);
+      this.logger.warn(`Comment scraping failed for ${url}: ${(err as Error).message}`);
       return [];
     } finally {
       if (page) await page.close().catch(() => void 0);
       if (context && this.browser) {
         try {
-          this.browser.releaseContext(network, context);
+          this.browser.releaseContext(network, context, accountId);
         } catch {
           // Ignore release errors
         }
@@ -314,17 +377,19 @@ export class RepliesMonitorService implements OnModuleInit {
   /**
    * Extract comments from the page using network-specific selectors.
    * Each network has a different DOM structure for comments.
+   *
+   * `skipTexts` lets callers skip the root post text, the parent reply text, etc.
    */
   private async extractComments(
     page: Page,
     network: SocialNetwork,
-    postContent: string,
+    skipTexts: string[],
   ): Promise<ScrapedComment[]> {
     const selectors = this.getCommentSelectors(network);
     const comments: ScrapedComment[] = [];
 
     const normalize = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
-    const normalizedPostContent = normalize(postContent);
+    const normalizedSkipTexts = skipTexts.map((s) => normalize(s)).filter(Boolean);
 
     try {
       const commentElements = await page.locator(selectors.commentContainer).all();
@@ -337,9 +402,10 @@ export class RepliesMonitorService implements OnModuleInit {
 
           if (!text || text.length < 2) continue;
 
-          // 2.9.2: The original post is often included in the same container list.
-          // Skip any element whose text is the original post content.
-          if (normalizedPostContent && normalize(text) === normalizedPostContent) {
+          // 2.9.2: The original post or parent reply is often included in the same container list.
+          // Skip any element whose text matches one of the skipTexts (root post content, parent reply, etc.).
+          const normalizedText = normalize(text);
+          if (normalizedSkipTexts.includes(normalizedText)) {
             continue;
           }
 
@@ -347,11 +413,14 @@ export class RepliesMonitorService implements OnModuleInit {
           // uses the handle, not the display name (which can match other users).
           const authorProfileUrl = await this.extractAuthorProfileUrl(el, network);
 
-          // RP2: stable, script-safe commentId — the old strip-non-alnum approach collapsed
-          // Cyrillic/emoji comments into collisions and silently dropped real comments.
-          const commentId = buildCommentId(author, text);
+          // Extract platform-native id and permalink where possible. This is required
+          // for nested reply scraping and replying directly to a specific comment.
+          const { nativeId, commentUrl } = await this.extractNativeIdAndUrl(el, network, authorProfileUrl);
 
-          comments.push({ commentId, author, text, authorProfileUrl });
+          // RP2: stable, script-safe commentId — prefer the platform native id when available.
+          const commentId = buildCommentId(author, text, nativeId);
+
+          comments.push({ commentId, author, text, authorProfileUrl, nativeId, commentUrl });
         } catch {
           // Skip individual comment extraction errors
         }
@@ -361,6 +430,52 @@ export class RepliesMonitorService implements OnModuleInit {
     }
 
     return comments;
+  }
+
+  /**
+   * Try to extract the platform-native comment id and absolute permalink from a
+   * comment element. Used to reply directly to a comment and to scrape nested replies.
+   */
+  private async extractNativeIdAndUrl(
+    el: Locator,
+    network: SocialNetwork,
+    authorProfileUrl: string | null,
+  ): Promise<{ nativeId: string | null; commentUrl: string | null }> {
+    try {
+      if (network === SocialNetwork.X) {
+        const href = await el.locator('a[href*="/status/"]').first().getAttribute('href');
+        const match = href?.match(/^\/([^/]+)\/status\/(\d+)(?:\/|$)/);
+        if (match?.[2]) {
+          const nativeId = match[2];
+          const handle = match[1];
+          return { nativeId, commentUrl: `https://x.com/${handle}/status/${nativeId}` };
+        }
+        return { nativeId: null, commentUrl: null };
+      }
+
+      if (network === SocialNetwork.THREADS) {
+        const href = await el.locator('a[href*="/post/"]').first().getAttribute('href');
+        const match = href?.match(/^\/(@[^/]+)\/post\/(\d+)(?:\/|$)/);
+        if (match?.[2] && authorProfileUrl) {
+          const nativeId = match[2];
+          return { nativeId, commentUrl: `https://www.threads.com${authorProfileUrl}/post/${nativeId}` };
+        }
+        return { nativeId: null, commentUrl: null };
+      }
+
+      if (network === SocialNetwork.FACEBOOK) {
+        const nativeId = await el.getAttribute('data-commentid');
+        if (nativeId) {
+          // Facebook comment permalinks need a page/post slug; we cannot build a full
+          // URL from the element alone. Leave commentUrl null for the parent-post reply path.
+          return { nativeId, commentUrl: null };
+        }
+        return { nativeId: null, commentUrl: null };
+      }
+    } catch {
+      // ignore extraction failures
+    }
+    return { nativeId: null, commentUrl: null };
   }
 
   /**
@@ -418,16 +533,23 @@ export class RepliesMonitorService implements OnModuleInit {
 
   /**
    * Save new comments to DB. Returns only the NEW comments (not already seen).
+   *
+   * When a `parent` is provided, comments are saved as nested replies to that parent,
+   * inheriting the conversation root id and depth.
    */
   private async saveNewComments(
     postId: string,
     network: SocialNetwork,
     comments: ScrapedComment[],
-  ): Promise<{ id: string; commentId: string; author: string; text: string; authorProfileUrl?: string | null }[]> {
-    const newComments: { id: string; commentId: string; author: string; text: string; authorProfileUrl?: string | null }[] = [];
+    parent?: IncomingComment | null,
+  ): Promise<IncomingComment[]> {
+    const newComments: IncomingComment[] = [];
 
     for (const comment of comments) {
       try {
+        const conversationId = parent?.conversationId ?? comment.commentId;
+        const depth = parent ? parent.depth + 1 : 0;
+
         const created = await this.prisma.incomingComment.upsert({
           where: { postId_commentId: { postId, commentId: comment.commentId } },
           update: {}, // Don't update existing — we only want NEW comments
@@ -437,14 +559,18 @@ export class RepliesMonitorService implements OnModuleInit {
             commentId: comment.commentId,
             author: comment.author,
             text: comment.text,
+            authorProfileUrl: comment.authorProfileUrl ?? null,
+            commentUrl: comment.commentUrl ?? null,
+            parentId: parent?.id ?? null,
+            conversationId,
+            depth,
             status: CommentStatus.NEW,
           },
-          select: { id: true, commentId: true, author: true, text: true, status: true },
         });
 
         // Only process comments that are NEW (just created)
         if (created.status === CommentStatus.NEW) {
-          newComments.push({ ...created, authorProfileUrl: comment.authorProfileUrl });
+          newComments.push(created);
         }
       } catch {
         // Skip duplicates or errors
@@ -461,22 +587,24 @@ export class RepliesMonitorService implements OnModuleInit {
    */
   async decideReply(
     post: { id: string; network: string; content: string },
-    comment: { id: string; commentId: string; author: string; text: string; authorProfileUrl?: string | null },
+    comment: Partial<IncomingComment>,
   ): Promise<ReplyDecision> {
+    const text = comment.text ?? '';
+
     // 1. Skip spam/trolls (deterministic check first — free; word-boundary so "about" ≠ "bot")
-    if (isLikelyTroll(comment.text)) {
+    if (isLikelyTroll(text)) {
       return { action: 'skip', reason: 'Potential troll/spam — skipped' };
     }
 
     // 2. Don't reply to our own comments — look up account by network, compare handle.
     // 2.9.1: Prefer the author profile URL because display names can match other users.
     try {
-      const account = await this.accountsService.findByNetwork(post.network as SocialNetwork);
+      const account = await this.accountsService.findFirstActiveByNetwork(post.network as SocialNetwork);
       if (account?.handle) {
         const ownHandle = account.handle.toLowerCase().trim();
         const commentHandle = comment.authorProfileUrl
           ? extractHandleFromProfileUrl(comment.authorProfileUrl)
-          : normalizeHandle(comment.author);
+          : normalizeHandle(comment.author ?? '');
         if (commentHandle && commentHandle === ownHandle) {
           return { action: 'skip', reason: 'Self-reply skipped (own account)' };
         }
@@ -495,7 +623,7 @@ export class RepliesMonitorService implements OnModuleInit {
 
     // RP3: deterministic sensitive-topic backstop — runs BEFORE the LLM so a misclassification
     // can never auto-reply to grief/crisis/complaint.
-    const sensitive = detectSensitive(comment.text);
+    const sensitive = detectSensitive(text);
     if (sensitive.sensitive) {
       return {
         action: 'human_review',
@@ -507,134 +635,50 @@ export class RepliesMonitorService implements OnModuleInit {
     // 4. Low-value comment pre-filter — deterministic check for comments that don't warrant
     // a reply (emoji-only, generic reactions, follow-bait, pure hashtags). Saves an LLM call.
     // Runs AFTER sensitive check so crisis/complaint comments still go to human_review.
-    const lowValue = isLowValueComment(comment.text);
+    const lowValue = isLowValueComment(text);
     if (lowValue.lowValue) {
       return { action: 'skip', reason: lowValue.reason ?? 'Low-value comment — skipped' };
     }
 
-    // 5. LLM is the sole content generator — no template fallback.
-    // If LLM service is not wired or all providers fail, skip the comment
-    // (it stays NEW and will be retried in the next monitoring cycle).
+    // 5. Dialogue graph: classify the comment as a question, build conversation
+    // context, and decide whether to reply / skip / escalate. The graph enforces
+    // the hard depth limit and language/script validation.
     if (!this.llmService) {
       this.logger.warn('LlmService not available — skipping comment (will retry next cycle)');
       return { action: 'skip', reason: 'LLM service not available — will retry next cycle' };
     }
-
-    return this.llmDecideReply(post, comment);
-  }
-
-  /**
-   * LLM-based reply decision — classifies comment complexity and generates reply.
-   */
-  private async llmDecideReply(
-    post: { id: string; network: string; content: string },
-    comment: { id: string; commentId: string; author: string; text: string; authorProfileUrl?: string | null },
-  ): Promise<ReplyDecision> {
-    // RP6: deterministic pre-detection of the comment language. The LLM still
-    // echoes the language in the response, but it now starts from a ground-truth
-    // label instead of guessing on short, ambiguous social text.
-    if (!this.llmService) {
-      this.logger.warn('LlmService not available — skipping comment (will retry next cycle)');
-      return { action: 'skip', reason: 'LLM service not available — will retry next cycle' };
+    if (!this.dialogueService) {
+      return { action: 'skip', reason: 'Dialogue service not available' };
     }
 
-    const detectedLanguage = detectLanguage(comment.text);
+    // Rehydrate a full IncomingComment from the passed projection. In production
+    // this comes from saveNewComments; in tests it may be a partial stub.
+    const fullComment: IncomingComment = {
+      id: comment.id ?? 'unknown',
+      postId: comment.postId ?? post.id,
+      network: (comment.network ?? post.network) as SocialNetwork,
+      commentId: comment.commentId ?? 'unknown',
+      author: comment.author ?? 'unknown',
+      text,
+      authorProfileUrl: comment.authorProfileUrl ?? null,
+      commentUrl: comment.commentUrl ?? null,
+      parentId: comment.parentId ?? null,
+      conversationId: comment.conversationId ?? comment.commentId ?? 'unknown',
+      depth: comment.depth ?? 0,
+      isQuestion: comment.isQuestion ?? false,
+      questionConfidence: comment.questionConfidence ?? null,
+      questionType: comment.questionType ?? null,
+      replyUrl: comment.replyUrl ?? null,
+      status: comment.status ?? CommentStatus.NEW,
+      replyText: comment.replyText ?? null,
+      replyPostedAt: comment.replyPostedAt ?? null,
+      needsHumanReview: comment.needsHumanReview ?? false,
+      humanReviewReason: comment.humanReviewReason ?? null,
+      scrapedAt: comment.scrapedAt ?? new Date(),
+      createdAt: comment.createdAt ?? new Date(),
+    };
 
-    // Sprint P: prompt is loaded from Langfuse Prompt Management if available,
-    // with this inline string as fallback.
-    const systemPrompt = await this.getCompiledText(
-      'reply-decision',
-      { detectedLanguage, network: post.network },
-      REPLY_DECISION_PROMPT,
-    );
-
-    // SEC3: the comment author + text are untrusted external input — sanitize
-    // before interpolating so a comment can't inject instructions the model then
-    // follows and posts under our account.
-    const userPrompt = `Post content: "${post.content.slice(0, 300)}"
-
-Comment from @${sanitizeUntrustedInput(comment.author, 60)}: "${sanitizeUntrustedInput(comment.text)}"
-
-Detected comment language: ${detectedLanguage}
-Network: ${post.network}
-
-Reply in EXACTLY the detected language (${detectedLanguage}). Do not switch languages mid-reply.`;
-
-    try {
-      const response = await this.llmService.generateChat(systemPrompt, userPrompt, { temperature: this.repliesTemperature });
-
-      // Parse JSON response — LLM may wrap in markdown
-      const jsonMatch = response.content.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        this.logger.warn('LLM reply decision: no JSON found in response — skipping (will retry next cycle)');
-        return { action: 'skip', reason: 'LLM returned no JSON — will retry next cycle' };
-      }
-
-      let parsed: ReplyDecision;
-      try {
-        parsed = JSON.parse(jsonMatch[0]);
-      } catch {
-        this.logger.warn('LLM reply decision: JSON parse failed — skipping (will retry next cycle)');
-        return { action: 'skip', reason: 'LLM JSON parse failed — will retry next cycle' };
-      }
-
-      // Validate action — default to human_review if invalid
-      if (parsed.action !== 'auto_reply' && parsed.action !== 'human_review' && parsed.action !== 'skip') {
-        parsed.action = 'human_review';
-        parsed.reviewReason = 'LLM returned invalid action — defaulting to human review';
-      }
-
-      // Validate replyText exists for auto_reply
-      if (parsed.action === 'auto_reply' && (!parsed.replyText || typeof parsed.replyText !== 'string')) {
-        parsed.action = 'human_review';
-        parsed.reviewReason = 'LLM auto_reply missing replyText — defaulting to human review';
-      }
-
-      // Post-validation: verify the reply's script matches the detected language.
-      // This catches the #1 bot tell — replying in English to a non-English comment.
-      // RP6: the deterministic detector is the ground truth; if the LLM echoed a
-      // different language code, override it before validating the script.
-      if (parsed.action === 'auto_reply' && parsed.replyText) {
-        const llmLang = normalizeLanguage(parsed.detectedLanguage);
-        const lang = llmLang === detectedLanguage ? llmLang : detectedLanguage;
-        if (llmLang !== detectedLanguage) {
-          this.logger.warn(
-            `Reply language mismatch: LLM said ${llmLang}, detector said ${detectedLanguage} — using ${lang} for validation`,
-          );
-          parsed.detectedLanguage = lang;
-        }
-        if (!matchesScript(parsed.replyText, lang)) {
-          this.logger.warn(
-            `Reply script mismatch: detectedLanguage=${lang}, replyText="${parsed.replyText.slice(0, 60)}" — downgrading to human_review`,
-          );
-          parsed.action = 'human_review';
-          parsed.reviewReason = `Reply script does not match detected language (${lang}) — requires human review`;
-        }
-      }
-
-      // Complexity threshold check
-      if (parsed.action === 'auto_reply') {
-        const complexityLevel = { low: 0, medium: 1, high: 2 };
-        const threshold = complexityLevel[this.autoReplyComplexity];
-        // If the comment seems complex (long, multiple questions, etc.), escalate based on threshold
-        const isComplex = comment.text.length > 200 || (comment.text.match(/\?/g)?.length ?? 0) > 1;
-        if (isComplex && threshold < 2) {
-          return {
-            action: 'human_review',
-            reason: 'Comment complexity exceeds auto-reply threshold',
-            reviewReason: `Complex comment (length=${comment.text.length}, questions=${comment.text.match(/\?/g)?.length ?? 0}) — threshold=${this.autoReplyComplexity}`,
-          };
-        }
-      }
-
-      return parsed;
-    } catch (err) {
-      // LLM failed (all providers down, rate limited, etc.) — skip, don't post a template.
-      // The comment stays NEW and will be retried in the next monitoring cycle when
-      // providers may have recovered (circuit breakers reset, rate limits cleared).
-      this.logger.warn(`LLM reply decision failed: ${(err as Error).message} — skipping (will retry next cycle)`);
-      return { action: 'skip', reason: `LLM unavailable: ${(err as Error).message} — will retry next cycle` };
-    }
+    return this.dialogueService.processComment(fullComment, post.content);
   }
 
 
@@ -643,14 +687,14 @@ Reply in EXACTLY the detected language (${detectedLanguage}). Do not switch lang
    */
   private async executeDecision(
     post: { id: string; network: string; postUrl: string | null; content: string },
-    comment: { id: string; commentId: string; author: string; text: string; authorProfileUrl?: string | null },
+    comment: Partial<IncomingComment>,
     decision: ReplyDecision,
     stats: { postsChecked: number; commentsScraped: number; repliesPosted: number; repliesScheduled: number; humanReview: number },
   ): Promise<void> {
     switch (decision.action) {
       case 'skip': {
         await this.prisma.incomingComment.update({
-          where: { id: comment.id },
+          where: { id: comment.id! },
           data: { status: CommentStatus.SKIPPED },
         });
         this.logger.debug(`Skipped comment ${comment.commentId}: ${decision.reason}`);
@@ -659,7 +703,7 @@ Reply in EXACTLY the detected language (${detectedLanguage}). Do not switch lang
 
       case 'human_review': {
         await this.prisma.incomingComment.update({
-          where: { id: comment.id },
+          where: { id: comment.id! },
           data: {
             status: CommentStatus.HUMAN_REVIEW,
             needsHumanReview: true,
@@ -677,8 +721,12 @@ Reply in EXACTLY the detected language (${detectedLanguage}). Do not switch lang
           this.logger.warn(`Auto-reply decision has no replyText — skipping`);
           return;
         }
-        if (!post.postUrl) {
-          this.logger.warn(`Auto-reply for comment ${comment.commentId} has no postUrl — cannot reply`);
+
+        // Reply directly to the comment's permalink when available; fall back to the post URL.
+        // This enables nested conversation threads (reply-to-reply) on X/Threads.
+        const targetCommentUrl = (comment.commentUrl ?? post.postUrl) ?? '';
+        if (!targetCommentUrl) {
+          this.logger.warn(`Auto-reply for comment ${comment.commentId} has no target URL — cannot reply`);
           return;
         }
 
@@ -691,14 +739,15 @@ Reply in EXACTLY the detected language (${detectedLanguage}). Do not switch lang
         // (no duplicate replies even across restarts) and the cron stays responsive.
         if (this.queueFactory) {
           await this.queueFactory.enqueueEngagement(
-            comment.commentId,
+            comment.commentId!,
             post.network,
             'reply',
             {
-              commentDbId: comment.id,
-              commentId: comment.commentId,
+              commentDbId: comment.id!,
+              commentId: comment.commentId!,
               postId: post.id,
               postUrl: post.postUrl,
+              targetCommentUrl,
               replyText: decision.replyText,
             },
             { delay },
@@ -707,7 +756,7 @@ Reply in EXACTLY the detected language (${detectedLanguage}). Do not switch lang
           // Status stays NEW until the worker posts it; the re-entrancy guard (an
           // existing engagement job for this commentId) prevents re-deciding it.
           await this.prisma.incomingComment.update({
-            where: { id: comment.id },
+            where: { id: comment.id! },
             data: { replyText: decision.replyText },
           });
           this.logger.log(
@@ -722,11 +771,12 @@ Reply in EXACTLY the detected language (${detectedLanguage}). Do not switch lang
         if (this.engagementService) {
           try {
             await this.postScheduledReply({
-              commentDbId: comment.id,
-              commentId: comment.commentId,
+              commentDbId: comment.id!,
+              commentId: comment.commentId!,
               postId: post.id,
               network: post.network,
               postUrl: post.postUrl,
+              targetCommentUrl,
               replyText: decision.replyText,
             });
             stats.repliesPosted++;
@@ -747,21 +797,6 @@ Reply in EXACTLY the detected language (${detectedLanguage}). Do not switch lang
         this.logger.error(`Unhandled reply action: ${_exhaustive}`);
       }
     }
-  }
-
-  /**
-   * Sprint P: fetch a compiled text prompt from PromptRegistry, or interpolate the
-   * inline fallback if PromptRegistry is unavailable (e.g. unit tests).
-   */
-  private async getCompiledText(
-    name: string,
-    variables: Record<string, string>,
-    fallback: string,
-  ): Promise<string> {
-    if (this.promptPort) {
-      return this.promptPort.getCompiledText(name, variables, fallback);
-    }
-    return interpolate(fallback, variables);
   }
 
   /**
@@ -786,7 +821,8 @@ Reply in EXACTLY the detected language (${detectedLanguage}). Do not switch lang
     commentId: string;
     postId: string;
     network: string;
-    postUrl: string;
+    postUrl: string | null;
+    targetCommentUrl?: string | null;
     replyText: string;
   }): Promise<void> {
     if (!this.engagementService) {
@@ -809,9 +845,13 @@ Reply in EXACTLY the detected language (${detectedLanguage}). Do not switch lang
       return;
     }
 
+    const targetUrl = data.targetCommentUrl ?? data.postUrl ?? '';
+    if (!targetUrl) {
+      throw new Error('No target URL for reply');
+    }
     const result = await this.engagementService.reply(
       data.network as SocialNetwork,
-      data.postUrl,
+      targetUrl,
       data.replyText,
     );
 
@@ -825,6 +865,7 @@ Reply in EXACTLY the detected language (${detectedLanguage}). Do not switch lang
       data: {
         status: CommentStatus.REPLIED,
         replyText: data.replyText,
+        replyUrl: result.postUrl ?? null,
         replyPostedAt: new Date(),
       },
     });

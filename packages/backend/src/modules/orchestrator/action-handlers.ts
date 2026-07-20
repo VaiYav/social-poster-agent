@@ -16,6 +16,7 @@ import { parseBool } from '../../infrastructure/config/parse-bool.js';
 import { GenerationService } from '../generation/generation.service.js';
 import { QueueService } from '../queue/queue.service.js';
 import { SessionsService } from '../sessions/sessions.service.js';
+import { AccountsService } from '../accounts/accounts.service.js';
 import { HealthMonitorService } from '../health-monitor/health-monitor.service.js';
 import { TrendingScraperService } from '../trending/trending-scraper.service.js';
 import { MetricsScraperService } from '../analytics/metrics-scraper.service.js';
@@ -252,7 +253,15 @@ export class RecoverSessionHandler implements IActionHandler {
     const sessionsService = resolveOptional(this.moduleRef, SessionsService);
     if (!sessionsService) throw new Error('SessionsService not available');
 
-    const session = await sessionsService.getOrCreateSession(action.network);
+    let accountId: string | undefined;
+    const accountsService = resolveOptional(this.moduleRef, AccountsService);
+    if (accountsService) {
+      const account = await accountsService.getNextAccountForNetwork(action.network);
+      accountId = account?.id;
+    }
+    const session = accountId
+      ? await sessionsService.getOrCreateSession(accountId, action.network)
+      : await sessionsService.getOrCreateSession(action.network);
     return {
       recovered: session !== null,
       sessionStatus: session?.status ?? 'FAILED',

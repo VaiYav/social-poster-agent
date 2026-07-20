@@ -222,7 +222,7 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
    * Checks in order: daily limit → weekly limit → min interval.
    * Does NOT increment counters — call recordPost() after successful post.
    */
-  async checkRateLimit(network: string): Promise<{ allowed: boolean; reason?: string; retryAfterMs?: number }> {
+  async checkRateLimit(network: string, accountId?: string): Promise<{ allowed: boolean; reason?: string; retryAfterMs?: number }> {
     if (!this.redis) {
       // 2.7.3: optionally fail-closed when Redis is unavailable
       if (this.failClosed) {
@@ -239,10 +239,11 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     const today = new Date().toISOString().slice(0, 10);
     const weekStartDate = this.getWeekStart();
     const weekStart = weekStartDate.toISOString().slice(0, 10);
-    const dailyKey = `${this.prefix}:${network}:daily:${today}`;
-    const weeklyKey = `${this.prefix}:${network}:weekly:${weekStart}`;
-    const intervalKey = `${this.prefix}:${network}:interval`;
-    const lastPostAtKey = `${this.prefix}:${network}:lastPostAt`;
+    const keySuffix = accountId ? `${network}:${accountId}` : network;
+    const dailyKey = `${this.prefix}:${keySuffix}:daily:${today}`;
+    const weeklyKey = `${this.prefix}:${keySuffix}:weekly:${weekStart}`;
+    const intervalKey = `${this.prefix}:${keySuffix}:interval`;
+    const lastPostAtKey = `${this.prefix}:${keySuffix}:lastPostAt`;
 
     const { daily: dailyLimit, weekly: weeklyLimit, intervalMs } = this.resolveLimits(network);
 
@@ -301,16 +302,17 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
    * 2.7: Uses a single Lua script to avoid the TOCTOU race between the read in
    * checkRateLimit and the increments in recordPost.
    */
-  async recordPost(network: string): Promise<{ allowed: boolean; dailyCount: number; weeklyCount: number }> {
+  async recordPost(network: string, accountId?: string): Promise<{ allowed: boolean; dailyCount: number; weeklyCount: number }> {
     const empty = { allowed: true, dailyCount: 0, weeklyCount: 0 };
     if (!this.redis) return empty;
 
     const today = new Date().toISOString().slice(0, 10);
     const weekStart = this.getWeekStart().toISOString().slice(0, 10);
-    const dailyKey = `${this.prefix}:${network}:daily:${today}`;
-    const weeklyKey = `${this.prefix}:${network}:weekly:${weekStart}`;
-    const intervalKey = `${this.prefix}:${network}:interval`;
-    const lastPostAtKey = `${this.prefix}:${network}:lastPostAt`;
+    const keySuffix = accountId ? `${network}:${accountId}` : network;
+    const dailyKey = `${this.prefix}:${keySuffix}:daily:${today}`;
+    const weeklyKey = `${this.prefix}:${keySuffix}:weekly:${weekStart}`;
+    const intervalKey = `${this.prefix}:${keySuffix}:interval`;
+    const lastPostAtKey = `${this.prefix}:${keySuffix}:lastPostAt`;
     const { daily: dailyLimit, weekly: weeklyLimit, intervalMs } = this.resolveLimits(network);
     const now = Date.now();
 
@@ -350,15 +352,16 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
    * Reset rate limit counters for a network (and optional action suffix).
    * Useful for operational recovery when a limit was reached unintentionally.
    */
-  async resetRateLimit(network: string): Promise<void> {
+  async resetRateLimit(network: string, accountId?: string): Promise<void> {
     if (!this.redis) return;
 
     const today = new Date().toISOString().slice(0, 10);
     const weekStart = this.getWeekStart().toISOString().slice(0, 10);
-    const dailyKey = `${this.prefix}:${network}:daily:${today}`;
-    const weeklyKey = `${this.prefix}:${network}:weekly:${weekStart}`;
-    const intervalKey = `${this.prefix}:${network}:interval`;
-    const lastPostAtKey = `${this.prefix}:${network}:lastPostAt`;
+    const keySuffix = accountId ? `${network}:${accountId}` : network;
+    const dailyKey = `${this.prefix}:${keySuffix}:daily:${today}`;
+    const weeklyKey = `${this.prefix}:${keySuffix}:weekly:${weekStart}`;
+    const intervalKey = `${this.prefix}:${keySuffix}:interval`;
+    const lastPostAtKey = `${this.prefix}:${keySuffix}:lastPostAt`;
 
     await this.redis.del(dailyKey, weeklyKey, intervalKey, lastPostAtKey);
     this.logger.warn(`Rate limit counters reset for ${network}`);
@@ -367,7 +370,7 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
   /**
    * Get current rate limit status for a network.
    */
-  async getStatus(network: string): Promise<{
+  async getStatus(network: string, accountId?: string): Promise<{
     dailyCount: number;
     dailyLimit: number;
     weeklyCount: number;
@@ -390,10 +393,11 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
 
     const today = new Date().toISOString().slice(0, 10);
     const weekStart = this.getWeekStart().toISOString().slice(0, 10);
-    const dailyKey = `${this.prefix}:${network}:daily:${today}`;
-    const weeklyKey = `${this.prefix}:${network}:weekly:${weekStart}`;
-    const intervalKey = `${this.prefix}:${network}:interval`;
-    const lastPostAtKey = `${this.prefix}:${network}:lastPostAt`;
+    const keySuffix = accountId ? `${network}:${accountId}` : network;
+    const dailyKey = `${this.prefix}:${keySuffix}:daily:${today}`;
+    const weeklyKey = `${this.prefix}:${keySuffix}:weekly:${weekStart}`;
+    const intervalKey = `${this.prefix}:${keySuffix}:interval`;
+    const lastPostAtKey = `${this.prefix}:${keySuffix}:lastPostAt`;
 
     const [dailyCountStr, weeklyCountStr, lastPostAtTs, intervalTs] = await Promise.all([
       this.redis.get(dailyKey),

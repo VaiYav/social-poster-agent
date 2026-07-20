@@ -14,6 +14,7 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service.js';
 import { SessionsService } from '../sessions/sessions.service.js';
+import { AccountsService } from '../accounts/accounts.service.js';
 import { IBrowserPort } from '../../domain/ports/browser.port.js';
 import { SseService } from '../../infrastructure/sse/sse.service.js';
 import { RateLimitService } from '../rate-limit/rate-limit.service.js';
@@ -22,6 +23,7 @@ import {
   InteractionType,
   SocialNetwork,
   BrowsingSessionStatus,
+  Session,
   type Prisma,
 } from '@prisma/client';
 import type { BaseEngager } from './engagers/base.engager.js';
@@ -73,6 +75,7 @@ export class BrowsingSessionService {
     private readonly targetingService: TargetingService,
     @Inject(DISTRIBUTED_LOCK_SERVICE) private readonly lockService: DistributedLockService,
     @Optional() private readonly warmupService?: WarmupService,
+    @Optional() private readonly accountsService?: AccountsService,
   ) {
     this.defaultDurationSec = Number(
       this.configService.get<string>('F1_BROWSING_SESSION_MINUTES', '10'),
@@ -143,14 +146,23 @@ export class BrowsingSessionService {
     let browsingSession: { id: string; accountId: string } | null = null;
     let postsViewed = 0;
     let interactionsCount = 0;
+    let session: Session | null = null;
     let context: Awaited<ReturnType<IBrowserPort['acquireContext']>> | null = null;
     let page: Awaited<ReturnType<Awaited<ReturnType<IBrowserPort['acquireContext']>>['newPage']>> | undefined;
 
     try {
-      // Get or create session. Deferred: engagement must not force an inline form login in the
+      // Pick an account for this network (round-robin if multiple are configured).
+      // Deferred: engagement must not force an inline form login in the
       // job hot-path (same reasoning as posting.service.ts) — recovery happens out-of-band via the
       // orchestrator's RECOVER_SESSION action, which has its own cooldown/circuit-breaker guards.
-      const session = await this.sessionsService.getOrCreateSession(network, { deferFormLogin: true });
+      let accountId: string | undefined;
+      if (this.accountsService) {
+        const account = await this.accountsService.getNextAccountForNetwork(network);
+        accountId = account?.id;
+      }
+      session = accountId
+        ? await this.sessionsService.getOrCreateSession(accountId, network, { deferFormLogin: true })
+        : await this.sessionsService.getOrCreateSession(network, { deferFormLogin: true });
       if (!session) {
         throw new Error(`No active session for ${network} — auto-login failed`);
       }
@@ -181,7 +193,7 @@ export class BrowsingSessionService {
       const storageState = session.storageState
         ? this.sessionsService.decryptStorageState(session)
         : undefined;
-      context = await this.browser.acquireContext(network, storageState);
+      context = await this.browser.acquireContext(network, storageState, session.accountId);
       page = await context.newPage();
 
       await this.browser.suppressPageErrors(page);
@@ -396,7 +408,7 @@ export class BrowsingSessionService {
       }
       // Sprint K: Release context back to pool for reuse
       if (context) {
-        this.browser.releaseContext(network, context);
+        this.browser.releaseContext(network, context, session?.accountId);
       }
       // Release the distributed session lock so the next job can start.
       await lock.release().catch(() => {});

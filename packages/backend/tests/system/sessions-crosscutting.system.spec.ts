@@ -338,7 +338,7 @@ const ACCOUNT_X = {
   id: 'acc-001',
   network: SocialNetwork.X,
   handle: 'myzodiacai',
-  credentialsRef: 'SOCIAL_X_USERNAME/PASSWORD',
+  credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD',
   active: true,
   createdAt: new Date('2026-07-01T00:00:00Z'),
   updatedAt: new Date('2026-07-01T00:00:00Z'),
@@ -348,7 +348,7 @@ const ACCOUNT_THREADS = {
   id: 'acc-002',
   network: SocialNetwork.THREADS,
   handle: 'myzodiacai',
-  credentialsRef: 'SOCIAL_THREADS_USERNAME/PASSWORD',
+  credentialsRef: 'SOCIAL_THREADS_USERNAME,SOCIAL_THREADS_PASSWORD',
   active: true,
   createdAt: new Date('2026-07-01T00:00:00Z'),
   updatedAt: new Date('2026-07-01T00:00:00Z'),
@@ -358,7 +358,7 @@ const ACCOUNT_FACEBOOK = {
   id: 'acc-003',
   network: SocialNetwork.FACEBOOK,
   handle: 'myzodiacai@facebook.com',
-  credentialsRef: 'SOCIAL_FACEBOOK_EMAIL/PASSWORD',
+  credentialsRef: 'SOCIAL_FACEBOOK_EMAIL,SOCIAL_FACEBOOK_PASSWORD',
   active: true,
   createdAt: new Date('2026-07-01T00:00:00Z'),
   updatedAt: new Date('2026-07-01T00:00:00Z'),
@@ -498,6 +498,12 @@ async function buildFullAppModule(): Promise<FullAppResult> {
 
   // Default prisma mocks so onModuleInit hooks (CronService.seedFromEnv) don't crash.
   prisma.socialAccount.findFirst.mockResolvedValue(null);
+  prisma.socialAccount.findUnique.mockImplementation(({ where }: unknown) => {
+    if (where?.id === 'acc-001') return Promise.resolve(ACCOUNT_X);
+    if (where?.id === 'acc-002') return Promise.resolve(ACCOUNT_THREADS);
+    if (where?.id === 'acc-003') return Promise.resolve(ACCOUNT_FACEBOOK);
+    return Promise.resolve(null);
+  });
   prisma.socialAccount.create.mockResolvedValue(ACCOUNT_X);
   prisma.socialAccount.findMany.mockResolvedValue([ACCOUNT_X, ACCOUNT_THREADS, ACCOUNT_FACEBOOK]);
 
@@ -1167,9 +1173,9 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
     // Assert: credentialsRef contains env var NAME, not actual credential value.
     // The RedactInterceptor redacts credentialsRef to [REDACTED], so we verify
     // the raw mock data (which represents what's in the DB).
-    expect(ACCOUNT_X.credentialsRef).toBe('SOCIAL_X_USERNAME/PASSWORD');
-    expect(ACCOUNT_THREADS.credentialsRef).toBe('SOCIAL_THREADS_USERNAME/PASSWORD');
-    expect(ACCOUNT_FACEBOOK.credentialsRef).toBe('SOCIAL_FACEBOOK_EMAIL/PASSWORD');
+    expect(ACCOUNT_X.credentialsRef).toBe('SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD');
+    expect(ACCOUNT_THREADS.credentialsRef).toBe('SOCIAL_THREADS_USERNAME,SOCIAL_THREADS_PASSWORD');
+    expect(ACCOUNT_FACEBOOK.credentialsRef).toBe('SOCIAL_FACEBOOK_EMAIL,SOCIAL_FACEBOOK_PASSWORD');
 
     // Assert: credentialsRef does NOT contain raw password values.
     expect(ACCOUNT_X.credentialsRef).not.toContain('test_x_pass');

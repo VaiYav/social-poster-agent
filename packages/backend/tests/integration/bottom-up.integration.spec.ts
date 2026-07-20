@@ -411,7 +411,7 @@ describe('Bottom-Up Integration Tests', () => {
     beforeEach(() => { vi.clearAllMocks(); });
 
     it('ITC-021: Sessions → Prisma (create → find → update storageState → mark expired)', async () => {
-      // getOrCreateSession first calls accountsService.findByNetwork → needs account
+      // getOrCreateSession first calls accountsService.findFirstActiveByNetwork → needs account
       prisma.socialAccount.findFirst.mockResolvedValue({
         id: 'acc-1', network: 'X', handle: 'testuser', active: true,
       });
@@ -641,13 +641,13 @@ describe('Bottom-Up Integration Tests', () => {
 
     beforeEach(() => { vi.clearAllMocks(); });
 
-    it('ITC-031: Accounts → Config (findByNetwork returns account from env config)', async () => {
-      // findByNetwork uses prisma.socialAccount.findFirst (not findUnique)
+    it('ITC-031: Accounts → Config (findFirstActiveByNetwork returns account from env config)', async () => {
+      // findFirstActiveByNetwork uses prisma.socialAccount.findFirst (not findUnique)
       prisma.socialAccount.findFirst.mockResolvedValue({
         id: 'acc-x', network: 'X', handle: 'test_x_user', active: true,
       });
 
-      const account = await accountsService.findByNetwork('X' as unknown);
+      const account = await accountsService.findFirstActiveByNetwork('X' as unknown);
       expect(account).toBeDefined();
       expect(account.handle).toBe('test_x_user');
       expect(prisma.socialAccount.findFirst).toHaveBeenCalledWith(

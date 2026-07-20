@@ -10,6 +10,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ConfigService } from '@nestjs/config';
 import { RepliesMonitorService } from '../../../src/modules/replies/replies-monitor.service';
+import { DialogueService } from '../../../src/modules/replies/dialogue.service';
 import { createMockPrismaService } from '../../mocks/index';
 
 // ── Mock dependencies ──
@@ -47,7 +48,8 @@ function createMockSseService() {
 
 function createMockAccountsService(handle?: string) {
   return {
-    findByNetwork: vi.fn().mockResolvedValue(handle ? { handle } : null),
+    findByNetwork: vi.fn().mockResolvedValue(handle ? [{ handle }] : []),
+    findFirstActiveByNetwork: vi.fn().mockResolvedValue(handle ? { handle } : null),
     getAccount: vi.fn().mockResolvedValue(null),
   };
 }
@@ -215,17 +217,7 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
         tokens: 10,
       }),
     };
-    const svcWithLlm = new RepliesMonitorService(
-      prisma as any,
-      createMockConfigService({ REPLIES_ENABLED: 'true' }),
-      createMockAccountsService() as any,
-      createMockSessionsService() as any,
-      createMockSchedulerRegistry() as any,
-      createMockDiscord() as any,
-      createMockSseService() as any,
-      mockLlm as any,
-      undefined, undefined,
-    );
+    const svcWithLlm = createServiceWithLlm(mockLlm);
     const result = await (svcWithLlm as any).decideReply(
       { id: '1', network: 'X', content: 'Post about Mars' },
       { id: '2', commentId: 'c1', author: 'user', text: 'Love this post!' },
@@ -239,24 +231,14 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
     const mockLlm = {
       generateChat: vi.fn().mockRejectedValue(new Error('All LLM providers failed')),
     };
-    const svcWithLlm = new RepliesMonitorService(
-      prisma as any,
-      createMockConfigService({ REPLIES_ENABLED: 'true' }),
-      createMockAccountsService() as any,
-      createMockSessionsService() as any,
-      createMockSchedulerRegistry() as any,
-      createMockDiscord() as any,
-      createMockSseService() as any,
-      mockLlm as any,
-      undefined, undefined,
-    );
+    const svcWithLlm = createServiceWithLlm(mockLlm);
     const result = await (svcWithLlm as any).decideReply(
       { id: '1', network: 'X', content: 'Post about Mars' },
       { id: '2', commentId: 'c1', author: 'user', text: 'Love this post!' },
     );
     // LLM failed → skip (no template fallback, will retry next cycle)
     expect(result.action).toBe('skip');
-    expect(result.reason).toContain('LLM unavailable');
+    expect(result.reason).toContain('LLM reply decision failed');
   });
 
   it('PRE-013: skips when LLM returns no JSON', async () => {
@@ -267,23 +249,13 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
         tokens: 10,
       }),
     };
-    const svcWithLlm = new RepliesMonitorService(
-      prisma as any,
-      createMockConfigService({ REPLIES_ENABLED: 'true' }),
-      createMockAccountsService() as any,
-      createMockSessionsService() as any,
-      createMockSchedulerRegistry() as any,
-      createMockDiscord() as any,
-      createMockSseService() as any,
-      mockLlm as any,
-      undefined, undefined,
-    );
+    const svcWithLlm = createServiceWithLlm(mockLlm);
     const result = await (svcWithLlm as any).decideReply(
       { id: '1', network: 'X', content: 'Post about Mars' },
       { id: '2', commentId: 'c1', author: 'user', text: 'Love this post!' },
     );
     expect(result.action).toBe('skip');
-    expect(result.reason).toContain('no JSON');
+    expect(result.reason).toContain('no valid JSON');
   });
 
   it('PRE-014: defaults to human_review when LLM returns invalid action', async () => {
@@ -294,17 +266,7 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
         tokens: 10,
       }),
     };
-    const svcWithLlm = new RepliesMonitorService(
-      prisma as any,
-      createMockConfigService({ REPLIES_ENABLED: 'true' }),
-      createMockAccountsService() as any,
-      createMockSessionsService() as any,
-      createMockSchedulerRegistry() as any,
-      createMockDiscord() as any,
-      createMockSseService() as any,
-      mockLlm as any,
-      undefined, undefined,
-    );
+    const svcWithLlm = createServiceWithLlm(mockLlm);
     const result = await (svcWithLlm as any).decideReply(
       { id: '1', network: 'X', content: 'Post about Mars' },
       { id: '2', commentId: 'c1', author: 'user', text: 'Love this post!' },
@@ -320,17 +282,7 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
         tokens: 10,
       }),
     };
-    const svcWithLlm = new RepliesMonitorService(
-      prisma as any,
-      createMockConfigService({ REPLIES_ENABLED: 'true' }),
-      createMockAccountsService() as any,
-      createMockSessionsService() as any,
-      createMockSchedulerRegistry() as any,
-      createMockDiscord() as any,
-      createMockSseService() as any,
-      mockLlm as any,
-      undefined, undefined,
-    );
+    const svcWithLlm = createServiceWithLlm(mockLlm);
     const result = await (svcWithLlm as any).decideReply(
       { id: '1', network: 'X', content: 'Post about Mars' },
       { id: '2', commentId: 'c1', author: 'user', text: 'Love this post!' },
@@ -363,17 +315,32 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
   // We post-validate: if the LLM says "uk" but writes in Latin script, downgrade
   // to human_review instead of posting an English reply to a Ukrainian comment.
 
+  function createMockQuestionClassifier() {
+    return {
+      classify: vi.fn().mockResolvedValue({ isQuestion: false, confidence: 0, questionType: null, reason: 'test' }),
+    };
+  }
+
   function createServiceWithLlm(mockLlm: any) {
+    const config = createMockConfigService({ REPLIES_ENABLED: 'true' });
+    const questionClassifier = createMockQuestionClassifier();
+    const dialogueService = new DialogueService(
+      mockLlm as any,
+      questionClassifier as any,
+      prisma as any,
+      config as any,
+    );
     return new RepliesMonitorService(
       prisma as any,
-      createMockConfigService({ REPLIES_ENABLED: 'true' }),
+      config,
       createMockAccountsService() as any,
       createMockSessionsService() as any,
       createMockSchedulerRegistry() as any,
       createMockDiscord() as any,
       createMockSseService() as any,
+      dialogueService as any,
       mockLlm as any,
-      undefined, undefined,
+      undefined, undefined, undefined,
     );
   }
 

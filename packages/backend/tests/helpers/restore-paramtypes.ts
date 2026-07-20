@@ -104,6 +104,8 @@ import { TrendingController } from '../../src/modules/trending/trending.controll
 // Replies
 import { RepliesMonitorService } from '../../src/modules/replies/replies-monitor.service';
 import { RepliesController } from '../../src/modules/replies/replies.controller';
+import { QuestionClassifierService } from '../../src/modules/replies/question-classifier.service.js';
+import { DialogueService } from '../../src/modules/replies/dialogue.service.js';
 
 // Content enhancements
 import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service.js';
@@ -370,11 +372,20 @@ export function restoreAllDesignParamtypes(): void {
     SchedulerRegistry,
     DiscordNotificationService,
     SseService,
-    LlmService, // @Optional()
+    DialogueService,
+    Object, // @Optional() @Inject(ILlmPort)
     Object, // @Optional() @Inject(IBrowserPort)
     EngagementService, // @Optional()
-    Object, // @Optional() QueueFactory
-    Object, // @Optional() FlowControlService
+    QueueFactory, // @Optional()
+    FlowControlService, // @Optional()
+    Object, // @Optional() @Inject(IPromptPort)
+  ]);
+  defineParamtypes(QuestionClassifierService, [Object, ConfigService, Object]); // Object = @Inject(ILlmPort), Object = @Optional() @Inject(IPromptPort)
+  defineParamtypes(DialogueService, [
+    Object, // @Inject(ILlmPort)
+    QuestionClassifierService,
+    PrismaService,
+    ConfigService,
     Object, // @Optional() @Inject(IPromptPort)
   ]);
   defineParamtypes(RepliesController, [RepliesMonitorService, PrismaService]);

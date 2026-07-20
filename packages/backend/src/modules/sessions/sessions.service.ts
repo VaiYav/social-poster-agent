@@ -7,7 +7,7 @@ import { AccountsService } from '../accounts/accounts.service';
 import { IBrowserPort } from '../../domain/ports/browser.port.js';
 import { EncryptionService } from '../../infrastructure/crypto/encryption.service.js';
 import { DiscordNotificationService } from '../../infrastructure/notifications/discord-notification.service.js';
-import { SessionStatus, SocialNetwork, type Prisma } from '@prisma/client';
+import { Session, SessionStatus, SocialAccount, SocialNetwork, type Prisma } from '@prisma/client';
 import { navigateWithRetry } from '../../domain/retry.js';
 import { CircuitBreakerRegistry, CircuitOpenError } from '../../domain/circuit-breaker.js';
 import { parseBool } from '../../infrastructure/config/parse-bool';
@@ -130,40 +130,72 @@ export class SessionsService implements OnModuleInit {
     this.deferredLogin = parseBool(this.configService.get<string>('SESSION_DEFERRED_LOGIN', 'false'));
   }
 
-  async getOrCreateSession(network: SocialNetwork, opts: { deferFormLogin?: boolean } = {}) {
+  async getOrCreateSession(network: SocialNetwork, opts?: { deferFormLogin?: boolean }): Promise<Session | null>;
+  async getOrCreateSession(
+    accountId: string,
+    network: SocialNetwork,
+    opts?: { deferFormLogin?: boolean },
+  ): Promise<Session | null>;
+  async getOrCreateSession(
+    arg1: SocialNetwork | string,
+    arg2?: SocialNetwork | { deferFormLogin?: boolean },
+    arg3?: { deferFormLogin?: boolean },
+  ): Promise<Session | null> {
+    let account: { id: string; network: SocialNetwork } | null = null;
+    let network: SocialNetwork;
+    let opts: { deferFormLogin?: boolean } = {};
+
+    if (typeof arg1 === 'string' && typeof arg2 === 'string') {
+      // New per-account signature: getOrCreateSession(accountId, network, opts?)
+      const fullAccount = await this.accountsService.findById(arg1);
+      if (!fullAccount || fullAccount.network !== arg2) {
+        this.logger.warn(`Account ${arg1} not found or network mismatch (${arg2})`);
+        return null;
+      }
+      account = fullAccount;
+      network = arg2;
+      opts = (arg3 as { deferFormLogin?: boolean } | undefined) ?? {};
+    } else {
+      // Legacy per-network signature: getOrCreateSession(network, opts?)
+      network = arg1 as SocialNetwork;
+      opts = (arg2 as { deferFormLogin?: boolean } | undefined) ?? {};
+      account = await this.accountsService.findFirstActiveByNetwork(network);
+      if (!account) return null;
+    }
+
     if (!isNetworkEnabled(network)) {
       this.logger.debug(`Session request for disabled network ${network} — skipping`);
       return null;
     }
-    const account = await this.accountsService.findByNetwork(network);
-    if (!account) return null;
+
+    const accountId = account.id;
+    const lockKey = `login:${accountId}`;
 
     // Find active session — fast path, no lock needed
     const session = await this.prisma.session.findFirst({
-      where: { accountId: account.id, status: SessionStatus.ACTIVE },
+      where: { accountId, status: SessionStatus.ACTIVE },
       orderBy: { createdAt: 'desc' },
     });
 
     if (session) {
-      this.logger.debug(`Found active session for ${network}`);
+      this.logger.debug(`Found active session for ${network} @${accountId}`);
       return session;
     }
 
-    // No active session — acquire per-network lock to prevent race condition
-    // where multiple concurrent calls all try to auto-login simultaneously
-    const lockKey = `login:${network}`;
+    // No active session — acquire per-account lock to prevent race condition
+    // where multiple concurrent calls all try to auto-login the same account
     const existingLock = this.sessionLocks.get(lockKey);
     if (existingLock) {
       // Another call is already creating a session — wait for it, then re-check DB
-      this.logger.debug(`Waiting for in-flight session creation for ${network}...`);
+      this.logger.debug(`Waiting for in-flight session creation for ${network} @${accountId}...`);
       await existingLock.catch(() => {});
       // Re-check: the other call may have created a session
       const newSession = await this.prisma.session.findFirst({
-        where: { accountId: account.id, status: SessionStatus.ACTIVE },
+        where: { accountId, status: SessionStatus.ACTIVE },
         orderBy: { createdAt: 'desc' },
       });
       if (newSession) {
-        this.logger.debug(`Session created by concurrent call for ${network}`);
+        this.logger.debug(`Session created by concurrent call for ${network} @${accountId}`);
         return newSession;
       }
       // Still no session — proceed to create one (fall through to lock acquisition)
@@ -177,17 +209,17 @@ export class SessionsService implements OnModuleInit {
     try {
       // Double-check after acquiring lock (another call may have created a session)
       const existingSession = await this.prisma.session.findFirst({
-        where: { accountId: account.id, status: SessionStatus.ACTIVE },
+        where: { accountId, status: SessionStatus.ACTIVE },
         orderBy: { createdAt: 'desc' },
       });
       if (existingSession) {
-        this.logger.debug(`Session created by concurrent call for ${network} (after lock)`);
+        this.logger.debug(`Session created by concurrent call for ${network} @${accountId} (after lock)`);
         return existingSession;
       }
 
       // No active session — auto-login from env credentials (OQ-8)
       // Circuit breaker: if login has failed repeatedly, skip to avoid IP bans
-      const breaker = this.circuitBreakers.get(`login:${network}`, {
+      const breaker = this.circuitBreakers.get(`login:${accountId}`, {
         failureThreshold: 3,
         resetTimeoutMs: 900000, // 15 min — same as twscrape's lock duration
         failureWindowMs: 600000, // 10 min window
@@ -195,17 +227,17 @@ export class SessionsService implements OnModuleInit {
 
       if (!breaker.canExecute()) {
         this.logger.warn(
-          `Login circuit breaker OPEN for ${network} — skipping auto-login (${Math.ceil(breaker.resetInMs / 1000)}s until reset)`,
+          `Login circuit breaker OPEN for ${network} @${accountId} — skipping auto-login (${Math.ceil(breaker.resetInMs / 1000)}s until reset)`,
         );
         return null;
       }
 
-      this.logger.log(`No active session for ${network} — starting auto-login`);
+      this.logger.log(`No active session for ${network} @${accountId} — starting auto-login`);
       try {
         // First, try cookie-based auth (more stable than username/password login).
         // Reference: twscrape prefers cookie-based auth (auth_token + ct0 for X).
         // If cookies are provided in env, use them directly — no login form needed.
-        const cookieSession = await this.tryCookieAuth(network);
+        const cookieSession = await this.tryCookieAuth(account as SocialAccount);
         if (cookieSession) {
           return cookieSession;
         }
@@ -216,17 +248,17 @@ export class SessionsService implements OnModuleInit {
         //     refreshSessionsCron performs the controlled re-login.
         if (opts.deferFormLogin && this.deferredLogin) {
           this.logger.warn(
-            `No cookie session for ${network} and inline form-login is deferred (SESSION_DEFERRED_LOGIN) — caller should retry`,
+            `No cookie session for ${network} @${accountId} and inline form-login is deferred (SESSION_DEFERRED_LOGIN) — caller should retry`,
           );
           return null;
         }
         // (b) Cooldown: never form-login again within the cooldown window (throttle frequency,
         //     even across failed attempts — set the marker before attempting).
-        const lastLogin = this.lastFormLoginAt.get(network) ?? 0;
+        const lastLogin = this.lastFormLoginAt.get(accountId) ?? 0;
         const sinceMs = Date.now() - lastLogin;
         if (sinceMs < this.formLoginCooldownMs) {
           this.logger.warn(
-            `Form-login cooldown active for ${network} (${Math.ceil((this.formLoginCooldownMs - sinceMs) / 1000)}s left) — skipping form login`,
+            `Form-login cooldown active for ${network} @${accountId} (${Math.ceil((this.formLoginCooldownMs - sinceMs) / 1000)}s left) — skipping form login`,
           );
           return null;
         }
@@ -235,28 +267,28 @@ export class SessionsService implements OnModuleInit {
         try {
           await this.discord.warning(
             'Form Login Performed',
-            `Falling back to username/password form login for **${network}** — the highest "suspicious login" risk. Cookie auth is preferred; check the session/cookie config.`,
+            `Falling back to username/password form login for **${network} @${accountId}** — the highest "suspicious login" risk. Cookie auth is preferred; check the session/cookie config.`,
           );
         } catch {
           // non-blocking
         }
-        this.lastFormLoginAt.set(network, Date.now());
+        this.lastFormLoginAt.set(accountId, Date.now());
         return await breaker.execute(async () => {
-          const session = await this.autoLogin(network);
+          const session = await this.autoLogin(account as SocialAccount);
           if (!session) {
             // Treat a null result as a failure so the circuit breaker records it.
-            throw new AutoLoginFailedError(`Auto-login failed for ${network}`);
+            throw new AutoLoginFailedError(`Auto-login failed for ${network} @${accountId}`);
           }
           return session;
         });
       } catch (err) {
         // Circuit open or auto-login failed in an expected way — both result in no usable session.
         if (err instanceof CircuitOpenError) {
-          this.logger.warn(`Login circuit tripped for ${network}: ${err.message}`);
+          this.logger.warn(`Login circuit tripped for ${network} @${accountId}: ${err.message}`);
           return null;
         }
         if (err instanceof AutoLoginFailedError) {
-          this.logger.error(`Login failed for ${network}: ${(err as Error).message}`);
+          this.logger.error(`Login failed for ${network} @${accountId}: ${(err as Error).message}`);
           return null;
         }
         // Unexpected error (e.g. DB connection lost) — propagate to caller.
@@ -295,11 +327,12 @@ export class SessionsService implements OnModuleInit {
   }
 
   private async refreshSessions(): Promise<void> {
-    for (const network of getEnabledNetworks()) {
+    const accounts = await this.accountsService.findAll();
+    for (const account of accounts) {
       try {
-        await this.getOrCreateSession(network); // no deferFormLogin → controlled form login allowed here
+        await this.getOrCreateSession(account.id, account.network); // no deferFormLogin → controlled form login allowed here
       } catch (err) {
-        this.logger.warn(`Out-of-band session refresh failed for ${network}: ${(err as Error).message}`);
+        this.logger.warn(`Out-of-band session refresh failed for ${account.network} @${account.handle}: ${(err as Error).message}`);
       }
     }
   }
@@ -320,18 +353,15 @@ export class SessionsService implements OnModuleInit {
    *
    * @returns A session if cookie auth succeeded, null otherwise.
    */
-  private async tryCookieAuth(network: SocialNetwork) {
-    const credPrefix = `SOCIAL_${network === 'X' ? 'X' : network === 'THREADS' ? 'THREADS' : 'FACEBOOK'}_`;
-    const cookieStr = this.configService.get<string>(`${credPrefix}COOKIES`, '');
+  private async tryCookieAuth(account: SocialAccount) {
+    const network = account.network;
+    const { cookies: cookieStr } = this.accountsService.getCredentials(account);
 
     if (!cookieStr || cookieStr.trim() === '') {
       return null;
     }
 
-    this.logger.log(`Found ${network} cookies in env — attempting cookie-based auth`);
-
-    const account = await this.accountsService.findByNetwork(network);
-    if (!account) return null;
+    this.logger.log(`Found ${network} cookies for account @${account.handle} — attempting cookie-based auth`);
 
     // Parse cookie string: "name1=value1; name2=value2"
     const cookies = this.parseCookieString(cookieStr, network);
@@ -355,7 +385,7 @@ export class SessionsService implements OnModuleInit {
     let context: Awaited<ReturnType<IBrowserPort['createContext']>> | null = null;
     let page: Page | null = null;
     try {
-      context = await this.browser.createContext(network);
+      context = await this.browser.createContext(network, undefined, account.id);
       page = await context.newPage();
 
       // Add cookies to the browser context
@@ -460,19 +490,15 @@ export class SessionsService implements OnModuleInit {
    * Auto-login: open browser, fill credentials from env, save session.
    * OQ-8: agent logs in itself from env credentials on first run.
    */
-  private async autoLogin(network: SocialNetwork) {
-    const account = await this.accountsService.findByNetwork(network);
-    if (!account) return null;
+  private async autoLogin(account: SocialAccount) {
+    const network = account.network;
 
-    // Get credentials from env
-    const credPrefix = `SOCIAL_${network === 'X' ? 'X' : network === 'THREADS' ? 'THREADS' : 'FACEBOOK'}_`;
-    const username = this.configService.get<string>(`${credPrefix}USERNAME`) ??
-      this.configService.get<string>(`${credPrefix}EMAIL`, '');
-    const password = this.configService.get<string>(`${credPrefix}PASSWORD`, '');
+    // Get credentials from the account's env references
+    const { username, password } = this.accountsService.getCredentials(account);
 
     if (!password || !username) {
       this.logger.error(
-        `Incomplete credentials in env for ${network} — both username/email and password are required`,
+        `Incomplete credentials for ${network} @${account.handle} — both username/email and password are required`,
       );
       return null;
     }
@@ -483,12 +509,12 @@ export class SessionsService implements OnModuleInit {
       return null;
     }
 
-    this.logger.log(`Auto-login ${network} as ${username}`);
+    this.logger.log(`Auto-login ${network} @${account.handle} as ${username}`);
 
     let context: Awaited<ReturnType<IBrowserPort['createContext']>> | null = null;
     let page: Page | null = null;
     try {
-      context = await this.browser.createContext(network);
+      context = await this.browser.createContext(network, undefined, account.id);
       page = await context.newPage();
 
       // Facebook: persistent context may already have valid cookies from previous run.
@@ -1250,7 +1276,7 @@ export class SessionsService implements OnModuleInit {
       this.logger.debug(`createSession for disabled network ${network} — skipping`);
       return;
     }
-    const account = await this.accountsService.findByNetwork(network);
+    const account = await this.accountsService.findFirstActiveByNetwork(network);
     if (!account) return;
 
     const encrypted = this.encryptionService.encrypt(JSON.parse(storageState));
@@ -1318,11 +1344,21 @@ export class SessionsService implements OnModuleInit {
    *
    * Reference: facebook-scraper validates c_user + xs; twscrape validates ct0 + auth_token.
    */
-  async healthCheck(network: SocialNetwork): Promise<{ healthy: boolean; message: string }> {
+  async healthCheck(network: SocialNetwork, accountId?: string): Promise<{ healthy: boolean; message: string }> {
     if (!isNetworkEnabled(network)) {
       return { healthy: false, message: 'Network is disabled' };
     }
-    const account = await this.accountsService.findByNetwork(network);
+
+    let account: SocialAccount | null = null;
+    if (accountId) {
+      account = await this.accountsService.findById(accountId);
+      if (account && account.network !== network) {
+        return { healthy: false, message: 'Account network mismatch' };
+      }
+    }
+    if (!account) {
+      account = await this.accountsService.findFirstActiveByNetwork(network);
+    }
     if (!account) {
       return { healthy: false, message: 'No account found' };
     }
@@ -1343,7 +1379,7 @@ export class SessionsService implements OnModuleInit {
     let page = null;
 
     try {
-      context = await this.browser.acquireContext(network, storageStateStr);
+      context = await this.browser.acquireContext(network, storageStateStr, account.id);
       page = await context.newPage();
 
       // Navigate to the network's home page — with retry on network errors
@@ -1442,7 +1478,7 @@ export class SessionsService implements OnModuleInit {
     } finally {
       // Always close page and release context back to pool
       try { if (page) await page.close(); } catch { /* best-effort */ }
-      try { if (context) this.browser.releaseContext(network, context); } catch { /* best-effort */ }
+      try { if (context) this.browser.releaseContext(network, context, account.id); } catch { /* best-effort */ }
     }
   }
 

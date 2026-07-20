@@ -357,7 +357,9 @@ const envSchema = Joi.object({
 
   // Adaptive replies (F4)
   REPLIES_ENABLED: Joi.string().valid('true', 'false').default('false'),
-  REPLIES_MAX_PER_POST: Joi.number().integer().min(0).default(3),
+  REPLIES_MAX_PER_POST: Joi.number().integer().min(0).default(5),
+  REPLIES_MAX_CONVERSATION_DEPTH: Joi.number().integer().min(1).max(10).default(3),
+  REPLIES_QUESTION_TEMPERATURE: Joi.number().min(0).max(2).default(0.3),
   REPLIES_DELAY_MIN_MS: Joi.number().integer().min(0).default(300000),
   REPLIES_AUTO_DELAY_MIN_MS: Joi.number().integer().min(0).default(300000),  // 5 min
   REPLIES_AUTO_DELAY_MAX_MS: Joi.number().integer().min(1000).default(1800000), // 30 min
@@ -374,7 +376,10 @@ const envSchema = Joi.object({
   ENGAGEMENT_LOCK_KEY: Joi.string().default('spa:lock:engagement'),
   ENGAGEMENT_LOCK_TTL_BUFFER_MS: Joi.number().integer().min(0).default(300000),
   ENGAGEMENT_LOCK_ACQUIRE_RETRY_MS: Joi.number().integer().min(100).default(1000),
-}).unknown(true); // allow extra env vars (PATH, HOME, etc.)
+}).pattern(
+  /^SOCIAL_(X|THREADS|FACEBOOK)_(USERNAME|EMAIL|PASSWORD|COOKIES|PAGE_SLUG|WARMUP|ACTIVE|PROXY_URL|DISPLAY_NAME|PRIORITY|FINGERPRINT_SEED)_\d+$/,
+  Joi.string().allow(''),
+).unknown(true); // allow extra env vars (PATH, HOME, etc.)
 
 /**
  * Validate env vars at startup. Call this from a module's onModuleInit.

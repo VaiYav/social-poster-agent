@@ -210,8 +210,9 @@ export class DryRunRunner {
         this.reporter.step('ok', `Post already APPROVED`);
       }
 
-      // 3. Check account exists
-      const account = await accountsService.findByNetwork(post.network);
+      // 3. Check account exists (prefer the post's assigned account)
+      const account = await accountsService.findById(post.accountId) ??
+        (await accountsService.findFirstActiveByNetwork(post.network));
       if (!account) {
         this.reporter.step('fail', `No account configured for ${post.network}`);
         this.reporter.endFeature();
@@ -220,7 +221,7 @@ export class DryRunRunner {
       this.reporter.step('ok', `Account found`, { handle: account.handle });
 
       // 4. Check session (will trigger auto-login if needed)
-      const session = await sessionsService.getOrCreateSession(post.network);
+      const session = await sessionsService.getOrCreateSession(account.id, post.network);
       if (!session) {
         this.reporter.step('fail', `No active session for ${post.network} \u2014 auto-login failed or credentials missing`);
         this.reporter.endFeature();
@@ -282,7 +283,15 @@ export class DryRunRunner {
 
       // 1. LOGIN FIRST — getOrCreateSession triggers auto-login if no session exists
       this.reporter.step('ok', `Logging in to ${opts.network}...`);
-      const session = await sessionsService.getOrCreateSession(opts.network);
+      const { AccountsService } = await import('../modules/accounts/accounts.service.js');
+      const accountsService = this.app.get(AccountsService);
+      const account = await accountsService.getNextAccountForNetwork(opts.network);
+      if (!account) {
+        this.reporter.step('fail', `No account configured for ${opts.network}`);
+        this.reporter.endFeature();
+        return;
+      }
+      const session = await sessionsService.getOrCreateSession(account.id, opts.network);
       if (!session) {
         this.reporter.step('fail', `Login failed for ${opts.network} \u2014 no session`);
         this.reporter.endFeature();
@@ -298,7 +307,7 @@ export class DryRunRunner {
       let page: any = null;
 
       try {
-        context = await browser.acquireContext(opts.network, storageState);
+        context = await browser.acquireContext(opts.network, storageState, account.id);
         page = await context.newPage();
 
         if (typeof browser.setEngagementMode === 'function') {
@@ -406,7 +415,7 @@ export class DryRunRunner {
           // best-effort
         }
         try { if (page?.close) await page.close(); } catch { /* best-effort */ }
-        try { if (context) await browser.releaseContext(opts.network, context); } catch { /* best-effort */ }
+        try { if (context) await browser.releaseContext(opts.network, context, account.id); } catch { /* best-effort */ }
       }
 
       this.reporter.endFeature();
@@ -539,7 +548,15 @@ export class DryRunRunner {
 
       // 1. LOGIN FIRST — replies monitor needs a session to scrape comments
       this.reporter.step('ok', `Logging in to ${opts.network}...`);
-      const session = await sessionsService.getOrCreateSession(opts.network);
+      const { AccountsService } = await import('../modules/accounts/accounts.service.js');
+      const accountsService = this.app.get(AccountsService);
+      const account = await accountsService.getNextAccountForNetwork(opts.network);
+      if (!account) {
+        this.reporter.step('fail', `No account configured for ${opts.network}`);
+        this.reporter.endFeature();
+        return;
+      }
+      const session = await sessionsService.getOrCreateSession(account.id, opts.network);
       if (!session) {
         this.reporter.step('fail', `Login failed for ${opts.network} \u2014 no session`);
         this.reporter.endFeature();

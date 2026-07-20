@@ -264,7 +264,7 @@ const ACCOUNT_X = {
   id: 'acc-001',
   network: SocialNetwork.X,
   handle: 'myzodiacai',
-  credentialsRef: 'SOCIAL_X_USERNAME/PASSWORD',
+  credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD',
   active: true,
   createdAt: new Date('2026-07-01T00:00:00Z'),
   updatedAt: new Date('2026-07-01T00:00:00Z'),
@@ -493,6 +493,7 @@ function resetDefaultMocks(ctx: TestContext) {
   prisma.session.findMany.mockResolvedValue([]);
 
   // Prisma — socialAccount
+  prisma.socialAccount.findUnique.mockResolvedValue({ ...ACCOUNT_X });
   prisma.socialAccount.findFirst.mockResolvedValue({ ...ACCOUNT_X });
   prisma.socialAccount.findMany.mockResolvedValue([{ ...ACCOUNT_X }]);
   prisma.socialAccount.create.mockResolvedValue({ ...ACCOUNT_X });
@@ -575,9 +576,9 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
     // Act
     await ctx.postingService.postById('post-011');
 
-    // Assert: getOrCreateSession called with the post's network
+    // Assert: getOrCreateSession called with account + network
     expect(getOrCreateSpy).toHaveBeenCalledTimes(1);
-    expect(getOrCreateSpy).toHaveBeenCalledWith(SocialNetwork.X, { deferFormLogin: true });
+    expect(getOrCreateSpy).toHaveBeenCalledWith(ACCOUNT_X.id, SocialNetwork.X, { deferFormLogin: true });
 
     // Assert: session.storageState was passed to browser.acquireContext
     expect(ctx.browserPort.acquireContext).toHaveBeenCalledTimes(1);
@@ -649,7 +650,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
 
     // Assert: rate limit checked before posting
     expect(checkRateSpy).toHaveBeenCalledTimes(1);
-    expect(checkRateSpy).toHaveBeenCalledWith('X');
+    expect(checkRateSpy).toHaveBeenCalledWith('X', 'acc-001');
     const rateCheckCallOrder = checkRateSpy.mock.invocationCallOrder[0];
 
     // Assert: SSE POSTING event published
@@ -681,7 +682,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
 
     // Assert: recordPost called after success
     expect(recordPostSpy).toHaveBeenCalledTimes(1);
-    expect(recordPostSpy).toHaveBeenCalledWith('X');
+    expect(recordPostSpy).toHaveBeenCalledWith('X', 'acc-001');
     const recordPostOrder = recordPostSpy.mock.invocationCallOrder[0];
 
     // Assert: correct sequence — rate check < POSTING event < POSTED event
@@ -708,7 +709,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
 
   it('ITC-014: PostingService returns rate-limit result when rate limit exceeded — post status remains APPROVED (not POSTING)', async () => {
     // Arrange: seed Redis interval key to now (just posted → rate limited)
-    const intervalKey = 'spa:ratelimit:X:interval';
+    const intervalKey = 'spa:ratelimit:X:acc-001:interval';
     redisStore.set(intervalKey, Date.now().toString());
 
     ctx.prisma.post.findUnique.mockResolvedValue({ ...APPROVED_POST_X, id: 'post-014' });
@@ -800,6 +801,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
 
   it('ITC-024: SSE FAILED(retryable=true) event published when no session — post reverted to APPROVED', async () => {
     // Arrange: no account → getOrCreateSession returns null → throws RetryableError
+    ctx.prisma.socialAccount.findUnique.mockResolvedValue(null);
     ctx.prisma.socialAccount.findFirst.mockResolvedValue(null);
     ctx.prisma.post.findUnique.mockResolvedValue({ ...APPROVED_POST_X, id: 'post-024' });
 
@@ -915,8 +917,8 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
     // Act
     const result = await ctx.postingService.postById('post-034');
 
-    // Assert: getOrCreateSession called with X
-    expect(getOrCreateSpy).toHaveBeenCalledWith(SocialNetwork.X, { deferFormLogin: true });
+    // Assert: getOrCreateSession called with account + X
+    expect(getOrCreateSpy).toHaveBeenCalledWith(ACCOUNT_X.id, SocialNetwork.X, { deferFormLogin: true });
 
     // Assert: autoLogin triggered — browser.createContext called for login (no storageState)
     // autoLogin uses createContext (SessionsService), posting uses acquireContext (PostingService)

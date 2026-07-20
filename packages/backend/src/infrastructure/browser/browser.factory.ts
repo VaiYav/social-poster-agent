@@ -51,15 +51,15 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
   private browserLaunchPromise: Promise<Browser> | null = null;
   // Persistent context for Facebook — stores fingerprint + cookies on disk
   // to avoid "suspicious login" challenges on every run.
-  // Key: network → persistent BrowserContext
-  private readonly persistentContexts = new Map<SocialNetwork, BrowserContext>();
-  // P5: key network → in-flight launch promise, so concurrent callers share a
+  // Key: `${network}:${accountId ?? 'default'}` → persistent BrowserContext
+  private readonly persistentContexts = new Map<string, BrowserContext>();
+  // P5: key `${network}:${accountId ?? 'default'}` → in-flight launch promise, so concurrent callers share a
   // single Camoufox launch instead of racing two processes onto one user_data_dir.
-  private readonly persistentContextPromises = new Map<SocialNetwork, Promise<BrowserContext>>();
+  private readonly persistentContextPromises = new Map<string, Promise<BrowserContext>>();
   // MEM: track when each persistent context was last used so the idle sweep can
   // close it during idle stretches (Facebook posts infrequently — keeping a Firefox
   // process alive 24/7 for 1-2 posts/day wastes ~200 MB).
-  private readonly persistentContextLastUsed = new Map<SocialNetwork, number>();
+  private readonly persistentContextLastUsed = new Map<string, number>();
   private readonly persistentContextIdleTtlMs: number;
   private readonly profileDir: string;
   // MEM: Firefox about:config prefs applied at launch to reduce Camoufox/Firefox
@@ -84,17 +84,17 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
   // sat unused past contextIdleTtlMs — each is a real Camoufox (Firefox) process,
   // and without eviction a warm pool of up to `poolSize` contexts per network sits
   // in memory indefinitely even when nothing is running.
-  private readonly idleContexts = new Map<SocialNetwork, Array<{ context: BrowserContext; releasedAt: number }>>();
+  private readonly idleContexts = new Map<string, Array<{ context: BrowserContext; releasedAt: number }>>();
   // MEM: tracks acquiredAt per context so sweepIdleContexts can also reap
   // orphaned in-use contexts (releaseContext never called due to exception).
-  private readonly inUseContexts = new Map<SocialNetwork, Map<BrowserContext, number>>();
+  private readonly inUseContexts = new Map<string, Map<BrowserContext, number>>();
   // Reserves pool capacity for an in-flight createContext() call. Without this, two
   // concurrent acquirers can both read inUse.size before either awaits createContext(),
   // both pass the capacity check, and both create a context — pushing the pool above
   // poolSize with no further cap (the excess context then persists as idle inventory
   // until the TTL sweep closes it).
-  private readonly pendingCreates = new Map<SocialNetwork, number>();
-  private readonly contextWaiters = new Map<SocialNetwork, Array<{ resolve: () => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> }>>();
+  private readonly pendingCreates = new Map<string, number>();
+  private readonly contextWaiters = new Map<string, Array<{ resolve: () => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> }>>();
   // Tracks contexts that have been closed (by us, by the browser, or by a page crash).
   // Prevents the pool from reusing dead contexts after a failed session or sweep.
   private readonly closedContexts = new WeakSet<BrowserContext>();
@@ -218,6 +218,15 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
       // If URL parsing fails, treat as raw server address
       return { server: url };
     }
+  }
+
+  /**
+   * Composite context key — isolates pooled/persistent contexts per account.
+   * Callers without an accountId fall back to the `default` bucket, preserving
+   * existing behavior/tests.
+   */
+  private contextKey(network: SocialNetwork, accountId?: string): string {
+    return `${network}:${accountId ?? 'default'}`;
   }
 
   /**
@@ -375,9 +384,14 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
    *            camofox-browser (session isolation + cookie import),
    *            Camoufox `user_data_dir` option.
    */
-  private getOrCreatePersistentContext(network: SocialNetwork): Promise<BrowserContext> {
+  private getOrCreatePersistentContext(
+    network: SocialNetwork,
+    accountId?: string,
+  ): Promise<BrowserContext> {
+    const key = this.contextKey(network, accountId);
+
     // Fast path: an already-resolved context.
-    const cached = this.persistentContexts.get(network);
+    const cached = this.persistentContexts.get(key);
     if (cached) return Promise.resolve(cached);
 
     // P5: share an in-flight launch. Without this, two concurrent callers (e.g.
@@ -385,22 +399,27 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     // acquireContext() both funnel here) both miss the cache and launch two
     // Camoufox processes on the SAME user_data_dir, a Firefox profile-lock
     // conflict that corrupts the persistent session.
-    const inFlight = this.persistentContextPromises.get(network);
+    const inFlight = this.persistentContextPromises.get(key);
     if (inFlight) return inFlight;
 
-    const launch = this.launchPersistentContext(network);
-    this.persistentContextPromises.set(network, launch);
+    const launch = this.launchPersistentContext(network, accountId);
+    this.persistentContextPromises.set(key, launch);
     // Clear the in-flight slot once settled; the resolved context is cached
     // inside launchPersistentContext(). Errors still reach awaiters of `launch`;
     // the trailing no-op .catch only keeps this bookkeeping chain from surfacing
     // as an unhandled rejection.
-    void launch.finally(() => this.persistentContextPromises.delete(network)).catch(() => {});
+    void launch.finally(() => this.persistentContextPromises.delete(key)).catch(() => {});
     return launch;
   }
 
-  private async launchPersistentContext(network: SocialNetwork): Promise<BrowserContext> {
+  private async launchPersistentContext(
+    network: SocialNetwork,
+    accountId?: string,
+  ): Promise<BrowserContext> {
     // Create profile directory if it doesn't exist
-    const profilePath = join(this.profileDir, network.toLowerCase());
+    const profilePath = join(this.profileDir, network.toLowerCase(), accountId ?? 'default');
+    const key = this.contextKey(network, accountId);
+    const accountSuffix = accountId ? `:${accountId}` : '';
     try {
       // SEC2: the persistent profile holds plaintext auth cookies (esp. Facebook c_user+xs,
       // which bypass the DB storageState encryption entirely). Restrict the profile tree to
@@ -452,9 +471,9 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
       viewport: null,
     })) as unknown as BrowserContext;
 
-    this.persistentContexts.set(network, context);
+    this.persistentContexts.set(key, context);
     this.logger.log(
-      `Persistent context created for ${network} (profile: ${profilePath}, memoryPrefs=${this.memoryPrefsEnabled})`,
+      `Persistent context created for ${network}${accountSuffix} (profile: ${profilePath}, memoryPrefs=${this.memoryPrefsEnabled})`,
     );
     return context;
   }
@@ -479,11 +498,15 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
   async createContext(
     network: SocialNetwork,
     storageState?: string,
+    accountId?: string,
   ): Promise<BrowserContext> {
+    const key = this.contextKey(network, accountId);
+    const accountSuffix = accountId ? `:${accountId}` : '';
+
     // Facebook: use persistent context to avoid repeated challenges
     if (network === 'FACEBOOK') {
-      const persistentContext = await this.getOrCreatePersistentContext(network);
-      this.persistentContextLastUsed.set(network, Date.now());
+      const persistentContext = await this.getOrCreatePersistentContext(network, accountId);
+      this.persistentContextLastUsed.set(key, Date.now());
       return persistentContext;
     }
 
@@ -516,7 +539,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
       });
     }
 
-    this.logger.debug(`Context created for ${network}`);
+    this.logger.debug(`Context created for ${network}${accountSuffix}`);
     return context;
   }
 
@@ -534,26 +557,30 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
   async acquireContext(
     network: SocialNetwork,
     storageState?: string,
+    accountId?: string,
   ): Promise<BrowserContext> {
+    const key = this.contextKey(network, accountId);
+    const accountSuffix = accountId ? `:${accountId}` : '';
+
     // Facebook: persistent context is shared (not pooled) — return it directly
     if (network === 'FACEBOOK') {
-      const ctx = await this.getOrCreatePersistentContext(network);
-      this.persistentContextLastUsed.set(network, Date.now());
+      const ctx = await this.getOrCreatePersistentContext(network, accountId);
+      this.persistentContextLastUsed.set(key, Date.now());
       return ctx;
     }
 
     // Try to get an idle context — loop to handle race between check and pop
     // (Node is single-threaded but async createContext can yield between check and add)
     for (;;) {
-      const idle = this.idleContexts.get(network) ?? [];
+      const idle = this.idleContexts.get(key) ?? [];
       if (idle.length > 0) {
         const entry = idle.pop()!;
-        this.idleContexts.set(network, idle);
+        this.idleContexts.set(key, idle);
 
         if (Date.now() - entry.releasedAt > this.contextIdleTtlMs) {
           // Stale — discard and loop back (creates fresh if still within pool capacity)
           void entry.context.close().catch(() => {});
-          this.logger.debug(`Context pool: discarded stale idle context for ${network} (past ${this.contextIdleTtlMs}ms TTL)`);
+          this.logger.debug(`Context pool: discarded stale idle context for ${network}${accountSuffix} (past ${this.contextIdleTtlMs}ms TTL)`);
           continue;
         }
 
@@ -567,7 +594,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
         // post-creation Playwright API for that) — acceptable since AUTH_COOKIES-based health
         // checks and cookie-based auth are what actually gate session validity in this app.
         if (this.closedContexts.has(entry.context)) {
-          this.logger.debug(`Context pool: discarded closed idle context for ${network}`);
+          this.logger.debug(`Context pool: discarded closed idle context for ${network}${accountSuffix}`);
           continue;
         }
 
@@ -576,7 +603,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
         // event listener may not have fired yet, so this is a synchronous guard.
         if (typeof entry.context.browser === 'function' && !entry.context.browser()?.isConnected()) {
           this.closedContexts.add(entry.context);
-          this.logger.debug(`Context pool: discarded idle context for ${network} because browser disconnected`);
+          this.logger.debug(`Context pool: discarded idle context for ${network}${accountSuffix} because browser disconnected`);
           continue;
         }
 
@@ -589,53 +616,53 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
             }
           } catch (err) {
             this.logger.warn(
-              `Failed to re-apply storageState cookies to reused context for ${network}: ${(err as Error).message}`,
+              `Failed to re-apply storageState cookies to reused context for ${network}${accountSuffix}: ${(err as Error).message}`,
             );
           }
         }
 
-        const inUse = this.inUseContexts.get(network) ?? new Map();
+        const inUse = this.inUseContexts.get(key) ?? new Map();
         inUse.set(entry.context, Date.now());
-        this.inUseContexts.set(network, inUse);
+        this.inUseContexts.set(key, inUse);
 
-        this.logger.debug(`Context pool: reused idle context for ${network}`);
+        this.logger.debug(`Context pool: reused idle context for ${network}${accountSuffix}`);
         return entry.context;
       }
 
       // Check if we're at pool capacity — reserve the slot synchronously (before
       // the createContext() await) so two concurrent callers can't both pass this
       // check for the same free slot.
-      const inUse = this.inUseContexts.get(network) ?? new Map();
-      const pending = this.pendingCreates.get(network) ?? 0;
+      const inUse = this.inUseContexts.get(key) ?? new Map();
+      const pending = this.pendingCreates.get(key) ?? 0;
       if (inUse.size + pending < this.poolSize) {
-        this.pendingCreates.set(network, pending + 1);
+        this.pendingCreates.set(key, pending + 1);
         try {
-          const context = await this.createContext(network, storageState);
-          const inUseNow = this.inUseContexts.get(network) ?? new Map();
+          const context = await this.createContext(network, storageState, accountId);
+          const inUseNow = this.inUseContexts.get(key) ?? new Map();
           inUseNow.set(context, Date.now());
-          this.inUseContexts.set(network, inUseNow);
+          this.inUseContexts.set(key, inUseNow);
           return context;
         } finally {
-          const current = this.pendingCreates.get(network) ?? 1;
-          this.pendingCreates.set(network, Math.max(0, current - 1));
+          const current = this.pendingCreates.get(key) ?? 1;
+          this.pendingCreates.set(key, Math.max(0, current - 1));
         }
       }
 
       // At capacity — wait for a release. The release will put the context
       // into idle and resolve our promise. We then loop back to grab it.
-      this.logger.debug(`Context pool: at capacity (${this.poolSize}) for ${network}, waiting…`);
+      this.logger.debug(`Context pool: at capacity (${this.poolSize}) for ${network}${accountSuffix}, waiting…`);
       await new Promise<void>((resolve, reject) => {
-        const waiters = this.contextWaiters.get(network) ?? [];
+        const waiters = this.contextWaiters.get(key) ?? [];
         const timer = setTimeout(() => {
           // Remove this waiter from the queue (it timed out)
-          const current = this.contextWaiters.get(network) ?? [];
+          const current = this.contextWaiters.get(key) ?? [];
           const idx = current.indexOf(entry);
           if (idx >= 0) current.splice(idx, 1);
-          reject(new Error(`Context pool acquire timeout (${this.poolAcquireTimeoutMs}ms) for ${network}`));
+          reject(new Error(`Context pool acquire timeout (${this.poolAcquireTimeoutMs}ms) for ${network}${accountSuffix}`));
         }, this.poolAcquireTimeoutMs);
         const entry = { resolve, reject, timer };
         waiters.push(entry);
-        this.contextWaiters.set(network, waiters);
+        this.contextWaiters.set(key, waiters);
       });
       // Loop back — releaseContext put a context into idle for us
     }
@@ -650,13 +677,20 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
    * @param network Target social network
    * @param context The context to release
    */
-  releaseContext(network: SocialNetwork, context: BrowserContext): void {
+  releaseContext(
+    network: SocialNetwork,
+    context: BrowserContext,
+    accountId?: string,
+  ): void {
+    const key = this.contextKey(network, accountId);
+    const accountSuffix = accountId ? `:${accountId}` : '';
+
     // Facebook: persistent context is not pooled — just return (context stays alive)
     if (network === 'FACEBOOK') {
       return;
     }
 
-    const inUse = this.inUseContexts.get(network);
+    const inUse = this.inUseContexts.get(key);
     if (inUse) {
       inUse.delete(context);
     }
@@ -664,13 +698,13 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     // Dead contexts must not return to the pool, otherwise the next acquire
     // reuses them and immediately fails with "Target page, context or browser has been closed".
     if (this.closedContexts.has(context)) {
-      this.logger.debug(`Context pool: not returning closed context for ${network} to idle pool`);
+      this.logger.debug(`Context pool: not returning closed context for ${network}${accountSuffix} to idle pool`);
       // Wake up a waiter so they can create/reuse a fresh context instead of hanging
-      const waiters = this.contextWaiters.get(network);
+      const waiters = this.contextWaiters.get(key);
       if (waiters && waiters.length > 0) {
         const waiter = waiters.shift()!;
         clearTimeout(waiter.timer);
-        this.contextWaiters.set(network, waiters);
+        this.contextWaiters.set(key, waiters);
         waiter.resolve();
       }
       return;
@@ -681,20 +715,20 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     // acquireContext and grab this context from idle. This avoids the
     // hand-off bug where the context was placed directly into inUse,
     // causing the waiter's recursive call to see capacity still full.
-    const idle = this.idleContexts.get(network) ?? [];
+    const idle = this.idleContexts.get(key) ?? [];
     idle.push({ context, releasedAt: Date.now() });
-    this.idleContexts.set(network, idle);
+    this.idleContexts.set(key, idle);
 
     // Wake up one waiter if any — they'll grab the context from idle
-    const waiters = this.contextWaiters.get(network);
+    const waiters = this.contextWaiters.get(key);
     if (waiters && waiters.length > 0) {
       const waiter = waiters.shift()!;
       clearTimeout(waiter.timer);
-      this.contextWaiters.set(network, waiters);
+      this.contextWaiters.set(key, waiters);
       waiter.resolve();
-      this.logger.debug(`Context pool: released context for ${network}, woke waiter (idle: ${idle.length})`);
+      this.logger.debug(`Context pool: released context for ${network}${accountSuffix}, woke waiter (idle: ${idle.length})`);
     } else {
-      this.logger.debug(`Context pool: released context for ${network} (idle: ${idle.length})`);
+      this.logger.debug(`Context pool: released context for ${network}${accountSuffix} (idle: ${idle.length})`);
     }
   }
 
@@ -1057,7 +1091,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     const now = Date.now();
 
     // MEM: sweep idle contexts past TTL (existing behavior)
-    for (const [network, entries] of this.idleContexts) {
+    for (const [key, entries] of this.idleContexts) {
       const fresh = entries.filter((entry) => now - entry.releasedAt <= this.contextIdleTtlMs);
       const evicted = entries.length - fresh.length;
       if (evicted > 0) {
@@ -1067,8 +1101,8 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
             void entry.context.close().catch(() => {});
           }
         }
-        this.idleContexts.set(network, fresh);
-        this.logger.debug(`Context pool: swept ${evicted} idle context(s) for ${network} past ${this.contextIdleTtlMs}ms TTL`);
+        this.idleContexts.set(key, fresh);
+        this.logger.debug(`Context pool: swept ${evicted} idle context(s) for ${key} past ${this.contextIdleTtlMs}ms TTL`);
       }
     }
 
@@ -1080,7 +1114,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     // max(3 × idle TTL, browsing session duration + 10 min) so legitimate
     // browsing sessions (up to 15 min) are not swept mid-session.
     const orphanGraceMs = this.orphanGraceMs;
-    for (const [network, contexts] of this.inUseContexts) {
+    for (const [key, contexts] of this.inUseContexts) {
       const orphans: BrowserContext[] = [];
       for (const [ctx, acquiredAt] of contexts) {
         if (now - acquiredAt > orphanGraceMs) {
@@ -1094,15 +1128,15 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
           void ctx.close().catch(() => {});
         }
         this.logger.warn(
-          `Context pool: reaped ${orphans.length} orphaned in-use context(s) for ${network} ` +
+          `Context pool: reaped ${orphans.length} orphaned in-use context(s) for ${key} ` +
             `(held > ${Math.round(orphanGraceMs / 1000)}s without release — likely an uncaught exception in the caller)`,
         );
         // Wake up a waiter if any — capacity just freed up
-        const waiters = this.contextWaiters.get(network);
+        const waiters = this.contextWaiters.get(key);
         if (waiters && waiters.length > 0) {
           const waiter = waiters.shift()!;
           clearTimeout(waiter.timer);
-          this.contextWaiters.set(network, waiters);
+          this.contextWaiters.set(key, waiters);
           waiter.resolve();
         }
       }
@@ -1127,16 +1161,16 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     // holds a Firefox process alive 24/7 for infrequent posts. Close it when idle
     // > persistentContextIdleTtlMs; cookies/fingerprint persist on disk and it will
     // be re-opened on the next acquireContext/createContext call.
-    for (const [network, ctx] of this.persistentContexts) {
-      const lastUsed = this.persistentContextLastUsed.get(network) ?? now;
+    for (const [key, ctx] of this.persistentContexts) {
+      const lastUsed = this.persistentContextLastUsed.get(key) ?? now;
       if (now - lastUsed > this.persistentContextIdleTtlMs) {
         this.logger.log(
-          `Persistent context for ${network} idle > ${Math.round(this.persistentContextIdleTtlMs / 1000)}s — closing to free memory (will re-open on next use)`,
+          `Persistent context for ${key} idle > ${Math.round(this.persistentContextIdleTtlMs / 1000)}s — closing to free memory (will re-open on next use)`,
         );
         this.closedContexts.add(ctx);
         void ctx.close().catch(() => {});
-        this.persistentContexts.delete(network);
-        this.persistentContextLastUsed.delete(network);
+        this.persistentContexts.delete(key);
+        this.persistentContextLastUsed.delete(key);
       }
     }
   }

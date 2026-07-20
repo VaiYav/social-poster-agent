@@ -232,9 +232,9 @@ const FIXTURE_TOPICS: ContentTopic[] = [
 ];
 
 const ACCOUNTS: Record<string, { id: string; network: SocialNetwork; handle: string; active: boolean; credentialsRef: string }> = {
-  X: { id: 'acc-x-001', network: SocialNetwork.X, handle: 'myzodiacai', active: true, credentialsRef: 'SOCIAL_X_USERNAME/PASSWORD' },
-  THREADS: { id: 'acc-threads-001', network: SocialNetwork.THREADS, handle: 'myzodiacai', active: true, credentialsRef: 'SOCIAL_THREADS_USERNAME/PASSWORD' },
-  FACEBOOK: { id: 'acc-fb-001', network: SocialNetwork.FACEBOOK, handle: 'myzodiacai@facebook.com', active: true, credentialsRef: 'SOCIAL_FACEBOOK_EMAIL/PASSWORD' },
+  X: { id: 'acc-x-001', network: SocialNetwork.X, handle: 'myzodiacai', active: true, credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD' },
+  THREADS: { id: 'acc-threads-001', network: SocialNetwork.THREADS, handle: 'myzodiacai', active: true, credentialsRef: 'SOCIAL_THREADS_USERNAME,SOCIAL_THREADS_PASSWORD' },
+  FACEBOOK: { id: 'acc-fb-001', network: SocialNetwork.FACEBOOK, handle: 'myzodiacai@facebook.com', active: true, credentialsRef: 'SOCIAL_FACEBOOK_EMAIL,SOCIAL_FACEBOOK_PASSWORD' },
 };
 
 // ── Mock ContentReader ───────────────────────────────────────────────────────
@@ -434,8 +434,17 @@ function setupDefaultMocks(): void {
     }
     return Promise.resolve(undefined);
   });
+  prisma.socialAccount.findUnique.mockImplementation((args: unknown) => {
+    const id = args?.where?.id as string | undefined;
+    const account = Object.values(ACCOUNTS).find((a) => a.id === id);
+    return Promise.resolve(account ?? null);
+  });
   prisma.socialAccount.create.mockResolvedValue({});
-  prisma.socialAccount.findMany.mockResolvedValue([]);
+  prisma.socialAccount.findMany.mockImplementation((args: unknown) => {
+    const network = args?.where?.network as SocialNetwork | undefined;
+    if (network && ACCOUNTS[network]) return Promise.resolve([ACCOUNTS[network]]);
+    return Promise.resolve(Object.values(ACCOUNTS));
+  });
 
   // Prisma — $queryRaw (health check DB)
   prisma.$queryRaw.mockResolvedValue([{ '?column?': 1 }]);

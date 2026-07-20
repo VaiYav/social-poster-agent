@@ -166,7 +166,7 @@ describe('BrowserFactory', () => {
     const { statSync } = await import('node:fs');
     await factory.createContext('FACEBOOK');
     // CAMOUFOX_PROFILE_DIR is /tmp/spa-profiles-test in the mock config.
-    const mode = statSync('/tmp/spa-profiles-test/facebook').mode & 0o777;
+    const mode = statSync('/tmp/spa-profiles-test/facebook/default').mode & 0o777;
     expect(mode).toBe(0o700);
   });
 
@@ -302,7 +302,7 @@ describe('BrowserFactory', () => {
       vi.advanceTimersByTime(11 * 60 * 1000);
 
       expect(mocks.contextClose).toHaveBeenCalledOnce();
-      expect((factory as any).idleContexts.get('X')).toEqual([]);
+      expect((factory as any).idleContexts.get('X:default')).toEqual([]);
 
       await factory.onModuleDestroy();
     } finally {
@@ -360,7 +360,7 @@ describe('BrowserFactory', () => {
     // The closed context should not be in the idle pool, so the next acquire creates a new one
     const ctx2 = await factory.acquireContext('X');
     expect(ctx2).not.toBe(ctx1);
-    expect((factory as any).idleContexts.get('X')?.length ?? 0).toBe(0);
+    expect((factory as any).idleContexts.get('X:default')?.length ?? 0).toBe(0);
     expect(mocks.browserNewContext).toHaveBeenCalledTimes(2);
   });
 

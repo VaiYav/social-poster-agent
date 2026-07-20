@@ -400,7 +400,7 @@ const ACCOUNT_X = {
   id: 'acc-001',
   network: SocialNetwork.X,
   handle: 'myzodiacai',
-  credentialsRef: 'SOCIAL_X_USERNAME/PASSWORD',
+  credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD',
   active: true,
   createdAt: new Date('2026-07-01T00:00:00Z'),
   updatedAt: new Date('2026-07-01T00:00:00Z'),
@@ -629,7 +629,7 @@ describe('Big-Bang Integration: Full AppModule (ITC-017..020, ITC-035)', () => {
               id: 'acc-001',
               network: 'X',
               handle: 'myzodiacai',
-              credentialsRef: 'SOCIAL_X_USERNAME/PASSWORD',
+              credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD',
               active: true,
             },
           },
@@ -751,6 +751,7 @@ describe('Big-Bang Integration: Full AppModule (ITC-017..020, ITC-035)', () => {
         prisma.post.update.mockResolvedValue({ ...APPROVED_POST_X });
         prisma.post.findMany.mockResolvedValue([{ ...APPROVED_POST_X }]);
         prisma.post.count.mockResolvedValue(1);
+        prisma.socialAccount.findUnique.mockResolvedValue({ ...ACCOUNT_X });
         prisma.socialAccount.findFirst.mockResolvedValue({ ...ACCOUNT_X });
         prisma.session.findFirst.mockResolvedValue({ ...ACTIVE_SESSION });
         prisma.session.update.mockResolvedValue({});

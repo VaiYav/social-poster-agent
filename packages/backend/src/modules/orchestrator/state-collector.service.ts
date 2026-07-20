@@ -151,7 +151,7 @@ export class StateCollectorService {
     const entries = await Promise.all(
       networks.map(async (network) => {
         try {
-          const account = await this.accountsService.findByNetwork(network as SocialNetwork);
+          const account = await this.accountsService.findFirstActiveByNetwork(network as SocialNetwork);
           if (!account) {
             return [network, { status: 'unknown', lastCheckMs: 0, circuitBreaker: 'unknown' }] as const;
           }
@@ -298,7 +298,7 @@ export class StateCollectorService {
       Promise.all(
         networks.map(async (network) => {
           try {
-            const account = await this.accountsService.findByNetwork(network as SocialNetwork);
+            const account = await this.accountsService.findFirstActiveByNetwork(network as SocialNetwork);
             if (account) {
               const lastSession = await this.prisma.browsingSession.findFirst({
                 where: { accountId: account.id },

@@ -14,6 +14,7 @@ import { GenerationService } from '../modules/generation/generation.service';
 import { PostingService } from '../modules/posting/posting.service';
 import { PostsService } from '../modules/posts/posts.service';
 import { SessionsService } from '../modules/sessions/sessions.service';
+import { AccountsService } from '../modules/accounts/accounts.service';
 import { TrendingScraperService } from '../modules/trending/trending-scraper.service';
 import { TrendingService } from '../modules/trending/trending.service';
 import { RepliesMonitorService } from '../modules/replies/replies-monitor.service';
@@ -94,9 +95,15 @@ async function runEngagement(app: any, args: Args): Promise<void> {
 
   const sessionsService = app.get(SessionsService);
   const browser = app.get(IBrowserPort);
+  const accountsService = app.get(AccountsService);
 
   console.log('  Logging in to ' + args.network + '...');
-  const session = await sessionsService.getOrCreateSession(args.network);
+  const account = await accountsService.getNextAccountForNetwork(args.network);
+  if (!account) {
+    console.log('  ✗ No account configured for ' + args.network);
+    return;
+  }
+  const session = await sessionsService.getOrCreateSession(account.id, args.network);
   if (!session) {
     console.log('  ✗ Login failed');
     return;
@@ -126,7 +133,7 @@ async function runEngagement(app: any, args: Args): Promise<void> {
   let page: any = null;
 
   try {
-    context = await browser.acquireContext(args.network, storageState);
+    context = await browser.acquireContext(args.network, storageState, account.id);
     page = await context.newPage();
 
     // Scroll feed — collect real post URLs
@@ -175,7 +182,7 @@ async function runEngagement(app: any, args: Args): Promise<void> {
       }
     } catch { /* best-effort */ }
     try { if (page?.close) await page.close(); } catch { /* best-effort */ }
-    try { if (context) await browser.releaseContext(context); } catch { /* best-effort */ }
+    try { if (context) await browser.releaseContext(args.network, context, account.id); } catch { /* best-effort */ }
   }
 }
 
@@ -211,10 +218,16 @@ async function runTrending(app: any, args: Args): Promise<void> {
 async function runReplies(app: any, args: Args): Promise<void> {
   console.log('\n▶ REPLIES MONITOR (real)');
   const sessionsService = app.get(SessionsService);
+  const accountsService = app.get(AccountsService);
   const repliesMonitor = app.get(RepliesMonitorService);
 
   console.log('  Ensuring session for ' + args.network + '...');
-  const session = await sessionsService.getOrCreateSession(args.network);
+  const account = await accountsService.getNextAccountForNetwork(args.network);
+  if (!account) {
+    console.log('  ✗ No account configured for ' + args.network);
+    return;
+  }
+  const session = await sessionsService.getOrCreateSession(account.id, args.network);
   if (!session) {
     console.log('  ✗ Login failed');
     return;

@@ -197,7 +197,7 @@ export class PostingService {
     // queue worker can use BullMQ's RateLimitError (queue-wide delay) instead of
     // burning the retry budget on backoff loops.
     const networkKey = String(post.network);
-    const rateCheck = await this.rateLimitService.checkRateLimit(networkKey);
+    const rateCheck = await this.rateLimitService.checkRateLimit(networkKey, post.accountId);
     if (!rateCheck.allowed) {
       this.logger.warn(`Rate limited for ${networkKey}: ${rateCheck.reason}`);
       return {
@@ -236,7 +236,7 @@ export class PostingService {
       // SE1: defer inline username/password form login off the posting path when
       // SESSION_DEFERRED_LOGIN is on — return null → retry while the out-of-band
       // refreshSessionsCron performs the controlled re-login.
-      const session = await this.sessionsService.getOrCreateSession(post.network, { deferFormLogin: true });
+      const session = await this.sessionsService.getOrCreateSession(post.accountId, post.network, { deferFormLogin: true });
       if (!session) {
         throw new RetryableError(post.network, `No active session for ${post.network} — auto-login deferred or failed (will retry)`);
       }
@@ -246,7 +246,7 @@ export class PostingService {
       const storageStateStr = session.storageState
         ? this.sessionsService.decryptStorageState(session)
         : undefined;
-      context = await this.browser.acquireContext(post.network, storageStateStr);
+      context = await this.browser.acquireContext(post.network, storageStateStr, post.accountId);
 
       // P0-2 fix: If this is a root post (threadPosition=0) with a threadId,
       // load continuation posts (position > 0) and pass them as threadItems.
@@ -345,10 +345,10 @@ export class PostingService {
               errMsg.includes('browserContext.storageState');
             if (isBrowserCrash && context) {
               this.logger.warn(`Browser crash detected — releasing dead context and acquiring fresh one for ${postId}`);
-              try { this.browser.releaseContext(post.network, context); } catch { /* dead context */ }
+              try { this.browser.releaseContext(post.network, context, post.accountId); } catch { /* dead context */ }
               context = null;
               try {
-                context = await this.browser.acquireContext(post.network, storageStateStr);
+                context = await this.browser.acquireContext(post.network, storageStateStr, post.accountId);
                 this.logger.log(`Fresh context acquired for retry ${attempt} of ${postId}`);
               } catch (acquireErr) {
                 this.logger.error(`Failed to acquire fresh context for retry: ${(acquireErr as Error).message}`);
@@ -395,7 +395,7 @@ export class PostingService {
             // Release the expired context
             if (context) {
               try {
-                this.browser.releaseContext(post.network, context);
+                this.browser.releaseContext(post.network, context, post.accountId);
               } catch {
                 // non-blocking
               }
@@ -406,7 +406,7 @@ export class PostingService {
               .markSessionExpired(post.network, lastSessionId)
               .catch(() => {});
             // Force re-login (getOrCreateSession will auto-login if no active session)
-            const freshSession = await this.sessionsService.getOrCreateSession(post.network);
+            const freshSession = await this.sessionsService.getOrCreateSession(post.accountId, post.network);
             if (!freshSession || freshSession.id === lastSessionId) {
               this.logger.error(
                 `Self-recovery attempt ${attempt} failed for ${postId} — could not create fresh session`,
@@ -418,7 +418,7 @@ export class PostingService {
             const freshStorage = freshSession.storageState
               ? this.sessionsService.decryptStorageState(freshSession)
               : undefined;
-            context = await this.browser.acquireContext(post.network, freshStorage);
+            context = await this.browser.acquireContext(post.network, freshStorage, post.accountId);
 
             // M1/P3 + H2: before re-posting, verify the original attempt didn't already
             // publish — skip the re-post to avoid a duplicate (success-detection can misfire
@@ -465,7 +465,7 @@ export class PostingService {
           );
           // Release context before throwing (finally block will also try, but context may be null here)
           if (context) {
-            try { this.browser.releaseContext(post.network, context); } catch { /* non-blocking */ }
+            try { this.browser.releaseContext(post.network, context, post.accountId); } catch { /* non-blocking */ }
             context = null;
           }
           // Reset status to APPROVED so the retry can pick it up cleanly
@@ -625,7 +625,7 @@ export class PostingService {
       }
 
       // G-3: Record successful post for rate limiting
-      await this.rateLimitService.recordPost(networkKey);
+      await this.rateLimitService.recordPost(networkKey, post.accountId);
 
       // G-4: SSE event — POSTED
       this.eventEmitter.emit(PostEvents.POSTED, {
@@ -668,7 +668,7 @@ export class PostingService {
       // Sprint K: Release context back to pool for reuse (instead of closing).
       // P0-H1: Guaranteed cleanup regardless of outcome — prevents context leaks.
       if (context) {
-        this.browser.releaseContext(post.network, context);
+        this.browser.releaseContext(post.network, context, post.accountId);
       }
     }
   }

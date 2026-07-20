@@ -213,9 +213,9 @@ export function createMockBrowserPort(): IBrowserPort {
       fill: vi.fn(),
       waitForSelector: vi.fn(),
       screenshot: vi.fn(),
-      close: vi.fn(),
+      close: vi.fn().mockResolvedValue(undefined),
     }),
-    close: vi.fn(),
+    close: vi.fn().mockResolvedValue(undefined),
     storageState: vi.fn().mockResolvedValue({}),
   } as unknown;
   return {

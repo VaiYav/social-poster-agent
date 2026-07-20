@@ -226,8 +226,16 @@ function createTestPrisma() {
     ...base,
     socialAccount: {
       create: vi.fn().mockResolvedValue(undefined),
+      findUnique: vi.fn().mockImplementation(({ where }: { where: { id: string } }) => {
+        const account = Object.values(ACCOUNTS).find((a) => a.id === where.id);
+        return Promise.resolve(account ?? null);
+      }),
       findFirst: vi.fn().mockResolvedValue(undefined),
-      findMany: vi.fn().mockResolvedValue([]),
+      findMany: vi.fn().mockImplementation((args: { where?: { network?: SocialNetwork } }) => {
+        const network = args?.where?.network;
+        if (network && ACCOUNTS[network]) return Promise.resolve([ACCOUNTS[network]]);
+        return Promise.resolve(Object.values(ACCOUNTS));
+      }),
       update: vi.fn().mockResolvedValue(undefined),
       upsert: vi.fn().mockResolvedValue(undefined),
       count: vi.fn().mockResolvedValue(0),

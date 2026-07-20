@@ -61,9 +61,9 @@ function createMockEmailReader() {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const ACCOUNT_X = { id: 'acc-x', network: SocialNetwork.X, handle: 'myzodiacai', active: true };
-const ACCOUNT_THREADS = { id: 'acc-threads', network: SocialNetwork.THREADS, handle: 'myzodiacai', active: true };
-const ACCOUNT_FB = { id: 'acc-fb', network: SocialNetwork.FACEBOOK, handle: 'myzodiacai@fb.com', active: true };
+const ACCOUNT_X = { id: 'acc-x', network: SocialNetwork.X, handle: 'myzodiacai', active: true, credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD,SOCIAL_X_COOKIES' };
+const ACCOUNT_THREADS = { id: 'acc-threads', network: SocialNetwork.THREADS, handle: 'myzodiacai', active: true, credentialsRef: 'SOCIAL_THREADS_USERNAME,SOCIAL_THREADS_PASSWORD,SOCIAL_THREADS_COOKIES' };
+const ACCOUNT_FB = { id: 'acc-fb', network: SocialNetwork.FACEBOOK, handle: 'myzodiacai@fb.com', active: true, credentialsRef: 'SOCIAL_FACEBOOK_USERNAME,SOCIAL_FACEBOOK_PASSWORD,SOCIAL_FACEBOOK_COOKIES' };
 
 const ACTIVE_SESSION = {
   id: 'sess-active-1',
@@ -189,11 +189,15 @@ function createMockConfigService(values: Record<string, string> = {}): ConfigSer
   } as unknown as ConfigService;
 }
 
-/** AccountsService mock with overridable findByNetwork. */
+/** AccountsService mock with overridable findFirstActiveByNetwork. */
 function createMockAccountsService(byNetwork: Record<string, unknown> = {}) {
+  const fn = vi.fn((network: SocialNetwork) => Promise.resolve(byNetwork[network] ?? null));
+  const activeAccounts = Object.values(byNetwork).filter(Boolean);
   return {
-    findByNetwork: vi.fn((network: SocialNetwork) => Promise.resolve(byNetwork[network] ?? null)),
-    findAll: vi.fn().mockResolvedValue([]),
+    findByNetwork: vi.fn((network: SocialNetwork) => Promise.resolve(byNetwork[network] ? [byNetwork[network]] : [])),
+    findFirstActiveByNetwork: fn,
+    findById: vi.fn((id: string) => Promise.resolve(activeAccounts.find((a: any) => a.id === id) ?? null)),
+    findAll: vi.fn().mockResolvedValue(activeAccounts),
     seedFromEnv: vi.fn().mockResolvedValue(undefined),
     getCredentials: vi.fn(),
   };
@@ -265,6 +269,23 @@ describe('MOD-04: SessionsService', () => {
     const cfg = opts.config ?? config;
     const brw = opts.browser ?? browser;
     const prs = opts.prisma ?? prisma;
+
+    // Wire up a default getCredentials implementation unless the test already provided one.
+    // It reads env var names from account.credentialsRef through the mock ConfigService.
+    if (acc && (!acc.getCredentials.getMockImplementation || !acc.getCredentials.getMockImplementation())) {
+      acc.getCredentials.mockImplementation((account: any) => {
+        const refs = (account.credentialsRef ?? '').split(',').map((s: string) => s.trim()).filter(Boolean);
+        const result: { username: string; password: string; extra?: string; cookies?: string } = { username: '', password: '' };
+        for (const ref of refs) {
+          const value = cfg.get<string>(ref, '') ?? '';
+          if (ref.includes('_PASSWORD')) result.password = value;
+          else if (ref.includes('_USERNAME') || ref.includes('_EMAIL')) result.username = value;
+          else if (ref.includes('_COOKIES')) result.cookies = value;
+          else if (ref.includes('_PAGE_SLUG')) result.extra = value;
+        }
+        return result;
+      });
+    }
 
     // Restore design:paramtypes stripped by esbuild so Nest DI can resolve
     // the type-injected constructor params. Order matches the constructor:
@@ -348,7 +369,7 @@ describe('MOD-04: SessionsService', () => {
 
     const result = await t.service.getOrCreateSession(SocialNetwork.THREADS);
 
-    expect(t.browser.createContext).toHaveBeenCalledWith(SocialNetwork.THREADS);
+    expect(t.browser.createContext).toHaveBeenCalledWith(SocialNetwork.THREADS, undefined, ACCOUNT_THREADS.id);
     expect(t.prisma.session.create).toHaveBeenCalledOnce();
     expect(result).toEqual(expect.objectContaining({ id: 'sess-new-1', status: SessionStatus.ACTIVE }));
   });
@@ -412,12 +433,18 @@ describe('MOD-04: SessionsService', () => {
     expect(t.prisma.session.create).toHaveBeenCalledTimes(1); // no second login
   });
 
-  it('SE1: refreshSessions drives logins for all networks when called', async () => {
-    const on = await setup({ config: createMockConfigService({ SESSION_DEFERRED_LOGIN: 'true' }) });
+  it('SE1: refreshSessions drives logins for all active accounts when called', async () => {
+    const on = await setup({
+      accounts: createMockAccountsService({ X: ACCOUNT_X, THREADS: ACCOUNT_THREADS, FACEBOOK: ACCOUNT_FB }),
+      config: createMockConfigService({ SESSION_DEFERRED_LOGIN: 'true' }),
+    });
     const onSpy = vi.spyOn(on.service, 'getOrCreateSession').mockResolvedValue(null as never);
     await (on.service as unknown as { refreshSessions: () => Promise<void> }).refreshSessions();
-    // One controlled re-login attempt per network (X, THREADS, FACEBOOK).
+    // One controlled re-login attempt per active account.
     expect(onSpy).toHaveBeenCalledTimes(3);
+    expect(onSpy).toHaveBeenCalledWith(ACCOUNT_X.id, ACCOUNT_X.network);
+    expect(onSpy).toHaveBeenCalledWith(ACCOUNT_THREADS.id, ACCOUNT_THREADS.network);
+    expect(onSpy).toHaveBeenCalledWith(ACCOUNT_FB.id, ACCOUNT_FB.network);
   });
 
   // ── autoLogin (via getOrCreateSession) ────────────────────────────────────
@@ -700,6 +727,7 @@ describe('MOD-04: SessionsService', () => {
     expect(t.browser.acquireContext).toHaveBeenCalledWith(
       SocialNetwork.X,
       '{"cookies":[{"name":"auth","value":"token"}],"origins":[]}',
+      ACCOUNT_X.id,
     );
   });
 
@@ -727,7 +755,7 @@ describe('MOD-04: SessionsService', () => {
 
     const result = await t.service.getOrCreateSession(SocialNetwork.FACEBOOK);
 
-    expect(t.browser.createContext).toHaveBeenCalledWith(SocialNetwork.FACEBOOK);
+    expect(t.browser.createContext).toHaveBeenCalledWith(SocialNetwork.FACEBOOK, undefined, ACCOUNT_FB.id);
     expect(t.prisma.session.create).toHaveBeenCalledOnce();
     const createArg = t.prisma.session.create.mock.calls[0][0];
     expect(createArg.data.accountId).toBe(ACCOUNT_FB.id);
@@ -757,7 +785,7 @@ describe('MOD-04: SessionsService', () => {
 
     const result = await t.service.getOrCreateSession(SocialNetwork.FACEBOOK);
 
-    expect(t.browser.createContext).toHaveBeenCalledWith(SocialNetwork.FACEBOOK);
+    expect(t.browser.createContext).toHaveBeenCalledWith(SocialNetwork.FACEBOOK, undefined, ACCOUNT_FB.id);
     // Login form was filled (pressSequentially called for username + password)
     expect(t.prisma.session.create).toHaveBeenCalledOnce();
     expect(result).toEqual(expect.objectContaining({ id: 'sess-fb-login' }));
@@ -784,7 +812,7 @@ describe('MOD-04: SessionsService', () => {
 
     const result = await t.service.getOrCreateSession(SocialNetwork.THREADS);
 
-    expect(t.browser.createContext).toHaveBeenCalledWith(SocialNetwork.THREADS);
+    expect(t.browser.createContext).toHaveBeenCalledWith(SocialNetwork.THREADS, undefined, ACCOUNT_THREADS.id);
     expect(t.browser.saveStorageState).toHaveBeenCalledWith(context);
     expect(t.prisma.session.create).toHaveBeenCalledOnce();
     const createArg = t.prisma.session.create.mock.calls[0][0];
@@ -819,7 +847,7 @@ describe('MOD-04: SessionsService', () => {
     const result = await t.service.getOrCreateSession(SocialNetwork.X);
 
     // Cookie auth: browser context created, cookies added, session created
-    expect(t.browser.createContext).toHaveBeenCalledWith(SocialNetwork.X);
+    expect(t.browser.createContext).toHaveBeenCalledWith(SocialNetwork.X, undefined, ACCOUNT_X.id);
     expect(context.addCookies).toHaveBeenCalledOnce();
     expect(t.prisma.session.create).toHaveBeenCalledOnce();
     const createArg = t.prisma.session.create.mock.calls[0][0];
@@ -942,7 +970,7 @@ describe('MOD-04: SessionsService', () => {
     });
 
     // Access the circuit breaker registry directly and force 3 failures
-    const breaker = t.service['circuitBreakers'].get('login:X', {
+    const breaker = t.service['circuitBreakers'].get(`login:${ACCOUNT_X.id}`, {
       failureThreshold: 3,
       resetTimeoutMs: 900000,
       failureWindowMs: 600000,
@@ -985,7 +1013,7 @@ describe('MOD-04: SessionsService', () => {
       });
 
       // Force breaker open with 3 failures
-      const breaker = t.service['circuitBreakers'].get('login:X', {
+      const breaker = t.service['circuitBreakers'].get(`login:${ACCOUNT_X.id}`, {
         failureThreshold: 3,
         resetTimeoutMs: 900000,
         failureWindowMs: 600000,
@@ -1026,7 +1054,7 @@ describe('MOD-04: SessionsService', () => {
       });
 
       // Force breaker open with 3 failures
-      const breaker = t.service['circuitBreakers'].get('login:X', {
+      const breaker = t.service['circuitBreakers'].get(`login:${ACCOUNT_X.id}`, {
         failureThreshold: 3,
         resetTimeoutMs: 900000,
         failureWindowMs: 600000,
@@ -1042,15 +1070,17 @@ describe('MOD-04: SessionsService', () => {
       expect(breaker.canExecute()).toBe(true);
       expect(breaker.currentState).toBe('HALF_OPEN');
 
-      // Make autoLogin throw (findByNetwork throws on 2nd call, inside autoLogin before try/catch)
-      const accountsMock = t.accounts as { findByNetwork: ReturnType<typeof vi.fn> };
-      accountsMock.findByNetwork
-        .mockResolvedValueOnce(ACCOUNT_X) // getOrCreateSession initial call
-        .mockRejectedValueOnce(new Error('DB connection lost')); // autoLogin call
+      // Make autoLogin fail (password missing) → getOrCreateSession returns null after
+      // the breaker records the AutoLoginFailedError and transitions HALF_OPEN → OPEN.
+      t.config.get.mockImplementation((key: string, def?: string) => {
+        if (key === 'SOCIAL_X_USERNAME') return 'myzodiacai';
+        // password intentionally missing
+        return def ?? '';
+      });
 
-      // getOrCreateSession → breaker.execute(autoLogin) → autoLogin throws → re-OPEN
-      await expect(t.service.getOrCreateSession(SocialNetwork.X)).rejects.toThrow('DB connection lost');
+      const result = await t.service.getOrCreateSession(SocialNetwork.X);
 
+      expect(result).toBeNull();
       // Breaker should be re-OPEN
       expect(breaker.currentState).toBe('OPEN');
     } finally {
@@ -1461,7 +1491,7 @@ describe('MOD-04: SessionsService', () => {
 
     const result = await t.service.getOrCreateSession(SocialNetwork.THREADS);
 
-    expect(t.browser.createContext).toHaveBeenCalledWith(SocialNetwork.THREADS);
+    expect(t.browser.createContext).toHaveBeenCalledWith(SocialNetwork.THREADS, undefined, ACCOUNT_THREADS.id);
     expect(context.addCookies).toHaveBeenCalledOnce();
     expect(t.prisma.session.create).toHaveBeenCalledOnce();
     expect(result).toEqual(expect.objectContaining({ id: 'sess-cookie-threads' }));
@@ -1667,7 +1697,7 @@ describe('MOD-04: SessionsService', () => {
 
     const result = await t.service.getOrCreateSession(SocialNetwork.FACEBOOK);
 
-    expect(t.browser.createContext).toHaveBeenCalledWith(SocialNetwork.FACEBOOK);
+    expect(t.browser.createContext).toHaveBeenCalledWith(SocialNetwork.FACEBOOK, undefined, ACCOUNT_FB.id);
     expect(context.addCookies).toHaveBeenCalledOnce();
     expect(t.prisma.session.create).toHaveBeenCalledOnce();
     expect(result).toEqual(expect.objectContaining({ id: 'sess-cookie-fb' }));

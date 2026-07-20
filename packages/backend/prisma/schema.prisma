@@ -85,26 +85,45 @@ enum BrowsingSessionStatus {
 // Post.sourceRef JSON field: { type: 'brief'|'article'|'topic'|'create_run', ... }
 // Canonical types in packages/shared/src/types/enums.ts
 
+model AccountGroup {
+  id                 String    @id @default(uuid())
+  name               String
+  proxyUrl           String?
+  timezone           String?
+  fingerprintProfile Json?
+  accounts           SocialAccount[]
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
 model SocialAccount {
-  id             String         @id @default(uuid())
-  network        SocialNetwork
-  handle         String
-  credentialsRef String         // env var name (never the password itself)
-  active         Boolean        @default(true)
+  id              String         @id @default(uuid())
+  network         SocialNetwork
+  handle          String
+  displayName     String?        // human label, e.g. "Soulwise US"
+  priority        Int            @default(0)
+  groupId         String?
+  group           AccountGroup?  @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  fingerprintSeed String?        // optional deterministic seed override
+  proxyUrl        String?        // optional per-account proxy override
+  credentialsRef  String         // comma-separated env var names (never the password itself)
+  active          Boolean        @default(true)
   // F20: Warm-up mode for new accounts (browse-only → gradual ramp)
-  warmupEnabled  Boolean        @default(false) // true = account in warm-up phase
-  warmupStartedAt DateTime?     // when warm-up started (for gradual ramp calculation)
-  warmupDaysTotal Int           @default(7)     // total warm-up days (default 7)
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  sessions       Session[]
-  posts          Post[]
-  threads        PostThread[]
-  interactions   Interaction[]
+  warmupEnabled   Boolean        @default(false) // true = account in warm-up phase
+  warmupStartedAt DateTime?      // when warm-up started (for gradual ramp calculation)
+  warmupDaysTotal Int            @default(7)     // total warm-up days (default 7)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  sessions        Session[]
+  posts           Post[]
+  threads         PostThread[]
+  interactions    Interaction[]
   browsingSessions BrowsingSession[]
 
   @@unique([network, handle])
   @@index([network])
+  @@index([priority])
+  @@index([groupId])
 }
 
 model Session {
@@ -315,28 +334,41 @@ model Interaction {
 }
 
 /// Sprint Q / F4: Incoming comments on our posts, tracked for automated reply monitoring.
+/// Conversation threads: nested replies are linked via parentId and grouped by conversationId (root commentId).
 model IncomingComment {
-  id               String           @id @default(uuid())
-  postId           String
-  post             Post             @relation("PostIncomingComments", fields: [postId], references: [id], onDelete: Cascade)
-  network          SocialNetwork
-  commentId        String           // platform-specific comment ID (for dedup)
-  author           String
-  text             String
-  authorProfileUrl String?
-  status           CommentStatus    @default(NEW)
-  replyText        String?          // generated reply (if any)
-  replyPostedAt    DateTime?
-  needsHumanReview Boolean          @default(false) // true for complex/sensitive comments
+  id                String           @id @default(uuid())
+  postId            String
+  post              Post             @relation("PostIncomingComments", fields: [postId], references: [id], onDelete: Cascade)
+  network           SocialNetwork
+  commentId         String           // platform-specific comment ID (for dedup)
+  author            String
+  text              String
+  authorProfileUrl  String?
+  commentUrl        String?          // platform permalink of this comment/tweet
+  parentId          String?          // DB id of parent comment (nested reply)
+  parent            IncomingComment? @relation("CommentReplies", fields: [parentId], references: [id], onDelete: SetNull)
+  children          IncomingComment[] @relation("CommentReplies")
+  conversationId    String?          // root commentId of the conversation thread
+  depth             Int              @default(0) // number of agent replies in this chain
+  isQuestion        Boolean          @default(false)
+  questionConfidence Float?          // classifier confidence 0..1
+  questionType      String?          // factual | opinion | personal | offtopic
+  replyUrl          String?          // URL of our posted reply on the platform (for nested reply scraping)
+  status            CommentStatus    @default(NEW)
+  replyText         String?          // generated reply (if any)
+  replyPostedAt     DateTime?
+  needsHumanReview  Boolean          @default(false) // true for complex/sensitive comments
   humanReviewReason String?         // why human review is needed
-  scrapedAt        DateTime         @default(now())
-  createdAt        DateTime         @default(now())
+  scrapedAt         DateTime         @default(now())
+  createdAt         DateTime         @default(now())
 
   @@unique([postId, commentId]) // dedup: one record per (post, comment)
   @@index([postId])
   @@index([status])
   @@index([network])
   @@index([scrapedAt])
+  @@index([conversationId, depth])
+  @@index([parentId])
 }
 
 enum CommentStatus {

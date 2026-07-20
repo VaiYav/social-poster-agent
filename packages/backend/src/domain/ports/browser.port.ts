@@ -40,18 +40,18 @@ export interface IBrowserPort {
    * Create a browser context with optional saved storageState (cookies, localStorage).
    * Used for persistent sessions — restores login state between runs.
    */
-  createContext(network: SocialNetwork, storageState?: string): Promise<BrowserContext>;
+  createContext(network: SocialNetwork, storageState?: string, accountId?: string): Promise<BrowserContext>;
 
   /**
    * Sprint K: Acquire a context from the pool (or create new if pool is empty).
    * Caller MUST call releaseContext() when done.
    */
-  acquireContext(network: SocialNetwork, storageState?: string): Promise<BrowserContext>;
+  acquireContext(network: SocialNetwork, storageState?: string, accountId?: string): Promise<BrowserContext>;
 
   /**
    * Sprint K: Release a context back to the pool for reuse.
    */
-  releaseContext(network: SocialNetwork, context: BrowserContext): void;
+  releaseContext(network: SocialNetwork, context: BrowserContext, accountId?: string): void;
 
   /**
    * Save storageState from a context to persist session (cookies, localStorage).

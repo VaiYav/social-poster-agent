@@ -101,7 +101,7 @@ describe('BrowsingSessionService — page lifecycle', () => {
     await service.runBrowsingSession(SocialNetwork.X, 60);
 
     expect(mockPage.close).toHaveBeenCalledTimes(1);
-    expect(browser.releaseContext).toHaveBeenCalledWith(SocialNetwork.X, mockContext);
+    expect(browser.releaseContext).toHaveBeenCalledWith(SocialNetwork.X, mockContext, undefined);
   });
 
   it('BSS-002: still closes the page when the engagement graph throws (regression: page leak on failure)', async () => {
@@ -110,7 +110,7 @@ describe('BrowsingSessionService — page lifecycle', () => {
     await expect(service.runBrowsingSession(SocialNetwork.X, 60)).rejects.toThrow('selector drift');
 
     expect(mockPage.close).toHaveBeenCalledTimes(1);
-    expect(browser.releaseContext).toHaveBeenCalledWith(SocialNetwork.X, mockContext);
+    expect(browser.releaseContext).toHaveBeenCalledWith(SocialNetwork.X, mockContext, undefined);
   });
 
   it('BSS-003: a page.close() failure does not prevent the context from being released', async () => {
@@ -119,6 +119,6 @@ describe('BrowsingSessionService — page lifecycle', () => {
 
     await service.runBrowsingSession(SocialNetwork.X, 60);
 
-    expect(browser.releaseContext).toHaveBeenCalledWith(SocialNetwork.X, mockContext);
+    expect(browser.releaseContext).toHaveBeenCalledWith(SocialNetwork.X, mockContext, undefined);
   });
 });

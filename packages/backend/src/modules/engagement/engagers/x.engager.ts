@@ -74,8 +74,11 @@ export class XEngager extends BaseEngager {
         text,
       );
 
+      // After a successful reply, the page URL is the reply's permalink.
+      const resultingUrl = page.url();
+
       await this.screenshot(page, 'after-comment');
-      return { success: true, screenshotPath };
+      return { success: true, screenshotPath, postUrl: resultingUrl };
     } catch (err) {
       return { success: false, error: (err as Error).message };
     }

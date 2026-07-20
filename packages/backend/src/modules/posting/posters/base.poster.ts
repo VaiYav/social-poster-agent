@@ -48,6 +48,8 @@ export interface EngagementResult {
   alreadyLiked?: boolean;
   /** True if the action was skipped because it was already reposted. */
   alreadyReposted?: boolean;
+  /** URL of the resulting comment/reply/post (set by networks that expose it). */
+  postUrl?: string;
 }
 
 /** Abstract base class for all network posters. */

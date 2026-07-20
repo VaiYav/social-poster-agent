@@ -62,6 +62,10 @@ interface Deps {
   queue: ReturnType<typeof mockQueue> | undefined;
 }
 
+function mockDialogueService() {
+  return { processComment: vi.fn().mockResolvedValue({ action: 'skip', reason: 'test' }) };
+}
+
 function makeService(overrides: Partial<Deps> = {}): { svc: any; deps: Deps } {
   const deps: Deps = {
     prisma: overrides.prisma ?? mockPrisma(),
@@ -77,6 +81,7 @@ function makeService(overrides: Partial<Deps> = {}): { svc: any; deps: Deps } {
     { addCronJob: vi.fn() } as any, // schedulerRegistry
     mockDiscord() as any,
     deps.sse as any,
+    mockDialogueService() as any, // dialogueService
     undefined, // llmService
     undefined, // browser
     deps.engagement as any,
@@ -211,7 +216,8 @@ describe('RP1 — delayed auto-reply jobs', () => {
 
     // Stub the scrape pipeline so the cycle reaches the per-comment loop.
     env2.svc.getMonitorablePosts = vi.fn().mockResolvedValue([POST]);
-    env2.svc.scrapeComments = vi.fn().mockResolvedValue([{ commentId: 'cid-1', author: '@s', text: 'hi' }]);
+    env2.svc.scrapeCommentsFromUrl = vi.fn().mockResolvedValue([{ commentId: 'cid-1', author: '@s', text: 'hi' }]);
+    env2.svc.scrapeNestedReplies = vi.fn().mockResolvedValue([]);
     env2.svc.saveNewComments = vi.fn().mockResolvedValue([{ id: 'c-db', commentId: 'cid-1', author: '@s', text: 'hi' }]);
     const decideSpy = vi.spyOn(env2.svc, 'decideReply');
 

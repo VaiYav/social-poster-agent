@@ -20,9 +20,13 @@ export class SessionsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Run health check on a session (verifies browser session is still valid)' })
   @ApiQuery({ name: 'network', required: true, enum: ['X', 'THREADS', 'FACEBOOK'] })
+  @ApiQuery({ name: 'accountId', required: false, description: 'Specific account to health-check (defaults to first active for network)' })
   @ApiResponse({ status: 200, description: 'Health check result' })
-  async healthCheck(@Query('network', new ParseEnumPipe(SocialNetwork)) network: SocialNetwork) {
-    return this.sessionsService.healthCheck(network);
+  async healthCheck(
+    @Query('network', new ParseEnumPipe(SocialNetwork)) network: SocialNetwork,
+    @Query('accountId') accountId?: string,
+  ) {
+    return this.sessionsService.healthCheck(network, accountId);
   }
 
   @Post('verify-code')

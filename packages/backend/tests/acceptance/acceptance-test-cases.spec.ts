@@ -404,7 +404,7 @@ const ACCOUNT_X = {
   id: 'acc-001',
   network: SocialNetwork.X,
   handle: 'myzodiacai',
-  credentialsRef: 'SOCIAL_X_USERNAME/PASSWORD',
+  credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD',
   active: true,
   createdAt: NOW,
   updatedAt: NOW,
@@ -413,7 +413,7 @@ const ACCOUNT_THREADS = {
   id: 'acc-002',
   network: SocialNetwork.THREADS,
   handle: 'myzodiacai',
-  credentialsRef: 'SOCIAL_THREADS_USERNAME/PASSWORD',
+  credentialsRef: 'SOCIAL_THREADS_USERNAME,SOCIAL_THREADS_PASSWORD',
   active: true,
   createdAt: NOW,
   updatedAt: NOW,
@@ -422,7 +422,7 @@ const ACCOUNT_FB = {
   id: 'acc-003',
   network: SocialNetwork.FACEBOOK,
   handle: 'myzodiacai@facebook.com',
-  credentialsRef: 'SOCIAL_FACEBOOK_EMAIL/PASSWORD',
+  credentialsRef: 'SOCIAL_FACEBOOK_EMAIL,SOCIAL_FACEBOOK_PASSWORD',
   active: true,
   createdAt: NOW,
   updatedAt: NOW,
@@ -671,7 +671,14 @@ function setupDefaultMocks(): void {
   prisma.post.update.mockResolvedValue({});
   prisma.post.count.mockResolvedValue(0);
 
-  // Prisma — socialAccount (return correct account per network)
+  // Prisma — socialAccount (return correct account per network/id)
+  prisma.socialAccount.findUnique.mockImplementation((args: unknown) => {
+    const id = args?.where?.id as string | undefined;
+    if (id === 'acc-001') return Promise.resolve(ACCOUNT_X);
+    if (id === 'acc-002') return Promise.resolve(ACCOUNT_THREADS);
+    if (id === 'acc-003') return Promise.resolve(ACCOUNT_FB);
+    return Promise.resolve(null);
+  });
   prisma.socialAccount.findFirst.mockImplementation((args: unknown) => {
     const network = args?.where?.network as SocialNetwork | undefined;
     if (network === SocialNetwork.X) return Promise.resolve(ACCOUNT_X);
@@ -680,7 +687,13 @@ function setupDefaultMocks(): void {
     return Promise.resolve(undefined);
   });
   prisma.socialAccount.create.mockResolvedValue({});
-  prisma.socialAccount.findMany.mockResolvedValue([ACCOUNT_X, ACCOUNT_THREADS, ACCOUNT_FB]);
+  prisma.socialAccount.findMany.mockImplementation((args: unknown) => {
+    const network = args?.where?.network as SocialNetwork | undefined;
+    if (network === SocialNetwork.X) return Promise.resolve([ACCOUNT_X]);
+    if (network === SocialNetwork.THREADS) return Promise.resolve([ACCOUNT_THREADS]);
+    if (network === SocialNetwork.FACEBOOK) return Promise.resolve([ACCOUNT_FB]);
+    return Promise.resolve([ACCOUNT_X, ACCOUNT_THREADS, ACCOUNT_FB]);
+  });
 
   // Prisma — session
   prisma.session.findFirst.mockResolvedValue(null);
@@ -697,6 +710,13 @@ function setupDefaultMocks(): void {
 function setupPostingFlow(post = APPROVED_POST_X) {
   prisma.post.findUnique.mockResolvedValue({ ...post });
   prisma.post.update.mockResolvedValue({ ...post });
+  prisma.socialAccount.findUnique.mockImplementation((args: unknown) => {
+    const id = args?.where?.id as string | undefined;
+    if (id === 'acc-001') return Promise.resolve({ ...ACCOUNT_X });
+    if (id === 'acc-002') return Promise.resolve({ ...ACCOUNT_THREADS });
+    if (id === 'acc-003') return Promise.resolve({ ...ACCOUNT_FB });
+    return Promise.resolve(null);
+  });
   prisma.socialAccount.findFirst.mockResolvedValue({ ...ACCOUNT_X });
   prisma.session.findFirst.mockResolvedValue({ ...ACTIVE_SESSION_X });
   prisma.session.update.mockResolvedValue({});
@@ -2169,9 +2189,9 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
       expect(Array.isArray(res.body)).toBe(true);
 
       // Assert: credentialsRef contains env var NAME, not actual credential value
-      expect(ACCOUNT_X.credentialsRef).toBe('SOCIAL_X_USERNAME/PASSWORD');
-      expect(ACCOUNT_THREADS.credentialsRef).toBe('SOCIAL_THREADS_USERNAME/PASSWORD');
-      expect(ACCOUNT_FB.credentialsRef).toBe('SOCIAL_FACEBOOK_EMAIL/PASSWORD');
+      expect(ACCOUNT_X.credentialsRef).toBe('SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD');
+      expect(ACCOUNT_THREADS.credentialsRef).toBe('SOCIAL_THREADS_USERNAME,SOCIAL_THREADS_PASSWORD');
+      expect(ACCOUNT_FB.credentialsRef).toBe('SOCIAL_FACEBOOK_EMAIL,SOCIAL_FACEBOOK_PASSWORD');
 
       // Assert: credentialsRef does NOT contain raw password values
       expect(ACCOUNT_X.credentialsRef).not.toContain('test_x_pass');

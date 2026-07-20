@@ -13,6 +13,8 @@ import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { RepliesMonitorService } from './replies-monitor.service';
 import { RepliesController } from './replies.controller';
+import { QuestionClassifierService } from './question-classifier.service.js';
+import { DialogueService } from './dialogue.service.js';
 import { AccountsModule } from '../accounts/accounts.module';
 import { SessionsModule } from '../sessions/sessions.module';
 import { PrismaModule } from '../../infrastructure/prisma/prisma.module';
@@ -38,6 +40,8 @@ import { IRepliesMonitorPort } from '../orchestrator/ports';
   ],
   providers: [
     RepliesMonitorService,
+    QuestionClassifierService,
+    DialogueService,
     {
       provide: IRepliesMonitorPort,
       useExisting: RepliesMonitorService,
@@ -66,6 +70,8 @@ export class RepliesModule {
       ],
       providers: [
         RepliesMonitorService,
+        QuestionClassifierService,
+        DialogueService,
         {
           provide: IRepliesMonitorPort,
           useExisting: RepliesMonitorService,

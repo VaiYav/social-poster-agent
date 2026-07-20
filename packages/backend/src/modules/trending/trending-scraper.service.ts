@@ -30,6 +30,7 @@ import { IBrowserPort } from '../../domain/ports/browser.port.js';
 import { ILlmPort } from '../../domain/ports/llm.port.js';
 import { IPromptPort, type CompiledChatPrompt } from '../../domain/ports/prompt.port.js';
 import { SessionsService } from '../sessions/sessions.service.js';
+import { AccountsService } from '../accounts/accounts.service.js';
 import type { BrowserContext, Page } from '../../domain/ports/browser-primitives';
 import { SocialNetwork } from '@prisma/client';
 import { isNetworkEnabled } from '../../domain/enabled-networks.js';
@@ -161,6 +162,7 @@ export class TrendingScraperService implements OnModuleInit {
     @Optional() @Inject(ILlmPort) private readonly llmService?: ILlmPort,
     @Optional() @Inject(IBrowserPort) private readonly browser?: IBrowserPort,
     @Optional() private readonly sessionsService?: SessionsService,
+    @Optional() private readonly accountsService?: AccountsService,
     @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
   ) {
     this.cacheTtlMs = this.configService.get<number>('TRENDING_CACHE_TTL_MS', DEFAULT_CACHE_TTL_MS);
@@ -331,12 +333,19 @@ export class TrendingScraperService implements OnModuleInit {
 
     let context: BrowserContext | null = null;
     let page: Awaited<ReturnType<BrowserContext['newPage']>> | undefined;
+    let accountId: string | undefined;
     try {
       // Use authenticated session if available — X may require login to view trends
       let storageState: string | undefined;
       if (this.sessionsService) {
         try {
-          const session = await this.sessionsService.getOrCreateSession('X' as SocialNetwork);
+          if (this.accountsService) {
+            const account = await this.accountsService.getNextAccountForNetwork(SocialNetwork.X);
+            accountId = account?.id;
+          }
+          const session = accountId
+            ? await this.sessionsService.getOrCreateSession(accountId, SocialNetwork.X)
+            : await this.sessionsService.getOrCreateSession(SocialNetwork.X);
           if (session?.storageState) {
             storageState = this.sessionsService.decryptStorageState(session);
           }
@@ -344,7 +353,7 @@ export class TrendingScraperService implements OnModuleInit {
           this.logger.debug(`Could not get X session for trending scrape: ${(err as Error).message}`);
         }
       }
-      context = await this.browser.acquireContext('X' as SocialNetwork, storageState);
+      context = await this.browser.acquireContext('X' as SocialNetwork, storageState, accountId);
       page = await context.newPage();
 
       // Suppress uncaught page-side JS errors (X React app throws many) that can
@@ -384,7 +393,7 @@ export class TrendingScraperService implements OnModuleInit {
       }
       if (context) {
         try {
-          await this.browser.releaseContext('X' as SocialNetwork, context);
+          await this.browser.releaseContext('X' as SocialNetwork, context, accountId);
         } catch (err) {
           this.logger.warn(`Failed to release X context: ${(err as Error).message}`);
         }

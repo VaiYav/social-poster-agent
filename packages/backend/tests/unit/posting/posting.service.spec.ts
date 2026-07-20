@@ -71,6 +71,7 @@ function createMockWarmupService() {
 function createMockAccountsService() {
   return {
     findByNetwork: vi.fn(),
+    findFirstActiveByNetwork: vi.fn(),
     findAll: vi.fn().mockResolvedValue([]),
     seedFromEnv: vi.fn().mockResolvedValue(undefined),
     getCredentials: vi.fn(),
@@ -101,6 +102,7 @@ function createMockContext() {
 
 const APPROVED_POST_X = {
   id: 'post-1',
+  accountId: 'acc-001',
   network: SocialNetwork.X,
   content: 'Mercury retrograde is coming! ♋',
   status: PostStatus.APPROVED,
@@ -539,7 +541,7 @@ describe('MOD-03: PostingService', () => {
     expect(postedCall[1].postUrl).toBe('https://x.com/user/status/123');
 
     // rateLimitService.recordPost called
-    expect(ctx.rateLimitService.recordPost).toHaveBeenCalledWith('X');
+    expect(ctx.rateLimitService.recordPost).toHaveBeenCalledWith('X', 'acc-001');
 
     // SSE POSTED event with url
     const postedEvent = ctx.eventEmitter.emit.mock.calls.find(
@@ -824,6 +826,7 @@ describe('MOD-03: PostingService', () => {
     expect(ctx.browser.acquireContext).toHaveBeenCalledWith(
       SocialNetwork.X,
       '{"cookies":[{"name":"auth","value":"token"}],"origins":[]}',
+      'acc-001',
     );
   });
 
