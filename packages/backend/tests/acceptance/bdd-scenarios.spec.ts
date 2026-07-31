@@ -21,7 +21,7 @@
  * `Reflect.defineMetadata` (see big-bang.integration.spec.ts for details).
  */
 import 'reflect-metadata';
-import { defineParamtypes, restoreAllDesignParamtypes } from '../helpers/restore-paramtypes';
+import { defineParamtypes, restoreAllDesignParamtypes } from '../helpers/restore-paramtypes.js';
 import { TopicGenerationService } from '../../src/infrastructure/content/topic-generation.service';
 import http from 'node:http';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -36,9 +36,9 @@ import { VisualConceptService } from '../../src/modules/content-enhancements/vis
 import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator';
 import { ThreadDepthService } from '../../src/modules/content-enhancements/thread-depth.service';
 import { ContentPillarTracker } from '../../src/modules/content-enhancements/content-pillar.tracker';
-import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook-performance-bank';
+import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook-performance-bank.js';
 import { ThreadProgressService } from '../../src/modules/posting/thread-progress.service';
-import { HumanBehaviorEngine } from '../../src/modules/engagement/human-behavior-engine';
+import { HumanBehaviorEngine } from '../../src/modules/engagement/human-behavior-engine.js';
 import { TargetingService } from '../../src/modules/engagement/targeting.service';
 import { RepliesMonitorService } from '../../src/modules/replies/replies-monitor.service';
 import { EngagementSchedulerService } from '../../src/modules/engagement/engagement-scheduler.service';
@@ -71,14 +71,14 @@ import { IContentPort } from '../../src/domain/ports/content.port.js';
 // Infrastructure
 import { BrowserFactory } from '../../src/infrastructure/browser/browser.factory';
 import { LlmService } from '../../src/infrastructure/llm/llm.service';
-import { ContentReader } from '../../src/infrastructure/content/content-reader';
+import { ContentReader } from '../../src/infrastructure/content/content-reader.js';
 import { SseService } from '../../src/infrastructure/sse/sse.service';
 import { SseModule } from '../../src/infrastructure/sse/sse.module';
 import { QueueFactory } from '../../src/infrastructure/queue/queue.factory';
 import { QueueModule } from '../../src/modules/queue/queue.module';
 import { EncryptionService } from '../../src/infrastructure/crypto/encryption.service';
 import { TrendingScraperService } from '../../src/modules/trending/trending-scraper.service';
-import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint';
+import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint.js';
 
 // Services / Controllers
 import { PostingService } from '../../src/modules/posting/posting.service';
@@ -124,7 +124,7 @@ import { AuthController } from '../../src/modules/auth/auth.controller';
 import { JwtAuthGuard } from '../../src/modules/auth/jwt-auth.guard';
 import { JwtService } from '@nestjs/jwt';
 
-import { createMockLlmPort, createMockBrowserPort, createMockPrismaService } from '../mocks/index';
+import { createMockLlmPort, createMockBrowserPort, createMockPrismaService } from '../mocks/index.js';
 
 // ── Environment variables for credential-based tests ─────────────────────────
 // Must be set before ConfigModule is initialised.

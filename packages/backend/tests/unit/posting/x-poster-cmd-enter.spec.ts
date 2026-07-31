@@ -13,7 +13,7 @@ import {
   createMockBrowserPort,
   createMockPage,
   createMockContext,
-} from '../../mocks/index';
+} from '../../mocks/index.js';
 
 describe('XPoster — Cmd+Enter Keyboard Shortcut', () => {
   let poster: XPoster;

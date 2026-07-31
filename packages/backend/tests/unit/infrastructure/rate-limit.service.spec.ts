@@ -14,7 +14,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { ConfigService } from '@nestjs/config';
 import { RateLimitService, RECORD_POST_SCRIPT } from '../../../src/modules/rate-limit/rate-limit.service';
-import { createMockRedis } from '../../mocks/index';
+import { createMockRedis } from '../../mocks/index.js';
 
 // ── Helpers ──
 

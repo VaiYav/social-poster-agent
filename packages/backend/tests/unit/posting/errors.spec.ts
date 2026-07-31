@@ -17,7 +17,7 @@ import {
   CaptchaError,
   AccountRestrictedError,
   classifyPlaywrightError,
-} from '../../../src/domain/errors';
+} from '../../../src/domain/errors.js';
 
 describe('Error Classification', () => {
   describe('Typed Error Classes', () => {

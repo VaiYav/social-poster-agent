@@ -8,8 +8,8 @@
  * Source: packages/backend/src/modules/posting/posters/selector-strategy.ts
  */
 import { describe, it, expect, vi } from 'vitest';
-import { resolveSelector, waitForSelector } from '../../../src/modules/posting/posters/selector-strategy';
-import { createMockPage } from '../../mocks/index';
+import { resolveSelector, waitForSelector } from '../../../src/modules/posting/posters/selector-strategy.js';
+import { createMockPage } from '../../mocks/index.js';
 
 describe('Selector Strategy', () => {
   describe('resolveSelector', () => {

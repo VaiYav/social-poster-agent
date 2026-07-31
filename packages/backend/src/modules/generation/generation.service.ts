@@ -16,7 +16,7 @@ import { TrendingScraperService } from '../trending/trending-scraper.service.js'
 import { LangfuseService, type LangfuseHandlerOptions } from '../../infrastructure/langfuse/langfuse.service.js';
 import { withLlmContext } from '../../infrastructure/llm/llm.service.js';
 import { combineSignals } from '../../infrastructure/util/abort-signal.js';
-import { parseBool } from '../../infrastructure/config/parse-bool';
+import { parseBool } from '../../infrastructure/config/parse-bool.js';
 import { IPromptPort } from '../../domain/ports/prompt.port.js';
 import {
   withPromptLabelContext,

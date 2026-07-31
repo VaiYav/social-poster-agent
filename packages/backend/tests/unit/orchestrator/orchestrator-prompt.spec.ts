@@ -4,8 +4,8 @@
  * Source: packages/backend/src/modules/orchestrator/prompts/orchestrator-prompt.ts
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { buildOrchestratorUserPrompt } from '../../../src/modules/orchestrator/prompts/orchestrator-prompt';
-import type { WorldState } from '../../../src/modules/orchestrator/types';
+import { buildOrchestratorUserPrompt } from '../../../src/modules/orchestrator/prompts/orchestrator-prompt.js';
+import type { WorldState } from '../../../src/modules/orchestrator/types.js';
 
 function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
   return {

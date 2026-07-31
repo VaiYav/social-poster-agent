@@ -9,7 +9,7 @@ import { QueueService } from '../queue/queue.service';
 import { QueueFactory } from '../../infrastructure/queue/queue.factory';
 import { isJobInFlight } from '../../infrastructure/queue/queue-state-utils.js';
 import { SessionStatus, PostStatus, SocialNetwork, BrowsingSessionStatus } from '@prisma/client';
-import { parseBool } from '../../infrastructure/config/parse-bool';
+import { parseBool } from '../../infrastructure/config/parse-bool.js';
 import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 import { getEnabledNetworks, isNetworkEnabled } from '../../domain/enabled-networks.js';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';

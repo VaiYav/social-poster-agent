@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 
-import { truncateForThread } from '../../../src/modules/content-enhancements/thread-limit';
+import { truncateForThread } from '../../../src/modules/content-enhancements/thread-limit.js';
 
 describe('truncateForThread (AU8)', () => {
   it('leaves content within the limit unchanged', () => {

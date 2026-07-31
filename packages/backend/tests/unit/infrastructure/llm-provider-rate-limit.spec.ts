@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ConfigService } from '@nestjs/config';
-import { LlmProviderRateLimit } from '../../../src/infrastructure/llm/llm-provider-rate-limit';
+import { LlmProviderRateLimit } from '../../../src/infrastructure/llm/llm-provider-rate-limit.js';
 
 function makeConfig(overrides: Record<string, number> = {}): ConfigService {
   const defaults: Record<string, number> = {

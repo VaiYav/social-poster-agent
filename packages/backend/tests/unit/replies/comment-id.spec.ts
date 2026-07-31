@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from 'vitest';
 
-import { buildCommentId } from '../../../src/modules/replies/comment-id';
+import { buildCommentId } from '../../../src/modules/replies/comment-id.js';
 
 describe('buildCommentId (RP2 — script-safe comment ids)', () => {
   it('is deterministic for the same author + text', () => {

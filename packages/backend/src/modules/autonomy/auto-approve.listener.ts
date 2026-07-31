@@ -28,7 +28,7 @@ import type { JudgeScores } from '@spa/shared';
 import { IPostingQueuePort } from '../../domain/ports/posting-queue.port.js';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { PostEvents } from '../../events/enums/post-events.enum';
-import { parseBool } from '../../infrastructure/config/parse-bool';
+import { parseBool } from '../../infrastructure/config/parse-bool.js';
 
 @Injectable()
 export class AutoApproveListener {

@@ -10,7 +10,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { promises as fs } from 'fs';
 import { join } from 'path';
-import { parseBool } from '../../infrastructure/config/parse-bool';
+import { parseBool } from '../../infrastructure/config/parse-bool.js';
 
 @Injectable()
 export class QuoteCardService {

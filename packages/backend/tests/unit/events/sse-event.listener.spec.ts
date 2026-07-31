@@ -11,7 +11,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SseEventListener } from '../../../src/events/listeners/sse-event.listener';
 import { PostEvents } from '../../../src/events/enums/post-events.enum';
-import { createMockSseService } from '../../mocks';
+import { createMockSseService } from '../../mocks/index.js';
 
 describe('SseEventListener (ARCH-001 — event bus safety)', () => {
   let sseService: ReturnType<typeof createMockSseService>;

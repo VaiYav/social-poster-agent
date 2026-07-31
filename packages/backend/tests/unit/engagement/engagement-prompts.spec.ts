@@ -15,8 +15,8 @@ import {
   parseBatchDecisionResponse,
   parseCommentResponse,
   parseQuoteResponse,
-} from '../../../src/infrastructure/llm/prompts/v0.4.0/engagement-decision';
-import { interpolate } from '../../../src/domain/prompt-interpolation';
+} from '../../../src/infrastructure/llm/prompts/v0.4.0/engagement-decision.js';
+import { interpolate } from '../../../src/domain/prompt-interpolation.js';
 import type { PostContext } from '../../../src/domain/ports/engagement-decision.port';
 
 function createPostContext(overrides: Partial<PostContext> = {}): PostContext {

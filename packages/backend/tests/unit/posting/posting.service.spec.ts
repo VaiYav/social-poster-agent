@@ -28,7 +28,7 @@ import {
   createMockEventEmitter,
   createMockThreadProgressService,
   createMockConfigService,
-} from '../../mocks/index';
+} from '../../mocks/index.js';
 
 // ── Mock Factories ───────────────────────────────────────────────────────────
 

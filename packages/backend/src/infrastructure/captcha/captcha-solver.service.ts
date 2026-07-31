@@ -8,8 +8,8 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { Page } from '../../domain/ports/browser-primitives';
-import { parseBool } from '../config/parse-bool';
+import type { Page } from '../../domain/ports/browser-primitives.js';
+import { parseBool } from '../config/parse-bool.js';
 
 @Injectable()
 export class CaptchaSolverService {

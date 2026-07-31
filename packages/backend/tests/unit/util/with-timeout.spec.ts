@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 
-import { withTimeout } from '../../../src/infrastructure/util/with-timeout';
+import { withTimeout } from '../../../src/infrastructure/util/with-timeout.js';
 
 describe('withTimeout (BUG-8)', () => {
   it('passes through a resolved value', async () => {

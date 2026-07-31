@@ -6,7 +6,7 @@
 
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { Page } from '../../../domain/ports/browser-primitives';
+import type { Page } from '../../../domain/ports/browser-primitives.js';
 import type { SocialNetwork } from '@spa/shared';
 import type { IBrowserPort } from '../../../domain/ports/browser.port.js';
 import { BasePoster, type EngagementResult } from '../../posting/posters/base.poster.js';

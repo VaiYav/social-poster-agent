@@ -24,10 +24,10 @@ import { SseService } from '../../infrastructure/sse/sse.service';
 import { FlowControlService } from '../flow-control/flow-control.service';
 import { AutoApproveService } from './auto-approve.service';
 import { ModuleRef } from '@nestjs/core';
-import { parseBool } from '../../infrastructure/config/parse-bool';
+import { parseBool } from '../../infrastructure/config/parse-bool.js';
 import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 import { IPostingQueuePort } from '../../domain/ports/posting-queue.port.js';
-import { parseTargetNetworks } from './parse-networks';
+import { parseTargetNetworks } from './parse-networks.js';
 
 @Injectable()
 export class AutonomousRunnerService implements OnModuleInit {

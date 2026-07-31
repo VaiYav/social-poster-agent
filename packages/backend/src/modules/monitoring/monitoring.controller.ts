@@ -6,7 +6,7 @@
  */
 import { Controller, Get } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
-import { MetricsPublisher, type MonitoringSnapshot } from './metrics-publisher';
+import { MetricsPublisher, type MonitoringSnapshot } from './metrics-publisher.js';
 
 @ApiTags('monitoring')
 @Controller('monitoring')

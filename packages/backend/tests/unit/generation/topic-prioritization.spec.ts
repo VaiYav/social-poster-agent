@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import type { ContentTopic } from '@spa/shared';
 
-import { prioritizeTopics } from '../../../src/modules/generation/topic-prioritization';
+import { prioritizeTopics } from '../../../src/modules/generation/topic-prioritization.js';
 
 function topic(id: string, category: string | undefined, publishedAt?: Date): ContentTopic {
   return {

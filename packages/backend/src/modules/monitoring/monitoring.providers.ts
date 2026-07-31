@@ -10,8 +10,8 @@ import { TrendingScraperService } from '../trending/trending-scraper.service';
 import { FlowControlService } from '../flow-control/flow-control.service';
 import { GenerationService } from '../generation/generation.service';
 import { OrchestratorService } from '../orchestrator/orchestrator.service.js';
-import { MetricsPublisher } from './metrics-publisher';
-import { IMetricsCollector } from './metrics-collector';
+import { MetricsPublisher } from './metrics-publisher.js';
+import { IMetricsCollector } from './metrics-collector.js';
 import {
   AnalyticsMetricsCollector,
   EngagementMetricsCollector,
@@ -26,7 +26,7 @@ import {
   RepliesMetricsCollector,
   SessionsMetricsCollector,
   TrendingMetricsCollector,
-} from './collectors';
+} from './collectors.js';
 
 /**
  * Collector registry provider.

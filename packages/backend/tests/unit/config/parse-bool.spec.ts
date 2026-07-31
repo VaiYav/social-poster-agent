@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from 'vitest';
 
-import { parseBool } from '../../../src/infrastructure/config/parse-bool';
+import { parseBool } from '../../../src/infrastructure/config/parse-bool.js';
 
 describe('parseBool (A2 — unified boolean flag parsing)', () => {
   it.each(['true', 'TRUE', 'True', '1', 'yes', 'YES', 'on', 'ON', 'y', 'Y'])(

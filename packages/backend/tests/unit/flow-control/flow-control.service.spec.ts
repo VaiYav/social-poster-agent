@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { FlowControlService, type FlowName } from '../../../src/modules/flow-control/flow-control.service';
-import { createMockRedis, createMockSseService } from '../../mocks/index';
+import { createMockRedis, createMockSseService } from '../../mocks/index.js';
 
 describe('MOD-FC: FlowControlService', () => {
   let service: FlowControlService;

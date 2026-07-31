@@ -17,7 +17,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { PostStatus, SocialNetwork } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
-import { parseBool } from '../../infrastructure/config/parse-bool';
+import { parseBool } from '../../infrastructure/config/parse-bool.js';
 import type { ABVariantPair } from './ab-variant.generator.js';
 import type { JudgeScores } from '@spa/shared';
 import {

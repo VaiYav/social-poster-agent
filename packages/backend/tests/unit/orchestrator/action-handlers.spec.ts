@@ -6,10 +6,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PostStatus, SocialNetwork } from '@prisma/client';
 import type { JudgeScores } from '@spa/shared';
-import { GeneratePostsHandler } from '../../../src/modules/orchestrator/action-handlers';
+import { GeneratePostsHandler } from '../../../src/modules/orchestrator/action-handlers.js';
 import { AutoApproveService } from '../../../src/modules/autonomy/auto-approve.service';
 import { GenerationService } from '../../../src/modules/generation/generation.service';
-import { createMockConfigService } from '../../mocks/index';
+import { createMockConfigService } from '../../mocks/index.js';
 
 describe('GeneratePostsHandler', () => {
   function buildHandler() {

@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PrismaService } from '../../../src/infrastructure/prisma/prisma.service';
-import { createMockConfigService } from '../../mocks/index';
+import { createMockConfigService } from '../../mocks/index.js';
 
 describe('PrismaService', () => {
   let service: PrismaService;

@@ -15,7 +15,7 @@ import { PrismaService } from '../../../src/infrastructure/prisma/prisma.service
 import { SseService } from '../../../src/infrastructure/sse/sse.service';
 import { IBrowserPort } from '../../../src/domain/ports/browser.port';
 import { SocialNetwork, PostStatus } from '@prisma/client';
-import { createMockConfigService, createMockRedis } from '../../mocks/index';
+import { createMockConfigService, createMockRedis } from '../../mocks/index.js';
 
 // Mock IBrowserPort
 function createMockBrowser() {

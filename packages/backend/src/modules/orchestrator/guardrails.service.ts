@@ -7,9 +7,10 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { SocialNetwork } from '@prisma/client';
+import type { SocialNetwork } from '@prisma/client';
 import { getEnabledNetworks } from '../../domain/enabled-networks.js';
-import type { WorldState, Action, SessionState } from './types.js';
+import { NetworkSelector } from './network-selector.js';
+import type { WorldState, Action } from './types.js';
 import { WAIT_ACTION, RECOVER_ACTION } from './types.js';
 
 @Injectable()
@@ -17,7 +18,10 @@ export class GuardrailsService {
   private readonly logger = new Logger(GuardrailsService.name);
   private readonly engagementPriorityWeight: number;
 
-  constructor(configService: ConfigService) {
+  constructor(
+    configService: ConfigService,
+    private readonly networkSelector: NetworkSelector,
+  ) {
     const raw = configService.get<string>('ENGAGEMENT_PRIORITY_WEIGHT', '1');
     const parsed = Number(raw);
     this.engagementPriorityWeight = Number.isFinite(parsed) && parsed >= 0 ? parsed : 1;
@@ -45,7 +49,7 @@ export class GuardrailsService {
     if (this.engagementPriorityWeight > 0 && world.engagement.debt > 0 && world.drafts.approved > 0) {
       if (action.type === 'POST' || action.type === 'GENERATE_POSTS') {
         if (world.engagement.debt * this.engagementPriorityWeight > world.drafts.approved) {
-          const browseNet = this.selectBestEngagementNetwork(world);
+          const browseNet = this.networkSelector.selectBestEngagementNetwork(world);
           if (browseNet) {
             return {
               type: 'BROWSE' as const,
@@ -76,7 +80,7 @@ export class GuardrailsService {
     // alternative network so posting can rotate there. If no healthy network is available
     // for posting, block a POST action to a risky network with WAIT.
     if (world.drafts.approved > 0 && !(action.type === 'BROWSE' && world.engagement.engagementDebt > 0)) {
-      const postNet = this.selectBestReadyNetwork(world);
+      const postNet = this.networkSelector.selectBestReadyNetwork(world);
       if (postNet && (action.type !== 'POST' || action.network !== postNet)) {
         return {
           type: 'POST' as const,
@@ -87,7 +91,7 @@ export class GuardrailsService {
       }
       if (!postNet) {
         // No ready POST network — try to generate for a healthy alternative.
-        const genNet = this.selectBestGenerationNetwork(world);
+        const genNet = this.networkSelector.selectBestGenerationNetwork(world);
         if (genNet && (action.type !== 'GENERATE_POSTS' || action.network !== genNet)) {
           return {
             type: 'GENERATE_POSTS' as const,
@@ -101,7 +105,7 @@ export class GuardrailsService {
         if (
           action.type === 'POST' &&
           action.network &&
-          this.isCircuitBreakerRisky(world.sessions[action.network]?.circuitBreaker)
+          this.networkSelector.isCircuitBreakerRisky(world.sessions[action.network]?.circuitBreaker)
         ) {
           return WAIT_ACTION(
             `Guardrail G8: POST ${action.network} blocked — circuit breaker ${world.sessions[action.network]?.circuitBreaker}`,
@@ -129,11 +133,11 @@ export class GuardrailsService {
     // suboptimal network, redirect so posting rotates and we don't waste LLM quota on a
     // failing channel. If no healthy network is available, WAIT.
     if (action.type === 'GENERATE_POSTS') {
-      const bestGenNet = this.selectBestGenerationNetwork(world);
+      const bestGenNet = this.networkSelector.selectBestGenerationNetwork(world);
       const actionNetwork = action.network;
       if (bestGenNet && (!actionNetwork || actionNetwork !== bestGenNet)) {
         const why = actionNetwork
-          ? this.isReadyForGeneration(actionNetwork, world)
+          ? this.networkSelector.isReadyForGeneration(actionNetwork, world)
             ? `Guardrail G3b: ${actionNetwork} is healthy but ${bestGenNet} has the oldest lastPostMs; redirecting GENERATE_POSTS to ${bestGenNet}`
             : `Guardrail G3b: ${actionNetwork} is not ready for generation; redirecting GENERATE_POSTS to ${bestGenNet}`
           : `Guardrail G3b: no network specified; redirecting GENERATE_POSTS to ${bestGenNet}`;
@@ -211,130 +215,5 @@ export class GuardrailsService {
       default:
         return false;
     }
-  }
-
-  private isCircuitBreakerRisky(circuitBreaker: SessionState['circuitBreaker'] | undefined): boolean {
-    return circuitBreaker === 'open' || circuitBreaker === 'half_open';
-  }
-
-  /**
-   * G8 generation helper: select the healthiest network with the oldest lastPostMs
-   * among those that have active sessions, rate-limit capacity, and no circuit breaker
-   * risk. Unlike selectBestReadyNetwork, this does NOT require approved drafts or an
-   * active posting window — it is used as a fallback to generate drafts for a healthy
-   * backup network when the only approved drafts are stuck on a failing network.
-   */
-  private selectBestGenerationNetwork(world: WorldState): SocialNetwork | undefined {
-    if (world.flowControl.pauseGeneration) return undefined;
-
-    const networks = getEnabledNetworks();
-    let chosenNet: SocialNetwork | undefined;
-    let chosenLastPostMs = Infinity;
-
-    for (const net of networks) {
-      if (this.isCircuitBreakerRisky(world.sessions[net]?.circuitBreaker)) continue;
-      const rl = world.rateLimits[net];
-      const dailyReady = rl ? (rl.dailyLimit > 0 ? rl.dailyRemaining > 0 : true) : false;
-      const weeklyReady = rl ? (rl.weeklyLimit > 0 ? rl.weeklyRemaining > 0 : true) : true;
-      if (
-        dailyReady &&
-        weeklyReady &&
-        world.sessions[net]?.status === 'ACTIVE' &&
-        (world.queueDepth[net] ?? 0) <= 5
-      ) {
-        const lastPostMs = world.rateLimits[net]?.lastPostMs ?? 0;
-        if (lastPostMs < chosenLastPostMs) {
-          chosenNet = net as SocialNetwork;
-          chosenLastPostMs = lastPostMs;
-        }
-      }
-    }
-    return chosenNet;
-  }
-
-  /**
-   * G3b helper: check whether a network is healthy enough for draft generation.
-   */
-  private isReadyForGeneration(network: SocialNetwork, world: WorldState): boolean {
-    if (this.isCircuitBreakerRisky(world.sessions[network]?.circuitBreaker)) return false;
-    const rl = world.rateLimits[network];
-    const dailyReady = rl ? (rl.dailyLimit > 0 ? rl.dailyRemaining > 0 : true) : false;
-    const weeklyReady = rl ? (rl.weeklyLimit > 0 ? rl.weeklyRemaining > 0 : true) : true;
-    return (
-      dailyReady &&
-      weeklyReady &&
-      world.sessions[network]?.status === 'ACTIVE' &&
-      (world.queueDepth[network] ?? 0) <= 5
-    );
-  }
-
-  /**
-   * G9 helper: pick the network that most needs a browse session.
-   * Selects the enabled network with the oldest lastBrowseMs and an active session.
-   */
-  private selectBestEngagementNetwork(world: WorldState): SocialNetwork | undefined {
-    if (world.flowControl.pauseEngagement) return undefined;
-
-    const networks = getEnabledNetworks();
-    let chosenNet: SocialNetwork | undefined;
-    let chosenLastBrowseMs = Infinity;
-
-    for (const net of networks) {
-      if (this.isCircuitBreakerRisky(world.sessions[net]?.circuitBreaker)) continue;
-      if (world.sessions[net]?.status !== 'ACTIVE') continue;
-      const lastBrowseMs = world.engagement.lastBrowseMs[net] ?? 0;
-      if (lastBrowseMs < chosenLastBrowseMs) {
-        chosenNet = net as SocialNetwork;
-        chosenLastBrowseMs = lastBrowseMs;
-      }
-    }
-    return chosenNet;
-  }
-
-  /**
-   * G8 helper: select the ready network with the oldest lastPostMs among those
-   * that have approved drafts, active sessions, rate-limit capacity, and no
-   * circuit breaker risk. Returns undefined if posting is paused or no network is ready.
-   */
-  private selectBestReadyNetwork(world: WorldState): SocialNetwork | undefined {
-    if (world.flowControl.pausePosting) return undefined;
-
-    const networks = getEnabledNetworks();
-    let chosenNet: SocialNetwork | undefined;
-    let chosenLastPostMs = Infinity;
-
-    const readyDebug = networks.map((net) => ({
-      net,
-      inWindow: world.inPostingWindow[net],
-      dailyRemaining: world.rateLimits[net]?.dailyRemaining ?? 0,
-      weeklyRemaining: world.rateLimits[net]?.weeklyRemaining ?? 0,
-      status: world.sessions[net]?.status,
-      circuitBreaker: world.sessions[net]?.circuitBreaker,
-      lastPostMs: world.rateLimits[net]?.lastPostMs ?? 0,
-      approved: world.drafts.approvedByNetwork[net] ?? 0,
-    }));
-    this.logger.debug(`G8 ready networks: ${JSON.stringify(readyDebug)}`);
-
-    for (const net of networks) {
-      if (this.isCircuitBreakerRisky(world.sessions[net]?.circuitBreaker)) continue;
-      const rl = world.rateLimits[net];
-      const dailyReady = rl ? (rl.dailyLimit > 0 ? rl.dailyRemaining > 0 : true) : false;
-      const weeklyReady = rl ? (rl.weeklyLimit > 0 ? rl.weeklyRemaining > 0 : true) : true;
-      if (
-        world.inPostingWindow[net] &&
-        dailyReady &&
-        weeklyReady &&
-        world.sessions[net]?.status === 'ACTIVE' &&
-        (world.drafts.approvedByNetwork[net] ?? 0) > 0 &&
-        (world.queueDepth[net] ?? 0) <= 5
-      ) {
-        const lastPostMs = world.rateLimits[net]?.lastPostMs ?? 0;
-        if (lastPostMs < chosenLastPostMs) {
-          chosenNet = net as SocialNetwork;
-          chosenLastPostMs = lastPostMs;
-        }
-      }
-    }
-    return chosenNet;
   }
 }

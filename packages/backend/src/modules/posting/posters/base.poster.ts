@@ -7,7 +7,7 @@
 
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { BrowserContext, Locator, Page } from '../../../domain/ports/browser-primitives';
+import type { BrowserContext, Locator, Page } from '../../../domain/ports/browser-primitives.js';
 import type { SocialNetwork } from '@spa/shared';
 import type { IBrowserPort, ScreenshotPhase } from '../../../domain/ports/browser.port.js';
 import {

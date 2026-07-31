@@ -5,7 +5,7 @@
  * [Verifies: Test infrastructure setup]
  */
 import { describe, it, expect } from 'vitest';
-import { createMockLlmPort, createMockPrismaService, createMockRedis } from '../mocks/index';
+import { createMockLlmPort, createMockPrismaService, createMockRedis } from '../mocks/index.js';
 
 describe('Test Infrastructure Smoke Test', () => {
   it('should create mock LLM port with generate methods', () => {

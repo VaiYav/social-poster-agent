@@ -15,7 +15,7 @@
  */
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { CircuitBreaker, CircuitOpenError } from '../../domain/circuit-breaker';
+import { CircuitBreaker, CircuitOpenError } from '../../domain/circuit-breaker.js';
 
 export type AlertSeverity = 'info' | 'warning' | 'critical';
 

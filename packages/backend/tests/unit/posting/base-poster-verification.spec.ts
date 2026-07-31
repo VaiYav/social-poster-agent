@@ -17,7 +17,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Logger } from '@nestjs/common';
 
 import { BasePoster } from '../../../src/modules/posting/posters/base.poster';
-import { createMockPage, createMockContext, createMockBrowserPort, createMockConfigService } from '../../mocks/index';
+import { createMockPage, createMockContext, createMockBrowserPort, createMockConfigService } from '../../mocks/index.js';
 
 // Minimal concrete poster (network=X) exposing the protected verification methods.
 // getVerificationProfileUrl/Pattern + getProfilePostContentSelector are private and

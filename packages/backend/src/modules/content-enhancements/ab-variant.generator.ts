@@ -27,7 +27,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ILlmPort } from '../../domain/ports/llm.port.js';
 import { SocialNetwork } from '@prisma/client';
-import { parseBool } from '../../infrastructure/config/parse-bool';
+import { parseBool } from '../../infrastructure/config/parse-bool.js';
 import { NETWORK_LIMITS } from '../posts/network-limits.js';
 
 export interface GenerateVariantsOptions {

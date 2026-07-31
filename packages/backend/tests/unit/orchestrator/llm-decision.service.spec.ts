@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SocialNetwork } from '@prisma/client';
 import { LlmDecisionService } from '../../../src/modules/orchestrator/llm-decision.service';
-import type { WorldState } from '../../../src/modules/orchestrator/types';
+import type { WorldState } from '../../../src/modules/orchestrator/types.js';
 
 function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
   return {

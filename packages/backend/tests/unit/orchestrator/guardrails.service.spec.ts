@@ -6,8 +6,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SocialNetwork, SessionStatus } from '@prisma/client';
 import { GuardrailsService } from '../../../src/modules/orchestrator/guardrails.service';
-import type { Action, WorldState } from '../../../src/modules/orchestrator/types';
-import { createMockConfigService } from '../../mocks';
+import { NetworkSelector } from '../../../src/modules/orchestrator/network-selector.js';
+import type { Action, WorldState } from '../../../src/modules/orchestrator/types.js';
+import { createMockConfigService } from '../../mocks/index.js';
 
 function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
   return {
@@ -49,11 +50,11 @@ describe('GuardrailsService', () => {
   let guardrails: GuardrailsService;
 
   beforeEach(() => {
-    guardrails = new GuardrailsService(createMockConfigService());
+    guardrails = new GuardrailsService(createMockConfigService(), new NetworkSelector());
   });
 
   it('G9: POST/GENERATE_POSTS overridden to BROWSE when engagement debt outweights approved drafts', () => {
-    const guardrails = new GuardrailsService(createMockConfigService({ ENGAGEMENT_PRIORITY_WEIGHT: '1.5' }));
+    const guardrails = new GuardrailsService(createMockConfigService({ ENGAGEMENT_PRIORITY_WEIGHT: '1.5' }), new NetworkSelector());
     const world = makeWorld({
       drafts: { approved: 1, pending: 0, rejected: 0, approvedByNetwork: { X: 1 } },
       engagement: {
@@ -82,7 +83,7 @@ describe('GuardrailsService', () => {
   });
 
   it('G9: override disabled when ENGAGEMENT_PRIORITY_WEIGHT is 0', () => {
-    const guardrails = new GuardrailsService(createMockConfigService({ ENGAGEMENT_PRIORITY_WEIGHT: '0' }));
+    const guardrails = new GuardrailsService(createMockConfigService({ ENGAGEMENT_PRIORITY_WEIGHT: '0' }), new NetworkSelector());
     const world = makeWorld({
       drafts: { approved: 1, pending: 0, rejected: 0, approvedByNetwork: { X: 1 } },
       engagement: {

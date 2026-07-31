@@ -58,7 +58,7 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 import { GenerationService } from '../../../src/modules/generation/generation.service';
-import { createMockLlmPort, createMockPrismaService, createMockSseService, createMockCheckpointSaver, createMockConfigService } from '../../mocks/index';
+import { createMockLlmPort, createMockPrismaService, createMockSseService, createMockCheckpointSaver, createMockConfigService } from '../../mocks/index.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

@@ -7,8 +7,8 @@ import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { AnalyticsService } from './analytics.service';
 import { MetricsScraperService } from './metrics-scraper.service';
 import { ABTestService } from './ab-test.service';
-import { ABTestQuerySchema, type ABTestQuery } from '../../domain/dtos';
-import { HookPerformanceBank } from '../content-enhancements/hook-performance-bank';
+import { ABTestQuerySchema, type ABTestQuery } from '../../domain/dtos.js';
+import { HookPerformanceBank } from '../content-enhancements/hook-performance-bank.js';
 
 @ApiTags('analytics')
 @Controller('analytics')

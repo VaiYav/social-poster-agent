@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ConfigService } from '@nestjs/config'
-import { PromptRegistry } from '../../../../src/infrastructure/prompt/prompt-registry'
+import { PromptRegistry } from '../../../../src/infrastructure/prompt/prompt-registry.js'
 import type { LangfuseService } from '../../../../src/infrastructure/langfuse/langfuse.service'
 
 // ── Helpers ──

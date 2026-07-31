@@ -15,7 +15,7 @@ import { PostEvents } from '../../../src/events/enums/post-events.enum';
 import {
   createMockPrismaService,
   fixturePost,
-} from '../../mocks/index';
+} from '../../mocks/index.js';
 
 describe('MOD-02: PostsService', () => {
   let service: PostsService;

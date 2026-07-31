@@ -1,6 +1,6 @@
 import { Global, Module } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { PromptRegistry } from './prompt-registry'
+import { PromptRegistry } from './prompt-registry.js'
 import { LangfuseService } from '../langfuse/langfuse.service.js'
 import { IPromptPort, PROMPT_FALLBACK_PROVIDERS, type IPromptFallbackProvider } from '../../domain/ports/prompt.port.js'
 

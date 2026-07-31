@@ -5,7 +5,7 @@ import { CronJob } from 'cron';
 import { GenerationService } from './generation.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { GenerationTrigger } from '@prisma/client';
-import { parseBool } from '../../infrastructure/config/parse-bool';
+import { parseBool } from '../../infrastructure/config/parse-bool.js';
 import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 
 /**

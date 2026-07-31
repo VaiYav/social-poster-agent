@@ -23,6 +23,7 @@ import { PostingWindowService } from './posting-window.service.js';
 import { HardRulesService } from './hard-rules.service.js';
 import { LlmDecisionService } from './llm-decision.service.js';
 import { GuardrailsService } from './guardrails.service.js';
+import { RulesEngine } from './rules-engine.js';
 import type { WorldState, Action } from './types.js';
 import { WAIT_ACTION } from './types.js';
 
@@ -45,6 +46,7 @@ export class DecisionEngineService {
     private readonly hardRules: HardRulesService,
     private readonly llmDecision: LlmDecisionService,
     private readonly guardrails: GuardrailsService,
+    private readonly rulesEngine: RulesEngine,
   ) {
     this.llmEnabled = parseBool(this.configService.get<string>('ORCHESTRATOR_LLM_ENABLED', 'true'));
     this.maxActionsPerHour = Number(this.configService.get<number>('ORCHESTRATOR_MAX_ACTIONS_PER_HOUR', 60));
@@ -80,20 +82,20 @@ export class DecisionEngineService {
           action = await this.llmDecision.decide(world, signal);
           // Record LLM decision usage only in full-LLM loop mode to enforce its budget.
           if (this.llmFullLoopEnabled) {
-            void this.recordLlmDecision();
+            await this.recordLlmDecision();
           }
         } catch (err) {
           this.logger.warn(`LLM decision failed, falling back to rules: ${(err as Error).message}`);
-          action = this.rulesOnlyDecision(world);
+          action = this.rulesEngine.decide(world);
         }
       } else {
         this.logger.warn(
           `Full-LLM loop budget exhausted (${await this.getLlmDecisionsThisHour()}/${this.llmFullLoopMaxDecisionsPerHour}) — using rules fallback`,
         );
-        action = this.rulesOnlyDecision(world);
+        action = this.rulesEngine.decide(world);
       }
     } else {
-      action = this.rulesOnlyDecision(world);
+      action = this.rulesEngine.decide(world);
     }
 
     // Phase 3: Guardrails (validate + clamp)
@@ -120,149 +122,11 @@ export class DecisionEngineService {
 
     // Record the final action (only non-WAIT actions count toward the budget)
     if (guarded.type !== 'WAIT') {
-      void this.recordAction(guarded);
+      await this.recordAction(guarded);
     }
 
     this.logger.log(`Decision: ${guarded.type}${guarded.network ? `:${guarded.network}` : ''} — ${guarded.reason}`);
     return guarded;
-  }
-
-  // ── Rules-Only Fallback ──────────────────────────────────────────────────
-
-  private rulesOnlyDecision(world: WorldState): Action {
-    const networks = getEnabledNetworks();
-
-    // Topic pool low → generate topics
-    if (world.topicPool.count < world.topicPool.threshold) {
-      return {
-        type: 'GENERATE_TOPICS',
-        reason: `Topic pool ${world.topicPool.count}/${world.topicPool.threshold}`,
-        source: 'rules_fallback',
-      };
-    }
-
-    // Approved drafts + in posting window → POST
-    if (world.drafts.approved > 0) {
-      for (const net of networks) {
-        // Skip networks with open or half-open circuit breaker — let a healthy network post instead
-        if (
-          world.sessions[net]?.circuitBreaker === 'open' ||
-          world.sessions[net]?.circuitBreaker === 'half_open'
-        ) {
-          continue;
-        }
-        if (world.inPostingWindow[net] && (world.rateLimits[net]?.dailyRemaining ?? 0) > 0) {
-          return {
-            type: 'POST',
-            network: net,
-            reason: `${world.drafts.approved} approved drafts, ${net} in posting window`,
-            source: 'rules_fallback',
-          };
-        }
-      }
-      // No healthy network is ready to post; generate drafts for the first healthy network
-      // so posting can rotate off the failing network.
-      const genNet = networks.find((net) => {
-        const rl = world.rateLimits[net];
-        const dailyReady = rl ? (rl.dailyLimit > 0 ? rl.dailyRemaining > 0 : true) : false;
-        const weeklyReady = rl ? (rl.weeklyLimit > 0 ? rl.weeklyRemaining > 0 : true) : true;
-        return (
-          world.sessions[net]?.status === 'ACTIVE' &&
-          world.sessions[net]?.circuitBreaker !== 'open' &&
-          world.sessions[net]?.circuitBreaker !== 'half_open' &&
-          dailyReady &&
-          weeklyReady
-        );
-      });
-      if (genNet) {
-        return {
-          type: 'GENERATE_POSTS',
-          network: genNet,
-          reason: `Approved drafts but no healthy POST network; generating drafts for ${genNet}`,
-          source: 'rules_fallback',
-        };
-      }
-      return WAIT_ACTION('Approved drafts waiting for healthy posting network', 120000, 'rules_fallback');
-    }
-
-    // No approved drafts, topic pool sufficient
-    if (world.topicPool.count >= world.topicPool.threshold && world.drafts.approved === 0) {
-      // Engagement-first: if networks are behind on browsing, browse before creating more content.
-      if (world.engagement.engagementDebt > 0) {
-        const fourHoursAgo = Date.now() - 4 * 60 * 60 * 1000;
-        const browseNet = networks.find(
-          (net) =>
-            world.sessions[net]?.status === 'ACTIVE' &&
-            (world.engagement.lastBrowseMs[net] ?? 0) < fourHoursAgo,
-        );
-        if (browseNet) {
-          return {
-            type: 'BROWSE',
-            network: browseNet,
-            reason: `Engagement-first: ${world.engagement.engagementDebt} network(s) need browsing, ${browseNet} is stale`,
-            source: 'rules_fallback',
-          };
-        }
-      }
-
-      const genNet = networks.find((net) => {
-        const rl = world.rateLimits[net];
-        const dailyReady = rl ? (rl.dailyLimit > 0 ? rl.dailyRemaining > 0 : true) : false;
-        const weeklyReady = rl ? (rl.weeklyLimit > 0 ? rl.weeklyRemaining > 0 : true) : true;
-        return (
-          world.sessions[net]?.status === 'ACTIVE' &&
-          world.sessions[net]?.circuitBreaker !== 'open' &&
-          world.sessions[net]?.circuitBreaker !== 'half_open' &&
-          dailyReady &&
-          weeklyReady
-        );
-      });
-      if (genNet) {
-        return {
-          type: 'GENERATE_POSTS',
-          network: genNet,
-          reason: `No approved drafts; generating for ${genNet}`,
-          source: 'rules_fallback',
-        };
-      }
-      return WAIT_ACTION('No approved drafts and no healthy network for generation', 120000, 'rules_fallback');
-    }
-
-    // NOTE: BROWSE (engagement) is now handled in PARALLEL by the observeNode
-    // via EngagementSchedulerService.checkStaleAndEnqueue(). It no longer needs
-    // to be chosen as the main action — browsing sessions are enqueued as
-    // fire-and-forget BullMQ jobs and run concurrently with content pipeline.
-
-    // Unchecked replies → CHECK_REPLIES
-    if (world.engagement.uncheckedReplies > 0) {
-      return {
-        type: 'CHECK_REPLIES',
-        reason: `${world.engagement.uncheckedReplies} unchecked replies`,
-        source: 'rules_fallback',
-      };
-    }
-
-    // Failed jobs in DLQ → TRIAGE_QUEUE
-    if (world.health.dlqDepth > 0) {
-      return {
-        type: 'TRIAGE_QUEUE',
-        reason: `${world.health.dlqDepth} failed job(s) in posting DLQ`,
-        source: 'rules_fallback',
-      };
-    }
-
-    // Stale trends → REFRESH_TRENDS
-    const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
-    if (world.trends.lastRefreshMs < twoHoursAgo) {
-      return {
-        type: 'REFRESH_TRENDS',
-        reason: 'Trends cache stale (> 2h)',
-        source: 'rules_fallback',
-      };
-    }
-
-    // Default → WAIT
-    return WAIT_ACTION('No actionable condition', 120000, 'rules_fallback');
   }
 
   // ── Posting Window Enrichment ────────────────────────────────────────────
@@ -307,8 +171,8 @@ export class DecisionEngineService {
       const member = `${now}:${action.type}:${action.network ?? 'null'}`;
       await this.redis.zadd(ACTION_HISTORY_KEY, String(now), member);
       await this.redis.expire(ACTION_HISTORY_KEY, ACTION_HISTORY_WINDOW_SEC);
-    } catch {
-      // non-critical
+    } catch (err) {
+      this.logger.warn(`Failed to record action history: ${(err as Error).message}`);
     }
   }
 
@@ -342,8 +206,8 @@ export class DecisionEngineService {
       const member = `${now}:llm`;
       await this.redis.zadd(LLM_DECISION_HISTORY_KEY, String(now), member);
       await this.redis.expire(LLM_DECISION_HISTORY_KEY, ACTION_HISTORY_WINDOW_SEC);
-    } catch {
-      // non-critical
+    } catch (err) {
+      this.logger.warn(`Failed to record LLM decision history: ${(err as Error).message}`);
     }
   }
 }

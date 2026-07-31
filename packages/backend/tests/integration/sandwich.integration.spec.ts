@@ -27,7 +27,7 @@
  * `Reflect.defineMetadata` so @nestjs/testing DI works as intended.
  */
 import 'reflect-metadata';
-import { restoreAllDesignParamtypes } from '../helpers/restore-paramtypes';
+import { restoreAllDesignParamtypes } from '../helpers/restore-paramtypes.js';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { EmailReaderService } from '../../src/infrastructure/email/email-reader.service.js';
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
@@ -53,7 +53,7 @@ import { DiscordNotificationService } from '../../src/infrastructure/notificatio
 import { IBrowserPort } from '../../src/domain/ports/browser.port.js';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { SseEventListener } from '../../src/events/listeners/sse-event.listener.js';
-import { createMockPrismaService, createMockEncryptionService, createMockEmailReaderService, createMockSchedulerRegistry } from '../mocks/index';
+import { createMockPrismaService, createMockEncryptionService, createMockEmailReaderService, createMockSchedulerRegistry } from '../mocks/index.js';
 import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER } from '../../src/infrastructure/redis/redis.module';
 
 // ── ioredis mock (hoisted) ───────────────────────────────────────────────────

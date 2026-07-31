@@ -10,7 +10,7 @@ import {
   extractMetric,
   parseGraphInsights,
   type InsightMapping,
-} from '../../../../src/modules/analytics/metrics-sources/graph-insights';
+} from '../../../../src/modules/analytics/metrics-sources/graph-insights.js';
 
 const THREADS: InsightMapping = { likes: 'likes', comments: 'replies', shares: 'reposts', impressions: 'views' };
 

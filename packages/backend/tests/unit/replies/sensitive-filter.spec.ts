@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest';
 
-import { detectSensitive, isLikelyTroll, isLowValueComment } from '../../../src/modules/replies/sensitive-filter';
+import { detectSensitive, isLikelyTroll, isLowValueComment } from '../../../src/modules/replies/sensitive-filter.js';
 
 describe('detectSensitive (RP3 — sensitive-topic backstop)', () => {
   it('flags English crisis/mental-health comments', () => {

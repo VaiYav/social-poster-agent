@@ -1,7 +1,7 @@
 import { Controller, Post, Body, Get, Param, Query, HttpCode, HttpStatus, NotFoundException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { GenerationService } from './generation.service';
-import { GeneratePostsDtoSchema, type GeneratePostsDto } from '../../domain/dtos';
+import { GeneratePostsDtoSchema, type GeneratePostsDto } from '../../domain/dtos.js';
 import { GenerationTrigger } from '@prisma/client';
 
 @ApiTags('generation')

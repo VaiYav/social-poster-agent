@@ -11,7 +11,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { ConfigService } from '@nestjs/config';
 import { SseService } from '../../../src/infrastructure/sse/sse.service';
-import { createMockRedis } from '../../mocks/index';
+import { createMockRedis } from '../../mocks/index.js';
 
 // ── Helpers ──
 

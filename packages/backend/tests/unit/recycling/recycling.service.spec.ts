@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { RecyclingService } from '../../../src/modules/recycling/recycling.service';
-import { createMockConfigService } from '../../mocks/index';
+import { createMockConfigService } from '../../mocks/index.js';
 
 function mockPrisma() {
   return {

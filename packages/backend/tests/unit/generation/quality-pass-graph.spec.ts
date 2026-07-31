@@ -19,7 +19,7 @@ import {
   clearHookCache,
   type GeneratedPost,
 } from '../../../src/modules/generation/generation.graph';
-import { detectLanguage } from '../../../src/infrastructure/util/language-detector';
+import { detectLanguage } from '../../../src/infrastructure/util/language-detector.js';
 
 // Passes the humanizer gate: varied sentence lengths, no slop, no em dashes.
 const CLEAN_DRAFT =

@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { SocialAccount, SocialNetwork } from '@prisma/client';
 import { WarmupService } from '../sessions/warmup.service.js';
-import { parseBool } from '../../infrastructure/config/parse-bool';
+import { parseBool } from '../../infrastructure/config/parse-bool.js';
 import { isNetworkEnabled } from '../../domain/enabled-networks.js';
 
 /**

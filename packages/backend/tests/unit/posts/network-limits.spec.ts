@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import { SocialNetwork } from '@prisma/client';
 
-import { checkContentLength, NETWORK_LIMITS } from '../../../src/modules/posts/network-limits';
+import { checkContentLength, NETWORK_LIMITS } from '../../../src/modules/posts/network-limits.js';
 
 describe('checkContentLength (PO2 — server-side length validation)', () => {
   it('passes content within the X limit', () => {

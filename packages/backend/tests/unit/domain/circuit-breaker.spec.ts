@@ -14,7 +14,7 @@ import {
   CircuitBreakerRegistry,
   CircuitOpenError,
   type CircuitBreakerOptions,
-} from '../../../src/domain/circuit-breaker';
+} from '../../../src/domain/circuit-breaker.js';
 
 // ── Tests ──
 

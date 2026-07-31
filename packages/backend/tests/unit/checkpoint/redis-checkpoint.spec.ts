@@ -8,7 +8,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { Checkpoint, CheckpointMetadata, ChannelVersions } from '@langchain/langgraph-checkpoint';
 
-import { RedisCheckpointSaver } from '../../../src/infrastructure/checkpoint/redis-checkpoint';
+import { RedisCheckpointSaver } from '../../../src/infrastructure/checkpoint/redis-checkpoint.js';
 
 function createRedisMock() {
   const kv = new Map<string, string>();

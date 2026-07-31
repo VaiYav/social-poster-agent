@@ -12,6 +12,7 @@ import { SHARED_REDIS } from '../redis/redis.module.js';
 import { parseBool } from '../config/parse-bool.js';
 import { InMemoryLlmCache, RedisLlmCache, type LlmCache } from './llm-cache.js';
 import { combineSignals, signalToPromise } from '../util/abort-signal.js';
+import { getErrorMessage } from '../common/error-utils.js';
 import { TokenBudgetService, TokenBudgetExceeded, type BudgetScope } from './token-budget.service.js';
 
 /**
@@ -607,7 +608,9 @@ export class LlmService implements ILlmPort, OnModuleInit {
 
   /** Q2: Release a semaphore slot and wake the next waiter. */
   private releaseSlot(): void {
-    this.inFlight -= 1;
+    if (this.inFlight > 0) {
+      this.inFlight -= 1;
+    }
     const next = this.waiters.shift();
     if (next) next();
   }
@@ -926,12 +929,16 @@ export class LlmService implements ILlmPort, OnModuleInit {
 
             // P0: adjust the budget reservation to the actual usage.
             if (this.tokenBudget && options?.budgetScope && reservedTokens > 0) {
-              await this.tokenBudget.charge(
-                options.budgetScope,
-                options.budgetRunId,
-                (llmResponse.tokens ?? 0) - reservedTokens,
-                (llmResponse.cost ?? 0) - reservedCost,
-              );
+              try {
+                await this.tokenBudget.charge(
+                  options.budgetScope,
+                  options.budgetRunId,
+                  (llmResponse.tokens ?? 0) - reservedTokens,
+                  (llmResponse.cost ?? 0) - reservedCost,
+                );
+              } catch (budgetErr) {
+                this.logger.warn(`Failed to record LLM budget usage: ${getErrorMessage(budgetErr)}`);
+              }
             }
 
             if (options?.signal?.aborted) {
@@ -947,7 +954,11 @@ export class LlmService implements ILlmPort, OnModuleInit {
           } catch (err) {
             // P0: release the budget reservation on any failure before trying next provider.
             if (this.tokenBudget && options?.budgetScope && reservedTokens > 0) {
-              await this.tokenBudget.release(options.budgetScope, options.budgetRunId, reservedTokens, reservedCost);
+              try {
+                await this.tokenBudget.release(options.budgetScope, options.budgetRunId, reservedTokens, reservedCost);
+              } catch (budgetErr) {
+                this.logger.warn(`Failed to release LLM budget reservation: ${getErrorMessage(budgetErr)}`);
+              }
             }
             lastErr = err;
             // 2.6.4: if the caller aborted, stop retrying immediately and propagate

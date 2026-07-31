@@ -11,7 +11,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ConfigService } from '@nestjs/config';
 import { RepliesMonitorService } from '../../../src/modules/replies/replies-monitor.service';
 import { DialogueService } from '../../../src/modules/replies/dialogue.service';
-import { createMockPrismaService } from '../../mocks/index';
+import { createMockPrismaService } from '../../mocks/index.js';
 
 // ── Mock dependencies ──
 

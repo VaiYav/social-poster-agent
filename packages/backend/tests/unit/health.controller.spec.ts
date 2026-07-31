@@ -14,9 +14,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import 'reflect-metadata';
 import { ConfigService } from '@nestjs/config';
-import { createMockPrismaService } from '../mocks/index';
-import { createControllerTestingModule } from '../helpers/nest';
-import { defineParamtypes } from '../helpers/restore-paramtypes';
+import { createMockPrismaService } from '../mocks/index.js';
+import { createControllerTestingModule } from '../helpers/nest.js';
+import { defineParamtypes } from '../helpers/restore-paramtypes.js';
 import { HealthController } from '../../src/modules/health/health.controller';
 import { AdminGuard } from '../../src/modules/auth/admin.guard';
 import { PrismaService } from '../../src/infrastructure/prisma/prisma.service';

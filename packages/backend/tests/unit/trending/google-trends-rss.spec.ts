@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 
-import { parseGoogleTrendsRss } from '../../../src/modules/trending/google-trends-rss';
+import { parseGoogleTrendsRss } from '../../../src/modules/trending/google-trends-rss.js';
 
 const RSS = `<?xml version="1.0"?>
 <rss version="2.0" xmlns:ht="https://trends.google.com/trends/trendingsearches/daily">

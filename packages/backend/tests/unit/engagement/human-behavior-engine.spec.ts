@@ -7,7 +7,7 @@
  * Source: packages/backend/src/modules/engagement/human-behavior-engine.ts
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { HumanBehaviorEngine, type BehaviorEngineConfig } from '../../../src/modules/engagement/human-behavior-engine';
+import { HumanBehaviorEngine, type BehaviorEngineConfig } from '../../../src/modules/engagement/human-behavior-engine.js';
 import type { IEngagementDecisionPort, ActionDecision, PostContext } from '../../../src/domain/ports/engagement-decision.port';
 import type { IBrowserPort } from '../../../src/domain/ports/browser.port';
 import type { SocialNetwork } from '@prisma/client';
@@ -17,7 +17,7 @@ import {
   createMockSseService,
   createMockRateLimitService,
   createMockPage,
-} from '../../mocks';
+} from '../../mocks/index.js';
 
 // ── Mock Decision Port ──
 

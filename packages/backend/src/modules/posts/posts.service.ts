@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, ConflictException, BadRequestExc
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { PostStatus, type SocialNetwork, type Prisma, type Post } from '@prisma/client';
-import type { PostQueryDto, UpdatePostStatusDto } from '../../domain/dtos';
+import type { PostQueryDto, UpdatePostStatusDto } from '../../domain/dtos.js';
 import type { PostDraftGeneratedEvent, PostApprovedEvent, PostRejectedEvent } from '@spa/shared';
 import { PostEvents } from '../../events/enums/post-events.enum';
 import { checkContentLength } from './network-limits.js';

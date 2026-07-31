@@ -1,12 +1,12 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { BrowserContext, Page, Locator } from '../../../domain/ports/browser-primitives';
+import type { BrowserContext, Page, Locator } from '../../../domain/ports/browser-primitives.js';
 import { IBrowserPort } from '../../../domain/ports/browser.port.js';
 import { BasePoster, type PostResult } from './base.poster.js';
 import { X_SELECTORS } from './selectors/x.selectors.js';
 import { normalizePermalink } from './permalink.js';
 import { ValidationError, ComposeDialogError } from '../../../domain/errors.js';
-import { parseBool } from '../../../infrastructure/config/parse-bool';
+import { parseBool } from '../../../infrastructure/config/parse-bool.js';
 
 /**
  * X.com (Twitter) poster — browser automation for posting tweets and threads.

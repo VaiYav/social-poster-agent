@@ -1,6 +1,8 @@
-import { Controller, Get, Post, Query, HttpCode, HttpStatus, BadRequestException, ParseEnumPipe } from '@nestjs/common';
+import { Controller, Get, Post, Query, HttpCode, HttpStatus, BadRequestException, ParseEnumPipe, UseGuards } from '@nestjs/common';
 import { SocialNetwork } from '@prisma/client';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import { Public } from '../auth/public.decorator';
+import { LoginRateLimitGuard } from '../auth/login-rate-limit.guard';
 import { SessionsService } from './sessions.service';
 
 @ApiTags('sessions')
@@ -30,6 +32,8 @@ export class SessionsController {
   }
 
   @Post('verify-code')
+  @Public()
+  @UseGuards(LoginRateLimitGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Submit a verification/2FA code for an ongoing login attempt',
@@ -42,6 +46,7 @@ export class SessionsController {
   @ApiQuery({ name: 'code', required: true, description: 'Verification code from email/SMS' })
   @ApiResponse({ status: 200, description: 'Code stored successfully' })
   @ApiResponse({ status: 400, description: 'Missing network or code' })
+  @ApiResponse({ status: 429, description: 'Too many attempts' })
   async submitVerifyCode(
     @Query('network', new ParseEnumPipe(SocialNetwork)) network: SocialNetwork,
     @Query('code') code: string,

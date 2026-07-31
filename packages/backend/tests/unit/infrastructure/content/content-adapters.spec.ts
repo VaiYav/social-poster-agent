@@ -15,8 +15,8 @@ import { ContentAdapterRegistry } from '../../../../src/infrastructure/content/a
 import { ApiAdapter } from '../../../../src/infrastructure/content/adapters/api.adapter';
 import { RssAdapter } from '../../../../src/infrastructure/content/adapters/rss.adapter';
 import { buildContentAdapters } from '../../../../src/infrastructure/content/adapters/content-adapter.factory';
-import { ContentReader } from '../../../../src/infrastructure/content/content-reader';
-import { DbContentReader } from '../../../../src/infrastructure/content/db-content-reader';
+import { ContentReader } from '../../../../src/infrastructure/content/content-reader.js';
+import { DbContentReader } from '../../../../src/infrastructure/content/db-content-reader.js';
 import type { PrismaService } from '../../../../src/infrastructure/prisma/prisma.service';
 
 function createMockConfigService(overrides: Record<string, unknown> = {}): ConfigService {

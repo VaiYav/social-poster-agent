@@ -15,7 +15,7 @@ import {
 import type { IEngagementDecisionPort, ActionDecision } from '../../../src/domain/ports/engagement-decision.port';
 import type { TargetingService } from '../../../src/modules/engagement/targeting.service';
 import type { WarmupService, WarmupStatus } from '../../../src/modules/sessions/warmup.service';
-import type { HumanBehaviorEngine } from '../../../src/modules/engagement/human-behavior-engine';
+import type { HumanBehaviorEngine } from '../../../src/modules/engagement/human-behavior-engine.js';
 import type { BaseEngager } from '../../../src/modules/engagement/engagers/base.engager';
 
 // ── Mocks ──

@@ -21,12 +21,12 @@ import { ConfigService } from '@nestjs/config';
 import { XPoster } from '../../../src/modules/posting/posters/x.poster';
 import { ThreadsPoster } from '../../../src/modules/posting/posters/threads.poster';
 import { FacebookPoster } from '../../../src/modules/posting/posters/facebook.poster';
-import { SelectorNotFoundError } from '../../../src/domain/errors';
+import { SelectorNotFoundError } from '../../../src/domain/errors.js';
 import {
   createMockBrowserPort,
   createMockPage,
   createMockContext,
-} from '../../mocks/index';
+} from '../../mocks/index.js';
 
 /** ConfigService mock: returns values from a key→value map, else default. */
 function createMockConfigService(values: Record<string, string> = {}): ConfigService {

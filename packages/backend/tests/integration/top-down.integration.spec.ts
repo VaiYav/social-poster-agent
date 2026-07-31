@@ -29,7 +29,7 @@
  * Source: CONSTITUTION.md §14 (Testing) — test case IDs are inline
  */
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
-import { restoreAllDesignParamtypes } from '../helpers/restore-paramtypes';
+import { restoreAllDesignParamtypes } from '../helpers/restore-paramtypes.js';
 import { TopicGenerationService } from '../../src/infrastructure/content/topic-generation.service';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitter2, EventEmitterModule } from '@nestjs/event-emitter';
@@ -166,9 +166,9 @@ vi.mock('node:fs', () => ({
 // ── Real source imports (after vi.mock is hoisted) ───────────────────────────
 import 'reflect-metadata';
 import { PrismaService } from '../../src/infrastructure/prisma/prisma.service';
-import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint';
+import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint.js';
 import { HealthController } from '../../src/modules/health/health.controller';
-import { ContentReader } from '../../src/infrastructure/content/content-reader';
+import { ContentReader } from '../../src/infrastructure/content/content-reader.js';
 import { ILlmPort, type ILlmPort as ILlmPortType, type LlmResponse } from '../../src/domain/ports/llm.port';
 import { IBrowserPort } from '../../src/domain/ports/browser.port';
 import { GenerationModule } from '../../src/modules/generation/generation.module';
@@ -208,7 +208,7 @@ import { RateLimitService } from '../../src/modules/rate-limit/rate-limit.servic
 import { BrowserFactory } from '../../src/infrastructure/browser/browser.factory';
 import { LlmService } from '../../src/infrastructure/llm/llm.service';
 import { ConfigService } from '@nestjs/config';
-import { createMockPrismaService, createMockBrowserPort } from '../mocks/index';
+import { createMockPrismaService, createMockBrowserPort } from '../mocks/index.js';
 import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER, RedisModule } from '../../src/infrastructure/redis/redis.module';
 
 restoreAllDesignParamtypes();

@@ -1,6 +1,6 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { BrowserContext, Page } from '../../../domain/ports/browser-primitives';
+import type { BrowserContext, Page } from '../../../domain/ports/browser-primitives.js';
 import { IBrowserPort } from '../../../domain/ports/browser.port.js';
 import { BasePoster, type PostResult } from './base.poster.js';
 import { FACEBOOK_SELECTORS } from './selectors/facebook.selectors.js';

@@ -9,7 +9,7 @@ import {
   getHumorPromptGuidance,
   HUMOR_MECHANICS,
   HUMOR_MECHANICS_BY_ID,
-} from '../../../src/modules/content-enhancements/humor-mechanics';
+} from '../../../src/modules/content-enhancements/humor-mechanics.js';
 import { CONTENT_STYLES } from '../../../src/modules/content-enhancements/content-style.rotation';
 
 describe('Humor Mechanics', () => {

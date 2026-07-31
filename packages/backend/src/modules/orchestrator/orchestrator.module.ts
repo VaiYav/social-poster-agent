@@ -29,7 +29,9 @@ import { StateCollectorService } from './state-collector.service.js';
 import { PostingWindowService } from './posting-window.service.js';
 import { HardRulesService } from './hard-rules.service.js';
 import { LlmDecisionService } from './llm-decision.service.js';
+import { NetworkSelector } from './network-selector.js';
 import { GuardrailsService } from './guardrails.service.js';
+import { RulesEngine } from './rules-engine.js';
 import { DecisionEngineService } from './decision-engine.service.js';
 import { ActionExecutorService } from './action-executor.service.js';
 import { OrchestratorHistoryService } from './orchestrator-history.service.js';
@@ -82,7 +84,9 @@ const engagementImports = parseBool(process.env.ENGAGEMENT_ENABLED)
     PostingWindowService,
     HardRulesService,
     LlmDecisionService,
+    NetworkSelector,
     GuardrailsService,
+    RulesEngine,
     DecisionEngineService,
     // Action handlers (X18 strategy pattern)
     GenerateTopicsHandler,

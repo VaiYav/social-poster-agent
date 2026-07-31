@@ -8,7 +8,7 @@ import {
   withPromptLabelContext,
   recordPromptLabel,
   getRecordedPromptLabels,
-} from '../../../../src/infrastructure/prompt/prompt-label-context';
+} from '../../../../src/infrastructure/prompt/prompt-label-context.js';
 
 describe('PromptLabelContext', () => {
   it('records prompt labels inside withPromptLabelContext', async () => {

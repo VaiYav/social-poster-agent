@@ -23,12 +23,12 @@ import {
   AccountRestrictedError,
   NetworkError,
   SpaError,
-} from '../../../src/domain/errors';
+} from '../../../src/domain/errors.js';
 import {
   createMockBrowserPort,
   createMockPage,
   createMockLocator,
-} from '../../mocks/index';
+} from '../../mocks/index.js';
 
 // ── Concrete Test Subclass ───────────────────────────────────────────────────
 // BasePoster is abstract — create a concrete subclass that exposes protected methods.

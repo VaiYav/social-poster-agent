@@ -33,12 +33,12 @@ import { DiscordNotificationService } from '../../../src/infrastructure/notifica
 import { IBrowserPort } from '../../../src/domain/ports/browser.port.js';
 import { SHARED_REDIS } from '../../../src/infrastructure/redis/redis.module.js';
 import { EmailReaderService } from '../../../src/infrastructure/email/email-reader.service.js';
-import { defineParamtypes, restoreAllDesignParamtypes } from '../../helpers/restore-paramtypes';
+import { defineParamtypes, restoreAllDesignParamtypes } from '../../helpers/restore-paramtypes.js';
 import {
   createMockPrismaService,
   createMockBrowserPort,
   createMockEncryptionService,
-} from '../../mocks/index';
+} from '../../mocks/index.js';
 
 // ── Redis mock ──
 function createMockRedis() {

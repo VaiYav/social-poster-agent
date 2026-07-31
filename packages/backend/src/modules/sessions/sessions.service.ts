@@ -10,7 +10,7 @@ import { DiscordNotificationService } from '../../infrastructure/notifications/d
 import { Session, SessionStatus, SocialAccount, SocialNetwork, type Prisma } from '@prisma/client';
 import { navigateWithRetry } from '../../domain/retry.js';
 import { CircuitBreakerRegistry, CircuitOpenError } from '../../domain/circuit-breaker.js';
-import { parseBool } from '../../infrastructure/config/parse-bool';
+import { parseBool } from '../../infrastructure/config/parse-bool.js';
 import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
 import { getEnabledNetworks, isNetworkEnabled } from '../../domain/enabled-networks.js';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
@@ -1589,10 +1589,16 @@ export class SessionsService implements OnModuleInit {
   /**
    * Store a verification code submitted by the operator (via API).
    * TTL: 5 minutes (codes expire quickly).
+   * The code is encrypted at rest so a Redis compromise does not expose it.
    */
   async setVerificationCode(network: string, code: string): Promise<void> {
+    const trimmed = code?.trim();
+    if (!trimmed || trimmed.length > 64) {
+      throw new Error(`Invalid verification code for ${network}`);
+    }
     const key = this.verifyCodeKey(network);
-    await this.redis.set(key, code, 'EX', 300); // 5 min TTL
+    const encrypted = this.encryptionService.encrypt({ code: trimmed });
+    await this.redis.set(key, encrypted, 'EX', 300); // 5 min TTL
     this.logger.log(`Verification code stored for ${network} (expires in 5 min)`);
   }
 
@@ -1612,12 +1618,18 @@ export class SessionsService implements OnModuleInit {
     );
 
     while (Date.now() - startTime < timeoutMs) {
-      const code = await this.redis.get(key).catch(() => null);
-      if (code) {
+      const encrypted = await this.redis.get(key).catch(() => null);
+      if (encrypted) {
         // Delete the code after consuming it (single-use)
         await this.redis.del(key).catch(() => {});
-        this.logger.log(`Verification code received for ${network}`);
-        return code;
+        try {
+          const { code } = this.encryptionService.decrypt<{ code: string }>(encrypted);
+          this.logger.log(`Verification code received for ${network}`);
+          return code;
+        } catch (err) {
+          this.logger.error(`Failed to decrypt verification code for ${network}: ${(err as Error).message}`);
+          return null;
+        }
       }
       await this.browser.randomDelay(pollIntervalMs, pollIntervalMs + 500);
     }

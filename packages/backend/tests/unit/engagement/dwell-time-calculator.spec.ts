@@ -6,7 +6,7 @@
  * Source: packages/backend/src/modules/engagement/dwell-time-calculator.ts
  */
 import { describe, it, expect } from 'vitest';
-import { calculateDwellTimeMs, calculateThreadReadTimeMs } from '../../../src/modules/engagement/dwell-time-calculator';
+import { calculateDwellTimeMs, calculateThreadReadTimeMs } from '../../../src/modules/engagement/dwell-time-calculator.js';
 
 describe('DwellTimeCalculator', () => {
   // ── calculateDwellTimeMs ──

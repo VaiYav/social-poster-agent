@@ -28,7 +28,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDtoSchema, type LoginDto, type AuthUser } from '@spa/shared';
-import { parseBool } from '../../infrastructure/config/parse-bool';
+import { parseBool } from '../../infrastructure/config/parse-bool.js';
 import { LoginRateLimitGuard } from './login-rate-limit.guard';
 import { Public } from './public.decorator';
 

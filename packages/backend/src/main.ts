@@ -1,9 +1,9 @@
 // IMPORTANT: import instrument.ts before everything else so Sentry hooks are
 // installed before any other module loads. CJS syntax per @sentry/nestjs docs.
-import './instrument';
+import './instrument.js';
 // Langfuse OTel SDK — must be initialized before any tracing calls happen.
 // Auto-enables when LANGFUSE_PUBLIC_KEY is set; no-op otherwise.
-import './langfuse-instrumentation';
+import './langfuse-instrumentation.js';
 
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger, type INestApplication } from '@nestjs/common';

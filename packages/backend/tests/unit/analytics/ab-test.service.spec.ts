@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { SocialNetwork } from '@prisma/client';
 import { ABTestService } from '../../../src/modules/analytics/ab-test.service';
-import { createMockPrismaService } from '../../mocks';
+import { createMockPrismaService } from '../../mocks/index.js';
 
 describe('ABTestService', () => {
   it('groups posted variants by topic and network', async () => {

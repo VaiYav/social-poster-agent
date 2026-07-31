@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import { SocialNetwork } from '@prisma/client';
 
-import { parseTargetNetworks } from '../../../src/modules/autonomy/parse-networks';
+import { parseTargetNetworks } from '../../../src/modules/autonomy/parse-networks.js';
 
 describe('parseTargetNetworks (AU4)', () => {
   it('parses the default CSV into all three networks', () => {

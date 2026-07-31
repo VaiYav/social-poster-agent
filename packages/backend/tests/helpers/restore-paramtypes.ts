@@ -11,16 +11,17 @@ import { PrismaService } from '../../src/infrastructure/prisma/prisma.service';
 import { BrowserFactory } from '../../src/infrastructure/browser/browser.factory';
 import { LlmService } from '../../src/infrastructure/llm/llm.service';
 import { LlmController } from '../../src/infrastructure/llm/llm.controller';
-import { ContentReader } from '../../src/infrastructure/content/content-reader';
-import { DbContentReader } from '../../src/infrastructure/content/db-content-reader';
+import { TokenBudgetService } from '../../src/infrastructure/llm/token-budget.service.js';
+import { ContentReader } from '../../src/infrastructure/content/content-reader.js';
+import { DbContentReader } from '../../src/infrastructure/content/db-content-reader.js';
 import { ContentAdapterRegistry } from '../../src/infrastructure/content/adapters/content-adapter.registry.js';
 import { SseService } from '../../src/infrastructure/sse/sse.service';
 import { EncryptionService } from '../../src/infrastructure/crypto/encryption.service.js';
-import { MetricsPublisher } from '../../src/modules/monitoring/metrics-publisher';
+import { MetricsPublisher } from '../../src/modules/monitoring/metrics-publisher.js';
 import { MonitoringController } from '../../src/modules/monitoring/monitoring.controller';
 import { SseModule } from '../../src/infrastructure/sse/sse.module';
 import { QueueFactory } from '../../src/infrastructure/queue/queue.factory';
-import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint';
+import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint.js';
 import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service.js';
 import { TopicGenerationService } from '../../src/infrastructure/content/topic-generation.service';
 import { EmailReaderService } from '../../src/infrastructure/email/email-reader.service.js';
@@ -75,7 +76,7 @@ import { BrowsingSessionService } from '../../src/modules/engagement/browsing-se
 import { XEngager } from '../../src/modules/engagement/engagers/x.engager';
 import { ThreadsEngager } from '../../src/modules/engagement/engagers/threads.engager';
 import { FacebookEngager } from '../../src/modules/engagement/engagers/facebook.engager';
-import { HumanBehaviorEngine } from '../../src/modules/engagement/human-behavior-engine';
+import { HumanBehaviorEngine } from '../../src/modules/engagement/human-behavior-engine.js';
 import { TargetingService } from '../../src/modules/engagement/targeting.service';
 import { EngagementSchedulerService } from '../../src/modules/engagement/engagement-scheduler.service';
 
@@ -118,8 +119,10 @@ import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook
 // Orchestrator
 import { HardRulesService } from '../../src/modules/orchestrator/hard-rules.service.js';
 import { GuardrailsService } from '../../src/modules/orchestrator/guardrails.service.js';
+import { NetworkSelector } from '../../src/modules/orchestrator/network-selector.js';
 import { LlmDecisionService } from '../../src/modules/orchestrator/llm-decision.service.js';
 import { PostingWindowService } from '../../src/modules/orchestrator/posting-window.service.js';
+import { RulesEngine } from '../../src/modules/orchestrator/rules-engine.js';
 import { DecisionEngineService } from '../../src/modules/orchestrator/decision-engine.service.js';
 import { ActionExecutorService } from '../../src/modules/orchestrator/action-executor.service.js';
 import {
@@ -183,6 +186,7 @@ export function restoreAllDesignParamtypes(): void {
   // ── Infrastructure ───────────────────────────────────────────────────────
   defineParamtypes(PrismaService, [ConfigService]);
   defineParamtypes(LlmService, [ConfigService, Object, Object]); // Object = SHARED_REDIS, Object = IPromptPort (@Optional @Inject)
+  defineParamtypes(TokenBudgetService, [ConfigService, Object]); // Object = @Inject(SHARED_REDIS)
   defineParamtypes(LlmController, [LlmService]);
   defineParamtypes(ContentReader, [ConfigService]);
   defineParamtypes(DbContentReader, [PrismaService]);
@@ -400,7 +404,7 @@ export function restoreAllDesignParamtypes(): void {
 
   // ── Orchestrator ─────────────────────────────────────────────────────────
   defineParamtypes(HardRulesService, [Object]); // Object = @Inject(SHARED_REDIS)
-  defineParamtypes(GuardrailsService, []);
+  defineParamtypes(GuardrailsService, [ConfigService, NetworkSelector]);
   defineParamtypes(LlmDecisionService, [ConfigService, Object, LangfuseService, Object]); // Object = ILlmPort, IPromptPort
   defineParamtypes(PostingWindowService, [PrismaService, ConfigService, Object]); // Object = @Inject(SHARED_REDIS)
   defineParamtypes(DecisionEngineService, [
@@ -410,6 +414,7 @@ export function restoreAllDesignParamtypes(): void {
     HardRulesService,
     LlmDecisionService,
     GuardrailsService,
+    RulesEngine,
   ]);
   defineParamtypes(GenerateTopicsHandler, [ConfigService, ModuleRef, PrismaService]);
   defineParamtypes(GeneratePostsHandler, [ConfigService, ModuleRef, PrismaService]);

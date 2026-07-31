@@ -18,7 +18,7 @@ import {
   createMockSseService,
   createMockDistributedLockService,
   fixtureSession,
-} from '../../mocks/index';
+} from '../../mocks/index.js';
 
 const mockInvoke = vi.fn();
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ConfigService } from '@nestjs/config';
 import { ABVariantService } from '../../../src/modules/content-enhancements/ab-variant.service';
-import { createMockPrismaService } from '../../mocks';
+import { createMockPrismaService } from '../../mocks/index.js';
 import { SocialNetwork } from '@prisma/client';
 
 describe('ABVariantService', () => {

@@ -33,7 +33,7 @@
  * @nestjs/testing DI works as intended with the FULL AppModule.
  */
 import 'reflect-metadata';
-import { restoreAllDesignParamtypes, defineParamtypes } from '../helpers/restore-paramtypes';
+import { restoreAllDesignParamtypes, defineParamtypes } from '../helpers/restore-paramtypes.js';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { TestingModule } from '@nestjs/testing';
@@ -53,13 +53,13 @@ import { IBrowserPort } from '../../src/domain/ports/browser.port.js';
 // Infrastructure
 import { BrowserFactory } from '../../src/infrastructure/browser/browser.factory';
 import { LlmService } from '../../src/infrastructure/llm/llm.service';
-import { ContentReader } from '../../src/infrastructure/content/content-reader';
+import { ContentReader } from '../../src/infrastructure/content/content-reader.js';
 import { SseService } from '../../src/infrastructure/sse/sse.service';
 import { EncryptionService } from '../../src/infrastructure/crypto/encryption.service.js';
 import { SseModule } from '../../src/infrastructure/sse/sse.module';
 import { SseEventListener } from '../../src/events/listeners/sse-event.listener.js';
 import { QueueFactory } from '../../src/infrastructure/queue/queue.factory';
-import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint';
+import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint.js';
 
 // Modules (for ITC-020 subset wiring)
 import { PostingModule } from '../../src/modules/posting/posting.module';
@@ -115,7 +115,7 @@ import { RecyclingController } from '../../src/modules/recycling/recycling.contr
 import { QuoteCardService } from '../../src/modules/quote-cards/quote-card.service';
 import { QuoteCardController } from '../../src/modules/quote-cards/quote-card.controller';
 import { RepliesMonitorService } from '../../src/modules/replies/replies-monitor.service';
-import { HumanBehaviorEngine } from '../../src/modules/engagement/human-behavior-engine';
+import { HumanBehaviorEngine } from '../../src/modules/engagement/human-behavior-engine.js';
 import { TargetingService } from '../../src/modules/engagement/targeting.service';
 import { EngagementSchedulerService } from '../../src/modules/engagement/engagement-scheduler.service';
 import { FlowControlService } from '../../src/modules/flow-control/flow-control.service';
@@ -131,7 +131,7 @@ import { VisualConceptService } from '../../src/modules/content-enhancements/vis
 import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator';
 import { ThreadDepthService } from '../../src/modules/content-enhancements/thread-depth.service';
 import { ContentPillarTracker } from '../../src/modules/content-enhancements/content-pillar.tracker';
-import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook-performance-bank';
+import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook-performance-bank.js';
 import { AuthService } from '../../src/modules/auth/auth.service';
 import { AuthController } from '../../src/modules/auth/auth.controller';
 import { JwtAuthGuard } from '../../src/modules/auth/jwt-auth.guard';
@@ -145,7 +145,7 @@ import { PostingWindowService } from '../../src/modules/orchestrator/posting-win
 import { DecisionEngineService } from '../../src/modules/orchestrator/decision-engine.service.js';
 import { EmailReaderService } from '../../src/infrastructure/email/email-reader.service.js';
 
-import { createMockLlmPort, createMockBrowserPort, createMockPrismaService } from '../mocks/index';
+import { createMockLlmPort, createMockBrowserPort, createMockPrismaService } from '../mocks/index.js';
 import { RedisModule } from '../../src/infrastructure/redis/redis.module';
 
 // ── ioredis mock (hoisted) ───────────────────────────────────────────────────

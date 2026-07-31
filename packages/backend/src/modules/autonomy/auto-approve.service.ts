@@ -20,7 +20,7 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { SseService } from '../../infrastructure/sse/sse.service';
 import { FlowControlService } from '../flow-control/flow-control.service.js';
 import { AutoCheckService, type AutoCheckResult } from './auto-check.service';
-import { parseBool } from '../../infrastructure/config/parse-bool';
+import { parseBool } from '../../infrastructure/config/parse-bool.js';
 
 export type ApproveDecision = 'AUTO_APPROVE' | 'HUMAN_REVIEW' | 'REJECT' | 'SKIP';
 

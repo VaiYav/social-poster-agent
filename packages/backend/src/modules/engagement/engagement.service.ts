@@ -22,9 +22,10 @@ import { ThreadsEngager } from './engagers/threads.engager.js';
 import { FacebookEngager } from './engagers/facebook.engager.js';
 import type { EngagementResult } from '../posting/posters/base.poster.js';
 import { isNetworkEnabled } from '../../domain/enabled-networks.js';
+import type { IEngagementPort } from '../orchestrator/ports.js';
 
 @Injectable()
-export class EngagementService {
+export class EngagementService implements IEngagementPort {
   private readonly logger = new Logger(EngagementService.name);
 
   constructor(

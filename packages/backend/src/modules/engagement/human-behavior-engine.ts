@@ -12,7 +12,7 @@
 // browser actions, so the same logic works across X, Threads, and Facebook.
 
 import { Injectable, Logger, Inject } from '@nestjs/common';
-import type { Page } from '../../domain/ports/browser-primitives';
+import type { Page } from '../../domain/ports/browser-primitives.js';
 import {
   InteractionStatus,
   InteractionType,

@@ -2,8 +2,8 @@ import { StateGraph, END, START, Annotation, interrupt } from '@langchain/langgr
 import type { ILlmPort } from '../../domain/ports/llm.port.js';
 import { SocialNetwork } from '@prisma/client';
 import { Logger } from '@nestjs/common';
-import { createHash } from 'node:crypto';
 import { buildBaitRewriteInstruction } from '../content-enhancements/engagement-bait.detector.js';
+import { hookCacheKey, getActiveHookCache, type IHookCache } from './hook-cache.js';
 import type { HookPerformanceBank } from '../content-enhancements/hook-performance-bank.js';
 import { classifyHookTechnique, type HookTechnique } from '../content-enhancements/hook-performance-bank.js';
 import type { VisualConcept, VisualConceptService } from '../content-enhancements/visual-concept.service.js';
@@ -45,69 +45,8 @@ function qualityScoreFromJudgeScores(judgeScores?: JudgeScores): number | undefi
 
 
 
-// ============================================================
-// Hook cache — avoids re-calling LLM for identical topics across runs.
-// Keyed by topic + keywords + facts hash. TTL 30 min, max 50 entries.
-// Saves ~3,800 tokens per cache hit (system prompt with brand-voice is large).
-// ============================================================
-
-interface HookCacheEntry {
-  hooks: string[];
-  model: string;
-  expiresAt: number;
-}
-
-const hookCache = new Map<string, HookCacheEntry>();
-const HOOK_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
-const HOOK_CACHE_MAX_SIZE = 50;
-
-/**
- * Compute a cache key for hook_generation from the deterministic inputs.
- * Excludes brandVoice (constant per process) and performanceGuidance (advisory).
- */
-function hookCacheKey(topic: string, keywords: string[], facts: string[]): string {
-  const input = `${topic}||${keywords.slice().sort().join(',')}||${facts.slice().sort().join('\n')}`;
-  return createHash('sha256').update(input).digest('hex').slice(0, 32);
-}
-
-/**
- * Check the hook cache. Returns cached hooks if valid, null otherwise.
- */
-function getHookCache(key: string): HookCacheEntry | null {
-  const entry = hookCache.get(key);
-  if (!entry) return null;
-  if (Date.now() > entry.expiresAt) {
-    hookCache.delete(key);
-    return null;
-  }
-  logger.debug(`Hook cache hit (key: ${key.slice(0, 8)}) — skipping LLM call`);
-  return entry;
-}
-
-/**
- * Store hooks in cache. Evicts oldest entry if full (FIFO).
- */
-function setHookCache(key: string, hooks: string[], model: string): void {
-  if (hookCache.size >= HOOK_CACHE_MAX_SIZE) {
-    const oldestKey = hookCache.keys().next().value;
-    if (oldestKey) hookCache.delete(oldestKey);
-  }
-  hookCache.set(key, { hooks, model, expiresAt: Date.now() + HOOK_CACHE_TTL_MS });
-}
-
-/**
- * Clear the hook cache (for testing or manual invalidation).
- */
-export function clearHookCache(): void {
-  hookCache.clear();
-}
-
-/**
- * Get hook cache stats for monitoring.
- */
-export function getHookCacheStats(): { size: number; maxSize: number; ttlMs: number } {
-  return { size: hookCache.size, maxSize: HOOK_CACHE_MAX_SIZE, ttlMs: HOOK_CACHE_TTL_MS };
-}
+// Re-export hook cache helpers so existing imports continue to work.
+export { hookCacheKey, clearHookCache, getHookCacheStats } from './hook-cache.js';
 
 // ============================================================
 // Types
@@ -423,13 +362,14 @@ async function hookGenerationNode(
   llm: ILlmPort,
   hookBank: HookPerformanceBank | undefined,
   promptPort: IPromptPort,
+  hookCache: IHookCache,
   hookTemperature = 0.95,
 ): Promise<Partial<GenerationStateType>> {
   // Check cache first — avoids re-calling LLM for identical topics across runs.
   // Cache is keyed by topic + keywords + facts (the deterministic inputs).
   // performanceGuidance is excluded (advisory, may change between runs).
   const cacheKey = hookCacheKey(state.topic.topic, state.topic.keywords, state.facts);
-  const cached = getHookCache(cacheKey);
+  const cached = hookCache.get(cacheKey);
   if (cached) {
     return { hooks: cached.hooks, model: cached.model };
   }
@@ -493,7 +433,7 @@ async function hookGenerationNode(
   }
 
   // Store in cache for future runs with the same topic
-  setHookCache(cacheKey, hooks, response.model);
+  hookCache.set(cacheKey, hooks, response.model);
 
   return { hooks, model: response.model };
 }
@@ -1317,6 +1257,10 @@ export function buildGenerationGraph(
      * infrastructure label context directly.
      */
     getRecordedPromptLabels?: () => Record<string, { label: string; isFallback?: boolean }>;
+    /**
+     * Hook cache instance. Defaults to the active process-level hook cache.
+     */
+    hookCache?: IHookCache;
   },
 ) {
   const logger = new Logger('GenerationGraph');
@@ -1332,6 +1276,7 @@ export function buildGenerationGraph(
   const HOOK_TEMPERATURE = options?.temperatures?.hook ?? 0.95;
   const DRAFT_TEMPERATURE = options?.temperatures?.draft ?? 0.8;
   const REFINE_TEMPERATURE = options?.temperatures?.refine ?? 0.6;
+  const hookCache = options?.hookCache ?? getActiveHookCache();
 
   /** Wrap a node to publish progress after execution. */
   function withProgress(nodeName: string, fn: (s: GenerationStateType) => Promise<Partial<GenerationStateType>> | Partial<GenerationStateType>) {
@@ -1358,7 +1303,7 @@ export function buildGenerationGraph(
     // Step 1: research_extract
     .addNode('research_extract', withProgress('research_extract', (s) => researchExtractNode(s, llm, promptPort)))
     // Step 2: hook_generation (3-5 variants)
-    .addNode('hook_generation', withProgress('hook_generation', (s) => hookGenerationNode(s, llm, hookBank, promptPort, HOOK_TEMPERATURE)))
+    .addNode('hook_generation', withProgress('hook_generation', (s) => hookGenerationNode(s, llm, hookBank, promptPort, hookCache, HOOK_TEMPERATURE)))
     // Step 3: angle_per_network (assign hooks + angles)
     .addNode('angle_per_network', withProgress('angle_per_network', (s) => anglePerNetworkNode(s)))
     // Step 4: parallel draft per network

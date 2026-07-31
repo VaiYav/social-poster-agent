@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ContentReader } from './content-reader';
-import { DbContentReader } from './db-content-reader';
+import { ContentReader } from './content-reader.js';
+import { DbContentReader } from './db-content-reader.js';
 import { TopicGenerationService } from './topic-generation.service';
 import { ContentAdapterRegistry } from './adapters/content-adapter.registry.js';
 import { IContentPort } from '../../domain/ports/content.port.js';

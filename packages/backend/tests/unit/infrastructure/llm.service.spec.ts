@@ -31,7 +31,7 @@ vi.mock('@langchain/openai', () => ({
 import { ConfigService } from '@nestjs/config';
 import type { BaseCallbackHandler } from '../../../src/domain/ports/llm-primitives.js';
 import { LlmService } from '../../../src/infrastructure/llm/llm.service';
-import { createMockRedis } from '../../mocks/index';
+import { createMockRedis } from '../../mocks/index.js';
 
 // ── Helpers ──
 

@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 
-import { isBlocklisted, checkTrendSafety, isTrendingSource } from '../../../src/modules/content-enhancements/trend-guardrail';
+import { isBlocklisted, checkTrendSafety, isTrendingSource } from '../../../src/modules/content-enhancements/trend-guardrail.js';
 
 describe('isBlocklisted (B11 — word-boundary blocklist)', () => {
   it('still blocks genuine brand-unsafe whole-word topics', () => {

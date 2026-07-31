@@ -21,7 +21,7 @@ import { BrowserFactory } from '../../../src/infrastructure/browser/browser.fact
 import { SseService } from '../../../src/infrastructure/sse/sse.service';
 import { PrismaService } from '../../../src/infrastructure/prisma/prisma.service';
 import { RateLimitService } from '../../../src/modules/rate-limit/rate-limit.service';
-import { RedisCheckpointSaver } from '../../../src/infrastructure/checkpoint/redis-checkpoint';
+import { RedisCheckpointSaver } from '../../../src/infrastructure/checkpoint/redis-checkpoint.js';
 
 function createMockConfigService(overrides: Record<string, unknown> = {}): ConfigService {
   const defaults: Record<string, unknown> = {

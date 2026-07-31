@@ -3,7 +3,7 @@
  * Source: src/modules/content-enhancements/humanizer-gate.ts
  */
 import { describe, it, expect } from 'vitest';
-import { analyzeHumanization, buildHumanizeInstruction } from '../../../src/modules/content-enhancements/humanizer-gate';
+import { analyzeHumanization, buildHumanizeInstruction } from '../../../src/modules/content-enhancements/humanizer-gate.js';
 
 // Human-sounding text: varied sentence lengths, no slop, no em dashes.
 const CLEAN_TEXT =

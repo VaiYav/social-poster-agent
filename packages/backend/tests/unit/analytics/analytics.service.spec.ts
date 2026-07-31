@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PostStatus, SocialNetwork } from '@prisma/client';
 import { AnalyticsService } from '../../../src/modules/analytics/analytics.service';
-import { createMockPrismaService } from '../../mocks';
+import { createMockPrismaService } from '../../mocks/index.js';
 
 describe('AnalyticsService', () => {
   let service: AnalyticsService;

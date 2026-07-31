@@ -27,7 +27,7 @@ import {
   type UpdatePostStatusDto,
   type PostQueryDto,
   type ApprovePostDto,
-} from '../../domain/dtos';
+} from '../../domain/dtos.js';
 
 @ApiTags('posts')
 @Controller('posts')

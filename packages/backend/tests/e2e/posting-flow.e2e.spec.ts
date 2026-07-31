@@ -37,10 +37,10 @@ import { EncryptionService } from '../../src/infrastructure/crypto/encryption.se
 import { TrendingScraperService } from '../../src/modules/trending/trending-scraper.service';
 import { BrowserFactory } from '../../src/infrastructure/browser/browser.factory';
 import { LlmService } from '../../src/infrastructure/llm/llm.service';
-import { ContentReader } from '../../src/infrastructure/content/content-reader';
+import { ContentReader } from '../../src/infrastructure/content/content-reader.js';
 import { SseService } from '../../src/infrastructure/sse/sse.service';
 import { SseModule } from '../../src/infrastructure/sse/sse.module';
-import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint';
+import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint.js';
 import { HealthController } from '../../src/modules/health/health.controller';
 import { GenerationService } from '../../src/modules/generation/generation.service';
 import { XPoster } from '../../src/modules/posting/posters/x.poster';
@@ -63,7 +63,7 @@ import { AccountsService } from '../../src/modules/accounts/accounts.service';
 import { SessionsService } from '../../src/modules/sessions/sessions.service';
 import { MetricsScraperService } from '../../src/modules/analytics/metrics-scraper.service';
 
-import { createMockLlmPort, createMockBrowserPort, createMockPrismaService } from '../mocks/index';
+import { createMockLlmPort, createMockBrowserPort, createMockPrismaService } from '../mocks/index.js';
 import { SocialNetwork, PostStatus } from '@prisma/client';
 import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER } from '../../src/infrastructure/redis/redis.module';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -75,8 +75,8 @@ import { VisualConceptService } from '../../src/modules/content-enhancements/vis
 import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator';
 import { ThreadDepthService } from '../../src/modules/content-enhancements/thread-depth.service';
 import { ContentPillarTracker } from '../../src/modules/content-enhancements/content-pillar.tracker';
-import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook-performance-bank';
-import { HumanBehaviorEngine } from '../../src/modules/engagement/human-behavior-engine';
+import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook-performance-bank.js';
+import { HumanBehaviorEngine } from '../../src/modules/engagement/human-behavior-engine.js';
 import { TargetingService } from '../../src/modules/engagement/targeting.service';
 import { RepliesMonitorService } from '../../src/modules/replies/replies-monitor.service';
 import { EngagementSchedulerService } from '../../src/modules/engagement/engagement-scheduler.service';
@@ -93,7 +93,7 @@ import { QueueController } from '../../src/modules/queue/queue.controller';
 import { AccountsController } from '../../src/modules/accounts/accounts.controller';
 import { SessionsController } from '../../src/modules/sessions/sessions.controller';
 import { SseController } from '../../src/modules/sse/sse.controller';
-import { restoreAllDesignParamtypes } from '../helpers/restore-paramtypes';
+import { restoreAllDesignParamtypes } from '../helpers/restore-paramtypes.js';
 import { clearHookCache } from '../../src/modules/generation/generation.graph';
 
 const mockRedis = {

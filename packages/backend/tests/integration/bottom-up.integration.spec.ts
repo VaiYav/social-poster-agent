@@ -15,7 +15,7 @@
  */
 
 import 'reflect-metadata';
-import { restoreAllDesignParamtypes } from '../helpers/restore-paramtypes';
+import { restoreAllDesignParamtypes } from '../helpers/restore-paramtypes.js';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -35,11 +35,11 @@ import { RateLimitService } from '../../src/modules/rate-limit/rate-limit.servic
 import { SseService } from '../../src/infrastructure/sse/sse.service';
 import { SseController } from '../../src/modules/sse/sse.controller';
 import { ContentSourceService } from '../../src/modules/content-source/content-source.service';
-import { ContentReader } from '../../src/infrastructure/content/content-reader';
+import { ContentReader } from '../../src/infrastructure/content/content-reader.js';
 import { ILlmPort } from '../../src/domain/ports/llm.port';
 import { IBrowserPort } from '../../src/domain/ports/browser.port';
 import { IContentPort } from '../../src/domain/ports/content.port';
-import { createMockPrismaService, createMockBrowserPort, createMockContentPort } from '../mocks/index';
+import { createMockPrismaService, createMockBrowserPort, createMockContentPort } from '../mocks/index.js';
 import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER } from '../../src/infrastructure/redis/redis.module';
 import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service';
 import { EmailReaderService } from '../../src/infrastructure/email/email-reader.service';

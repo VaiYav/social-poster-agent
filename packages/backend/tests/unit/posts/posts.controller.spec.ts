@@ -12,7 +12,7 @@ import { NotFoundException } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { PostsController } from '../../../src/modules/posts/posts.controller';
 import { PostsService } from '../../../src/modules/posts/posts.service';
-import { fixturePost } from '../../mocks/index';
+import { fixturePost } from '../../mocks/index.js';
 
 describe('MOD-02: PostsController', () => {
   let controller: PostsController;

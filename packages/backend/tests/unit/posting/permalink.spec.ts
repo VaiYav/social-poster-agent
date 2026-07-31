@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 
-import { isPermalink, normalizePermalink } from '../../../src/modules/posting/posters/permalink';
+import { isPermalink, normalizePermalink } from '../../../src/modules/posting/posters/permalink.js';
 
 describe('permalink (P1 — native post-URL guard)', () => {
   describe('X', () => {

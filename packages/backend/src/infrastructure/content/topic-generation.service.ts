@@ -5,7 +5,7 @@ import { CronJob } from 'cron';
 import { PrismaService } from '../prisma/prisma.service';
 import { ILlmPort } from '../../domain/ports/llm.port.js';
 import { IPromptPort, type CompiledChatPrompt } from '../../domain/ports/prompt.port.js';
-import { parseBool } from '../config/parse-bool';
+import { parseBool } from '../config/parse-bool.js';
 import { isOrchestratorEnabled } from '../../domain/feature-flags.js';
 import { interpolate } from '../../domain/prompt-interpolation.js';
 import { TOPIC_GENERATION_PROMPT } from './prompts/topic-generation-prompt.js';

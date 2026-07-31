@@ -1,5 +1,5 @@
 import { Injectable, Optional } from '@nestjs/common';
-import { AgentState, IMetricsCollector } from './metrics-collector';
+import { AgentState, IMetricsCollector } from './metrics-collector.js';
 import { HealthMonitorService } from '../health-monitor/health-monitor.service';
 import { QueueService } from '../queue/queue.service';
 import { SessionsService } from '../sessions/sessions.service';

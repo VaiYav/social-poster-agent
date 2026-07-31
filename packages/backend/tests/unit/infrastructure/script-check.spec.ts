@@ -6,7 +6,7 @@
  * language it claimed. Catches the #1 bot tell: English reply to non-English.
  */
 import { describe, it, expect } from 'vitest';
-import { matchesScript, normalizeLanguage } from '../../../src/infrastructure/util/script-check';
+import { matchesScript, normalizeLanguage } from '../../../src/infrastructure/util/script-check.js';
 
 describe('script-check — matchesScript', () => {
   // ── Cyrillic languages (ru, uk) ──

@@ -18,6 +18,8 @@ import { FlowControlService } from '../flow-control/flow-control.service.js';
 import { AccountsService } from '../accounts/accounts.service';
 import { QueueFactory } from '../../infrastructure/queue/queue.factory.js';
 import { getEnabledNetworks } from '../../domain/enabled-networks.js';
+import { unwrap } from '../../domain/result.js';
+import { CollectorPipeline, type NamedCollector } from './collector-pipeline.js';
 import type { WorldState, SessionState, RateLimitState, HealthState, FlowControlState, PostMetricsSummary } from './types.js';
 
 @Injectable()
@@ -43,35 +45,42 @@ export class StateCollectorService {
    */
   async collectWorldState(): Promise<WorldState> {
     const startTime = Date.now();
-    const degraded: string[] = [];
     const networks = getEnabledNetworks();
+    const pipeline = new CollectorPipeline();
 
-    // Run all collectors in parallel — each catches its own errors
-    const [
-      topicPool,
-      drafts,
-      queueDepth,
-      sessions,
-      rateLimits,
-      timing,
-      performance,
-      engagement,
-      health,
-      flowControl,
-      trends,
-    ] = await Promise.all([
-      this.collectTopicPool().catch((e) => { degraded.push('topicPool'); this.logger.warn(`topicPool degraded: ${e.message}`); return null; }),
-      this.collectDraftCounts(networks).catch((e) => { degraded.push('drafts'); this.logger.warn(`drafts degraded: ${e.message}`); return null; }),
-      this.collectQueueDepth(networks).catch((e) => { degraded.push('queueDepth'); this.logger.warn(`queueDepth degraded: ${e.message}`); return null; }),
-      this.collectSessions(networks).catch((e) => { degraded.push('sessions'); this.logger.warn(`sessions degraded: ${e.message}`); return null; }),
-      this.collectRateLimits(networks).catch((e) => { degraded.push('rateLimits'); this.logger.warn(`rateLimits degraded: ${e.message}`); return null; }),
-      this.collectTiming().catch((e) => { degraded.push('timing'); this.logger.warn(`timing degraded: ${e.message}`); return null; }),
-      this.collectPerformance(networks).catch((e) => { degraded.push('performance'); this.logger.warn(`performance degraded: ${e.message}`); return null; }),
-      this.collectEngagement(networks).catch((e) => { degraded.push('engagement'); this.logger.warn(`engagement degraded: ${e.message}`); return null; }),
-      this.collectHealth(networks).catch((e) => { degraded.push('health'); this.logger.warn(`health degraded: ${e.message}`); return null; }),
-      this.collectFlowControl().catch((e) => { degraded.push('flowControl'); this.logger.warn(`flowControl degraded: ${e.message}`); return null; }),
-      this.collectTrends().catch((e) => { degraded.push('trends'); this.logger.warn(`trends degraded: ${e.message}`); return null; }),
-    ]);
+    type PartialState = {
+      topicPool: Awaited<ReturnType<StateCollectorService['collectTopicPool']>>;
+      drafts: Awaited<ReturnType<StateCollectorService['collectDraftCounts']>>;
+      queueDepth: Awaited<ReturnType<StateCollectorService['collectQueueDepth']>>;
+      sessions: Awaited<ReturnType<StateCollectorService['collectSessions']>>;
+      rateLimits: Awaited<ReturnType<StateCollectorService['collectRateLimits']>>;
+      timing: Awaited<ReturnType<StateCollectorService['collectTiming']>>;
+      performance: Awaited<ReturnType<StateCollectorService['collectPerformance']>>;
+      engagement: Awaited<ReturnType<StateCollectorService['collectEngagement']>>;
+      health: Awaited<ReturnType<StateCollectorService['collectHealth']>>;
+      flowControl: Awaited<ReturnType<StateCollectorService['collectFlowControl']>>;
+      trends: Awaited<ReturnType<StateCollectorService['collectTrends']>>;
+    };
+
+    const collectors: { [K in keyof PartialState]: NamedCollector<PartialState[K]> } = {
+      topicPool: { name: 'topicPool', collect: () => this.collectTopicPool() },
+      drafts: { name: 'drafts', collect: () => this.collectDraftCounts(networks) },
+      queueDepth: { name: 'queueDepth', collect: () => this.collectQueueDepth(networks) },
+      sessions: { name: 'sessions', collect: () => this.collectSessions(networks) },
+      rateLimits: { name: 'rateLimits', collect: () => this.collectRateLimits(networks) },
+      timing: { name: 'timing', collect: () => this.collectTiming() },
+      performance: { name: 'performance', collect: () => this.collectPerformance(networks) },
+      engagement: { name: 'engagement', collect: () => this.collectEngagement(networks) },
+      health: { name: 'health', collect: () => this.collectHealth(networks) },
+      flowControl: { name: 'flowControl', collect: () => this.collectFlowControl() },
+      trends: { name: 'trends', collect: () => this.collectTrends() },
+    };
+
+    const results = await pipeline.run(collectors);
+
+    const degraded = Object.entries(results)
+      .filter(([, result]) => !result.ok)
+      .map(([name]) => name);
 
     const elapsed = Date.now() - startTime;
     if (degraded.length > 0) {
@@ -82,21 +91,21 @@ export class StateCollectorService {
 
     return {
       timestamp: Date.now(),
-      topicPool: topicPool ?? { count: 0, threshold: this.topicPoolThreshold, oldestAgeMs: 0 },
-      drafts: drafts ?? { pending: 0, approved: 0, rejected: 0, approvedByNetwork: {} },
-      queueDepth: queueDepth ?? {},
-      sessions: sessions ?? {},
-      rateLimits: rateLimits ?? {},
-      now: timing?.now ?? Date.now(),
-      utcHour: timing?.utcHour ?? new Date().getUTCHours(),
-      utcDayOfWeek: timing?.utcDayOfWeek ?? new Date().getUTCDay(),
+      topicPool: unwrap(results.topicPool, { count: 0, threshold: this.topicPoolThreshold, oldestAgeMs: 0 }),
+      drafts: unwrap(results.drafts, { pending: 0, approved: 0, rejected: 0, approvedByNetwork: {} }),
+      queueDepth: unwrap(results.queueDepth, {}),
+      sessions: unwrap(results.sessions, {}),
+      rateLimits: unwrap(results.rateLimits, {}),
+      now: unwrap(results.timing, { now: Date.now(), utcHour: new Date().getUTCHours(), utcDayOfWeek: new Date().getUTCDay() }).now,
+      utcHour: unwrap(results.timing, { now: Date.now(), utcHour: new Date().getUTCHours(), utcDayOfWeek: new Date().getUTCDay() }).utcHour,
+      utcDayOfWeek: unwrap(results.timing, { now: Date.now(), utcHour: new Date().getUTCHours(), utcDayOfWeek: new Date().getUTCDay() }).utcDayOfWeek,
       postingWindows: {}, // Filled by PostingWindowService in Phase 2
       inPostingWindow: {},
-      performance: performance ?? {},
-      engagement: engagement ?? { lastBrowseMs: {}, uncheckedReplies: 0, warmupPhase: {}, lastSessionStatus: {}, lastSessionInteractions: {}, engagementDebt: 0, commentsTargetToday: 0, commentsActualToday: 0, likesTargetToday: 0, likesActualToday: 0, debt: 0 },
-      health: health ?? { bans: 0, dlqDepth: 0, stuckPosting: 0, stuckBrowsingSessions: 0, orphanedPosts: 0, killSwitch: false },
-      flowControl: flowControl ?? { pauseAll: false, pauseGeneration: false, pausePosting: false, pauseEngagement: false, pauseReplies: false, pauseLlmTriage: false, pauseAutoApprove: false },
-      trends: trends ?? { lastRefreshMs: 0, count: 0 },
+      performance: unwrap(results.performance, {}),
+      engagement: unwrap(results.engagement, { lastBrowseMs: {}, uncheckedReplies: 0, warmupPhase: {}, lastSessionStatus: {}, lastSessionInteractions: {}, engagementDebt: 0, commentsTargetToday: 0, commentsActualToday: 0, likesTargetToday: 0, likesActualToday: 0, debt: 0 }),
+      health: unwrap(results.health, { bans: 0, dlqDepth: 0, stuckPosting: 0, stuckBrowsingSessions: 0, orphanedPosts: 0, killSwitch: false }),
+      flowControl: unwrap(results.flowControl, { pauseAll: false, pauseGeneration: false, pausePosting: false, pauseEngagement: false, pauseReplies: false, pauseLlmTriage: false, pauseAutoApprove: false }),
+      trends: unwrap(results.trends, { lastRefreshMs: 0, count: 0 }),
       _degraded: degraded,
       _collectedAt: Date.now(),
     };

@@ -14,9 +14,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import 'reflect-metadata';
 import type { Request, Response } from 'express';
 import { EventEmitter } from 'node:events';
-import { createMockSseService } from '../mocks/index';
-import { createControllerTestingModule } from '../helpers/nest';
-import { defineParamtypes, restoreAllDesignParamtypes } from '../helpers/restore-paramtypes';
+import { createMockSseService } from '../mocks/index.js';
+import { createControllerTestingModule } from '../helpers/nest.js';
+import { defineParamtypes, restoreAllDesignParamtypes } from '../helpers/restore-paramtypes.js';
 import { SseController } from '../../src/modules/sse/sse.controller';
 import { SseService } from '../../src/infrastructure/sse/sse.service';
 

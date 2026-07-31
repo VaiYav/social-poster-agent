@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SocialNetwork } from '@prisma/client';
 import { EngagementService } from '../../../src/modules/engagement/engagement.service';
-import { createMockPrismaService } from '../../mocks/index';
+import { createMockPrismaService } from '../../mocks/index.js';
 
 describe('EngagementService — performInteraction cleanup', () => {
   let service: EngagementService;

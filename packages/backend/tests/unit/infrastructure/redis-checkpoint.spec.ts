@@ -16,8 +16,8 @@ vi.mock('@langchain/langgraph-checkpoint', () => ({
 }));
 
 import { ConfigService } from '@nestjs/config';
-import { RedisCheckpointSaver } from '../../../src/infrastructure/checkpoint/redis-checkpoint';
-import { createMockRedis } from '../../mocks/index';
+import { RedisCheckpointSaver } from '../../../src/infrastructure/checkpoint/redis-checkpoint.js';
+import { createMockRedis } from '../../mocks/index.js';
 
 // ── Helpers ──
 

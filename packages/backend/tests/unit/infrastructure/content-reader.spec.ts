@@ -29,7 +29,7 @@ vi.mock('node:fs/promises', () => ({
 
 // gray-matter is a real dependency — use the real implementation.
 import { ConfigService } from '@nestjs/config';
-import { ContentReader } from '../../../src/infrastructure/content/content-reader';
+import { ContentReader } from '../../../src/infrastructure/content/content-reader.js';
 
 // ── Helpers ──
 

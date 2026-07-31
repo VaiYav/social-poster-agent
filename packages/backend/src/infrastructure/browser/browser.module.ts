@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { BrowserFactory } from './browser.factory';
 import { SelectorHealthService } from './selector-health.service.js';
 import { IBrowserPort } from '../../domain/ports/browser.port.js';
-import { parseBool } from '../config/parse-bool';
+import { parseBool } from '../config/parse-bool.js';
 import { ProxyModule } from '../proxy/proxy.module.js';
 
 @Module({

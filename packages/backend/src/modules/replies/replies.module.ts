@@ -23,7 +23,7 @@ import { LlmModule } from '../../infrastructure/llm/llm.module';
 import { SseModule } from '../../infrastructure/sse/sse.module';
 import { QueueModule as QueueInfraModule } from '../../infrastructure/queue/queue.module';
 import { FlowControlModule } from '../flow-control/flow-control.module';
-import { IRepliesMonitorPort } from '../orchestrator/ports';
+import { IRepliesMonitorPort } from '../orchestrator/ports.js';
 
 @Module({
   imports: [

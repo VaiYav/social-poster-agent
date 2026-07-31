@@ -2,7 +2,7 @@
 // Implementation: LlmService (OpenAI/Anthropic via LangChain).
 // Unit tests can inject a mock LLM without API calls.
 
-import type { BaseCallbackHandler } from './llm-primitives';
+import type { BaseCallbackHandler } from './llm-primitives.js';
 
 export const ILlmPort = Symbol('ILlmPort');
 

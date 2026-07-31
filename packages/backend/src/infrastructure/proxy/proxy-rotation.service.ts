@@ -11,7 +11,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { parseBool } from '../config/parse-bool';
+import { parseBool } from '../config/parse-bool.js';
 
 export interface ProxyConfig {
   server: string;

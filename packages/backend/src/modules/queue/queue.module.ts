@@ -11,11 +11,12 @@ import { QueueController } from './queue.controller';
 import { QueueTriageService } from './queue-triage.service.js';
 import { SocialNetwork } from '@prisma/client';
 import { RateLimitError } from 'bullmq';
-import { parseBool } from '../../infrastructure/config/parse-bool';
+import { parseBool } from '../../infrastructure/config/parse-bool.js';
 import { getEnabledNetworks } from '../../domain/enabled-networks.js';
+import { IBrowsingSessionPort, IRepliesMonitorPort, IEngagementPort } from '../orchestrator/ports.js';
 
 /**
- * Queue module — wires BullMQ workers to PostingService and BrowsingSessionService.
+ * Queue module — wires BullMQ workers to PostingService and feature-flagged ports.
  *
  * On bootstrap, registers:
  * 1. A posting worker per network (X, THREADS, FACEBOOK) — calls PostingService.postById()
@@ -97,19 +98,15 @@ export class QueueModule implements OnModuleInit {
             replyText?: string;
           };
           if (action === 'browsing-session') {
-            // Lazily import to avoid circular dependency at module load time
-            const { BrowsingSessionService } = await import(
-              '../engagement/browsing-session.service.js'
-            );
             // moduleRef.get(..., { strict: false }) throws UnknownElementException rather than
             // returning undefined when the provider isn't registered ANYWHERE in the app (as
             // opposed to merely out of the current module's scope) — which is exactly what
             // happens when ENGAGEMENT_ENABLED=false excludes EngagementModule entirely. Without
             // this try/catch, leftover BullMQ delayed jobs enqueued before the flag was flipped
             // off crash the worker on every delivery instead of hitting the intended skip below.
-            let browsingService: InstanceType<typeof BrowsingSessionService> | undefined;
+            let browsingService: IBrowsingSessionPort | undefined;
             try {
-              browsingService = this.moduleRef.get(BrowsingSessionService, { strict: false });
+              browsingService = this.moduleRef.get(IBrowsingSessionPort, { strict: false });
             } catch {
               browsingService = undefined;
             }
@@ -124,16 +121,12 @@ export class QueueModule implements OnModuleInit {
               );
             }
           } else if (action === 'reply') {
-            // RP1: delayed auto-reply job. Lazily resolve RepliesMonitorService (absent
+            // RP1: delayed auto-reply job. Lazily resolve via port token (absent
             // unless REPLIES_ENABLED) to avoid a static import cycle. Throwing on failure
             // lets BullMQ retry + DLQ-alert via the shared worker 'failed' handler.
-            const { RepliesMonitorService } = await import(
-              '../replies/replies-monitor.service.js'
-            );
-            // Same UnknownElementException issue as the browsing-session branch above.
-            let repliesMonitor: InstanceType<typeof RepliesMonitorService> | undefined;
+            let repliesMonitor: IRepliesMonitorPort | undefined;
             try {
-              repliesMonitor = this.moduleRef.get(RepliesMonitorService, { strict: false });
+              repliesMonitor = this.moduleRef.get(IRepliesMonitorPort, { strict: false });
             } catch {
               repliesMonitor = undefined;
             }
@@ -158,14 +151,11 @@ export class QueueModule implements OnModuleInit {
             action === 'repost' ||
             action === 'quote'
           ) {
-            // Individual engagement actions. Lazily resolve EngagementService to avoid
+            // Individual engagement actions. Lazily resolve via port token to avoid
             // a static import cycle with EngagementModule.
-            const { EngagementService } = await import(
-              '../engagement/engagement.service.js'
-            );
-            let engagementService: InstanceType<typeof EngagementService> | undefined;
+            let engagementService: IEngagementPort | undefined;
             try {
-              engagementService = this.moduleRef.get(EngagementService, { strict: false });
+              engagementService = this.moduleRef.get(IEngagementPort, { strict: false });
             } catch {
               engagementService = undefined;
             }

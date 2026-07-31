@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TopicGenerationService } from '../../../src/infrastructure/content/topic-generation.service';
-import { createMockConfigService } from '../../mocks/index';
+import { createMockConfigService } from '../../mocks/index.js';
 
 function createMockPrisma() {
   return {

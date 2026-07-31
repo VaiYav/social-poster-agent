@@ -9,7 +9,7 @@
  *   npx tsx --env-file=../../.env scripts/calibrate-judge.ts
  *   npx tsx --env-file=../../.env scripts/calibrate-judge.ts --since=7d --json
  */
-import { PrismaClient, PostStatus } from '@prisma/client';
+import { PrismaClient, PostStatus, Prisma } from '@prisma/client';
 import type { JudgeScores } from '@spa/shared';
 
 const JUDGE_DIMENSIONS: Array<keyof JudgeScores> = [
@@ -88,7 +88,7 @@ interface CalibrationReport {
   dimensions: DimensionStats[];
 }
 
-function computeStats(rows: { label: DecisionLabel; scores: JudgeScores }[]): CalibrationReport {
+function computeStats(postIds: string[], rows: { label: DecisionLabel; scores: JudgeScores }[]): CalibrationReport {
   const byLabel: Record<DecisionLabel, number> = { approved: 0, rejected: 0, human_review: 0, other: 0 };
   const approvedValues: Record<string, number[]> = {};
   const rejectedValues: Record<string, number[]> = {};
@@ -139,7 +139,7 @@ function computeStats(rows: { label: DecisionLabel; scores: JudgeScores }[]): Ca
   });
 
   return {
-    totalPosts: new Set(rows.map((r) => r.scores as unknown as string)).size,
+    totalPosts: new Set(postIds).size,
     totalVariants: rows.length,
     byLabel,
     dimensions,
@@ -153,7 +153,7 @@ async function main() {
 
   const prisma = new PrismaClient();
   try {
-    const where: any = {};
+    const where: Prisma.PostWhereInput = {};
     if (since) where.createdAt = { gte: since };
     if (statusFilter) where.status = { in: statusFilter };
 
@@ -169,12 +169,12 @@ async function main() {
         if (!variant.judgeScores) continue;
         rows.push({
           label,
-          scores: variant.judgeScores as unknown as JudgeScores,
+          scores: variant.judgeScores as JudgeScores,
         });
       }
     }
 
-    const report = computeStats(rows);
+    const report = computeStats(posts.map((p) => p.id), rows);
 
     if (opts.json) {
       console.log(JSON.stringify(report, null, 2));

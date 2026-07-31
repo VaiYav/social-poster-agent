@@ -5,13 +5,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import 'reflect-metadata';
 import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createControllerTestingModule } from '../../helpers/nest';
-import { defineParamtypes } from '../../helpers/restore-paramtypes';
+import { createControllerTestingModule } from '../../helpers/nest.js';
+import { defineParamtypes } from '../../helpers/restore-paramtypes.js';
 import { AuthController, COOKIE_NAME } from '../../../src/modules/auth/auth.controller';
 import { AuthService } from '../../../src/modules/auth/auth.service';
 import { LoginRateLimitGuard } from '../../../src/modules/auth/login-rate-limit.guard';
 import { SHARED_REDIS } from '../../../src/infrastructure/redis/redis.module';
-import { createMockRedis } from '../../mocks';
+import { createMockRedis } from '../../mocks/index.js';
 
 // vitest/esbuild does NOT emit design:paramtypes metadata, so attach it explicitly.
 defineParamtypes(AuthController, [AuthService, ConfigService]);

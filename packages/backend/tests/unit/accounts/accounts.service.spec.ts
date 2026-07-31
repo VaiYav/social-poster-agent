@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ConfigService } from '@nestjs/config';
 import { SocialNetwork } from '@prisma/client';
 import { AccountsService } from '../../../src/modules/accounts/accounts.service';
-import { createMockPrismaService } from '../../mocks/index';
+import { createMockPrismaService } from '../../mocks/index.js';
 
 function createMockConfigService(values: Record<string, string | undefined> = {}): ConfigService {
   return {

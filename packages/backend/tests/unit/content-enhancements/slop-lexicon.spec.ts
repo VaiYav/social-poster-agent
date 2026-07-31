@@ -3,7 +3,7 @@
  * Source: src/modules/content-enhancements/slop-lexicon.ts
  */
 import { describe, it, expect } from 'vitest';
-import { scanSlop, getSlopListForPrompt, getLexicon, SLOP_LEXICON } from '../../../src/modules/content-enhancements/slop-lexicon';
+import { scanSlop, getSlopListForPrompt, getLexicon, SLOP_LEXICON } from '../../../src/modules/content-enhancements/slop-lexicon.js';
 
 describe('Slop Lexicon', () => {
   it('SL-001: detects English slop words with word boundaries', () => {

@@ -4,7 +4,7 @@
  * Source: packages/backend/src/infrastructure/util/language-detector.ts
  */
 import { describe, it, expect } from 'vitest';
-import { detectLanguage, isLanguageDetectable } from '../../../src/infrastructure/util/language-detector';
+import { detectLanguage, isLanguageDetectable } from '../../../src/infrastructure/util/language-detector.js';
 
 describe('LanguageDetector', () => {
   it('LD-001: detects English', () => {

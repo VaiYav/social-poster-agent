@@ -46,7 +46,7 @@ import { EmailModule } from './infrastructure/email/email.module';
 import { OrchestratorModule } from './modules/orchestrator/orchestrator.module';
 import { MonitoringController } from './modules/monitoring/monitoring.controller';
 import { metricsPublisherProviders } from './modules/monitoring/monitoring.providers';
-import { parseBool } from './infrastructure/config/parse-bool';
+import { parseBool } from './infrastructure/config/parse-bool.js';
 
 /**
  * F1 Engagement module is experimental (Phase 2-3).
