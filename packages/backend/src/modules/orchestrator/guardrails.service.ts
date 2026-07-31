@@ -6,6 +6,7 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { SocialNetwork } from '@prisma/client';
 import { getEnabledNetworks } from '../../domain/enabled-networks.js';
 import type { WorldState, Action, SessionState } from './types.js';
@@ -14,6 +15,13 @@ import { WAIT_ACTION, RECOVER_ACTION } from './types.js';
 @Injectable()
 export class GuardrailsService {
   private readonly logger = new Logger(GuardrailsService.name);
+  private readonly engagementPriorityWeight: number;
+
+  constructor(configService: ConfigService) {
+    const raw = configService.get<string>('ENGAGEMENT_PRIORITY_WEIGHT', '1');
+    const parsed = Number(raw);
+    this.engagementPriorityWeight = Number.isFinite(parsed) && parsed >= 0 ? parsed : 1;
+  }
 
   /**
    * Apply guardrails to an action. Returns the original action if all
@@ -29,7 +37,29 @@ export class GuardrailsService {
       return WAIT_ACTION(`Network ${action.network} not enabled`, 60000, 'guardrail_override');
     }
 
-    // G8: POST takes priority over BROWSE/WAIT/GENERATE_*/REPLY when there are approved drafts.
+    // G9: Engagement-first nudge. If we are behind on comments (debt > 0) and there
+    // are approved drafts waiting, prefer BROWSE over POST/GENERATE_POSTS when the
+    // operator has configured an engagement priority weight.
+    // A weight of 0 disables the nudge. Higher weight makes BROWSE more likely.
+    // Formula: debt * weight > approvedDrafts.
+    if (this.engagementPriorityWeight > 0 && world.engagement.debt > 0 && world.drafts.approved > 0) {
+      if (action.type === 'POST' || action.type === 'GENERATE_POSTS') {
+        if (world.engagement.debt * this.engagementPriorityWeight > world.drafts.approved) {
+          const browseNet = this.selectBestEngagementNetwork(world);
+          if (browseNet) {
+            return {
+              type: 'BROWSE' as const,
+              network: browseNet,
+              reason: `Guardrail G9: engagement-first — ${world.engagement.debt} comment(s) behind, ${world.drafts.approved} approved drafts; browsing ${browseNet} instead of ${action.type}`,
+              source: 'guardrail_override',
+            };
+          }
+        }
+      }
+    }
+
+    // G8: POST takes priority over BROWSE/WAIT/GENERATE_*/REPLY when there are approved drafts,
+    // UNLESS engagement debt is high — then BROWSE is intentionally allowed to proceed first.
     // The LLM sometimes chooses BROWSE when it sees stale engagement, WAIT when it
     // believes no posting window is active, or GENERATE_TOPICS when the topic pool is low,
     // but approved content should always be posted when a network is ready. Engagement runs
@@ -45,7 +75,7 @@ export class GuardrailsService {
     // network with approved drafts is half-open), generate drafts for the healthiest
     // alternative network so posting can rotate there. If no healthy network is available
     // for posting, block a POST action to a risky network with WAIT.
-    if (world.drafts.approved > 0) {
+    if (world.drafts.approved > 0 && !(action.type === 'BROWSE' && world.engagement.engagementDebt > 0)) {
       const postNet = this.selectBestReadyNetwork(world);
       if (postNet && (action.type !== 'POST' || action.network !== postNet)) {
         return {
@@ -82,7 +112,7 @@ export class GuardrailsService {
       }
     }
 
-    // G3: POST requires rate limit remaining (daily AND weekly).
+    // G3: POST requires rate limit remaining (daily AND WEEKLY).
     // A limit of 0 means unlimited, so the exhausted checks are skipped in that case.
     if (action.type === 'POST' && action.network) {
       const rl = world.rateLimits[action.network];
@@ -236,6 +266,29 @@ export class GuardrailsService {
       world.sessions[network]?.status === 'ACTIVE' &&
       (world.queueDepth[network] ?? 0) <= 5
     );
+  }
+
+  /**
+   * G9 helper: pick the network that most needs a browse session.
+   * Selects the enabled network with the oldest lastBrowseMs and an active session.
+   */
+  private selectBestEngagementNetwork(world: WorldState): SocialNetwork | undefined {
+    if (world.flowControl.pauseEngagement) return undefined;
+
+    const networks = getEnabledNetworks();
+    let chosenNet: SocialNetwork | undefined;
+    let chosenLastBrowseMs = Infinity;
+
+    for (const net of networks) {
+      if (this.isCircuitBreakerRisky(world.sessions[net]?.circuitBreaker)) continue;
+      if (world.sessions[net]?.status !== 'ACTIVE') continue;
+      const lastBrowseMs = world.engagement.lastBrowseMs[net] ?? 0;
+      if (lastBrowseMs < chosenLastBrowseMs) {
+        chosenNet = net as SocialNetwork;
+        chosenLastBrowseMs = lastBrowseMs;
+      }
+    }
+    return chosenNet;
   }
 
   /**

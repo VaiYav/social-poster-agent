@@ -182,6 +182,17 @@ function executeNode(deps: OrchestratorGraphDeps) {
     const timeoutMs = getActionTimeoutMs(state.action, deps.timeoutConfig);
     const timeoutCtrl = new AbortController();
 
+    // Refresh the heartbeat while long actions are in flight (BROWSE, GENERATE_POSTS).
+    // Default heartbeat TTL is 10 min; refresh every 5 min so the watchdog never
+    // sees a stale heartbeat mid-session.
+    const HEARTBEAT_REFRESH_MS = 300_000;
+    let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+    if (timeoutMs > HEARTBEAT_REFRESH_MS) {
+      heartbeatInterval = setInterval(() => {
+        void deps.writeHeartbeat();
+      }, HEARTBEAT_REFRESH_MS);
+    }
+
     let timeoutReject: ((err: Error) => void) | undefined;
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutReject = reject;
@@ -211,6 +222,10 @@ function executeNode(deps: OrchestratorGraphDeps) {
       };
     } finally {
       clearTimeout(timer);
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
+      }
       timeoutReject = undefined;
       if (config.signal) {
         config.signal.removeEventListener('abort', onGraphAbort);
@@ -253,12 +268,12 @@ function calculateAdaptiveSleep(action: Action, world: WorldState): number {
     return 60_000;
   }
 
-  // Circuit breaker open → wait for reset
-  const sessionNetworks = Object.keys(world.sessions);
-  for (const net of sessionNetworks) {
-    if (world.sessions[net]?.circuitBreaker === 'open') {
-      return 60_000;
-    }
+  // Circuit breaker open for the specific network of this action → wait for reset.
+  // Only network-scoped actions (POST, BROWSE, RECOVER_SESSION) should be blocked
+  // by the target network's circuit. Global actions like GENERATE_TOPICS are not.
+  const targetNetwork = action.network;
+  if (targetNetwork && world.sessions[targetNetwork]?.circuitBreaker === 'open') {
+    return 60_000;
   }
 
   // RECOVER_SESSION → quick check if recovery worked

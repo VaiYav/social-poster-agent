@@ -139,8 +139,20 @@ export class GenerationService {
       };
       // Q8: judge-gated refine loop threshold (0 disables the retry loop)
       const rawThreshold = Number(this.configService.get<string>('JUDGE_REFINE_THRESHOLD', '0.6'));
+      const rawHardFail = Number(this.configService.get<string>('JUDGE_HARD_FAIL_THRESHOLD', '0.25'));
+      const rawHardFailAntiAi = Number(this.configService.get<string>('JUDGE_HARD_FAIL_ANTI_AI', ''));
+      const rawHardFailFactual = Number(this.configService.get<string>('JUDGE_HARD_FAIL_FACTUAL', ''));
+      const rawHardFailCharacter = Number(this.configService.get<string>('JUDGE_HARD_FAIL_CHARACTER', ''));
+      const rawSkipAB = Number(this.configService.get<string>('JUDGE_SKIP_AB_THRESHOLD', '0.6'));
+      const judgeRefineThreshold = Number.isFinite(rawThreshold) ? rawThreshold : 0.6;
+      const judgeHardFailThreshold = Number.isFinite(rawHardFail) ? rawHardFail : 0.25;
       const graphBuilder = buildGenerationGraph(this.llm, progressPublisher, this.hookBank, this.visualService, this.abGenerator, this.abVariantService, this.promptPort, {
-        judgeRefineThreshold: Number.isFinite(rawThreshold) ? rawThreshold : 0.6,
+        judgeRefineThreshold,
+        judgeHardFailThreshold,
+        judgeHardFailAntiAi: Number.isFinite(rawHardFailAntiAi) ? rawHardFailAntiAi : judgeHardFailThreshold,
+        judgeHardFailFactual: Number.isFinite(rawHardFailFactual) ? rawHardFailFactual : judgeHardFailThreshold,
+        judgeHardFailCharacter: Number.isFinite(rawHardFailCharacter) ? rawHardFailCharacter : judgeHardFailThreshold,
+        judgeSkipABThreshold: Number.isFinite(rawSkipAB) ? rawSkipAB : 0.6,
         getRecordedPromptLabels,
         temperatures: {
           hook: Number(this.configService.get<number>('GENERATION_TEMPERATURE_HOOK', 0.95)),
@@ -172,6 +184,7 @@ export class GenerationService {
     config: GraphInvokeConfig,
     handlerOpts: LangfuseHandlerOptions,
     input: Parameters<ReturnType<ReturnType<typeof buildGenerationGraph>['compile']>['invoke']>[0],
+    runId: string,
   ): Promise<{ finalState: Record<string, unknown>; promptLabels: Record<string, { label: string; isFallback?: boolean }> }> {
     const handler = this.langfuse?.createHandler(handlerOpts);
     const callbacks = handler ? [handler] : [];
@@ -179,7 +192,7 @@ export class GenerationService {
       config.callbacks = callbacks;
     }
     return withPromptLabelContext(() =>
-      withLlmContext({ callbacks, signal: config.signal }, async () => {
+      withLlmContext({ callbacks, signal: config.signal, budgetScope: 'generation', budgetRunId: runId }, async () => {
         const finalState = await this.getGraph().invoke(input, config);
         const promptLabels = getRecordedPromptLabels();
         return { finalState, promptLabels };
@@ -1017,6 +1030,7 @@ export class GenerationService {
         },
       },
       initialState,
+      runId,
     );
     const generatedPosts = (finalState as { posts?: GeneratedPost[] }).posts ?? [];
     // P4: Extract facts from final state for thread depth planning
@@ -1610,6 +1624,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
                 traceMetadata: { topic: topic.topic, runId, mode: 'resume' },
               },
               initialState,
+              runId,
             );
             const generatedPosts = (finalState as { posts?: GeneratedPost[] }).posts ?? [];
 
@@ -1692,6 +1707,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
         traceMetadata: { topic, runId, mode: 'review-resume', approved },
       },
       new Command({ resume: resumePayload }),
+      runId,
     );
     const generatedPosts = (finalState as { posts?: GeneratedPost[] }).posts ?? [];
 

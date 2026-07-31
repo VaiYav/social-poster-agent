@@ -17,7 +17,7 @@ import { getLanguageExamples } from '../content-enhancements/language-packs.js';
 import type { IPromptPort } from '../../domain/ports/prompt.port.js';
 import type { ContentTopic, JudgeScores } from '@spa/shared';
 import { NETWORK_LIMITS } from '../posts/network-limits.js';
-import { JUDGE_SYSTEM_PROMPT, JUDGE_USER_PROMPT_TEMPLATE } from './prompts/judge-prompt.js';
+import { BatchedJudgeService } from './batched-judge.service.js';
 import {
   localPromptPort,
   RESEARCH_EXTRACT_PROMPT,
@@ -947,7 +947,7 @@ function makeVisualConceptNode(network: SocialNetwork) {
  * The variants are stored in NetworkResult.abVariants and propagated to
  * Post.llmMetadata.abVariants by save_to_db.
  */
-function makeABVariantNode(network: SocialNetwork) {
+function makeABVariantNode(network: SocialNetwork, judgeSkipABThreshold = 0.6) {
   return async function abVariantNode(
     state: GenerationStateType,
     abGenerator?: ABVariantGenerator,
@@ -956,6 +956,20 @@ function makeABVariantNode(network: SocialNetwork) {
     const netResult = state.results[network];
     if (!netResult) return {};
     if (netResult.error) return {};
+
+    // P0: skip A/B variants when judge quality is below the threshold (saves tokens/latency).
+    const scores = netResult.judgeScores;
+    if (scores) {
+      const minScore = Math.min(scores.anti_ai_tone, scores.hook_strength, scores.factual_accuracy, scores.character_limit);
+      if (minScore < judgeSkipABThreshold) {
+        logger.debug(`ab_variant_${network}: skipped — min judge score ${minScore.toFixed(2)} < ${judgeSkipABThreshold}`);
+        return {
+          results: {
+            [network]: { ...netResult, abVariants: null },
+          },
+        };
+      }
+    }
 
     // No-op when the generator is disabled or unavailable
     if (!abGenerator || !abGenerator.isEnabled()) {
@@ -1008,7 +1022,19 @@ function makeABVariantNode(network: SocialNetwork) {
  * The judge runs AFTER refine and BEFORE visual_concept. It's non-blocking —
  * if the judge LLM call fails, the post proceeds with undefined judgeScores.
  */
-function makeJudgeNode(network: SocialNetwork, promptPort: IPromptPort, refineThreshold = 0.6) {
+interface JudgeThresholds {
+  antiAiTone: number;
+  factualAccuracy: number;
+  characterLimit: number;
+  skipAB: number;
+}
+
+function makeJudgeNode(
+  network: SocialNetwork,
+  batchedJudgeService: BatchedJudgeService,
+  refineThreshold = 0.6,
+  thresholds: JudgeThresholds,
+) {
   return async function judgeNode(
     state: GenerationStateType,
     llm: ILlmPort,
@@ -1022,62 +1048,63 @@ function makeJudgeNode(network: SocialNetwork, promptPort: IPromptPort, refineTh
     const content = netResult.refined || netResult.draft;
     if (!content) return {};
 
-    const charLimit = NETWORK_LIMITS[network];
     const lang = state.language || 'en';
+    const slopList = getSlopListForPrompt(lang);
     const factsText = state.facts.length > 0 ? state.facts.map((f) => `- ${f}`).join('\n') : '- (no source facts provided)';
 
-    const variables = {
-      postText: content,
-      network,
-      charLimit: String(charLimit),
-      // Q7: judge now receives the SOURCE FACTS (was judging accuracy blind)
-      // and the language-specific slop list (was a third hardcoded EN list).
-      facts: factsText,
-      slopList: getSlopListForPrompt(lang),
-    };
-
-    const judgeFallback = {
-      systemPrompt: JUDGE_SYSTEM_PROMPT,
-      userPrompt: JUDGE_USER_PROMPT_TEMPLATE,
-    };
+    // Build batch inputs for ALL target networks so concurrent judge nodes share
+    // a single LLM call via BatchedJudgeService.
+    const batchInputs = state.targetNetworks
+      .map((net) => {
+        const r = state.results[net];
+        if (!r || r.error) return null;
+        const c = r.refined || r.draft;
+        if (!c) return null;
+        return {
+          network: net,
+          content: c,
+          charLimit: NETWORK_LIMITS[net],
+          factsText,
+          slopList,
+        };
+      })
+      .filter((i): i is NonNullable<typeof i> => i !== null);
 
     try {
-      const systemPrompt = await promptPort.getCompiledChat('post-quality-judge', variables, judgeFallback);
-
-      // Q7: cap raised 300 → 700. The old cap + "enumerate first" instruction
-      // meant the model either skipped its reasoning or truncated the JSON.
-      const response = await llm.generateChat(systemPrompt.systemPrompt, systemPrompt.userPrompt, {
-        temperature: 0.2,
-        maxTokens: maxTokensForRole('judge'),
-        role: 'judge',
-      });
-
-      // Parse JSON from response (tolerate markdown code fences)
-      const jsonMatch = response.content.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        logger.warn(`judge_${network}: no JSON in response`);
+      const allScores = await batchedJudgeService.judgeBatch(batchInputs);
+      const judgeScores = allScores[network];
+      if (!judgeScores) {
+        logger.warn(`judge_${network}: no batched score for this network`);
         return {};
       }
-
-      const parsed: unknown = JSON.parse(jsonMatch[0]);
-      if (!isPartialJudgeScores(parsed)) {
-        logger.warn(`judge_${network}: invalid JSON structure in judge response`);
-        return {};
-      }
-      const judgeScores: JudgeScores = {
-        anti_ai_tone: clamp01(parsed.anti_ai_tone),
-        anti_ai_tone_reason: String(parsed.anti_ai_tone_reason ?? ''),
-        hook_strength: clamp01(parsed.hook_strength),
-        hook_strength_reason: String(parsed.hook_strength_reason ?? ''),
-        factual_accuracy: clamp01(parsed.factual_accuracy),
-        factual_accuracy_reason: String(parsed.factual_accuracy_reason ?? ''),
-        character_limit: clamp01(parsed.character_limit),
-        character_limit_reason: String(parsed.character_limit_reason ?? ''),
-      };
 
       logger.debug(
         `judge_${network}: anti_ai=${judgeScores.anti_ai_tone} hook=${judgeScores.hook_strength} factual=${judgeScores.factual_accuracy} chars=${judgeScores.character_limit}`,
       );
+
+      // Stage 2: hard-fail — any critical dimension below its per-dimension threshold kills the post.
+      const failReasons: string[] = [];
+      if (judgeScores.anti_ai_tone < thresholds.antiAiTone) {
+        failReasons.push(`anti_ai_tone=${judgeScores.anti_ai_tone.toFixed(2)} < ${thresholds.antiAiTone}`);
+      }
+      if (judgeScores.factual_accuracy < thresholds.factualAccuracy) {
+        failReasons.push(`factual_accuracy=${judgeScores.factual_accuracy.toFixed(2)} < ${thresholds.factualAccuracy}`);
+      }
+      if (judgeScores.character_limit < thresholds.characterLimit) {
+        failReasons.push(`character_limit=${judgeScores.character_limit.toFixed(2)} < ${thresholds.characterLimit}`);
+      }
+      if (failReasons.length > 0) {
+        logger.warn(`judge_${network}: hard-fail (${failReasons.join(', ')}) — not saving post`);
+        return {
+          results: {
+            [network]: {
+              ...netResult,
+              judgeScores,
+              error: `Judge hard-fail: ${failReasons.join(', ')}`,
+            },
+          },
+        };
+      }
 
       // Q8: Judge-gated refine loop — when the post sounds like AI and we
       // haven't retried yet, route back through refine ONCE with the judge's
@@ -1093,8 +1120,6 @@ function makeJudgeNode(network: SocialNetwork, promptPort: IPromptPort, refineTh
               judgeRetried: true,
               pendingHumanizeRetry: true,
               judgeFeedback: `anti_ai_tone=${judgeScores.anti_ai_tone}: ${judgeScores.anti_ai_tone_reason}\nhook_strength=${judgeScores.hook_strength}: ${judgeScores.hook_strength_reason}`,
-              tokens: (netResult.tokens ?? 0) + (response.tokens ?? 0),
-              cost: Number(((netResult.cost ?? 0) + (response.cost ?? 0)).toFixed(6)),
             },
           },
         };
@@ -1106,8 +1131,6 @@ function makeJudgeNode(network: SocialNetwork, promptPort: IPromptPort, refineTh
             ...netResult,
             judgeScores,
             pendingHumanizeRetry: false,
-            tokens: (netResult.tokens ?? 0) + (response.tokens ?? 0),
-            cost: Number(((netResult.cost ?? 0) + (response.cost ?? 0)).toFixed(6)),
           },
         },
       };
@@ -1131,37 +1154,6 @@ function routeAfterJudge(network: SocialNetwork) {
     }
     return 'continue';
   };
-}
-
-/** Clamp a value to [0, 1] range. */
-function clamp01(v: unknown): number {
-  const n = Number(v);
-  return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0;
-}
-
-/**
- * Type guard: validate that a parsed JSON value is structurally compatible
- * with `Partial<JudgeScores>`. Checks that score fields (if present) are
- * numbers and reason fields (if present) are strings. Rejects non-objects
- * and objects with wrong-typed known fields.
- */
-function isPartialJudgeScores(value: unknown): value is Partial<JudgeScores> {
-  if (typeof value !== 'object' || value === null) return false;
-  const v = value as Record<string, unknown>;
-  const scoreFields = ['anti_ai_tone', 'hook_strength', 'factual_accuracy', 'character_limit'] as const;
-  const reasonFields = [
-    'anti_ai_tone_reason',
-    'hook_strength_reason',
-    'factual_accuracy_reason',
-    'character_limit_reason',
-  ] as const;
-  for (const field of scoreFields) {
-    if (field in v && typeof v[field] !== 'number') return false;
-  }
-  for (const field of reasonFields) {
-    if (field in v && typeof v[field] !== 'string') return false;
-  }
-  return true;
 }
 
 /**
@@ -1305,6 +1297,16 @@ export function buildGenerationGraph(
      */
     judgeRefineThreshold?: number;
     /**
+     * Stage 2: any judge dimension below its per-dimension threshold hard-fails the post.
+     * The post is not saved and counts as an error for the network.
+     */
+    judgeHardFailThreshold?: number;
+    judgeHardFailAntiAi?: number;
+    judgeHardFailFactual?: number;
+    judgeHardFailCharacter?: number;
+    /** P0: skip A/B variant generation when the judge score is below this threshold. */
+    judgeSkipABThreshold?: number;
+    /**
      * Per-generation-stage temperature overrides. Reasoning models ignore
      * temperature, but these values are used for the non-reasoning chain.
      */
@@ -1319,6 +1321,14 @@ export function buildGenerationGraph(
 ) {
   const logger = new Logger('GenerationGraph');
   const judgeRefineThreshold = options?.judgeRefineThreshold ?? 0.6;
+  const judgeHardFailThreshold = options?.judgeHardFailThreshold ?? 0.25;
+  const judgeThresholds: JudgeThresholds = {
+    antiAiTone: options?.judgeHardFailAntiAi ?? judgeHardFailThreshold,
+    factualAccuracy: options?.judgeHardFailFactual ?? judgeHardFailThreshold,
+    characterLimit: options?.judgeHardFailCharacter ?? judgeHardFailThreshold,
+    skipAB: options?.judgeSkipABThreshold ?? 0.6,
+  };
+  const batchedJudgeService = new BatchedJudgeService(llm, promptPort, maxTokensForRole('judge') * 2);
   const HOOK_TEMPERATURE = options?.temperatures?.hook ?? 0.95;
   const DRAFT_TEMPERATURE = options?.temperatures?.draft ?? 0.8;
   const REFINE_TEMPERATURE = options?.temperatures?.refine ?? 0.6;
@@ -1364,17 +1374,17 @@ export function buildGenerationGraph(
     .addNode('refine_threads', withProgress('refine_threads', (s) => makeRefineNode(SocialNetwork.THREADS, promptPort, REFINE_TEMPERATURE)(s, llm)))
     .addNode('refine_facebook', withProgress('refine_facebook', (s) => makeRefineNode(SocialNetwork.FACEBOOK, promptPort, REFINE_TEMPERATURE)(s, llm)))
     // Stage 2: parallel judge per network (LLM-as-a-Judge quality evaluation)
-    .addNode('judge_x', withProgress('judge_x', (s) => makeJudgeNode(SocialNetwork.X, promptPort, judgeRefineThreshold)(s, llm)))
-    .addNode('judge_threads', withProgress('judge_threads', (s) => makeJudgeNode(SocialNetwork.THREADS, promptPort, judgeRefineThreshold)(s, llm)))
-    .addNode('judge_facebook', withProgress('judge_facebook', (s) => makeJudgeNode(SocialNetwork.FACEBOOK, promptPort, judgeRefineThreshold)(s, llm)))
+    .addNode('judge_x', withProgress('judge_x', (s) => makeJudgeNode(SocialNetwork.X, batchedJudgeService, judgeRefineThreshold, judgeThresholds)(s, llm)))
+    .addNode('judge_threads', withProgress('judge_threads', (s) => makeJudgeNode(SocialNetwork.THREADS, batchedJudgeService, judgeRefineThreshold, judgeThresholds)(s, llm)))
+    .addNode('judge_facebook', withProgress('judge_facebook', (s) => makeJudgeNode(SocialNetwork.FACEBOOK, batchedJudgeService, judgeRefineThreshold, judgeThresholds)(s, llm)))
     // P3: Step 6.5: parallel visual_concept per network (no-op when disabled)
     .addNode('visual_concept_x', withProgress('visual_concept_x', (s) => makeVisualConceptNode(SocialNetwork.X)(s, visualService)))
     .addNode('visual_concept_threads', withProgress('visual_concept_threads', (s) => makeVisualConceptNode(SocialNetwork.THREADS)(s, visualService)))
     .addNode('visual_concept_facebook', withProgress('visual_concept_facebook', (s) => makeVisualConceptNode(SocialNetwork.FACEBOOK)(s, visualService)))
     // P7: Step 6.6: parallel ab_variant per network (no-op when disabled)
-    .addNode('ab_variant_x', withProgress('ab_variant_x', (s) => makeABVariantNode(SocialNetwork.X)(s, abGenerator, abVariantService)))
-    .addNode('ab_variant_threads', withProgress('ab_variant_threads', (s) => makeABVariantNode(SocialNetwork.THREADS)(s, abGenerator, abVariantService)))
-    .addNode('ab_variant_facebook', withProgress('ab_variant_facebook', (s) => makeABVariantNode(SocialNetwork.FACEBOOK)(s, abGenerator, abVariantService)))
+    .addNode('ab_variant_x', withProgress('ab_variant_x', (s) => makeABVariantNode(SocialNetwork.X, judgeThresholds.skipAB)(s, abGenerator, abVariantService)))
+    .addNode('ab_variant_threads', withProgress('ab_variant_threads', (s) => makeABVariantNode(SocialNetwork.THREADS, judgeThresholds.skipAB)(s, abGenerator, abVariantService)))
+    .addNode('ab_variant_facebook', withProgress('ab_variant_facebook', (s) => makeABVariantNode(SocialNetwork.FACEBOOK, judgeThresholds.skipAB)(s, abGenerator, abVariantService)))
     // Step 7: save_to_db (collect outputs)
     .addNode('save_to_db', withProgress('save_to_db', (s) => saveToDbNode(s, options?.getRecordedPromptLabels)))
     // Sprint I: HITL review node (no-op when humanReview=false)

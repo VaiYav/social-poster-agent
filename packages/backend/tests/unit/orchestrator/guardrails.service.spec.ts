@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { SocialNetwork, SessionStatus } from '@prisma/client';
 import { GuardrailsService } from '../../../src/modules/orchestrator/guardrails.service';
 import type { Action, WorldState } from '../../../src/modules/orchestrator/types';
+import { createMockConfigService } from '../../mocks';
 
 function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
   return {
@@ -22,7 +23,7 @@ function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
     postingWindows: {},
     inPostingWindow: {},
     performance: {},
-    engagement: { lastBrowseMs: {}, uncheckedReplies: 0, warmupPhase: {} },
+    engagement: { lastBrowseMs: {}, uncheckedReplies: 0, warmupPhase: {}, lastSessionStatus: {}, lastSessionInteractions: {}, engagementDebt: 0, commentsTargetToday: 0, commentsActualToday: 0, likesTargetToday: 0, likesActualToday: 0, debt: 0 },
     health: { bans: 0, dlqDepth: 0, stuckPosting: 0, orphanedPosts: 0, killSwitch: false },
     trends: { lastRefreshMs: 0, count: 0 },
     flowControl: {
@@ -31,6 +32,8 @@ function makeWorld(overrides: Partial<WorldState> = {}): WorldState {
       pausePosting: false,
       pauseEngagement: false,
       pauseReplies: false,
+      pauseLlmTriage: false,
+      pauseAutoApprove: false,
     },
     _degraded: [],
     _collectedAt: 0,
@@ -46,7 +49,63 @@ describe('GuardrailsService', () => {
   let guardrails: GuardrailsService;
 
   beforeEach(() => {
-    guardrails = new GuardrailsService();
+    guardrails = new GuardrailsService(createMockConfigService());
+  });
+
+  it('G9: POST/GENERATE_POSTS overridden to BROWSE when engagement debt outweights approved drafts', () => {
+    const guardrails = new GuardrailsService(createMockConfigService({ ENGAGEMENT_PRIORITY_WEIGHT: '1.5' }));
+    const world = makeWorld({
+      drafts: { approved: 1, pending: 0, rejected: 0, approvedByNetwork: { X: 1 } },
+      engagement: {
+        lastBrowseMs: { X: 0 },
+        uncheckedReplies: 0,
+        warmupPhase: {},
+        lastSessionStatus: {},
+        lastSessionInteractions: {},
+        engagementDebt: 1,
+        commentsTargetToday: 10,
+        commentsActualToday: 0,
+        likesTargetToday: 25,
+        likesActualToday: 0,
+        debt: 1,
+      },
+      sessions: { X: { status: SessionStatus.ACTIVE, lastCheckMs: 0, circuitBreaker: 'closed' } },
+      rateLimits: { X: { dailyRemaining: 10, weeklyRemaining: 50, minIntervalMs: 0, lastPostMs: 0 } },
+    });
+
+    const result = guardrails.apply(POST_ACTION, world);
+
+    expect(result.type).toBe('BROWSE');
+    expect(result.network).toBe(SocialNetwork.X);
+    expect(result.source).toBe('guardrail_override');
+    expect(result.reason).toContain('engagement-first');
+  });
+
+  it('G9: override disabled when ENGAGEMENT_PRIORITY_WEIGHT is 0', () => {
+    const guardrails = new GuardrailsService(createMockConfigService({ ENGAGEMENT_PRIORITY_WEIGHT: '0' }));
+    const world = makeWorld({
+      drafts: { approved: 1, pending: 0, rejected: 0, approvedByNetwork: { X: 1 } },
+      engagement: {
+        lastBrowseMs: { X: 0 },
+        uncheckedReplies: 0,
+        warmupPhase: {},
+        lastSessionStatus: {},
+        lastSessionInteractions: {},
+        engagementDebt: 10,
+        commentsTargetToday: 10,
+        commentsActualToday: 0,
+        likesTargetToday: 25,
+        likesActualToday: 0,
+        debt: 10,
+      },
+      sessions: { X: { status: SessionStatus.ACTIVE, lastCheckMs: 0, circuitBreaker: 'closed' } },
+      rateLimits: { X: { dailyRemaining: 10, weeklyRemaining: 50, minIntervalMs: 0, lastPostMs: 0 } },
+      inPostingWindow: { X: true },
+    });
+
+    const result = guardrails.apply(POST_ACTION, world);
+
+    expect(result.type).toBe('POST');
   });
 
   it('G4: session down + POST → returns RECOVER_SESSION when flow is not paused', () => {
@@ -70,6 +129,8 @@ describe('GuardrailsService', () => {
         pausePosting: true,
         pauseEngagement: false,
         pauseReplies: false,
+        pauseLlmTriage: false,
+        pauseAutoApprove: false,
       },
     });
 
@@ -88,6 +149,8 @@ describe('GuardrailsService', () => {
         pausePosting: false,
         pauseEngagement: true,
         pauseReplies: false,
+        pauseLlmTriage: false,
+        pauseAutoApprove: false,
       },
     });
 

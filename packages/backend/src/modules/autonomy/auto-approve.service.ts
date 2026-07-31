@@ -12,11 +12,13 @@
  * Feature flag: AUTO_APPROVE_ENABLED (default: false).
  * When disabled, posts stay as DRAFT for manual HITL (backward compatible).
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SocialNetwork, PostStatus } from '@prisma/client';
+import type { JudgeScores } from '@spa/shared';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { SseService } from '../../infrastructure/sse/sse.service';
+import { FlowControlService } from '../flow-control/flow-control.service.js';
 import { AutoCheckService, type AutoCheckResult } from './auto-check.service';
 import { parseBool } from '../../infrastructure/config/parse-bool';
 
@@ -42,11 +44,22 @@ export class AutoApproveService {
   private readonly rejectStreakAlertLimit: number;
   private readonly failOpenMissingScore: boolean;
 
+  // P1: LLM-as-a-Judge gate (AutoApprove now uses judgeScores, not just critique qualityScore)
+  private readonly useJudgeScores: boolean;
+  private readonly minJudgeAntiAi: number;
+  private readonly minJudgeFactual: number;
+  private readonly minJudgeHook: number;
+  private readonly minJudgeCharacter: number;
+  // P1: hard-reject thresholds — any of these → REJECT regardless of quality score
+  private readonly rejectJudgeAntiAi: number;
+  private readonly rejectJudgeFactual: number;
+
   constructor(
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
     private readonly sseService: SseService,
     private readonly autoCheck: AutoCheckService,
+    @Optional() private readonly flowControl?: FlowControlService,
   ) {
     this.enabled = parseBool(this.configService.get<string>('AUTO_APPROVE_ENABLED', 'false'));
     this.autoApproveThreshold = this.configService.get<number>('AUTO_APPROVE_MIN_SCORE', 7);
@@ -55,6 +68,15 @@ export class AutoApproveService {
     this.failOpenMissingScore = parseBool(
       this.configService.get<string>('AUTO_APPROVE_MISSING_SCORE_FAIL_OPEN', 'false'),
     );
+    this.useJudgeScores = parseBool(
+      this.configService.get<string>('AUTO_APPROVE_USE_JUDGE_SCORES', 'true'),
+    );
+    this.minJudgeAntiAi = Number(this.configService.get<string>('AUTO_APPROVE_MIN_JUDGE_ANTI_AI', '0.7'));
+    this.minJudgeFactual = Number(this.configService.get<string>('AUTO_APPROVE_MIN_JUDGE_FACTUAL', '0.6'));
+    this.minJudgeHook = Number(this.configService.get<string>('AUTO_APPROVE_MIN_JUDGE_HOOK', '0.6'));
+    this.minJudgeCharacter = Number(this.configService.get<string>('AUTO_APPROVE_MIN_JUDGE_CHARACTER', '0.8'));
+    this.rejectJudgeAntiAi = Number(this.configService.get<string>('AUTO_APPROVE_REJECT_JUDGE_ANTI_AI', '0.3'));
+    this.rejectJudgeFactual = Number(this.configService.get<string>('AUTO_APPROVE_REJECT_JUDGE_FACTUAL', '0.3'));
   }
 
   /**
@@ -64,6 +86,7 @@ export class AutoApproveService {
    * @param content Post text
    * @param network Target network
    * @param qualityScore LLM quality score (1-10) from critique node
+   * @param judgeScores LLM-as-a-Judge scores (P1)
    * @returns ApproveResult with decision + reasoning
    */
   async evaluate(
@@ -71,6 +94,7 @@ export class AutoApproveService {
     content: string,
     network: SocialNetwork,
     qualityScore?: number,
+    judgeScores?: JudgeScores,
   ): Promise<ApproveResult> {
     // AU3: idempotency — only act on posts still in DRAFT. Prevents double-processing
     // when both the DRAFT_GENERATED listener and the autonomous runner evaluate the
@@ -82,6 +106,19 @@ export class AutoApproveService {
     if (!existing) {
       return { decision: 'SKIP', postId, qualityScore: qualityScore ?? null, checkResult: SKIPPED_CHECK, reason: 'Post not found' };
     }
+
+    // P1: kill-switch — if flow:pause_auto_approve is set, force HUMAN_REVIEW and emit SSE.
+    if (this.flowControl && await this.flowControl.isPaused('auto_approve')) {
+      this.logger.warn(`Auto-approve is paused for ${postId} — flow:pause_auto_approve`);
+      return {
+        decision: 'HUMAN_REVIEW',
+        postId,
+        qualityScore: qualityScore ?? null,
+        checkResult: SKIPPED_CHECK,
+        reason: 'flow:pause_auto_approve — paused for human review',
+      };
+    }
+
     if (existing.status !== PostStatus.DRAFT) {
       return {
         decision: 'SKIP',
@@ -145,7 +182,65 @@ export class AutoApproveService {
       reason = `Quality score ${score} < minimum ${this.humanReviewThreshold} — rejected`;
     }
 
+    // P1: LLM-as-a-Judge decision matrix. The judge is the final gate; it can
+    // override a high critique score or hard-reject a low-quality post.
+    if (this.useJudgeScores) {
+      const judgeDecision = this.classifyByJudge(judgeScores);
+      if (judgeDecision) {
+        // Hard-reject always wins; missing judge drops to human review.
+        if (judgeDecision.decision === 'REJECT' || judgeDecision.decision === 'HUMAN_REVIEW') {
+          decision = judgeDecision.decision;
+          reason = judgeDecision.reason;
+        } else if (judgeDecision.decision === 'AUTO_APPROVE') {
+          // Judge is strong enough to auto-approve regardless of the critique band.
+          decision = 'AUTO_APPROVE';
+          reason = judgeDecision.reason;
+        }
+      }
+    }
+
     return this.makeDecision(postId, decision, qualityScore ?? null, checkResult, reason);
+  }
+
+  /**
+   * P1: LLM-as-a-Judge matrix.
+   *
+   *   anti_ai_tone < reject || factual_accuracy < reject → REJECT
+   *   anti >= minAnti && hook >= minHook && factual >= minFactual && char >= minChar → AUTO_APPROVE
+   *   otherwise → HUMAN_REVIEW
+   *
+   * Missing judge scores fail closed (HUMAN_REVIEW) when the judge is enabled.
+   */
+  private classifyByJudge(judgeScores?: JudgeScores): { decision: ApproveDecision; reason: string } | null {
+    if (!judgeScores) {
+      return { decision: 'HUMAN_REVIEW', reason: 'Judge scores missing — flagged for human review' };
+    }
+
+    const anti = judgeScores.anti_ai_tone;
+    const factual = judgeScores.factual_accuracy;
+    const hook = judgeScores.hook_strength;
+    const char = judgeScores.character_limit;
+
+    if (anti < this.rejectJudgeAntiAi || factual < this.rejectJudgeFactual) {
+      const reasons: string[] = [];
+      if (anti < this.rejectJudgeAntiAi) reasons.push(`anti_ai_tone=${anti.toFixed(2)} < ${this.rejectJudgeAntiAi}`);
+      if (factual < this.rejectJudgeFactual) reasons.push(`factual_accuracy=${factual.toFixed(2)} < ${this.rejectJudgeFactual}`);
+      return { decision: 'REJECT', reason: `Judge hard-reject: ${reasons.join(', ')}` };
+    }
+
+    if (
+      anti >= this.minJudgeAntiAi &&
+      hook >= this.minJudgeHook &&
+      factual >= this.minJudgeFactual &&
+      char >= this.minJudgeCharacter
+    ) {
+      return {
+        decision: 'AUTO_APPROVE',
+        reason: `Judge matrix: anti=${anti.toFixed(2)}, hook=${hook.toFixed(2)}, factual=${factual.toFixed(2)}, char=${char.toFixed(2)} — auto-approved`,
+      };
+    }
+
+    return { decision: 'HUMAN_REVIEW', reason: 'Judge scores in review range — flagged for human review' };
   }
 
   /**

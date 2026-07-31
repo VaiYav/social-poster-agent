@@ -137,4 +137,11 @@ export interface IEngagementDecisionPort {
    *          action (e.g. quote → read) when `null` is returned.
    */
   generateQuoteText(context: PostContext): Promise<string | null>;
+
+  /**
+   * P0: Judge a generated comment before it is published.
+   * Returns an approval flag and reason. If the LLM is unavailable, returns
+   * approved=false so the agent downgrades to a safer action (like/read).
+   */
+  judgeComment(context: PostContext, commentText: string): Promise<{ approved: boolean; reason: string; score: number }>;
 }

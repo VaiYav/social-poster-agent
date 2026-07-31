@@ -7,6 +7,7 @@
  */
 
 import type { WorldState } from '../types.js';
+import { getEnabledNetworks } from '../../../domain/enabled-networks.js';
 
 export const ORCHESTRATOR_SYSTEM_PROMPT = `You are a social media orchestrator agent. You decide what action to take next based on the current world state. You must choose exactly ONE action.
 
@@ -20,6 +21,7 @@ Available actions:
 - REFRESH_TRENDS: Scrape trending topics for content enrichment
 - HEALTH_CHECK: Run a full system health scan
 - RECONCILE: Re-enqueue stuck posts
+- TRIAGE_QUEUE: Run LLM triage on failed BullMQ jobs (RETRY/REQUEUE_DELAY/REJECT/ESCALATE)
 - SCRAPE_METRICS: Collect engagement metrics from posted posts
 - RECYCLE_CONTENT: Repurpose top-performing old posts
 - AGGREGATE_HOOKS: Aggregate hook performance statistics
@@ -31,12 +33,14 @@ Rules:
 - Prefer GENERATE_TOPICS if topicPool.count < threshold
 - Prefer GENERATE_POSTS if total approved drafts === 0 and topicPool sufficient
 - Prefer POST only for a network that has approvedByNetwork[network] > 0 AND inPostingWindow[network] === true
+- Prefer BROWSE if engagementDebt > 0 AND no approved drafts are in the posting window
 - Prefer BROWSE if lastBrowse > 4h ago AND session active
 - Prefer CHECK_REPLIES if uncheckedReplies > 0
 - Prefer REFRESH_TRENDS if trends.lastRefresh > 2h ago
 - Prefer SCRAPE_METRICS if last scrape > 24h ago
 - Prefer HEALTH_CHECK if last health check > 1h ago
 - Prefer RECONCILE if stuckPosting > 0
+- Prefer TRIAGE_QUEUE if DLQ > 0 and LLM queue triage is enabled
 - Prefer WAIT if none of the above apply
 - Consider posting windows: post when audience is most active
 - Consider recent performance: if last post underperformed, wait longer
@@ -49,21 +53,34 @@ Respond with JSON only, no markdown:
  * Build the user prompt from WorldState.
  * Summarizes state into a concise format for the LLM.
  */
+function hoursAgo(now: number, ms: number): number {
+  return ms > 0 ? Math.round((now - ms) / (60 * 60 * 1000)) : Number.POSITIVE_INFINITY;
+}
+
 export function buildOrchestratorUserPrompt(world: WorldState): string {
+  const now = world.now;
   const hour = world.utcHour;
-  const minute = new Date(world.now).getUTCMinutes();
+  const minute = new Date(now).getUTCMinutes();
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const dayName = days[world.utcDayOfWeek] ?? '?';
+  const networks = getEnabledNetworks();
 
   const topicAgeHours = world.topicPool.oldestAgeMs
     ? Math.round(world.topicPool.oldestAgeMs / (60 * 60 * 1000))
     : 0;
 
+  const approvedByNetwork = networks
+    .map((net) => `${net}=${world.drafts.approvedByNetwork[net] ?? 0}`)
+    .join(', ');
+  const queueParts = networks
+    .map((net) => `${net}=${world.queueDepth[net] ?? 0}`)
+    .join(', ');
+
   const lines: string[] = [
     `Current state (UTC ${hour}:${String(minute).padStart(2, '0')}, ${dayName}):`,
     `- Topic pool: ${world.topicPool.count}/${world.topicPool.threshold} (oldest: ${topicAgeHours}h)`,
-    `- Approved drafts: ${world.drafts.approved} (X=${world.drafts.approvedByNetwork['X'] ?? 0}, THREADS=${world.drafts.approvedByNetwork['THREADS'] ?? 0})`,
-    `- Queue depth: X=${world.queueDepth['X'] ?? 0}, THREADS=${world.queueDepth['THREADS'] ?? 0}`,
+    `- Approved drafts: ${world.drafts.approved} (${approvedByNetwork})`,
+    `- Queue depth: ${queueParts}`,
   ];
 
   // Sessions
@@ -82,10 +99,11 @@ export function buildOrchestratorUserPrompt(world: WorldState): string {
 
   // Last post time
   const lastPostParts: string[] = [];
-  for (const [net, r] of Object.entries(world.rateLimits)) {
-    if (r.lastPostMs > 0) {
-      const hoursAgo = Math.round((Date.now() - r.lastPostMs) / (60 * 60 * 1000));
-      lastPostParts.push(`${net}=${hoursAgo}h ago`);
+  for (const net of networks) {
+    const r = world.rateLimits[net];
+    if (r && r.lastPostMs > 0) {
+      const age = hoursAgo(now, r.lastPostMs);
+      lastPostParts.push(`${net}=${Number.isFinite(age) ? `${age}h ago` : 'never'}`);
     } else {
       lastPostParts.push(`${net}=never`);
     }
@@ -103,20 +121,23 @@ export function buildOrchestratorUserPrompt(world: WorldState): string {
 
   // Engagement
   const browseParts: string[] = [];
-  for (const [net, ms] of Object.entries(world.engagement.lastBrowseMs)) {
+  for (const net of networks) {
+    const ms = world.engagement.lastBrowseMs[net] ?? 0;
     if (ms > 0) {
-      const hoursAgo = Math.round((Date.now() - ms) / (60 * 60 * 1000));
-      browseParts.push(`${net}=${hoursAgo}h ago`);
+      const age = hoursAgo(now, ms);
+      browseParts.push(`${net}=${Number.isFinite(age) ? `${age}h ago` : 'never'}`);
     } else {
       browseParts.push(`${net}=never`);
     }
   }
   lines.push(`- Last browse: ${browseParts.join(', ')}`);
+  lines.push(`- Engagement debt: ${world.engagement.engagementDebt} (networks that need a browse session)`);
+  lines.push(`- Engagement today: comments ${world.engagement.commentsActualToday}/${world.engagement.commentsTargetToday}, likes ${world.engagement.likesActualToday}/${world.engagement.likesTargetToday}, comment debt ${world.engagement.debt}`);
   lines.push(`- Unchecked replies: ${world.engagement.uncheckedReplies}`);
 
   // Trends
   const trendAgeHours = world.trends.lastRefreshMs
-    ? Math.round((Date.now() - world.trends.lastRefreshMs) / (60 * 60 * 1000))
+    ? Math.round((now - world.trends.lastRefreshMs) / (60 * 60 * 1000))
     : 0;
   lines.push(`- Trends: ${world.trends.count} (last refresh: ${trendAgeHours}h ago)`);
 

@@ -4,9 +4,11 @@ import { ConfigService } from '@nestjs/config';
 import { QueueModule as QueueInfraModule } from '../../infrastructure/queue/queue.module';
 import { QueueFactory } from '../../infrastructure/queue/queue.factory';
 import { PostingModule } from '../posting/posting.module';
+import { FlowControlModule } from '../flow-control/flow-control.module';
 import { PostingService } from '../posting/posting.service';
 import { QueueService } from './queue.service';
 import { QueueController } from './queue.controller';
+import { QueueTriageService } from './queue-triage.service.js';
 import { SocialNetwork } from '@prisma/client';
 import { RateLimitError } from 'bullmq';
 import { parseBool } from '../../infrastructure/config/parse-bool';
@@ -24,10 +26,10 @@ import { getEnabledNetworks } from '../../domain/enabled-networks.js';
  * (QueueModule → EngagementModule → QueueModule).
  */
 @Module({
-  imports: [QueueInfraModule, PostingModule],
-  providers: [QueueService, QueueController],
+  imports: [QueueInfraModule, PostingModule, FlowControlModule],
+  providers: [QueueService, QueueTriageService, QueueController],
   controllers: [QueueController],
-  exports: [QueueService, QueueInfraModule],
+  exports: [QueueService, QueueTriageService, QueueInfraModule],
 })
 export class QueueModule implements OnModuleInit {
   private readonly logger = new Logger(QueueModule.name);

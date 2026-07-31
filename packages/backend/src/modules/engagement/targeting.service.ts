@@ -70,16 +70,28 @@ export class TargetingService {
   /**
    * Pick a target source for a browsing session using weighted random.
    * Different sessions will start from different entry points.
+   *
+   * P0: when `conversationReady` is true, boost conversation-oriented sources
+   * ('own-post' for replying to comments, 'notifications') so the agent engages
+   * in existing threads instead of only the algorithmic feed.
    */
-  pickSource(network: SocialNetwork): TargetSource {
+  pickSource(network: SocialNetwork, opts: { conversationReady?: boolean } = {}): TargetSource {
     const sources = this.getAvailableSources(network);
-    const totalWeight = sources.reduce((sum, s) => sum + this.sourceWeights[s.source], 0);
+    const conversationReady = !!opts.conversationReady;
+    const conversationBoost = conversationReady ? 5 : 1;
+
+    const totalWeight = sources.reduce((sum, s) => {
+      const base = this.sourceWeights[s.source];
+      const boost = (s.source === 'own-post' || s.source === 'notifications') ? conversationBoost : 1;
+      return sum + base * boost;
+    }, 0);
     let random = Math.random() * totalWeight;
 
     for (const source of sources) {
-      random -= this.sourceWeights[source.source];
+      const boost = (source.source === 'own-post' || source.source === 'notifications') ? conversationBoost : 1;
+      random -= this.sourceWeights[source.source] * boost;
       if (random <= 0) {
-        this.logger.debug(`Picked source: ${source.label} for ${network}`);
+        this.logger.debug(`Picked source: ${source.label} for ${network} (conversationReady=${conversationReady})`);
         return source;
       }
     }

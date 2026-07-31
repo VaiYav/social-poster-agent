@@ -146,7 +146,7 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
             {
               network,
               scheduledAt: scheduledTime.toISOString(),
-              durationSec: this.configService.get<number>('F1_BROWSING_SESSION_MINUTES', 10) * 60,
+              durationSec: this.configService.get<number>('F1_BROWSING_SESSION_MINUTES', 15) * 60,
             },
             { delay: delayMs },
           )
@@ -255,7 +255,7 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
     }
 
     const fourHoursAgo = Date.now() - 4 * 60 * 60 * 1000;
-    const durationSec = this.configService.get<number>('F1_BROWSING_SESSION_MINUTES', 10) * 60;
+    const durationSec = this.configService.get<number>('F1_BROWSING_SESSION_MINUTES', 15) * 60;
 
     for (const network of this.networks) {
       const netKey = network as string;

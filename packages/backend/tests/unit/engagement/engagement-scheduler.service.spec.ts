@@ -238,6 +238,12 @@ describe('EngagementSchedulerService', () => {
         warmupPhase: { X: 'full' },
         lastSessionStatus: { X: 'FAILED' },
         lastSessionInteractions: { X: 0 },
+        engagementDebt: 0,
+        commentsTargetToday: 0,
+        commentsActualToday: 0,
+        likesTargetToday: 0,
+        likesActualToday: 0,
+        debt: 0,
       },
     } as unknown as import('../../../src/modules/orchestrator/types').WorldState;
     await service.checkStaleAndEnqueue(world);
@@ -266,6 +272,12 @@ describe('EngagementSchedulerService', () => {
         warmupPhase: { X: 'full' },
         lastSessionStatus: { X: 'COMPLETED' },
         lastSessionInteractions: { X: 3 },
+        engagementDebt: 0,
+        commentsTargetToday: 0,
+        commentsActualToday: 0,
+        likesTargetToday: 0,
+        likesActualToday: 0,
+        debt: 0,
       },
     } as unknown as import('../../../src/modules/orchestrator/types').WorldState;
     await service.checkStaleAndEnqueue(world);
@@ -274,11 +286,12 @@ describe('EngagementSchedulerService', () => {
 
   it('SC-012: checkStaleAndEnqueue enqueues a session that is ACTIVE but stuck past duration + buffer', async () => {
     vi.setSystemTime(new Date('2026-06-27T12:00:00Z'));
-    // Default F1_BROWSING_SESSION_MINUTES = 10, so durationSec = 600; stuck threshold = 600 + 300 = 900s
+    // F1_BROWSING_SESSION_MINUTES = 10, so durationSec = 600; stuck threshold = 600 + 300 = 900s
     service = new EngagementSchedulerService(
       createMockConfigService({
         ENGAGEMENT_SCHEDULER_ENABLED: 'true',
         ENGAGEMENT_NETWORKS: 'X',
+        F1_BROWSING_SESSION_MINUTES: '10',
       }),
       mockQueueFactory,
       mockSchedulerRegistry,
@@ -295,6 +308,12 @@ describe('EngagementSchedulerService', () => {
         warmupPhase: { X: 'full' },
         lastSessionStatus: { X: 'COMPLETED' }, // previous session completed, but current is stuck
         lastSessionInteractions: { X: 3 },
+        engagementDebt: 0,
+        commentsTargetToday: 0,
+        commentsActualToday: 0,
+        likesTargetToday: 0,
+        likesActualToday: 0,
+        debt: 0,
       },
     } as unknown as import('../../../src/modules/orchestrator/types').WorldState;
     await service.checkStaleAndEnqueue(world);

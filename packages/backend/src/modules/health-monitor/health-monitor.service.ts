@@ -178,24 +178,59 @@ export class HealthMonitorService implements OnModuleInit {
           continue;
         }
 
-        // P0-H5: Check if BullMQ already has this job
+        // P0-H5: Check if BullMQ already has this job.
+        // Use isJobInFlight so we also catch 'prioritized' and 'waiting-children'.
         try {
           const queue = this.queueFactory.getQueue(post.network, 'posting');
           const existingJob = await queue.getJob(post.id);
           if (existingJob) {
             const state = await existingJob.getState();
-            if (
-              state === 'active' ||
-              state === 'waiting' ||
-              state === 'delayed' ||
-              state === 'completed' ||
-              state === 'failed'
-            ) {
+
+            // In-flight (active/waiting/prioritized/waiting-children/delayed) must
+            // not be touched — the worker or delay scheduler owns it.
+            if (isJobInFlight(state)) {
               this.logger.warn(
-                `Reconciliation: post ${post.id} already has a ${state} job in BullMQ — skipping (dedup)`,
+                `Reconciliation: post ${post.id} already has an in-flight ${state} job in BullMQ — skipping (dedup)`,
               );
               deduplicated += 1;
               continue;
+            }
+
+            // Completed but post is still APPROVED = possible double-post risk.
+            // Do NOT auto-re-enqueue; alert and leave for manual verification.
+            if (state === 'completed') {
+              this.logger.error(
+                `Reconciliation: post ${post.id} has a COMPLETED BullMQ job but is still APPROVED. ` +
+                  `Possible data inconsistency / double-post risk — manual verification required`,
+              );
+              skipped += 1;
+              continue;
+            }
+
+            // Failed job with a rate-limit reason will just fail again if re-enqueued.
+            // Leave it for QueueTriageService (LLM-in-the-loop) instead of blind retry.
+            if (state === 'failed') {
+              const reason = String(existingJob.failedReason ?? '').toLowerCase();
+              if (/rate.?limit|daily limit|weekly limit|too many requests|429/.test(reason)) {
+                this.logger.warn(
+                  `Reconciliation: post ${post.id} job is failed due to rate limit — not re-enqueuing blindly`,
+                );
+                skipped += 1;
+                continue;
+              }
+            }
+
+            // Terminal / limbo job (failed, unknown, etc.) is blocking this approved post.
+            // Remove the stale job so the fresh enqueue below actually creates a new one.
+            this.logger.warn(
+              `Reconciliation: post ${post.id} has a terminal ${state} job — removing stale job before re-enqueue`,
+            );
+            try {
+              await existingJob.remove();
+            } catch (removeErr) {
+              this.logger.warn(
+                `Reconciliation: could not remove stale job for ${post.id}: ${(removeErr as Error).message}`,
+              );
             }
           }
         } catch (queueErr) {

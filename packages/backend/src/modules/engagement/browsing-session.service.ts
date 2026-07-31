@@ -53,6 +53,11 @@ export class BrowsingSessionService {
   private readonly repostsMaxPerSession: number;
   private readonly quotesMaxPerSession: number;
   private readonly maxPostsPerSession: number;
+  // F1 daily hard limits (per account, across all sessions)
+  private readonly likesMaxPerDay: number;
+  private readonly commentsMaxPerDay: number;
+  private readonly repostsMaxPerDay: number;
+  private readonly quotesMaxPerDay: number;
   // Distributed lock settings — only one browsing session can run at a time
   // across ALL networks. Two concurrent Camoufox contexts (e.g. X + THREADS)
   // cause renderer process crashes due to memory pressure in constrained
@@ -78,22 +83,34 @@ export class BrowsingSessionService {
     @Optional() private readonly accountsService?: AccountsService,
   ) {
     this.defaultDurationSec = Number(
-      this.configService.get<string>('F1_BROWSING_SESSION_MINUTES', '10'),
+      this.configService.get<string>('F1_BROWSING_SESSION_MINUTES', '15'),
     ) * 60;
     this.likesMaxPerSession = Number(
-      this.configService.get<string>('F1_LIKES_MAX_PER_DAY', '15'),
+      this.configService.get<string>('F1_LIKES_MAX_PER_DAY', '25'),
     );
     this.commentsMaxPerSession = Number(
-      this.configService.get<string>('F1_COMMENTS_MAX_PER_DAY', '4'),
+      this.configService.get<string>('F1_COMMENTS_MAX_PER_DAY', '10'),
     );
     this.repostsMaxPerSession = Number(
-      this.configService.get<string>('F1_REPOSTS_MAX_PER_DAY', '5'),
+      this.configService.get<string>('F1_REPOSTS_MAX_PER_DAY', '8'),
     );
     this.quotesMaxPerSession = Number(
-      this.configService.get<string>('F1_QUOTES_MAX_PER_DAY', '2'),
+      this.configService.get<string>('F1_QUOTES_MAX_PER_DAY', '3'),
     );
     this.maxPostsPerSession = Number(
-      this.configService.get<string>('F1_MAX_POSTS_PER_SESSION', '30'),
+      this.configService.get<string>('F1_MAX_POSTS_PER_SESSION', '40'),
+    );
+    this.likesMaxPerDay = Number(
+      this.configService.get<string>('F1_MAX_LIKES_PER_DAY_GLOBAL', '150'),
+    );
+    this.commentsMaxPerDay = Number(
+      this.configService.get<string>('F1_MAX_COMMENTS_PER_DAY_GLOBAL', '50'),
+    );
+    this.repostsMaxPerDay = Number(
+      this.configService.get<string>('F1_MAX_REPOSTS_PER_DAY_GLOBAL', '40'),
+    );
+    this.quotesMaxPerDay = Number(
+      this.configService.get<string>('F1_MAX_QUOTES_PER_DAY_GLOBAL', '15'),
     );
     this.lockKey = this.configService.get<string>('ENGAGEMENT_LOCK_KEY', 'spa:lock:engagement');
     this.lockTtlBufferMs = Number(this.configService.get<string>('ENGAGEMENT_LOCK_TTL_BUFFER_MS', '300000'));
@@ -165,6 +182,33 @@ export class BrowsingSessionService {
         : await this.sessionsService.getOrCreateSession(network, { deferFormLogin: true });
       if (!session) {
         throw new Error(`No active session for ${network} — auto-login failed`);
+      }
+
+      // F1 daily hard limits: clamp per-session budgets to the remaining daily global allowance.
+      let likesBudget = this.likesMaxPerSession;
+      let commentsBudget = this.commentsMaxPerSession;
+      let repostsBudget = this.repostsMaxPerSession;
+      let quotesBudget = this.quotesMaxPerSession;
+
+      if (session.accountId) {
+        const dailyCounts = await this.getDailyInteractionCounts(session.accountId);
+        const likesMax = Math.max(0, this.likesMaxPerDay - dailyCounts.likes);
+        const commentsMax = Math.max(0, this.commentsMaxPerDay - dailyCounts.comments);
+        const repostsMax = Math.max(0, this.repostsMaxPerDay - dailyCounts.reposts);
+        const quotesMax = Math.max(0, this.quotesMaxPerDay - dailyCounts.quotes);
+
+        likesBudget = Math.min(this.likesMaxPerSession, likesMax);
+        commentsBudget = Math.min(this.commentsMaxPerSession, commentsMax);
+        repostsBudget = Math.min(this.repostsMaxPerSession, repostsMax);
+        quotesBudget = Math.min(this.quotesMaxPerSession, quotesMax);
+
+        this.logger.log(
+          `F1 daily budget for account ${session.accountId}: likes ${likesBudget}/${this.likesMaxPerSession} ` +
+            `(used ${dailyCounts.likes}/${this.likesMaxPerDay}), ` +
+            `comments ${commentsBudget}/${this.commentsMaxPerSession} (used ${dailyCounts.comments}/${this.commentsMaxPerDay})`,
+        );
+      } else {
+        this.logger.warn(`Session ${session.id} has no accountId — using per-session F1 budgets only`);
       }
 
       // Create browsing session record (feedUrl updated after graph picks source)
@@ -256,6 +300,18 @@ export class BrowsingSessionService {
         // Non-fatal (e.g. timeout) — continue, the graph will handle it
       }
 
+      // P0: conversation-ready targeting — check if this account has unreplied comments
+      // on its own posts for this network. If so, the engagement graph will prefer
+      // 'own-post' / 'notifications' sources over the algorithmic feed.
+      const newRepliesCount = await this.prisma.incomingComment.count({
+        where: {
+          network,
+          status: 'NEW',
+          post: { accountId: session.accountId },
+        },
+      }).catch(() => 0);
+      const conversationReady = newRepliesCount > 0;
+
       // Build and invoke the EngagementGraph (LangGraph)
       const graph = buildEngagementGraph(engager, {
         targetingService: this.targetingService,
@@ -270,10 +326,11 @@ export class BrowsingSessionService {
         browsingSessionId: browsingSession.id,
         durationSec: duration,
         maxPosts: this.maxPostsPerSession,
-        likesMaxPerSession: this.likesMaxPerSession,
-        commentsMaxPerSession: this.commentsMaxPerSession,
-        repostsMaxPerSession: this.repostsMaxPerSession,
-        quotesMaxPerSession: this.quotesMaxPerSession,
+        likesMaxPerSession: likesBudget,
+        commentsMaxPerSession: commentsBudget,
+        repostsMaxPerSession: repostsBudget,
+        quotesMaxPerSession: quotesBudget,
+        conversationReady,
         page,
       });
 
@@ -445,6 +502,46 @@ export class BrowsingSessionService {
       default:
         throw new Error(`Unknown network: ${network as string}`);
     }
+  }
+
+  /**
+   * F1 daily hard limits: count non-skipped, non-failed interactions for the
+   * account in the current UTC day. Used to clamp per-session budgets.
+   */
+  private async getDailyInteractionCounts(accountId: string): Promise<{
+    likes: number;
+    comments: number;
+    reposts: number;
+    quotes: number;
+  }> {
+    const startOfDay = new Date();
+    startOfDay.setUTCHours(0, 0, 0, 0);
+    const endOfDay = new Date();
+    endOfDay.setUTCHours(23, 59, 59, 999);
+
+    const rows = await this.prisma.interaction.groupBy({
+      by: ['type'],
+      where: {
+        accountId,
+        createdAt: { gte: startOfDay, lte: endOfDay },
+        status: { notIn: [InteractionStatus.FAILED, InteractionStatus.SKIPPED] },
+      },
+      _count: { type: true },
+    });
+
+    const counts: Record<string, number> = {};
+    if (Array.isArray(rows)) {
+      for (const row of rows) {
+        counts[row.type] = (row._count?.type as number | undefined) ?? 0;
+      }
+    }
+
+    return {
+      likes: counts[InteractionType.LIKE] ?? 0,
+      comments: counts[InteractionType.COMMENT] ?? 0,
+      reposts: counts[InteractionType.REPOST] ?? 0,
+      quotes: counts[InteractionType.QUOTE] ?? 0,
+    };
   }
 
   /**

@@ -80,6 +80,38 @@ const envSchema = Joi.object({
   GENERATION_TEMPERATURE_REFINE: Joi.number().min(0).max(2).default(0.6),
   // Q8: Judge-gated refine loop threshold
   JUDGE_REFINE_THRESHOLD: Joi.number().min(0).max(1).default(0.6),
+  // Stage 2: Batched LLM-as-a-Judge hard-fail threshold
+  JUDGE_HARD_FAIL_THRESHOLD: Joi.number().min(0).max(1).default(0.25),
+  // P0 token: per-dimension hard-fail thresholds (fall back to JUDGE_HARD_FAIL_THRESHOLD when not set)
+  JUDGE_HARD_FAIL_ANTI_AI: Joi.number().min(0).max(1).optional(),
+  JUDGE_HARD_FAIL_FACTUAL: Joi.number().min(0).max(1).optional(),
+  JUDGE_HARD_FAIL_CHARACTER: Joi.number().min(0).max(1).optional(),
+  JUDGE_SKIP_AB_THRESHOLD: Joi.number().min(0).max(1).default(0.6),
+  // P1: LLM-in-the-loop queue triage
+  LLM_QUEUE_TRIAGE_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  LLM_QUEUE_TRIAGE_MAX_JOBS: Joi.number().integer().min(1).default(20),
+  LLM_QUEUE_TRIAGE_MAX_TOKENS: Joi.number().integer().min(1).default(800),
+  // P1: full LLM-in-the-loop orchestrator mode
+  LLM_FULL_LOOP_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  LLM_FULL_LOOP_MAX_DECISIONS_PER_HOUR: Joi.number().integer().min(0).default(60),
+  // P0: token/cost budgets. 0 = unlimited.
+  ORCHESTRATOR_TOKEN_BUDGET_PER_HOUR: Joi.number().integer().min(0).default(0),
+  ORCHESTRATOR_COST_BUDGET_PER_HOUR: Joi.number().min(0).default(0),
+  GENERATION_TOKEN_BUDGET_PER_RUN: Joi.number().integer().min(0).default(0),
+  GENERATION_COST_BUDGET_PER_RUN: Joi.number().min(0).default(0),
+  // P0: F1 engagement per-session soft caps
+  F1_LIKES_MAX_PER_DAY: Joi.number().integer().min(0).default(25),
+  F1_COMMENTS_MAX_PER_DAY: Joi.number().integer().min(0).default(10),
+  F1_REPOSTS_MAX_PER_DAY: Joi.number().integer().min(0).default(8),
+  F1_QUOTES_MAX_PER_DAY: Joi.number().integer().min(0).default(3),
+  // P0: F1 engagement daily hard limits (per account, across all sessions)
+  F1_MAX_LIKES_PER_DAY_GLOBAL: Joi.number().integer().min(0).default(150),
+  F1_MAX_COMMENTS_PER_DAY_GLOBAL: Joi.number().integer().min(0).default(50),
+  F1_MAX_REPOSTS_PER_DAY_GLOBAL: Joi.number().integer().min(0).default(40),
+  F1_MAX_QUOTES_PER_DAY_GLOBAL: Joi.number().integer().min(0).default(15),
+  // P0: engagement-first guardrail weight. Higher value = more likely to override POST/GENERATE with BROWSE.
+  // A value of 0 disables the override. Formula: debt * weight > approvedDrafts.
+  ENGAGEMENT_PRIORITY_WEIGHT: Joi.number().min(0).default(1.0),
   // Multilingual generation: comma-separated ISO 639-1 codes (default: en)
   POSTING_LANGUAGES: Joi.string().default('en'),
   // Q2: Global concurrency cap and 429 retry delay
@@ -185,6 +217,8 @@ const envSchema = Joi.object({
   // Engagement decision LLM temperature (default 0.8)
   ENGAGEMENT_COMMENT_TEMPERATURE: Joi.number().min(0).max(2).default(0.8),
   ENGAGEMENT_QUOTE_TEMPERATURE: Joi.number().min(0).max(2).default(0.8),
+  // P0: comment-judge threshold (0-1). Below this the comment is rejected before publishing.
+  COMMENT_JUDGE_MIN_SCORE: Joi.number().min(0).max(1).default(0.6),
   // Auto-approve: when true, drafts are auto-approved and enqueued without human review
   AUTO_APPROVE_ENABLED: Joi.string().valid('true', 'false').default('false'),
   // ADR-006: Autonomous agent config
@@ -205,6 +239,15 @@ const envSchema = Joi.object({
   AUTO_APPROVE_REVIEW_SCORE: Joi.number().integer().min(1).max(10).default(4),
   AUTO_APPROVE_REJECT_STREAK_ALERT: Joi.number().integer().min(1).default(3),
   AUTO_APPROVE_MISSING_SCORE_FAIL_OPEN: Joi.string().valid('true', 'false').default('false'),
+  // P1: LLM-as-a-Judge gate for auto-approve
+  AUTO_APPROVE_USE_JUDGE_SCORES: Joi.string().valid('true', 'false').default('true'),
+  AUTO_APPROVE_MIN_JUDGE_ANTI_AI: Joi.number().min(0).max(1).default(0.7),
+  AUTO_APPROVE_MIN_JUDGE_FACTUAL: Joi.number().min(0).max(1).default(0.6),
+  AUTO_APPROVE_MIN_JUDGE_HOOK: Joi.number().min(0).max(1).default(0.6),
+  AUTO_APPROVE_MIN_JUDGE_CHARACTER: Joi.number().min(0).max(1).default(0.8),
+  // P1: hard-reject thresholds — anti/factual below this always reject
+  AUTO_APPROVE_REJECT_JUDGE_ANTI_AI: Joi.number().min(0).max(1).default(0.3),
+  AUTO_APPROVE_REJECT_JUDGE_FACTUAL: Joi.number().min(0).max(1).default(0.3),
   // A1/BUG-12: AUTO_CHECK_MIN_QUALITY_SCORE retired — the score decision lives
   // solely in AutoApproveService (AUTO_APPROVE_MIN_SCORE / AUTO_APPROVE_REVIEW_SCORE).
   // A leftover value in the env is harmless (schema allows unknown keys).
@@ -291,6 +334,8 @@ const envSchema = Joi.object({
   // Set to a specific version (e.g. 'production') to pin all prompts to that label.
   // Override per prompt with PROMPT_VERSION_<NAME> env vars (handled by PromptRegistry).
   PROMPT_VERSION: Joi.string().default('latest'),
+  // P0: compiled prompt cache TTL in milliseconds (default 5 minutes)
+  PROMPT_CACHE_TTL_MS: Joi.number().integer().min(0).default(300000),
 
   // ── Security ──
   // P0-H3: AES-256-GCM key for encrypting storageState at rest (64 hex chars = 32 bytes)

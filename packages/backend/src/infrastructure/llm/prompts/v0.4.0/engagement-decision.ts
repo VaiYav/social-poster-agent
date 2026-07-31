@@ -296,6 +296,63 @@ function parseLangJsonResponse(
   return { text: trimmed };
 }
 
+// ── Comment Judge Prompt ────────────────────────────────────────────────────
+
+export const COMMENT_JUDGE_SYSTEM_PROMPT = `You're a moderation layer for a social-media engagement agent. Review a generated comment before it is published.
+
+Rate the comment on a 0.0-1.0 scale across these dimensions:
+- relevance: does it directly respond to the post (not generic)?
+- human: does it sound like a real person, not an AI bot?
+- safe: is it free of self-promo, links, generic praise, and spam?
+- language_match: is it written in the same language as the post?
+
+A comment should be published ONLY if:
+- It is relevant and specific to the post
+- It sounds human
+- It contains no spam/self-promo/links/generic phrases
+- It matches the post's language
+
+Respond as JSON only:
+{"approved": true/false, "score": 0.0-1.0, "reason": "short explanation"}`;
+
+export const COMMENT_JUDGE_USER_TEMPLATE = `Review this comment before publishing.
+
+Post ({network}):
+"{postText}"
+
+Detected post language: {detectedLanguage}
+
+Generated comment:
+"{commentText}"
+
+Should this comment be published? Respond as JSON.`;
+
+export const COMMENT_JUDGE_PROMPT = {
+  systemPrompt: COMMENT_JUDGE_SYSTEM_PROMPT,
+  userPrompt: COMMENT_JUDGE_USER_TEMPLATE,
+};
+
+export interface CommentJudgeResult {
+  approved: boolean;
+  score: number;
+  reason: string;
+}
+
+export function parseCommentJudgeResponse(content: string): CommentJudgeResult {
+  try {
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return { approved: false, score: 0, reason: 'No JSON in judge response' };
+    const parsed = JSON.parse(jsonMatch[0]) as Partial<CommentJudgeResult>;
+    return {
+      approved: parsed.approved === true,
+      score: typeof parsed.score === 'number' ? Math.max(0, Math.min(1, parsed.score)) : 0,
+      reason: parsed.reason ?? 'No reason provided',
+    };
+  } catch {
+    return { approved: false, score: 0, reason: 'JSON parse failed' };
+  }
+}
+
 /**
  * Parse the LLM's JSON response for comment generation.
  * Expected format: {"language": "en|ru|uk|es|it", "comment": "the comment text"}

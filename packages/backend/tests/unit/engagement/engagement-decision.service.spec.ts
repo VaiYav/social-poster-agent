@@ -513,4 +513,45 @@ describe('EngagementDecisionService', () => {
     const comment = await service.generateComment(createPostContext({ postText: 'Спасибо' }));
     expect(comment).toBeNull();
   });
+
+  // ── judgeComment (P0) ──
+
+  it('ED-JUDGE-001: approves a comment when LLM returns approved=true with score >= threshold', async () => {
+    mockLlm = createMockLlm([
+      { content: '{"approved":true,"score":0.8,"reason":"relevant and human"}', model: 'mock' },
+    ]);
+    service = new EngagementDecisionService(mockLlm, configService);
+    const result = await service.judgeComment(createPostContext(), 'Saturn return is real.');
+    expect(result.approved).toBe(true);
+    expect(result.score).toBe(0.8);
+  });
+
+  it('ED-JUDGE-002: rejects a comment when LLM returns approved=false', async () => {
+    mockLlm = createMockLlm([
+      { content: '{"approved":false,"score":0.4,"reason":"generic spam"}', model: 'mock' },
+    ]);
+    service = new EngagementDecisionService(mockLlm, configService);
+    const result = await service.judgeComment(createPostContext(), 'Great post!');
+    expect(result.approved).toBe(false);
+  });
+
+  it('ED-JUDGE-003: rejects when score is below COMMENT_JUDGE_MIN_SCORE even if approved=true', async () => {
+    mockLlm = createMockLlm([
+      { content: '{"approved":true,"score":0.5,"reason":"barely relevant"}', model: 'mock' },
+    ]);
+    service = new EngagementDecisionService(mockLlm, configService);
+    const result = await service.judgeComment(createPostContext(), 'Okay.');
+    expect(result.approved).toBe(false);
+  });
+
+  it('ED-JUDGE-004: rejects by default when LLM fails', async () => {
+    mockLlm = {
+      generate: vi.fn().mockRejectedValue(new Error('LLM down')),
+      generateChat: vi.fn().mockRejectedValue(new Error('LLM down')),
+    } as unknown as ILlmPort;
+    service = new EngagementDecisionService(mockLlm, configService);
+    const result = await service.judgeComment(createPostContext(), 'Saturn return is real.');
+    expect(result.approved).toBe(false);
+    expect(result.score).toBe(0);
+  });
 });

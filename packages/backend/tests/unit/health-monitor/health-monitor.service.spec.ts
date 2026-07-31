@@ -283,7 +283,7 @@ describe('HealthMonitorService (F21 — Health Monitor + B3 Reconciliation)', ()
     expect(ctx.queueService.enqueuePosting).not.toHaveBeenCalled();
   });
 
-  it('B3-007: runReconciliation() deduplicates completed/failed jobs', async () => {
+  it('B3-007: runReconciliation() skips completed/failed terminal jobs (not deduplicated)', async () => {
     const stuckPost = {
       id: 'post-completed',
       network: SocialNetwork.FACEBOOK,
@@ -299,7 +299,8 @@ describe('HealthMonitorService (F21 — Health Monitor + B3 Reconciliation)', ()
     const result = await ctx.service.runReconciliation();
 
     expect(result.requeued).toBe(0);
-    expect(result.deduplicated).toBe(1);
+    expect(result.deduplicated).toBe(0);
+    expect(result.skipped).toBe(1);
     expect(ctx.queueService.enqueuePosting).not.toHaveBeenCalled();
   });
 

@@ -507,6 +507,27 @@ export class HumanBehaviorEngine {
       };
     }
 
+    // P0: comment-judge gate. Reject low-quality/spam comments before publishing.
+    const judge = await this.decisionPort.judgeComment?.(context, commentText);
+    if (judge && !judge.approved) {
+      this.logger.warn(`Comment rejected by judge for ${context.postUrl}: ${judge.reason}`);
+      // Downgrade to like if budget remains, otherwise read
+      if (context.likesThisSession < context.likesMaxPerSession) {
+        return {
+          postUrl: context.postUrl,
+          decision: { ...decision, action: 'like', reason: `Comment judge rejected: ${judge.reason}`, confidence: 0.5 },
+          success: true,
+          error: `Comment judge rejected (downgraded to like): ${judge.reason}`,
+        };
+      }
+      return {
+        postUrl: context.postUrl,
+        decision: { ...decision, action: 'read', reason: `Comment judge rejected: ${judge.reason}`, confidence: 0.5 },
+        success: true,
+        error: `Comment judge rejected (downgraded to read): ${judge.reason}`,
+      };
+    }
+
     // Rate limit check
     const rateKey = `${context.network as string}-comment`;
     const rateCheck = await this.rateLimitService.checkRateLimit(rateKey);

@@ -96,12 +96,20 @@ function makeStuckPost(
 function makePostWithJob(
   id: string,
   network: SocialNetwork,
-  state: 'active' | 'waiting' | 'delayed' | 'completed' | 'failed',
+  state: 'active' | 'waiting' | 'prioritized' | 'waiting-children' | 'delayed' | 'completed' | 'failed' | 'unknown',
   minutesAgo = 20,
+  failedReason = 'posting error',
 ) {
   return {
     post: makeStuckPost(id, network, minutesAgo),
-    job: { getState: vi.fn().mockResolvedValue(state) },
+    job: {
+      id,
+      getState: vi.fn().mockResolvedValue(state),
+      remove: vi.fn().mockResolvedValue(undefined),
+      failedReason,
+      attemptsMade: 3,
+      opts: { attempts: 3 },
+    },
   };
 }
 
@@ -197,7 +205,7 @@ describe('B3: Reconciliation — runReconciliation()', () => {
     expect(mockQueueFactory.getQueue).toHaveBeenCalledWith(SocialNetwork.FACEBOOK, 'posting');
   });
 
-  // ── 3. Skips posts that already have an active BullMQ job (dedup) ──
+  // ── 3. Skips posts that already have an in-flight BullMQ job (dedup) ──
 
   it('B3-REC-004: skips posts with an active BullMQ job (dedup)', async () => {
     const { post, job } = makePostWithJob('post-active', SocialNetwork.X, 'active');
@@ -235,7 +243,21 @@ describe('B3: Reconciliation — runReconciliation()', () => {
     expect(mockQueueService.enqueuePosting).not.toHaveBeenCalled();
   });
 
-  it('B3-REC-007: deduplicates when existing job is completed (not active/waiting/delayed)', async () => {
+  it('B3-REC-007: skips posts with a prioritized BullMQ job (dedup)', async () => {
+    const { post, job } = makePostWithJob('post-prioritized', SocialNetwork.X, 'prioritized');
+    mockPrisma.post.findMany.mockResolvedValue([post]);
+    mockQueue.getJob.mockResolvedValue(job);
+
+    const result = await ctx.service.runReconciliation();
+
+    expect(result.requeued).toBe(0);
+    expect(result.deduplicated).toBe(1);
+    expect(mockQueueService.enqueuePosting).not.toHaveBeenCalled();
+  });
+
+  // ── 4. Handles terminal / stale BullMQ jobs ──
+
+  it('B3-REC-008: skips completed jobs that are still APPROVED (manual verification needed)', async () => {
     const { post, job } = makePostWithJob('post-done', SocialNetwork.X, 'completed');
     mockPrisma.post.findMany.mockResolvedValue([post]);
     mockQueue.getJob.mockResolvedValue(job);
@@ -243,23 +265,59 @@ describe('B3: Reconciliation — runReconciliation()', () => {
     const result = await ctx.service.runReconciliation();
 
     expect(result.requeued).toBe(0);
-    expect(result.deduplicated).toBe(1);
+    expect(result.deduplicated).toBe(0);
+    expect(result.skipped).toBe(1);
     expect(mockQueueService.enqueuePosting).not.toHaveBeenCalled();
+    expect(job.remove).not.toHaveBeenCalled();
   });
 
-  it('B3-REC-008: deduplicates when existing job is failed (not active/waiting/delayed)', async () => {
+  it('B3-REC-025: removes and re-enqueues failed jobs without rate-limit errors', async () => {
     const { post, job } = makePostWithJob('post-failed-job', SocialNetwork.X, 'failed');
     mockPrisma.post.findMany.mockResolvedValue([post]);
     mockQueue.getJob.mockResolvedValue(job);
 
     const result = await ctx.service.runReconciliation();
 
+    expect(result.requeued).toBe(1);
+    expect(result.deduplicated).toBe(0);
+    expect(job.remove).toHaveBeenCalled();
+    expect(mockQueueService.enqueuePosting).toHaveBeenCalledWith('post-failed-job', SocialNetwork.X);
+  });
+
+  it('B3-REC-026: skips failed jobs caused by rate limits (left for LLM triage)', async () => {
+    const { post, job } = makePostWithJob(
+      'post-rate-limit',
+      SocialNetwork.X,
+      'failed',
+      20,
+      '429 rate limit: daily limit exhausted',
+    );
+    mockPrisma.post.findMany.mockResolvedValue([post]);
+    mockQueue.getJob.mockResolvedValue(job);
+
+    const result = await ctx.service.runReconciliation();
+
     expect(result.requeued).toBe(0);
-    expect(result.deduplicated).toBe(1);
+    expect(result.deduplicated).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(job.remove).not.toHaveBeenCalled();
     expect(mockQueueService.enqueuePosting).not.toHaveBeenCalled();
   });
 
-  // ── 4. Skips posts that are already POSTED ──
+  it('B3-REC-027: removes and re-enqueues limbo/unknown jobs', async () => {
+    const { post, job } = makePostWithJob('post-limbo', SocialNetwork.X, 'unknown');
+    mockPrisma.post.findMany.mockResolvedValue([post]);
+    mockQueue.getJob.mockResolvedValue(job);
+
+    const result = await ctx.service.runReconciliation();
+
+    expect(result.requeued).toBe(1);
+    expect(result.deduplicated).toBe(0);
+    expect(job.remove).toHaveBeenCalled();
+    expect(mockQueueService.enqueuePosting).toHaveBeenCalledWith('post-limbo', SocialNetwork.X);
+  });
+
+  // ── 5. Skips posts that are already POSTED ──
 
   it('B3-REC-009: only queries APPROVED posts — POSTED posts are never considered', async () => {
     mockPrisma.post.findMany.mockResolvedValue([]);
@@ -303,7 +361,7 @@ describe('B3: Reconciliation — runReconciliation()', () => {
     expect(mockQueueService.enqueuePosting).toHaveBeenCalledWith('post-noapproved', SocialNetwork.X);
   });
 
-  // ── 5. Handles empty orphan list ──
+  // ── 6. Handles empty orphan list ──
 
   it('B3-REC-012: returns zeroed result when no APPROVED posts exist', async () => {
     mockPrisma.post.findMany.mockResolvedValue([]);
@@ -327,7 +385,7 @@ describe('B3: Reconciliation — runReconciliation()', () => {
     expect(mockQueueService.enqueuePosting).not.toHaveBeenCalled();
   });
 
-  // ── 6. Logs reconciliation results ──
+  // ── 7. Logs reconciliation results ──
 
   it('B3-REC-014: logs start and completion summary with counts', async () => {
     const loggerSpy = vi.spyOn(ctx.service['logger'], 'log');
@@ -383,7 +441,7 @@ describe('B3: Reconciliation — runReconciliation()', () => {
     expect(dedupWarn[0]).toContain('post-dup-warn');
   });
 
-  // ── 7. Handles queue errors gracefully ──
+  // ── 8. Handles queue errors gracefully ──
 
   it('B3-REC-017: continues enqueuing other posts when one enqueue throws', async () => {
     const posts = [
@@ -474,7 +532,7 @@ describe('B3: Reconciliation — runReconciliation()', () => {
     expect(result.requeued).toBe(1); // only 'ok' succeeded
   });
 
-  // ── 8. Respects rate limits / batch behaviour ──
+  // ── 9. Respects rate limits / batch behaviour ──
 
   it('B3-REC-021: processes all orphaned posts in a single run (no artificial batch limit)', async () => {
     // The current implementation has no batch limit — it processes every

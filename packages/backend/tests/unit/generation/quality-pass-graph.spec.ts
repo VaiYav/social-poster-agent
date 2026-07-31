@@ -25,19 +25,23 @@ import { detectLanguage } from '../../../src/infrastructure/util/language-detect
 const CLEAN_DRAFT =
   'Saturn again. I spent forty minutes staring at my chart last night and the coffee started tasting like regret. Fine.';
 
-const JUDGE_HIGH = JSON.stringify({
+const JUDGE_HIGH_SCORE = {
   anti_ai_tone: 0.9, anti_ai_tone_reason: 'sounds human',
   hook_strength: 0.8, hook_strength_reason: 'stops the scroll',
   factual_accuracy: 0.9, factual_accuracy_reason: 'matches facts',
   character_limit: 1.0, character_limit_reason: 'within limit',
-});
+};
 
-const JUDGE_LOW = JSON.stringify({
+const JUDGE_LOW_SCORE = {
   anti_ai_tone: 0.2, anti_ai_tone_reason: 'sterile certainty, no personal voice',
   hook_strength: 0.4, hook_strength_reason: 'generic opener',
   factual_accuracy: 0.9, factual_accuracy_reason: 'ok',
   character_limit: 1.0, character_limit_reason: 'within limit',
-});
+};
+
+// Stage 2: the batched judge returns all network judgments in one JSON object.
+const JUDGE_HIGH = JSON.stringify({ judgments: [JUDGE_HIGH_SCORE] });
+const JUDGE_LOW = JSON.stringify({ judgments: [JUDGE_LOW_SCORE] });
 
 type RoleName = 'facts' | 'hook' | 'draft' | 'refine' | 'critique' | 'judge';
 
@@ -176,6 +180,7 @@ describe('Quality pass — generation graph', () => {
     });
     const compiled = buildGenerationGraph(llm, undefined, undefined, undefined, undefined, undefined, undefined, {
       judgeRefineThreshold: 0.6,
+      judgeHardFailThreshold: 0.1, // keep below JUDGE_LOW so the retry loop can be tested
     }).compile();
     const state = await compiled.invoke(
       createInitialState(createTopic(), [SocialNetwork.X], 'brand voice'),

@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { SocialNetwork } from '@prisma/client';
 import { ILlmPort } from '../../domain/ports/llm.port.js';
 import { LangfuseService } from '../../infrastructure/langfuse/langfuse.service.js';
+import { z } from 'zod';
 import { IPromptPort } from '../../domain/ports/prompt.port.js';
 import { combineSignals } from '../../infrastructure/util/abort-signal.js';
 import { ORCHESTRATOR_SYSTEM_PROMPT, buildOrchestratorUserPrompt } from './prompts/orchestrator-prompt.js';
@@ -20,11 +21,20 @@ const LLM_TIMEOUT_MS_DEFAULT = 30000;
 const VALID_ACTIONS: ActionType[] = [
   'GENERATE_TOPICS', 'GENERATE_POSTS', 'POST', 'BROWSE',
   'RECOVER_SESSION', 'CHECK_REPLIES', 'REFRESH_TRENDS',
-  'HEALTH_CHECK', 'RECONCILE', 'SCRAPE_METRICS',
+  'HEALTH_CHECK', 'RECONCILE', 'TRIAGE_QUEUE', 'SCRAPE_METRICS',
   'RECYCLE_CONTENT', 'AGGREGATE_HOOKS', 'WAIT',
 ];
 
 const NETWORK_ACTION_TYPES: ReadonlySet<string> = new Set(['POST', 'BROWSE', 'RECOVER_SESSION']);
+
+const LlmResponseSchema = z.object({
+  action: z.string(),
+  network: z.string().nullable().optional(),
+  reason: z.string().optional(),
+  params: z.record(z.unknown()).optional(),
+});
+
+type LlmResponseShape = z.infer<typeof LlmResponseSchema>;
 
 @Injectable()
 export class LlmDecisionService {
@@ -83,6 +93,7 @@ export class LlmDecisionService {
       maxTokens: 200,
       callbacks,
       signal: stopSignal,
+      budgetScope: 'orchestrator',
     });
 
     // 2.6.4: clear the timeout and suppress the LLM promise rejection when the
@@ -107,14 +118,23 @@ export class LlmDecisionService {
   }
 
   private parseLlmResponse(text: string): Action {
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    // Strip common markdown code fences so the JSON extractor doesn't fail
+    // when the model wraps its response in ```json ... ```.
+    const cleaned = text
+      .replace(/```(?:json)?\n?/gi, '')
+      .replace(/```\n?/g, '')
+      .trim();
+
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       throw new Error('No JSON in LLM response');
     }
 
-    const parsed = JSON.parse(jsonMatch[0]);
+    const parsedRaw = JSON.parse(jsonMatch[0]);
+    const parsed = LlmResponseSchema.parse(parsedRaw);
     const actionType = String(parsed.action).toUpperCase() as ActionType;
-    const networkRaw = parsed.network && parsed.network !== 'null' ? parsed.network : undefined;
+    const networkRaw =
+      parsed.network && parsed.network !== 'null' ? parsed.network : undefined;
     const reason = String(parsed.reason ?? 'LLM decision');
 
     if (!VALID_ACTIONS.includes(actionType)) {
@@ -139,6 +159,7 @@ export class LlmDecisionService {
         network: validNetwork as SocialNetwork,
         reason,
         source: 'llm',
+        params: parsed.params,
       };
     }
     return {
@@ -146,6 +167,7 @@ export class LlmDecisionService {
       network: networkRaw as SocialNetwork | undefined,
       reason,
       source: 'llm',
+      params: parsed.params,
     };
   }
 }

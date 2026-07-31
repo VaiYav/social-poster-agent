@@ -12,6 +12,7 @@ import { SHARED_REDIS } from '../redis/redis.module.js';
 import { parseBool } from '../config/parse-bool.js';
 import { InMemoryLlmCache, RedisLlmCache, type LlmCache } from './llm-cache.js';
 import { combineSignals, signalToPromise } from '../util/abort-signal.js';
+import { TokenBudgetService, TokenBudgetExceeded, type BudgetScope } from './token-budget.service.js';
 
 /**
  * Provider definition — each provider is tried in order until one succeeds.
@@ -269,6 +270,10 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
 interface LlmContext {
   callbacks: BaseCallbackHandler[];
   signal?: AbortSignal;
+  /** P0: ambient token/cost budget scope for all LLM calls in the context. */
+  budgetScope?: 'orchestrator' | 'generation';
+  /** P0: generation run ID for per-run budget tracking. */
+  budgetRunId?: string;
 }
 
 const llmContextStorage = new AsyncLocalStorage<LlmContext>();
@@ -359,6 +364,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
     private readonly configService: ConfigService,
     @Inject(SHARED_REDIS) @Optional() private readonly redis?: IORedis,
     @Optional() private readonly promptPort?: IPromptPort,
+    @Optional() private readonly tokenBudget?: TokenBudgetService,
   ) {
     this.cbThreshold = this.configService.get<number>('LLM_CB_THRESHOLD', 3);
     this.cbCooldownMs = this.configService.get<number>('LLM_CB_COOLDOWN_MS', 60_000);
@@ -860,9 +866,28 @@ export class LlmService implements ILlmPort, OnModuleInit {
         const maxAttempts = 2;
         let lastErr: unknown;
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          let reservedTokens = 0;
+          let reservedCost = 0;
           try {
             if (options?.signal?.aborted) {
               throw new Error('Abort');
+            }
+
+            // P0: token/cost budget — reserve an upper-bound estimate before the call.
+            if (this.tokenBudget && options?.budgetScope) {
+              const inputTokens = this.estimateTokens(systemPrompt + userPrompt);
+              const outputTokens = options?.maxTokens ?? 0;
+              reservedTokens = inputTokens + outputTokens;
+              reservedCost = this.estimateCost(provider.name, provider.model, inputTokens, outputTokens);
+              const { allowed } = await this.tokenBudget.reserve(
+                options.budgetScope,
+                options.budgetRunId,
+                reservedTokens,
+                reservedCost,
+              );
+              if (!allowed) {
+                throw new TokenBudgetExceeded(options.budgetScope, options.budgetRunId, 'pre-call reserve over budget');
+              }
             }
 
             const invokeConfig: { callbacks?: BaseCallbackHandler[]; signal?: AbortSignal } = {};
@@ -899,6 +924,16 @@ export class LlmService implements ILlmPort, OnModuleInit {
               cost: this.estimateCost(provider.name, provider.model, usage.input, usage.output),
             };
 
+            // P0: adjust the budget reservation to the actual usage.
+            if (this.tokenBudget && options?.budgetScope && reservedTokens > 0) {
+              await this.tokenBudget.charge(
+                options.budgetScope,
+                options.budgetRunId,
+                (llmResponse.tokens ?? 0) - reservedTokens,
+                (llmResponse.cost ?? 0) - reservedCost,
+              );
+            }
+
             if (options?.signal?.aborted) {
               throw new Error('Abort');
             }
@@ -910,6 +945,10 @@ export class LlmService implements ILlmPort, OnModuleInit {
 
             return llmResponse;
           } catch (err) {
+            // P0: release the budget reservation on any failure before trying next provider.
+            if (this.tokenBudget && options?.budgetScope && reservedTokens > 0) {
+              await this.tokenBudget.release(options.budgetScope, options.budgetRunId, reservedTokens, reservedCost);
+            }
             lastErr = err;
             // 2.6.4: if the caller aborted, stop retrying immediately and propagate
             if (options?.signal?.aborted) {
@@ -991,6 +1030,11 @@ export class LlmService implements ILlmPort, OnModuleInit {
   ): Promise<LlmResponse> {
     const alsContext = llmContextStorage.getStore();
     const effectiveSignal = combineSignals(options?.signal, alsContext?.signal);
+    const budgetScope = options?.budgetScope ?? alsContext?.budgetScope;
+    const budgetRunId = options?.budgetRunId ?? alsContext?.budgetRunId;
+    if (budgetScope) {
+      options = { ...options, budgetScope, budgetRunId };
+    }
 
     if (effectiveSignal?.aborted) {
       throw new Error('Abort');

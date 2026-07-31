@@ -12,7 +12,7 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
-import { SessionStatus, PostStatus, SocialNetwork, BrowsingSessionStatus } from '@prisma/client';
+import { SessionStatus, PostStatus, SocialNetwork, BrowsingSessionStatus, InteractionType, InteractionStatus } from '@prisma/client';
 import { RateLimitService } from '../rate-limit/rate-limit.service.js';
 import { FlowControlService } from '../flow-control/flow-control.service.js';
 import { AccountsService } from '../accounts/accounts.service';
@@ -93,9 +93,9 @@ export class StateCollectorService {
       postingWindows: {}, // Filled by PostingWindowService in Phase 2
       inPostingWindow: {},
       performance: performance ?? {},
-      engagement: engagement ?? { lastBrowseMs: {}, uncheckedReplies: 0, warmupPhase: {}, lastSessionStatus: {}, lastSessionInteractions: {} },
+      engagement: engagement ?? { lastBrowseMs: {}, uncheckedReplies: 0, warmupPhase: {}, lastSessionStatus: {}, lastSessionInteractions: {}, engagementDebt: 0, commentsTargetToday: 0, commentsActualToday: 0, likesTargetToday: 0, likesActualToday: 0, debt: 0 },
       health: health ?? { bans: 0, dlqDepth: 0, stuckPosting: 0, stuckBrowsingSessions: 0, orphanedPosts: 0, killSwitch: false },
-      flowControl: flowControl ?? { pauseAll: false, pauseGeneration: false, pausePosting: false, pauseEngagement: false, pauseReplies: false },
+      flowControl: flowControl ?? { pauseAll: false, pauseGeneration: false, pausePosting: false, pauseEngagement: false, pauseReplies: false, pauseLlmTriage: false, pauseAutoApprove: false },
       trends: trends ?? { lastRefreshMs: 0, count: 0 },
       _degraded: degraded,
       _collectedAt: Date.now(),
@@ -339,7 +339,58 @@ export class StateCollectorService {
       lastSessionInteractions[network] = interactions;
     }
 
-    return { lastBrowseMs, uncheckedReplies, warmupPhase, lastSessionStatus, lastSessionInteractions };
+    // Engagement-first guardrail: count active-account networks whose last browse
+    // is older than the 4h target cadence. A higher debt nudges the orchestrator
+    // toward BROWSE over content creation.
+    // Exclude networks with no account/session ('none') or unrecovered session ('unknown').
+    const fourHoursAgo = Date.now() - 4 * 60 * 60 * 1000;
+    const engagementDebt = Object.keys(lastBrowseMs).filter(
+      (network) =>
+        lastSessionStatus[network] !== 'none' &&
+        lastSessionStatus[network] !== 'unknown' &&
+        (lastBrowseMs[network] ?? 0) < fourHoursAgo,
+    ).length;
+
+    // P0: calendar-day engagement budget vs actuals.
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const [commentsActualToday, likesActualToday] = await Promise.all([
+      this.prisma.interaction.count({
+        where: {
+          type: InteractionType.COMMENT,
+          status: InteractionStatus.COMPLETED,
+          completedAt: { gte: startOfDay },
+        },
+      }).catch(() => 0),
+      this.prisma.interaction.count({
+        where: {
+          type: InteractionType.LIKE,
+          status: InteractionStatus.COMPLETED,
+          completedAt: { gte: startOfDay },
+        },
+      }).catch(() => 0),
+    ]);
+
+    const sessionsPerDay = Math.max(1, Number(this.configService.get<string>('F1_BROWSING_SESSIONS_PER_DAY', '5')));
+    const commentsPerSession = Math.max(0, Number(this.configService.get<string>('F1_COMMENTS_MAX_PER_DAY', '10')));
+    const likesPerSession = Math.max(0, Number(this.configService.get<string>('F1_LIKES_MAX_PER_DAY', '25')));
+    const commentsTargetToday = commentsPerSession * sessionsPerDay;
+    const likesTargetToday = likesPerSession * sessionsPerDay;
+    const debt = Math.max(0, commentsTargetToday - commentsActualToday);
+
+    return {
+      lastBrowseMs,
+      uncheckedReplies,
+      warmupPhase,
+      lastSessionStatus,
+      lastSessionInteractions,
+      engagementDebt,
+      commentsTargetToday,
+      commentsActualToday,
+      likesTargetToday,
+      likesActualToday,
+      debt,
+    };
   }
 
   private async collectHealth(networks: string[]): Promise<HealthState> {
@@ -436,6 +487,8 @@ export class StateCollectorService {
       pausePosting: status.flows?.posting ?? false,
       pauseEngagement: status.flows?.engagement ?? false,
       pauseReplies: status.flows?.replies ?? false,
+      pauseLlmTriage: status.flows?.['llm_triage'] ?? false,
+      pauseAutoApprove: status.flows?.['auto_approve'] ?? false,
     };
   }
 

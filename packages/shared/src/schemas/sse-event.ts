@@ -159,7 +159,7 @@ export const SseOrchestratorCycleEndEventSchema = z.object({
 export const SseFlowControlEventSchema = z.object({
   type: z.literal('flow_control'),
   action: z.enum(['paused', 'resumed', 'pause_all', 'resume_all']),
-  flow: z.enum(['generation', 'posting', 'engagement', 'replies']).optional(),
+  flow: z.enum(['generation', 'posting', 'engagement', 'replies', 'llm_triage', 'auto_approve']).optional(),
   reason: z.string().nullable().optional(),
   timestamp: z.string().optional(),
 });

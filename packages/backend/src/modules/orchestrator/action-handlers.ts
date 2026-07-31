@@ -10,11 +10,13 @@ import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ModuleRef } from '@nestjs/core';
 import { PostStatus, SocialNetwork, GenerationTrigger } from '@prisma/client';
+import type { JudgeScores } from '@spa/shared';
 import { RateLimitService } from '../rate-limit/rate-limit.service.js';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { parseBool } from '../../infrastructure/config/parse-bool.js';
 import { GenerationService } from '../generation/generation.service.js';
 import { QueueService } from '../queue/queue.service.js';
+import { QueueTriageService } from '../queue/queue-triage.service.js';
 import { SessionsService } from '../sessions/sessions.service.js';
 import { AccountsService } from '../accounts/accounts.service.js';
 import { HealthMonitorService } from '../health-monitor/health-monitor.service.js';
@@ -27,6 +29,18 @@ import { TopicGenerationService } from '../../infrastructure/content/topic-gener
 import { IBrowsingSessionPort, IRepliesMonitorPort } from './ports.js';
 import type { IActionHandler } from './action-handler.interface.js';
 import type { Action } from './types.js';
+
+/** Type guard for judgeScores stored in Post.llmMetadata (JSON). */
+function isJudgeScores(value: unknown): value is JudgeScores {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.anti_ai_tone === 'number' &&
+    typeof v.factual_accuracy === 'number' &&
+    typeof v.hook_strength === 'number' &&
+    typeof v.character_limit === 'number'
+  );
+}
 
 // ── Shared base ────────────────────────────────────────────────────────────
 
@@ -158,7 +172,8 @@ export class GeneratePostsHandler implements IActionHandler {
               ? (post.llmMetadata as Record<string, unknown>)
               : {};
             const qualityScore = typeof meta.qualityScore === 'number' ? meta.qualityScore : undefined;
-            const result = await autoApprove.evaluate(post.id, post.content, post.network, qualityScore);
+            const judgeScores = isJudgeScores(meta.judgeScores) ? meta.judgeScores : undefined;
+            const result = await autoApprove.evaluate(post.id, post.content, post.network, qualityScore, judgeScores);
             if (result.decision === 'AUTO_APPROVE') {
               postsApproved++;
             }
@@ -423,5 +438,47 @@ export class AggregateHooksHandler implements IActionHandler {
 
     await hookBank.aggregateStats();
     return { aggregated: true };
+  }
+}
+
+// ── TRIAGE_QUEUE ───────────────────────────────────────────────────────────
+
+@Injectable()
+export class TriageQueueHandler implements IActionHandler {
+  readonly actionType = 'TRIAGE_QUEUE';
+  private readonly logger = new Logger(TriageQueueHandler.name);
+
+  constructor(
+    private readonly queueTriageService: QueueTriageService,
+    private readonly configService: ConfigService,
+  ) {}
+
+  async execute(_action: Action, _options?: { signal?: AbortSignal }): Promise<Record<string, unknown>> {
+    const enabled = parseBool(this.configService.get<string>('LLM_QUEUE_TRIAGE_ENABLED', 'false'));
+    if (!enabled) {
+      return { triaged: false, reason: 'LLM_QUEUE_TRIAGE_ENABLED=false' };
+    }
+
+    try {
+      const results = await this.queueTriageService.triageAll();
+      const totals = results.reduce(
+        (acc, r) => ({
+          examined: acc.examined + r.examined,
+          retried: acc.retried + r.retried,
+          requeuedDelayed: acc.requeuedDelayed + r.requeuedDelayed,
+          rejected: acc.rejected + r.rejected,
+          escalated: acc.escalated + r.escalated,
+          skipped: acc.skipped + r.skipped,
+          errors: acc.errors + r.errors,
+        }),
+        { examined: 0, retried: 0, requeuedDelayed: 0, rejected: 0, escalated: 0, skipped: 0, errors: 0 },
+      );
+      this.logger.log(`TRIAGE_QUEUE: ${JSON.stringify(totals)}`);
+      return { triaged: true, results, totals };
+    } catch (err) {
+      const message = (err as Error).message;
+      this.logger.error(`TRIAGE_QUEUE failed: ${message}`);
+      return { triaged: false, reason: message };
+    }
   }
 }

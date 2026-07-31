@@ -6,6 +6,7 @@ import { PROMPT_FALLBACK_PROVIDERS } from '../../domain/ports/prompt.port.js'
 import { getErrorMessage } from '../common/error-utils.js'
 import { recordPromptLabel } from './prompt-label-context.js'
 import { interpolate, toMustache } from '../../domain/prompt-interpolation.js'
+import { createHash } from 'node:crypto'
 
 /**
  * PromptRegistry — facade for prompt management.
@@ -33,11 +34,21 @@ import { interpolate, toMustache } from '../../domain/prompt-interpolation.js'
  * The active version is sourced from the PROMPT_VERSION env var via
  * ConfigService, defaulting to 'latest'.
  */
+interface CacheEntry<T> {
+  value: T
+  expiresAt: number
+}
+
 @Injectable()
 export class PromptRegistry implements IPromptPort {
   private readonly logger = new Logger(PromptRegistry.name)
   private readonly currentVersion: string
   private readonly fallbackProviders: readonly IPromptFallbackProvider[]
+  // P0: compiled prompt cache. Caches final compiled prompts (from any source) keyed by
+  // name + resolved label + variable hash, with a 5-minute TTL. Avoids re-interpolating
+  // the same fallback prompt and re-compiling the same Langfuse prompt within a run.
+  private readonly cache = new Map<string, CacheEntry<CompiledChatPrompt | string>>()
+  private readonly cacheTtlMs: number
 
   constructor(
     private readonly configService: ConfigService,
@@ -46,6 +57,8 @@ export class PromptRegistry implements IPromptPort {
   ) {
     this.currentVersion = this.configService.get<string>('PROMPT_VERSION', 'latest') || 'latest'
     this.fallbackProviders = fallbackProviders ?? []
+    const rawTtl = Number(this.configService.get<string>('PROMPT_CACHE_TTL_MS', '300000'))
+    this.cacheTtlMs = Number.isFinite(rawTtl) && rawTtl > 0 ? rawTtl : 5 * 60 * 1000
   }
 
   /**
@@ -84,6 +97,14 @@ export class PromptRegistry implements IPromptPort {
   ): Promise<CompiledChatPrompt> {
     const resolvedLabel = this.resolveLabel(name, label)
 
+    // P0: check compiled prompt cache
+    const cacheKey = this.makeCacheKey(name, resolvedLabel, variables)
+    const cached = this.getCache<CompiledChatPrompt>(cacheKey)
+    if (cached) {
+      this.logger.debug(`Compiled prompt cache hit: ${name} (${resolvedLabel})`)
+      return cached
+    }
+
     // 1. Try Langfuse with SDK native fallback and label fallback chain
     if (this.langfuse) {
       const sdkFallback = fallback
@@ -106,12 +127,12 @@ export class PromptRegistry implements IPromptPort {
           if (systemMsg && userMsg) {
             const isFallback = result.isFallback
             recordPromptLabel(name, result.label, isFallback)
-            return {
+            return this.setCache(cacheKey, {
               systemPrompt: systemMsg.content,
               userPrompt: userMsg.content,
               label: result.label,
               isFallback,
-            }
+            })
           }
         } catch (err) {
           this.logger.warn(`Langfuse compile failed for "${name}" (label: ${result.label}): ${getErrorMessage(err)}`)
@@ -127,12 +148,12 @@ export class PromptRegistry implements IPromptPort {
           const fallbackLabel = result.label ?? resolvedLabel
           const isFallback = result.isFallback ?? true
           recordPromptLabel(name, fallbackLabel, isFallback)
-          return {
+          return this.setCache(cacheKey, {
             systemPrompt: result.systemPrompt,
             userPrompt: result.userPrompt,
             label: fallbackLabel,
             isFallback,
-          }
+          })
         }
       } catch (err) {
         this.logger.warn(`Fallback provider failed for "${name}": ${getErrorMessage(err)}`)
@@ -142,12 +163,12 @@ export class PromptRegistry implements IPromptPort {
     // 3. Use inline fallback with local interpolation
     if (fallback) {
       recordPromptLabel(name, resolvedLabel, true)
-      return {
+      return this.setCache(cacheKey, {
         systemPrompt: interpolate(fallback.systemPrompt, variables),
         userPrompt: interpolate(fallback.userPrompt, variables),
         label: resolvedLabel,
         isFallback: true,
-      }
+      })
     }
 
     this.logger.error(`Chat prompt "${name}" not found in Langfuse, fallback providers, or inline fallback`)
@@ -173,6 +194,14 @@ export class PromptRegistry implements IPromptPort {
   ): Promise<string> {
     const resolvedLabel = this.resolveLabel(name, label)
 
+    // P0: check compiled prompt cache
+    const cacheKey = this.makeCacheKey(name, resolvedLabel, variables)
+    const cached = this.getCache<string>(cacheKey)
+    if (cached) {
+      this.logger.debug(`Compiled prompt cache hit: ${name} (${resolvedLabel})`)
+      return cached
+    }
+
     // 1. Try Langfuse with SDK native fallback and label fallback chain
     if (this.langfuse) {
       const sdkFallback = fallback ? toMustache(fallback) : undefined
@@ -184,7 +213,7 @@ export class PromptRegistry implements IPromptPort {
             throw new Error(`Expected string from text prompt compile, got ${typeof compiled}`)
           }
           recordPromptLabel(name, result.label, result.isFallback)
-          return compiled
+          return this.setCache(cacheKey, compiled)
         } catch (err) {
           this.logger.warn(`Langfuse compile failed for "${name}" (label: ${result.label}): ${getErrorMessage(err)}`)
         }
@@ -197,7 +226,7 @@ export class PromptRegistry implements IPromptPort {
         const result = await provider.tryGetTextPrompt(name, variables)
         if (result !== null) {
           recordPromptLabel(name, resolvedLabel, true)
-          return result
+          return this.setCache(cacheKey, result)
         }
       } catch (err) {
         this.logger.warn(`Fallback provider failed for text prompt "${name}": ${getErrorMessage(err)}`)
@@ -207,7 +236,7 @@ export class PromptRegistry implements IPromptPort {
     // 3. Use inline fallback with local interpolation
     if (fallback) {
       recordPromptLabel(name, resolvedLabel, true)
-      return interpolate(fallback, variables)
+      return this.setCache(cacheKey, interpolate(fallback, variables))
     }
 
     this.logger.error(`Text prompt "${name}" not found in Langfuse, fallback providers, or inline fallback`)
@@ -231,6 +260,26 @@ export class PromptRegistry implements IPromptPort {
   private perPromptEnvKey(name: string): string {
     const normalized = name.replace(/[^a-zA-Z0-9]+/g, '_').toUpperCase()
     return `PROMPT_VERSION_${normalized}`
+  }
+
+  private makeCacheKey(name: string, label: string, variables: Record<string, string>): string {
+    const varHash = createHash('sha256').update(JSON.stringify(variables)).digest('hex')
+    return `${name}:${label}:${varHash}`
+  }
+
+  private getCache<T>(key: string): T | undefined {
+    const entry = this.cache.get(key)
+    if (!entry) return undefined
+    if (Date.now() >= entry.expiresAt) {
+      this.cache.delete(key)
+      return undefined
+    }
+    return entry.value as T
+  }
+
+  private setCache<T>(key: string, value: T): T {
+    this.cache.set(key, { value: value as CompiledChatPrompt | string, expiresAt: Date.now() + this.cacheTtlMs })
+    return value
   }
 
   /**

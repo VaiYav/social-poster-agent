@@ -79,9 +79,9 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
     // or event-loop-blocked worker. Using a 5-minute lock (instead of session+5 min) allows
     // BullMQ to requeue a stuck browsing session within minutes instead of ~20 min.
     this.engagementLockDurationMs = 5 * 60 * 1000;
-    // P1: Configurable retention — defaults match the previous hardcoded values.
+    // P1: Configurable retention — keep DLQ small to avoid Redis bloat.
     this.removeOnCompleteCount = this.parseIntEnv('BULLMQ_REMOVE_ON_COMPLETE', 100);
-    this.removeOnFailCount = this.parseIntEnv('BULLMQ_REMOVE_ON_FAIL', 500);
+    this.removeOnFailCount = this.parseIntEnv('BULLMQ_REMOVE_ON_FAIL', 100);
     // P1: Limit the BullMQ events stream per queue. Default 100 is enough for
     // debugging but far smaller than the BullMQ default of 10 000. Set to 0
     // to disable the events stream entirely (QueueEvents is not used in this app).
@@ -230,9 +230,16 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
         // Active/waiting/prioritized/delayed jobs are in-flight or scheduled — don't remove.
         const activeStates = isJobInFlight(state);
         if (!activeStates) {
-          this.logger.warn(
-            `Removing existing ${state} posting job for ${postId} → re-enqueuing fresh job`,
-          );
+          if (state === 'completed') {
+            this.logger.warn(
+              `Removing existing COMPLETED posting job for ${postId} → re-enqueuing fresh job. ` +
+                `Post.status may not have been updated; verify account timeline to avoid duplicates.`,
+            );
+          } else {
+            this.logger.warn(
+              `Removing existing ${state} posting job for ${postId} → re-enqueuing fresh job`,
+            );
+          }
           await existingJob.remove();
         } else {
           // Job is already scheduled/in-flight — skip re-enqueuing to avoid resetting the delay

@@ -18,6 +18,7 @@ import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import { ConfigService } from '@nestjs/config';
 import { SocialNetwork, PostStatus } from '@prisma/client';
+import type { JudgeScores } from '@spa/shared';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { SseService } from '../../infrastructure/sse/sse.service';
 import { FlowControlService } from '../flow-control/flow-control.service';
@@ -151,14 +152,16 @@ export class AutonomousRunnerService implements OnModuleInit {
           break;
         }
 
-        const metadata = post.llmMetadata as { qualityScore?: number } | null;
+        const metadata = post.llmMetadata as { qualityScore?: number; judgeScores?: JudgeScores } | null;
         const qualityScore = metadata?.qualityScore;
+        const judgeScores = metadata?.judgeScores;
 
         const approveResult = await this.autoApprove.evaluate(
           post.id,
           post.content,
           post.network,
           qualityScore,
+          judgeScores,
         );
 
         if (approveResult.decision === 'AUTO_APPROVE') {

@@ -73,6 +73,8 @@ export const EngagementState = Annotation.Root({
   source: Annotation<EngagementSource>,
   sourceUrl: Annotation<string>,
   sourceLabel: Annotation<string>,
+  // P0: conversation-ready targeting — true when the account has unreplied comments
+  conversationReady: Annotation<boolean>,
   // Scroll results — set by scroll_feed node
   postUrls: Annotation<string[]>,
   // Processing — accumulated by decide_per_post node
@@ -185,7 +187,7 @@ function makePickSourceNode(targetingService: TargetingService) {
   return function pickSourceNode(
     state: EngagementStateType,
   ): Partial<EngagementStateType> {
-    const target = targetingService.pickSource(state.network);
+    const target = targetingService.pickSource(state.network, { conversationReady: state.conversationReady });
     logger.debug(`pick_source: ${target.label} for ${state.network}`);
 
     return {
@@ -427,6 +429,7 @@ export function createEngagementInitialState(opts: {
   commentsMaxPerSession: number;
   repostsMaxPerSession: number;
   quotesMaxPerSession: number;
+  conversationReady?: boolean;
   page: Page | null;
 }): EngagementStateWithPageType {
   return {
@@ -449,6 +452,7 @@ export function createEngagementInitialState(opts: {
     source: 'home-feed',
     sourceUrl: '',
     sourceLabel: '',
+    conversationReady: opts.conversationReady ?? false,
     postUrls: [],
     results: [],
     likesThisSession: 0,

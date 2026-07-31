@@ -35,6 +35,12 @@ export interface GenerateOptions {
    * Passed to LangChain's model.invoke() so the underlying HTTP request is aborted.
    */
   signal?: AbortSignal;
+  /**
+   * P0: token/cost budget scope. 'orchestrator' is hourly; 'generation' is per-run.
+   */
+  budgetScope?: 'orchestrator' | 'generation';
+  /** P0: generation run ID for per-run budget tracking. */
+  budgetRunId?: string;
 }
 
 export interface LlmResponse {

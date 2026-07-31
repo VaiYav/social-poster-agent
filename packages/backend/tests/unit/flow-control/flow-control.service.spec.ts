@@ -45,7 +45,7 @@ describe('MOD-FC: FlowControlService', () => {
   });
 
   it('FC-004: getStatus uses a single MGET for all keys', async () => {
-    redis.mget.mockResolvedValue(['1', null, '1', null, null]);
+    redis.mget.mockResolvedValue(['1', null, '1', null, null, null, null]);
 
     const status = await service.getStatus();
 
@@ -56,6 +56,8 @@ describe('MOD-FC: FlowControlService', () => {
       'flow:pause_posting',
       'flow:pause_engagement',
       'flow:pause_replies',
+      'flow:pause_llm_triage',
+      'flow:pause_auto_approve',
     ]);
     expect(status.pauseAll).toBe(true);
     expect(status.flows).toEqual({
@@ -63,11 +65,13 @@ describe('MOD-FC: FlowControlService', () => {
       posting: true,
       engagement: true,
       replies: true,
+      llm_triage: true,
+      auto_approve: true,
     });
   });
 
   it('FC-005: getStatus computes per-flow pause correctly when pause_all is unset', async () => {
-    redis.mget.mockResolvedValue([null, null, '1', null, '1']);
+    redis.mget.mockResolvedValue([null, null, '1', null, '1', null, null]);
 
     const status = await service.getStatus();
 
@@ -77,6 +81,8 @@ describe('MOD-FC: FlowControlService', () => {
       posting: true,
       engagement: false,
       replies: true,
+      llm_triage: false,
+      auto_approve: false,
     });
   });
 
@@ -115,11 +121,39 @@ describe('MOD-FC: FlowControlService', () => {
     });
   });
 
+  it('FC-PAUSE-001: pauses and resumes llm_triage flow', async () => {
+    await service.pause('llm_triage', 'queue triage on fire');
+    expect(redis.set).toHaveBeenCalledWith('flow:pause_llm_triage', '1');
+    expect(sse.publish).toHaveBeenCalledWith({
+      type: 'flow_control',
+      action: 'paused',
+      flow: 'llm_triage',
+      reason: 'queue triage on fire',
+    });
+
+    await service.resume('llm_triage');
+    expect(redis.del).toHaveBeenCalledWith('flow:pause_llm_triage');
+  });
+
+  it('FC-PAUSE-002: pauses and resumes auto_approve flow', async () => {
+    await service.pause('auto_approve', 'judge drift');
+    expect(redis.set).toHaveBeenCalledWith('flow:pause_auto_approve', '1');
+    expect(sse.publish).toHaveBeenCalledWith({
+      type: 'flow_control',
+      action: 'paused',
+      flow: 'auto_approve',
+      reason: 'judge drift',
+    });
+
+    await service.resume('auto_approve');
+    expect(redis.del).toHaveBeenCalledWith('flow:pause_auto_approve');
+  });
+
   it('FC-009: resumeAll deletes all pause flags and publishes SSE', async () => {
     await service.resumeAll();
 
     expect(redis.del).toHaveBeenCalledWith('flow:pause_all');
-    for (const flow of ['generation', 'posting', 'engagement', 'replies'] as FlowName[]) {
+    for (const flow of ['generation', 'posting', 'engagement', 'replies', 'llm_triage', 'auto_approve'] as FlowName[]) {
       expect(redis.del).toHaveBeenCalledWith(`flow:pause_${flow}`);
     }
     expect(sse.publish).toHaveBeenCalledWith({

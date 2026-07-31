@@ -24,6 +24,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { ModuleRef } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { PostStatus, SocialNetwork } from '@prisma/client';
+import type { JudgeScores } from '@spa/shared';
 import { IPostingQueuePort } from '../../domain/ports/posting-queue.port.js';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { PostEvents } from '../../events/enums/post-events.enum';
@@ -70,7 +71,9 @@ export class AutoApproveListener {
       }
       if (post.status !== PostStatus.DRAFT) return; // already handled by another path
 
-      const score = (post.llmMetadata as { qualityScore?: number } | null)?.qualityScore;
+      const meta = (post.llmMetadata as { qualityScore?: number; judgeScores?: JudgeScores } | null) ?? {};
+      const score = meta.qualityScore;
+      const judgeScores = meta.judgeScores;
 
       // AU1: single gate — delegate to AutoApproveService.evaluate(), which runs the
       // full AutoCheck (engagement-bait, char-limit, forbidden phrases, SimHash) +
@@ -84,7 +87,7 @@ export class AutoApproveListener {
         return;
       }
 
-      const result = await autoApprove.evaluate(payload.postId, post.content, post.network, score);
+      const result = await autoApprove.evaluate(payload.postId, post.content, post.network, score, judgeScores);
 
       if (result.decision === 'AUTO_APPROVE') {
         // Enqueue to BullMQ posting queue — same lazy resolution as PostsController

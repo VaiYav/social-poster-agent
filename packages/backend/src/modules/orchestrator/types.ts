@@ -60,6 +60,15 @@ export interface EngagementState {
   warmupPhase: Record<string, string>;
   lastSessionStatus: Record<string, string>;
   lastSessionInteractions: Record<string, number>;
+  /** Number of outstanding engagement sessions that should have run but didn't (per target cadence). */
+  engagementDebt: number;
+  /** P0: daily engagement budget vs actual for the current calendar day. */
+  commentsTargetToday: number;
+  commentsActualToday: number;
+  likesTargetToday: number;
+  likesActualToday: number;
+  /** Outstanding comments/likes still needed to hit today's target. */
+  debt: number;
 }
 
 export interface HealthState {
@@ -77,6 +86,9 @@ export interface FlowControlState {
   pausePosting: boolean;
   pauseEngagement: boolean;
   pauseReplies: boolean;
+  /** P1: kill-switches for LLM-in-the-loop triage and auto-approve. */
+  pauseLlmTriage: boolean;
+  pauseAutoApprove: boolean;
 }
 
 export interface TrendState {
@@ -135,6 +147,7 @@ export type ActionType =
   | 'REFRESH_TRENDS'
   | 'HEALTH_CHECK'
   | 'RECONCILE'
+  | 'TRIAGE_QUEUE'
   | 'SCRAPE_METRICS'
   | 'RECYCLE_CONTENT'
   | 'AGGREGATE_HOOKS'

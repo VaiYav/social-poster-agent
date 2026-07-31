@@ -22,10 +22,12 @@ import {
   ENGAGEMENT_BATCH_DECISION_PROMPT,
   ENGAGEMENT_COMMENT_PROMPT,
   ENGAGEMENT_QUOTE_PROMPT,
+  COMMENT_JUDGE_PROMPT,
   parseDecisionResponse,
   parseBatchDecisionResponse,
   parseCommentResponse,
   parseQuoteResponse,
+  parseCommentJudgeResponse,
 } from '../../infrastructure/llm/prompts/v0.4.0/engagement-decision.js';
 import { interpolate } from '../../domain/prompt-interpolation.js';
 import { sanitizeUntrustedInput } from '../../infrastructure/llm/sanitize-untrusted-input.js';
@@ -37,6 +39,7 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
   private readonly logger = new Logger(EngagementDecisionService.name);
   private readonly commentTemperature: number;
   private readonly quoteTemperature: number;
+  private readonly commentJudgeMinScore: number;
 
   constructor(
     @Inject(ILlmPort) @Optional() private readonly llm: ILlmPort,
@@ -45,6 +48,8 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
   ) {
     this.commentTemperature = Number(this.configService.get('ENGAGEMENT_COMMENT_TEMPERATURE', 0.8));
     this.quoteTemperature = Number(this.configService.get('ENGAGEMENT_QUOTE_TEMPERATURE', 0.8));
+    const rawMin = Number(this.configService.get('COMMENT_JUDGE_MIN_SCORE', '0.6'));
+    this.commentJudgeMinScore = Number.isFinite(rawMin) && rawMin >= 0 && rawMin <= 1 ? rawMin : 0.6;
   }
 
   /**
@@ -82,7 +87,7 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       const response = await this.llm.generateChat(
         compiled.systemPrompt,
         compiled.userPrompt,
-        { temperature: 0.3, maxTokens: 200 },
+        { temperature: 0.3, maxTokens: 120 },
       );
 
       const decision = parseDecisionResponse(response.content);
@@ -168,7 +173,7 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       const response = await this.llm.generateChat(
         compiled.systemPrompt,
         compiled.userPrompt,
-        { temperature: 0.3, maxTokens: 200 * contexts.length },
+        { temperature: 0.3, maxTokens: 120 * contexts.length },
       );
 
       const decisions = parseBatchDecisionResponse(response.content, contexts.length);
@@ -237,7 +242,7 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       const response = await this.llm.generateChat(
         compiled.systemPrompt,
         compiled.userPrompt,
-        { temperature: this.commentTemperature, maxTokens: 150 },
+        { temperature: this.commentTemperature, maxTokens: 120 },
       );
 
       const { language, comment } = parseCommentResponse(response.content);
@@ -283,7 +288,7 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       const response = await this.llm.generateChat(
         compiled.systemPrompt,
         compiled.userPrompt,
-        { temperature: this.quoteTemperature, maxTokens: 150 },
+        { temperature: this.quoteTemperature, maxTokens: 120 },
       );
 
       const { language, quote } = parseQuoteResponse(response.content);
@@ -299,6 +304,47 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
     } catch (err) {
       this.logger.warn(`LLM quote generation failed, returning null: ${(err as Error).message.slice(0, 100)}`);
       return null;
+    }
+  }
+
+  /**
+   * P0: Judge a generated comment before it is published.
+   * Returns approved=true only when the comment is relevant, human-sounding,
+   * safe (no spam/self-promo), and language-matched. Uses a score threshold
+   * from COMMENT_JUDGE_MIN_SCORE env (default 0.6).
+   */
+  async judgeComment(context: PostContext, commentText: string): Promise<{ approved: boolean; reason: string; score: number }> {
+    if (!this.llm) {
+      this.logger.warn('No LLM configured — comment judge rejects by default');
+      return { approved: false, reason: 'No LLM configured for comment judge', score: 0 };
+    }
+
+    try {
+      const detectedLanguage = detectLanguage(context.postText);
+      const compiled = await this.getCompiledChat(
+        'comment-judge',
+        {
+          network: context.network,
+          postText: sanitizeUntrustedInput(context.postText, 500),
+          detectedLanguage,
+          commentText: sanitizeUntrustedInput(commentText, 500),
+        },
+        COMMENT_JUDGE_PROMPT,
+      );
+
+      const response = await this.llm.generateChat(
+        compiled.systemPrompt,
+        compiled.userPrompt,
+        { temperature: 0.3, maxTokens: 120 },
+      );
+
+      const judged = parseCommentJudgeResponse(response.content);
+      const approved = judged.approved && judged.score >= this.commentJudgeMinScore;
+      this.logger.debug(`Comment judge: approved=${approved}, score=${judged.score.toFixed(2)}, reason=${judged.reason}`);
+      return { approved, reason: judged.reason, score: judged.score };
+    } catch (err) {
+      this.logger.warn(`Comment judge failed, rejecting by default: ${(err as Error).message.slice(0, 100)}`);
+      return { approved: false, reason: 'Comment judge failed', score: 0 };
     }
   }
 

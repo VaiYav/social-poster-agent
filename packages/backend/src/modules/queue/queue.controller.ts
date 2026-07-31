@@ -2,17 +2,22 @@ import { Controller, Get, Post, Param, ParseEnumPipe, HttpCode, HttpStatus } fro
 import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { SocialNetwork } from '@prisma/client';
 import { QueueService } from './queue.service';
+import { QueueTriageService } from './queue-triage.service.js';
 
 /**
  * Queue controller — inspect BullMQ job state per network + pause/resume (F5).
  * Used by the UI Queue page to show pending/active/failed jobs and control flow.
  *
  * Sprint Q: Added aggregated GET /stats (all networks) and POST /:network/retry-failed.
+ * Sprint T: Added POST /triage and POST /:network/triage for LLM-in-the-loop queue triage.
  */
 @ApiTags('queue')
 @Controller('queue')
 export class QueueController {
-  constructor(private readonly queueService: QueueService) {}
+  constructor(
+    private readonly queueService: QueueService,
+    private readonly queueTriageService: QueueTriageService,
+  ) {}
 
   @Get('stats')
   @ApiOperation({ summary: 'Get aggregated BullMQ job counts for all networks (Sprint Q)' })
@@ -27,6 +32,33 @@ export class QueueController {
       }),
     );
     return results;
+  }
+
+  @Get('dashboard')
+  @ApiOperation({ summary: 'Queue dashboard: counts, failed samples, and triage summary (P2)' })
+  @ApiResponse({ status: 200, description: 'Aggregated queue dashboard' })
+  async getDashboard() {
+    const networks = [SocialNetwork.X, SocialNetwork.THREADS, SocialNetwork.FACEBOOK];
+    const perNetwork = await Promise.all(
+      networks.map(async (network) => {
+        const counts = await this.queueService.getJobCounts(network);
+        const paused = await this.queueService.isQueuePaused(network);
+        const failed = await this.queueService.getFailedJobs(network);
+        return {
+          network,
+          counts,
+          paused,
+          failed,
+        };
+      }),
+    );
+    const totalFailed = perNetwork.reduce((sum, n) => sum + (n.counts.failed ?? 0), 0);
+    const totalWaiting = perNetwork.reduce((sum, n) => sum + (n.counts.waiting ?? 0), 0);
+    return {
+      networks: perNetwork,
+      summary: { totalFailed, totalWaiting },
+      generatedAt: new Date().toISOString(),
+    };
   }
 
   @Get(':network/stats')
@@ -91,5 +123,24 @@ export class QueueController {
   async clearCompleted(@Param('network', new ParseEnumPipe(SocialNetwork)) network: SocialNetwork) {
     const cleared = await this.queueService.clearCompleted(network);
     return { cleared, network };
+  }
+
+  @Post('triage')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Run LLM triage on all enabled network queues (Sprint T)' })
+  @ApiResponse({ status: 200, description: 'Per-network triage results' })
+  async triageAll() {
+    const results = await this.queueTriageService.triageAll();
+    return { results };
+  }
+
+  @Post(':network/triage')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Run LLM triage on a single network queue (Sprint T)' })
+  @ApiParam({ name: 'network', enum: ['X', 'THREADS', 'FACEBOOK'] })
+  @ApiResponse({ status: 200, description: 'Triage result for the network' })
+  async triageNetwork(@Param('network', new ParseEnumPipe(SocialNetwork)) network: SocialNetwork) {
+    const result = await this.queueTriageService.triageNetwork(network);
+    return result;
   }
 }

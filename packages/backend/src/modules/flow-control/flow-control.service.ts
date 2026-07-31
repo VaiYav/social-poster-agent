@@ -18,13 +18,15 @@ import IORedis from 'ioredis';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
 import { SseService } from '../../infrastructure/sse/sse.service.js';
 
-export type FlowName = 'generation' | 'posting' | 'engagement' | 'replies';
+export type FlowName = 'generation' | 'posting' | 'engagement' | 'replies' | 'llm_triage' | 'auto_approve';
 
 const FLOW_KEYS: Record<FlowName, string> = {
   generation: 'flow:pause_generation',
   posting: 'flow:pause_posting',
   engagement: 'flow:pause_engagement',
   replies: 'flow:pause_replies',
+  llm_triage: 'flow:pause_llm_triage',
+  auto_approve: 'flow:pause_auto_approve',
 };
 
 const PAUSE_ALL_KEY = 'flow:pause_all';

@@ -27,6 +27,7 @@ import type { WorldState, Action } from './types.js';
 import { WAIT_ACTION } from './types.js';
 
 const ACTION_HISTORY_KEY = 'spa:orchestrator:action-history'; // Redis sorted set (score=timestamp)
+const LLM_DECISION_HISTORY_KEY = 'spa:orchestrator:llm-decision-history'; // Redis sorted set (score=timestamp)
 const ACTION_HISTORY_WINDOW_SEC = 3600; // 1 hour
 
 @Injectable()
@@ -34,6 +35,8 @@ export class DecisionEngineService {
   private readonly logger = new Logger(DecisionEngineService.name);
   private readonly llmEnabled: boolean;
   private readonly maxActionsPerHour: number;
+  private readonly llmFullLoopEnabled: boolean;
+  private readonly llmFullLoopMaxDecisionsPerHour: number;
 
   constructor(
     private readonly configService: ConfigService,
@@ -45,6 +48,8 @@ export class DecisionEngineService {
   ) {
     this.llmEnabled = parseBool(this.configService.get<string>('ORCHESTRATOR_LLM_ENABLED', 'true'));
     this.maxActionsPerHour = Number(this.configService.get<number>('ORCHESTRATOR_MAX_ACTIONS_PER_HOUR', 60));
+    this.llmFullLoopEnabled = parseBool(this.configService.get<string>('LLM_FULL_LOOP_ENABLED', 'false'));
+    this.llmFullLoopMaxDecisionsPerHour = Number(this.configService.get<number>('LLM_FULL_LOOP_MAX_DECISIONS_PER_HOUR', 60));
   }
 
   /**
@@ -63,12 +68,28 @@ export class DecisionEngineService {
     }
 
     // Phase 2: LLM or rules-only fallback
+    // P1: full LLM-in-the-loop mode forces LLM usage unless the hourly budget is exhausted.
     let action: Action;
-    if (this.llmEnabled) {
-      try {
-        action = await this.llmDecision.decide(world, signal);
-      } catch (err) {
-        this.logger.warn(`LLM decision failed, falling back to rules: ${(err as Error).message}`);
+    const useLlm = this.llmEnabled || this.llmFullLoopEnabled;
+    if (useLlm) {
+      const withinBudget = this.llmFullLoopEnabled
+        ? await this.isLlmDecisionWithinBudget()
+        : true; // legacy mode: no separate LLM budget
+      if (withinBudget) {
+        try {
+          action = await this.llmDecision.decide(world, signal);
+          // Record LLM decision usage only in full-LLM loop mode to enforce its budget.
+          if (this.llmFullLoopEnabled) {
+            void this.recordLlmDecision();
+          }
+        } catch (err) {
+          this.logger.warn(`LLM decision failed, falling back to rules: ${(err as Error).message}`);
+          action = this.rulesOnlyDecision(world);
+        }
+      } else {
+        this.logger.warn(
+          `Full-LLM loop budget exhausted (${await this.getLlmDecisionsThisHour()}/${this.llmFullLoopMaxDecisionsPerHour}) — using rules fallback`,
+        );
         action = this.rulesOnlyDecision(world);
       }
     } else {
@@ -164,8 +185,26 @@ export class DecisionEngineService {
       return WAIT_ACTION('Approved drafts waiting for healthy posting network', 120000, 'rules_fallback');
     }
 
-    // No approved drafts, topic pool sufficient → GENERATE_POSTS
+    // No approved drafts, topic pool sufficient
     if (world.topicPool.count >= world.topicPool.threshold && world.drafts.approved === 0) {
+      // Engagement-first: if networks are behind on browsing, browse before creating more content.
+      if (world.engagement.engagementDebt > 0) {
+        const fourHoursAgo = Date.now() - 4 * 60 * 60 * 1000;
+        const browseNet = networks.find(
+          (net) =>
+            world.sessions[net]?.status === 'ACTIVE' &&
+            (world.engagement.lastBrowseMs[net] ?? 0) < fourHoursAgo,
+        );
+        if (browseNet) {
+          return {
+            type: 'BROWSE',
+            network: browseNet,
+            reason: `Engagement-first: ${world.engagement.engagementDebt} network(s) need browsing, ${browseNet} is stale`,
+            source: 'rules_fallback',
+          };
+        }
+      }
+
       const genNet = networks.find((net) => {
         const rl = world.rateLimits[net];
         const dailyReady = rl ? (rl.dailyLimit > 0 ? rl.dailyRemaining > 0 : true) : false;
@@ -199,6 +238,15 @@ export class DecisionEngineService {
       return {
         type: 'CHECK_REPLIES',
         reason: `${world.engagement.uncheckedReplies} unchecked replies`,
+        source: 'rules_fallback',
+      };
+    }
+
+    // Failed jobs in DLQ → TRIAGE_QUEUE
+    if (world.health.dlqDepth > 0) {
+      return {
+        type: 'TRIAGE_QUEUE',
+        reason: `${world.health.dlqDepth} failed job(s) in posting DLQ`,
         source: 'rules_fallback',
       };
     }
@@ -266,5 +314,36 @@ export class DecisionEngineService {
 
   get maxActionsPerHourValue(): number {
     return this.maxActionsPerHour;
+  }
+
+  /**
+   * P1: Full LLM-in-the-loop budget helpers.
+   */
+  private async getLlmDecisionsThisHour(): Promise<number> {
+    try {
+      const now = Date.now();
+      const cutoff = now - ACTION_HISTORY_WINDOW_SEC * 1000;
+      await this.redis.zremrangebyscore(LLM_DECISION_HISTORY_KEY, '-inf', String(cutoff));
+      return await this.redis.zcount(LLM_DECISION_HISTORY_KEY, String(cutoff), String(now));
+    } catch {
+      return 0;
+    }
+  }
+
+  private async isLlmDecisionWithinBudget(): Promise<boolean> {
+    if (this.llmFullLoopMaxDecisionsPerHour <= 0) return true;
+    const count = await this.getLlmDecisionsThisHour();
+    return count < this.llmFullLoopMaxDecisionsPerHour;
+  }
+
+  private async recordLlmDecision(): Promise<void> {
+    try {
+      const now = Date.now();
+      const member = `${now}:llm`;
+      await this.redis.zadd(LLM_DECISION_HISTORY_KEY, String(now), member);
+      await this.redis.expire(LLM_DECISION_HISTORY_KEY, ACTION_HISTORY_WINDOW_SEC);
+    } catch {
+      // non-critical
+    }
   }
 }

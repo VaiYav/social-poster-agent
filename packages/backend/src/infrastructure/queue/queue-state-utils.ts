@@ -32,9 +32,19 @@ export function isJobInFlight(state: string): boolean {
 }
 
 /**
+ * Terminal BullMQ job states. A terminal job is not being processed and is
+ * not scheduled for future processing. These states may block re-enqueueing
+ * with the same jobId (especially 'unknown'/limbo).
+ *
+ * Note: 'paused' is a queue state, not a job state, so it is intentionally
+ * NOT listed here — an individual job in a paused queue is still 'waiting'.
+ */
+const TERMINAL_STATES = new Set(['completed', 'failed', 'unknown']);
+
+/**
  * Check if a BullMQ job state string indicates the job is in a terminal state
  * (completed, failed, or unknown/limbo).
  */
 export function isJobTerminal(state: string): boolean {
-  return !IN_FLIGHT_STATES.has(state);
+  return TERMINAL_STATES.has(state);
 }

@@ -7,6 +7,22 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { PostStatus, SocialNetwork, GenerationTrigger, Prisma } from '@prisma/client';
+import type { JudgeScores } from '@spa/shared';
+
+export interface JudgeScoreAverages {
+  antiAiTone: number | null;
+  hookStrength: number | null;
+  factualAccuracy: number | null;
+  characterLimit: number | null;
+  count: number;
+}
+
+export type JudgeDimension = 'antiAiTone' | 'hookStrength' | 'factualAccuracy' | 'characterLimit';
+
+export interface JudgeStats {
+  overall: JudgeScoreAverages;
+  byDecision: Record<string, JudgeScoreAverages>;
+}
 
 export interface AnalyticsSummary {
   totalPosts: number;
@@ -191,6 +207,7 @@ export class AnalyticsService {
       rejected: number;
       avgScore: number;
     };
+    judgeStats: JudgeStats;
   }> {
     const days = parseInt(range, 10) || 30;
     const startDate = new Date();
@@ -219,6 +236,16 @@ export class AnalyticsService {
     let posted = 0;
     let failed = 0;
     let rejected = 0;
+
+    const judgeOverallSums: Record<JudgeDimension, { sum: number; count: number }> = {
+      antiAiTone: { sum: 0, count: 0 },
+      hookStrength: { sum: 0, count: 0 },
+      factualAccuracy: { sum: 0, count: 0 },
+      characterLimit: { sum: 0, count: 0 },
+    };
+    const judgeByDecisionSums: Record<string, Record<JudgeDimension, { sum: number; count: number }>> = {};
+    let judgePostsCount = 0;
+    const judgeByDecisionPostsCount: Record<string, number> = {};
 
     let cursor: string | undefined;
     let hasMore = true;
@@ -274,6 +301,31 @@ export class AnalyticsService {
         if (qualityScore !== null) {
           qualityScoreSum += qualityScore;
           qualityScoreCount++;
+        }
+
+        const judgeScores = this.extractJudgeScores(meta);
+        if (judgeScores) {
+          judgePostsCount++;
+          const decisionKey = decision ?? 'UNKNOWN';
+          judgeByDecisionPostsCount[decisionKey] = (judgeByDecisionPostsCount[decisionKey] ?? 0) + 1;
+
+          const dimensions: JudgeDimension[] = ['antiAiTone', 'hookStrength', 'factualAccuracy', 'characterLimit'];
+          for (const dim of dimensions) {
+            const val = judgeScores[dim];
+            if (typeof val === 'number' && Number.isFinite(val)) {
+              judgeOverallSums[dim].sum += val;
+              judgeOverallSums[dim].count++;
+
+              const byDecision = (judgeByDecisionSums[decisionKey] ??= {
+                antiAiTone: { sum: 0, count: 0 },
+                hookStrength: { sum: 0, count: 0 },
+                factualAccuracy: { sum: 0, count: 0 },
+                characterLimit: { sum: 0, count: 0 },
+              });
+              byDecision[dim].sum += val;
+              byDecision[dim].count++;
+            }
+          }
         }
 
         const trigger = post.generationRun?.triggeredBy ?? 'UNKNOWN';
@@ -332,6 +384,24 @@ export class AnalyticsService {
 
     const successRate = totalPosts > 0 ? Math.round((posted / totalPosts) * 1000) / 10 : 0;
 
+    const makeJudgeAverages = (sums: Record<JudgeDimension, { sum: number; count: number }>, count: number): JudgeScoreAverages => ({
+      antiAiTone: sums.antiAiTone.count > 0 ? Math.round((sums.antiAiTone.sum / sums.antiAiTone.count) * 100) / 100 : null,
+      hookStrength: sums.hookStrength.count > 0 ? Math.round((sums.hookStrength.sum / sums.hookStrength.count) * 100) / 100 : null,
+      factualAccuracy: sums.factualAccuracy.count > 0 ? Math.round((sums.factualAccuracy.sum / sums.factualAccuracy.count) * 100) / 100 : null,
+      characterLimit: sums.characterLimit.count > 0 ? Math.round((sums.characterLimit.sum / sums.characterLimit.count) * 100) / 100 : null,
+      count,
+    });
+
+    const judgeStats: JudgeStats = {
+      overall: makeJudgeAverages(judgeOverallSums, judgePostsCount),
+      byDecision: Object.fromEntries(
+        Object.entries(judgeByDecisionSums).map(([decision, sums]) => [
+          decision,
+          makeJudgeAverages(sums, judgeByDecisionPostsCount[decision] ?? 0),
+        ]),
+      ),
+    };
+
     return {
       summary: {
         totalPosts,
@@ -357,6 +427,7 @@ export class AnalyticsService {
         rejected: rejectedCount,
         avgScore: autoApproveScoreCount > 0 ? Math.round((autoApproveScoreSum / autoApproveScoreCount) * 10) / 10 : 0,
       },
+      judgeStats,
     };
   }
 
@@ -373,10 +444,11 @@ export class AnalyticsService {
     avgQualityScore: number;
     qualityDistribution: { score: number; count: number }[];
     rejectReasons: { reason: string; count: number }[];
+    judgeStats: JudgeStats;
   }> {
     const totalGenerated = await this.prisma.post.count();
 
-    const [decisionRows, avgRows, distributionRows, reasonRows] = await Promise.all([
+    const [decisionRows, avgRows, distributionRows, reasonRows, judgeOverallRows, judgeByDecisionRows] = await Promise.all([
       this.prisma.$queryRaw<Array<{ autoApproved: number; rejected: number; humanReview: number }>>(
         Prisma.sql`
           SELECT
@@ -411,12 +483,74 @@ export class AnalyticsService {
           ORDER BY "count" DESC
         `,
       ),
+      this.prisma.$queryRaw<
+        Array<{
+          antiAiTone: number | null;
+          hookStrength: number | null;
+          factualAccuracy: number | null;
+          characterLimit: number | null;
+          count: number;
+        }>
+      >(
+        Prisma.sql`
+          SELECT
+            AVG(("llmMetadata"->'judgeScores'->>'anti_ai_tone')::numeric) as "antiAiTone",
+            AVG(("llmMetadata"->'judgeScores'->>'hook_strength')::numeric) as "hookStrength",
+            AVG(("llmMetadata"->'judgeScores'->>'factual_accuracy')::numeric) as "factualAccuracy",
+            AVG(("llmMetadata"->'judgeScores'->>'character_limit')::numeric) as "characterLimit",
+            COUNT(*)::int as "count"
+          FROM "Post"
+          WHERE "llmMetadata" ? 'judgeScores'
+        `,
+      ),
+      this.prisma.$queryRaw<
+        Array<{
+          decision: string;
+          antiAiTone: number | null;
+          hookStrength: number | null;
+          factualAccuracy: number | null;
+          characterLimit: number | null;
+          count: number;
+        }>
+      >(
+        Prisma.sql`
+          SELECT
+            COALESCE("llmMetadata"->>'autoApproveDecision', 'UNKNOWN') as "decision",
+            AVG(("llmMetadata"->'judgeScores'->>'anti_ai_tone')::numeric) as "antiAiTone",
+            AVG(("llmMetadata"->'judgeScores'->>'hook_strength')::numeric) as "hookStrength",
+            AVG(("llmMetadata"->'judgeScores'->>'factual_accuracy')::numeric) as "factualAccuracy",
+            AVG(("llmMetadata"->'judgeScores'->>'character_limit')::numeric) as "characterLimit",
+            COUNT(*)::int as "count"
+          FROM "Post"
+          WHERE "llmMetadata" ? 'judgeScores'
+          GROUP BY COALESCE("llmMetadata"->>'autoApproveDecision', 'UNKNOWN')
+        `,
+      ),
     ]);
 
     const decision = decisionRows[0] ?? { autoApproved: 0, rejected: 0, humanReview: 0 };
 
     const avgScore = avgRows[0]?.avgScore != null ? Number(avgRows[0].avgScore) : 0;
     const avgQualityScore = avgScore ? Math.round(avgScore * 10) / 10 : 0;
+
+    const judgeOverall = judgeOverallRows[0] ?? {
+      antiAiTone: null,
+      hookStrength: null,
+      factualAccuracy: null,
+      characterLimit: null,
+      count: 0,
+    };
+
+    const byDecision: Record<string, JudgeScoreAverages> = {};
+    for (const row of judgeByDecisionRows ?? []) {
+      byDecision[row.decision] = {
+        antiAiTone: row.antiAiTone ?? null,
+        hookStrength: row.hookStrength ?? null,
+        factualAccuracy: row.factualAccuracy ?? null,
+        characterLimit: row.characterLimit ?? null,
+        count: row.count,
+      };
+    }
 
     return {
       totalGenerated,
@@ -430,7 +564,42 @@ export class AnalyticsService {
       rejectReasons: (reasonRows ?? [])
         .map((row) => ({ reason: row.reason, count: row.count }))
         .sort((a, b) => b.count - a.count),
+      judgeStats: {
+        overall: {
+          antiAiTone: judgeOverall.antiAiTone ?? null,
+          hookStrength: judgeOverall.hookStrength ?? null,
+          factualAccuracy: judgeOverall.factualAccuracy ?? null,
+          characterLimit: judgeOverall.characterLimit ?? null,
+          count: judgeOverall.count,
+        },
+        byDecision,
+      },
     };
+  }
+
+  /**
+   * Extract numeric judge dimensions from Post.llmMetadata (JSON).
+   * Ignores string reason fields and non-numeric / missing values.
+   */
+  private extractJudgeScores(meta: Record<string, unknown>): Partial<Record<JudgeDimension, number>> | null {
+    const raw = meta?.judgeScores;
+    if (typeof raw !== 'object' || raw === null) return null;
+    const v = raw as Record<string, unknown>;
+
+    const scores: Partial<Record<keyof JudgeScoreAverages, number>> = {};
+    const dimensions: [keyof JudgeScoreAverages, string][] = [
+      ['antiAiTone', 'anti_ai_tone'],
+      ['hookStrength', 'hook_strength'],
+      ['factualAccuracy', 'factual_accuracy'],
+      ['characterLimit', 'character_limit'],
+    ];
+    for (const [key, jsonKey] of dimensions) {
+      const val = v[jsonKey];
+      if (typeof val === 'number' && Number.isFinite(val)) {
+        scores[key] = val;
+      }
+    }
+    return Object.keys(scores).length > 0 ? scores : null;
   }
 
   private buildDailyStats(days: number): { date: string; posted: number; failed: number }[] {

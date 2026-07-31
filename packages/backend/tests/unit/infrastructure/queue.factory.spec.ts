@@ -203,7 +203,7 @@ describe('QueueFactory (MOD-05 — Infrastructure Adapters)', () => {
     const addArgs = mocks.queueAdd.mock.calls[0]!;
     const opts = addArgs[2];
     expect(opts.removeOnComplete).toEqual({ count: 100 });
-    expect(opts.removeOnFail).toEqual({ count: 500 });
+    expect(opts.removeOnFail).toEqual({ count: 100 });
   });
 
   it('enqueuePosting() removes existing completed job before re-enqueuing', async () => {
