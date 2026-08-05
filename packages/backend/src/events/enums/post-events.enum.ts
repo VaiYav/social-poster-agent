@@ -9,6 +9,7 @@ export enum PostEvents {
   APPROVED = 'post.approved',
   POSTING_STARTED = 'post.posting_started',
   POSTED = 'post.posted',
+  VERIFIED = 'post.post_verified',
   FAILED = 'post.failed',
   REJECTED = 'post.rejected',
 }

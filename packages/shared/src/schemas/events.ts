@@ -30,6 +30,12 @@ export const PostPostedEventSchema = z.object({
   postUrl: z.string().optional(),
 });
 
+export const PostVerifiedEventSchema = z.object({
+  postId: z.string(),
+  network: z.string(),
+  postUrl: z.string().optional(),
+});
+
 export const PostFailedEventSchema = z.object({
   postId: z.string(),
   network: z.string(),
@@ -116,6 +122,7 @@ export type PostApprovedEvent = z.infer<typeof PostApprovedEventSchema>;
 export type PostRejectedEvent = z.infer<typeof PostRejectedEventSchema>;
 export type PostingStartedEvent = z.infer<typeof PostingStartedEventSchema>;
 export type PostPostedEvent = z.infer<typeof PostPostedEventSchema>;
+export type PostVerifiedEvent = z.infer<typeof PostVerifiedEventSchema>;
 export type PostFailedEvent = z.infer<typeof PostFailedEventSchema>;
 
 export type GenerationRunStartedEvent = z.infer<typeof GenerationRunStartedEventSchema>;

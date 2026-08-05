@@ -16,11 +16,15 @@ import { ThreadProgressService } from './thread-progress.service';
 import { XPoster } from './posters/x.poster';
 import { ThreadsPoster } from './posters/threads.poster';
 import { FacebookPoster } from './posters/facebook.poster';
+import { BlueskyPoster } from './posters/bluesky.poster.js';
+import { MastodonPoster } from './posters/mastodon.poster.js';
+import { LinkedinSocialPoster } from './posters/linkedin-social.poster.js';
+import { TelegramModule } from '../../infrastructure/telegram/telegram.module.js';
 
 @Module({
-  imports: [BrowserModule, CryptoModule, AccountsModule, SessionsModule, WarmupModule, PostsModule, RateLimitModule, PrismaModule, QueueInfraModule, FlowControlModule, ContentEnhancementsModule],
-  providers: [PostingService, ThreadProgressService, XPoster, ThreadsPoster, FacebookPoster],
+  imports: [BrowserModule, CryptoModule, AccountsModule, SessionsModule, WarmupModule, PostsModule, RateLimitModule, PrismaModule, QueueInfraModule, FlowControlModule, ContentEnhancementsModule, TelegramModule],
+  providers: [PostingService, ThreadProgressService, XPoster, ThreadsPoster, FacebookPoster, BlueskyPoster, MastodonPoster, LinkedinSocialPoster],
   controllers: [PostingController],
-  exports: [PostingService, ThreadProgressService],
+  exports: [PostingService, ThreadProgressService, BlueskyPoster, MastodonPoster, LinkedinSocialPoster],
 })
 export class PostingModule {}

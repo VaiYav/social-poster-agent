@@ -177,6 +177,10 @@ const NETWORK_LENGTH_GUIDANCE: Partial<Record<SocialNetwork, string>> = {
   [SocialNetwork.X]: 'Max 280 characters. One idea. If it needs two ideas, cut one.',
   [SocialNetwork.THREADS]: 'Target 150-280 characters (short posts outperform essays on Threads). Hard cap 500.',
   [SocialNetwork.FACEBOOK]: 'Target 200-400 characters. Hard cap 500.',
+  [SocialNetwork.BLUESKY]: 'Max 300 characters. One strong take or observation. No hashtags — Bluesky uses alt text and real words for discovery.',
+  [SocialNetwork.MASTODON]: 'Max 500 characters. Slightly more room than X, but still one focused thought. No hashtags — Mastodon search is not hashtag-driven.',
+  [SocialNetwork.TELEGRAM]: 'Hard cap 4096, but this is a promo post — keep it short (≤500 characters). One clear point, no engagement-bait questions.',
+  [SocialNetwork.LINKEDIN]: 'Target 1000-1500 characters. Lead with a specific insight or story, then a short takeaway. Conversational professional, not corporate jargon.',
 };
 
 /**
@@ -202,8 +206,9 @@ function maxTokensForRole(role: 'facts' | 'hook' | 'critique' | 'judge' | 'draft
       return 700;
     case 'draft':
     case 'refine':
-      if (network === SocialNetwork.X) return 200;
-      if (network === SocialNetwork.THREADS || network === SocialNetwork.FACEBOOK) return 350;
+      if (network === SocialNetwork.X || network === SocialNetwork.BLUESKY) return 200;
+      if (network === SocialNetwork.THREADS || network === SocialNetwork.FACEBOOK || network === SocialNetwork.MASTODON || network === SocialNetwork.TELEGRAM) return 350;
+      if (network === SocialNetwork.LINKEDIN) return 500;
       return 350;
     default:
       return 350;
@@ -248,12 +253,20 @@ const NETWORK_TONE: Partial<Record<SocialNetwork, string>> = {
   [SocialNetwork.X]: 'Punchy, hook-first, confident. One idea per post. Can be sarcastic, bold, or deadpan. NO hashtags — X algorithm deprioritizes them and 3+ triggers spam filters. No filler.',
   [SocialNetwork.THREADS]: 'Narrative, storytelling, personal. Like texting a friend about something you noticed. Can be vulnerable, funny, or reflective. NO hashtags — Threads doesn\'t use hashtags for discovery.',
   [SocialNetwork.FACEBOOK]: 'Conversational, community-oriented. Relatable, warm, but not corny. End with a genuine question (not engagement bait). NO hashtags — Facebook algorithm treats them as spam signals.',
+  [SocialNetwork.BLUESKY]: 'Conversational, a little unpolished, text-first. Think "smart friend at the coffee shop" — opinions, observations, weird specifics. NO hashtags. No engagement bait.',
+  [SocialNetwork.MASTODON]: 'Warm, community-minded, slightly old-internet. Sincere takes and gentle humor land better than hustle culture. NO hashtags. No engagement bait.',
+  [SocialNetwork.TELEGRAM]: 'Direct and useful, like a channel update worth forwarding. One clear point, friendly but not salesy. NO hashtags. No "tap the link below" CTAs.',
+  [SocialNetwork.LINKEDIN]: 'Conversational professional — specific, not self-congratulatory. Share a real insight or small story, then a short takeaway. NO hashtags. No engagement-bait questions.',
 };
 
 const NETWORK_ANGLE: Partial<Record<SocialNetwork, string>> = {
   [SocialNetwork.X]: 'bold take or counter-intuitive observation — max impact in 280 chars, make someone stop mid-scroll',
   [SocialNetwork.THREADS]: 'personal story or reflective observation — "I noticed something about..." energy, warmer, more context',
   [SocialNetwork.FACEBOOK]: 'relatable + discussion-starter — everyday life angle, "has anyone else noticed..." energy, invite genuine discussion',
+  [SocialNetwork.BLUESKY]: 'sharp, slightly irreverent take or observation — the kind of post you\'d quote-skeet, not thread about',
+  [SocialNetwork.MASTODON]: 'sincere, community-rooted take — a small insight or observation you\'d share with people who actually know you',
+  [SocialNetwork.TELEGRAM]: 'single useful promo angle — what changed, why it matters, and where to read more, in one breath',
+  [SocialNetwork.LINKEDIN]: 'professional mini-story or counter-narrative — a specific thing you learned, how it changed your thinking, and a concise takeaway',
 };
 
 /**
@@ -285,6 +298,34 @@ const NETWORK_PERSONA: Partial<Record<SocialNetwork, string>> = {
 - Sentence rhythm: clear, natural, can ramble a bit. Ends with something genuine, not a CTA.
 - What they'd never do: write "Comment below if you agree!" or use 5 emojis in a row
 - What they'd do: share a specific story about their week and how it connected to a transit, then stop without a neat conclusion`,
+  [SocialNetwork.BLUESKY]: `BLUESKY PERSONA — "the person at the small party who actually knows what they're talking about and is not selling anything":
+- Voice: conversational, irreverent, text-first. Likes weird specifics and mild contrarianism. Not a guru.
+- Energy: low-key smart. Less hustle, more "huh, that's interesting." Can be funny but never performance-funny.
+- References: pop-culture observations, "has anyone noticed...", small grumbles about bad takes, the kind of post you'd quote-skeet
+- Sentence rhythm: short to medium, one or two sentences. Fragments are fine. No final-sentence wrap-ups.
+- What they'd never do: use hashtags, write a thread opener, or ask "what do you think?"
+- What they'd do: drop a sharp observation and let the timeline do the rest`,
+  [SocialNetwork.MASTODON]: `MASTODON PERSONA — "your friend from the old internet who is kind, skeptical of platforms, and genuinely curious":
+- Voice: warm, sincere, community-minded. Dislikes hustle culture and AI-slop. Willing to be wrong.
+- Energy: gentle but not boring. Loves a niche observation. Does not perform enthusiasm.
+- References: "I just realized...", small community notes, "has anyone else...", things you'd share in a friend's mentions
+- Sentence rhythm: conversational, can be a little longer than X but still focused. Run-ons only when they feel like speech.
+- What they'd never do: use hashtags, post engagement-bait polls, or end with "boosts appreciated"
+- What they'd do: share a small sincere take and sign off naturally`,
+  [SocialNetwork.TELEGRAM]: `TELEGRAM PERSONA — "a sharp channel admin who respects your time and only pings you when it's worth it":
+- Voice: direct, useful, slightly informal. Not corporate. Not breathless.
+- Energy: one clear point. Feels like a note you'd forward to a colleague. No hype.
+- References: "just published", "here's what changed", "worth reading if you're into...", concise context + one link worth clicking
+- Sentence rhythm: 2-3 short paragraphs max. Lead with the point, then the why. No filler.
+- What they'd never do: ask for reactions, use hashtags, or write "tap below"
+- What they'd do: give you one reason to care, then stop`,
+  [SocialNetwork.LINKEDIN]: `LINKEDIN PERSONA — "the colleague who actually learns in public, not the one who posts hustle quotes":
+- Voice: conversational professional. Specific, humble, and slightly self-aware about LinkedIn culture.
+- Energy: thoughtful, not performatively grateful. Shares a real thing that happened or a real thing they changed their mind about.
+- References: "I used to think...", "what surprised me was...", a small project outcome, a counter-intuitive lesson from the work
+- Sentence rhythm: 2-3 short paragraphs. Story up front, insight in the middle, no big conclusion.
+- What they'd never do: use hashtags, ask "agree?", or write "I'm humbled to announce"
+- What they'd do: share one specific learning and stop before it turns into a sermon`,
 };
 
 // ============================================================
@@ -1216,10 +1257,13 @@ export type ProgressPublisher = (event: {
  *
  * Flow:
  *   START → research_extract → hook_generation → angle_per_network
- *     → [draft_x || draft_threads || draft_facebook]  (parallel)
- *     → [critique_x || critique_threads || critique_facebook]  (parallel)
- *     → [refine_x || refine_threads || refine_facebook]  (parallel)
- *     → save_to_db → END
+ *     → [draft_{network} ...]  (parallel per target network)
+ *     → [critique_{network} ...]
+ *     → [refine_{network} ...]
+ *     → [judge_{network} ...]
+ *     → [visual_concept_{network} ...]
+ *     → [ab_variant_{network} ...]
+ *     → human_review → save_to_db → END
  */
 export function buildGenerationGraph(
   llm: ILlmPort,
@@ -1299,75 +1343,76 @@ export function buildGenerationGraph(
     };
   }
 
-  const graph = new StateGraph(GenerationState)
+  const SOCIAL_NETWORKS: SocialNetwork[] = [
+    SocialNetwork.X,
+    SocialNetwork.THREADS,
+    SocialNetwork.FACEBOOK,
+    SocialNetwork.BLUESKY,
+    SocialNetwork.MASTODON,
+    SocialNetwork.TELEGRAM,
+    SocialNetwork.LINKEDIN,
+  ];
+
+  // Step 1-3: linear nodes.
+  // Cast to a StateGraph with N=string so we can build it incrementally in
+  // per-network loops. LangGraph's builder types accumulate node-name literals
+  // in a single chained expression; with a loop we widen N to string and keep
+  // S/U typed. The nodes and edges are identical to the previous inline graph.
+  let graph = new StateGraph(GenerationState) as StateGraph<
+    typeof GenerationState,
+    GenerationStateType,
+    typeof GenerationState.Update,
+    string
+  >;
+  graph = graph
     // Step 1: research_extract
     .addNode('research_extract', withProgress('research_extract', (s) => researchExtractNode(s, llm, promptPort)))
     // Step 2: hook_generation (3-5 variants)
     .addNode('hook_generation', withProgress('hook_generation', (s) => hookGenerationNode(s, llm, hookBank, promptPort, hookCache, HOOK_TEMPERATURE)))
     // Step 3: angle_per_network (assign hooks + angles)
-    .addNode('angle_per_network', withProgress('angle_per_network', (s) => anglePerNetworkNode(s)))
-    // Step 4: parallel draft per network
-    .addNode('draft_x', withProgress('draft_x', (s) => makeDraftNode(SocialNetwork.X, promptPort, DRAFT_TEMPERATURE)(s, llm)))
-    .addNode('draft_threads', withProgress('draft_threads', (s) => makeDraftNode(SocialNetwork.THREADS, promptPort, DRAFT_TEMPERATURE)(s, llm)))
-    .addNode('draft_facebook', withProgress('draft_facebook', (s) => makeDraftNode(SocialNetwork.FACEBOOK, promptPort, DRAFT_TEMPERATURE)(s, llm)))
-    // Step 5: parallel critique per network
-    .addNode('critique_x', withProgress('critique_x', (s) => makeCritiqueNode(SocialNetwork.X, promptPort)(s, llm)))
-    .addNode('critique_threads', withProgress('critique_threads', (s) => makeCritiqueNode(SocialNetwork.THREADS, promptPort)(s, llm)))
-    .addNode('critique_facebook', withProgress('critique_facebook', (s) => makeCritiqueNode(SocialNetwork.FACEBOOK, promptPort)(s, llm)))
-    // Step 6: parallel refine per network
-    .addNode('refine_x', withProgress('refine_x', (s) => makeRefineNode(SocialNetwork.X, promptPort, REFINE_TEMPERATURE)(s, llm)))
-    .addNode('refine_threads', withProgress('refine_threads', (s) => makeRefineNode(SocialNetwork.THREADS, promptPort, REFINE_TEMPERATURE)(s, llm)))
-    .addNode('refine_facebook', withProgress('refine_facebook', (s) => makeRefineNode(SocialNetwork.FACEBOOK, promptPort, REFINE_TEMPERATURE)(s, llm)))
-    // Stage 2: parallel judge per network (LLM-as-a-Judge quality evaluation)
-    .addNode('judge_x', withProgress('judge_x', (s) => makeJudgeNode(SocialNetwork.X, batchedJudgeService, judgeRefineThreshold, judgeThresholds)(s, llm)))
-    .addNode('judge_threads', withProgress('judge_threads', (s) => makeJudgeNode(SocialNetwork.THREADS, batchedJudgeService, judgeRefineThreshold, judgeThresholds)(s, llm)))
-    .addNode('judge_facebook', withProgress('judge_facebook', (s) => makeJudgeNode(SocialNetwork.FACEBOOK, batchedJudgeService, judgeRefineThreshold, judgeThresholds)(s, llm)))
-    // P3: Step 6.5: parallel visual_concept per network (no-op when disabled)
-    .addNode('visual_concept_x', withProgress('visual_concept_x', (s) => makeVisualConceptNode(SocialNetwork.X)(s, visualService)))
-    .addNode('visual_concept_threads', withProgress('visual_concept_threads', (s) => makeVisualConceptNode(SocialNetwork.THREADS)(s, visualService)))
-    .addNode('visual_concept_facebook', withProgress('visual_concept_facebook', (s) => makeVisualConceptNode(SocialNetwork.FACEBOOK)(s, visualService)))
-    // P7: Step 6.6: parallel ab_variant per network (no-op when disabled)
-    .addNode('ab_variant_x', withProgress('ab_variant_x', (s) => makeABVariantNode(SocialNetwork.X, judgeThresholds.skipAB)(s, abGenerator, abVariantService)))
-    .addNode('ab_variant_threads', withProgress('ab_variant_threads', (s) => makeABVariantNode(SocialNetwork.THREADS, judgeThresholds.skipAB)(s, abGenerator, abVariantService)))
-    .addNode('ab_variant_facebook', withProgress('ab_variant_facebook', (s) => makeABVariantNode(SocialNetwork.FACEBOOK, judgeThresholds.skipAB)(s, abGenerator, abVariantService)))
-    // Step 7: save_to_db (collect outputs)
+    .addNode('angle_per_network', withProgress('angle_per_network', (s) => anglePerNetworkNode(s)));
+
+  // Step 4-6.6: per-network parallel nodes (draft → critique → refine → judge → visual_concept → ab_variant)
+  for (const network of SOCIAL_NETWORKS) {
+    const lower = network.toLowerCase();
+    graph = graph
+      .addNode(`draft_${lower}`, withProgress(`draft_${lower}`, (s) => makeDraftNode(network, promptPort, DRAFT_TEMPERATURE)(s, llm)))
+      .addNode(`critique_${lower}`, withProgress(`critique_${lower}`, (s) => makeCritiqueNode(network, promptPort)(s, llm)))
+      .addNode(`refine_${lower}`, withProgress(`refine_${lower}`, (s) => makeRefineNode(network, promptPort, REFINE_TEMPERATURE)(s, llm)))
+      .addNode(`judge_${lower}`, withProgress(`judge_${lower}`, (s) => makeJudgeNode(network, batchedJudgeService, judgeRefineThreshold, judgeThresholds)(s, llm)))
+      .addNode(`visual_concept_${lower}`, withProgress(`visual_concept_${lower}`, (s) => makeVisualConceptNode(network)(s, visualService)))
+      .addNode(`ab_variant_${lower}`, withProgress(`ab_variant_${lower}`, (s) => makeABVariantNode(network, judgeThresholds.skipAB)(s, abGenerator, abVariantService)));
+  }
+
+  // Step 7: save + HITL review
+  graph = graph
     .addNode('save_to_db', withProgress('save_to_db', (s) => saveToDbNode(s, options?.getRecordedPromptLabels)))
     // Sprint I: HITL review node (no-op when humanReview=false)
-    .addNode('human_review', withProgress('human_review', (s) => humanReviewNode(s)))
-    // Edges: linear through step 3
+    .addNode('human_review', withProgress('human_review', (s) => humanReviewNode(s)));
+
+  // Edges: linear through step 3
+  graph = graph
     .addEdge(START, 'research_extract')
     .addEdge('research_extract', 'hook_generation')
-    .addEdge('hook_generation', 'angle_per_network')
-    // Fan out: angle → parallel drafts
-    .addEdge('angle_per_network', 'draft_x')
-    .addEdge('angle_per_network', 'draft_threads')
-    .addEdge('angle_per_network', 'draft_facebook')
-    // Drafts → critiques (per network)
-    .addEdge('draft_x', 'critique_x')
-    .addEdge('draft_threads', 'critique_threads')
-    .addEdge('draft_facebook', 'critique_facebook')
-    // Critiques → refines (per network)
-    .addEdge('critique_x', 'refine_x')
-    .addEdge('critique_threads', 'refine_threads')
-    .addEdge('critique_facebook', 'refine_facebook')
-    // Stage 2: Refines → judge (per network, parallel)
-    .addEdge('refine_x', 'judge_x')
-    .addEdge('refine_threads', 'judge_threads')
-    .addEdge('refine_facebook', 'judge_facebook')
-    // Q8: Judge → refine (one retry when the post sounds like AI) | visual_concept.
-    // The refine_* → judge_* edges above close the loop; judgeRetried guards
-    // against infinite cycles (max ONE retry per network).
-    .addConditionalEdges('judge_x', routeAfterJudge(SocialNetwork.X), { refine: 'refine_x', continue: 'visual_concept_x' })
-    .addConditionalEdges('judge_threads', routeAfterJudge(SocialNetwork.THREADS), { refine: 'refine_threads', continue: 'visual_concept_threads' })
-    .addConditionalEdges('judge_facebook', routeAfterJudge(SocialNetwork.FACEBOOK), { refine: 'refine_facebook', continue: 'visual_concept_facebook' })
-    // P7: visual_concept → ab_variant (per network, parallel)
-    .addEdge('visual_concept_x', 'ab_variant_x')
-    .addEdge('visual_concept_threads', 'ab_variant_threads')
-    .addEdge('visual_concept_facebook', 'ab_variant_facebook')
-    // Fan in: all ab_variants → human_review → save_to_db
-    .addEdge('ab_variant_x', 'human_review')
-    .addEdge('ab_variant_threads', 'human_review')
-    .addEdge('ab_variant_facebook', 'human_review')
+    .addEdge('hook_generation', 'angle_per_network');
+
+  // Fan out / fan in: per network (draft → critique → refine → judge → visual_concept → ab_variant → human_review)
+  for (const network of SOCIAL_NETWORKS) {
+    const lower = network.toLowerCase();
+    graph = graph
+      .addEdge('angle_per_network', `draft_${lower}`)
+      .addEdge(`draft_${lower}`, `critique_${lower}`)
+      .addEdge(`critique_${lower}`, `refine_${lower}`)
+      .addEdge(`refine_${lower}`, `judge_${lower}`)
+      // Q8: Judge → refine (one retry when the post sounds like AI) | visual_concept.
+      // The refine_* → judge_* edges above close the loop; judgeRetried guards
+      // against infinite cycles (max ONE retry per network).
+      .addConditionalEdges(`judge_${lower}`, routeAfterJudge(network), { refine: `refine_${lower}`, continue: `visual_concept_${lower}` })
+      .addEdge(`visual_concept_${lower}`, `ab_variant_${lower}`)
+      .addEdge(`ab_variant_${lower}`, 'human_review');
+  }
+
+  graph = graph
     .addEdge('human_review', 'save_to_db')
     .addEdge('save_to_db', END);
 

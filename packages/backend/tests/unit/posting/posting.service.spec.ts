@@ -18,7 +18,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
-import { PostStatus, SocialNetwork } from '@prisma/client';
+import { PostStatus, SocialNetwork, ContentType } from '@prisma/client';
 
 import { PostingService } from '../../../src/modules/posting/posting.service';
 import { PostEvents } from '../../../src/events/enums/post-events.enum';
@@ -84,6 +84,12 @@ function createMockPoster() {
   };
 }
 
+function createMockTelegramAdapter() {
+  return {
+    postMessage: vi.fn(),
+  };
+}
+
 /** A mock BrowserContext with close + newPage spies. */
 function createMockContext() {
   return {
@@ -105,6 +111,7 @@ const APPROVED_POST_X = {
   accountId: 'acc-001',
   network: SocialNetwork.X,
   content: 'Mercury retrograde is coming! ♋',
+  contentType: ContentType.SOCIAL_POST,
   status: PostStatus.APPROVED,
   postUrl: null,
   errorMessage: null,
@@ -132,6 +139,10 @@ interface TestContext {
   xPoster: ReturnType<typeof createMockPoster>;
   threadsPoster: ReturnType<typeof createMockPoster>;
   facebookPoster: ReturnType<typeof createMockPoster>;
+  blueskyPoster: ReturnType<typeof createMockPoster>;
+  mastodonPoster: ReturnType<typeof createMockPoster>;
+  linkedinSocialPoster: ReturnType<typeof createMockPoster>;
+  telegramAdapter: ReturnType<typeof createMockTelegramAdapter>;
   configService: ReturnType<typeof createMockConfigService>;
 }
 
@@ -147,6 +158,10 @@ function buildContext(): TestContext {
   const xPoster = createMockPoster();
   const threadsPoster = createMockPoster();
   const facebookPoster = createMockPoster();
+  const blueskyPoster = createMockPoster();
+  const mastodonPoster = createMockPoster();
+  const linkedinSocialPoster = createMockPoster();
+  const telegramAdapter = createMockTelegramAdapter();
   const configService = createMockConfigService();
 
   // Override checkRateLimit to return { allowed: true } by default
@@ -166,6 +181,15 @@ function buildContext(): TestContext {
     threadsPoster as unknown,
     facebookPoster as unknown,
     configService as unknown,
+    undefined as unknown,
+    undefined as unknown,
+    undefined as unknown,
+    undefined as unknown,
+    undefined as unknown,
+    blueskyPoster as unknown,
+    mastodonPoster as unknown,
+    linkedinSocialPoster as unknown,
+    telegramAdapter as unknown,
   );
 
   return {
@@ -181,6 +205,10 @@ function buildContext(): TestContext {
     xPoster,
     threadsPoster,
     facebookPoster,
+    blueskyPoster,
+    mastodonPoster,
+    linkedinSocialPoster,
+    telegramAdapter,
     configService,
   };
 }
@@ -550,6 +578,41 @@ describe('MOD-03: PostingService', () => {
     expect(postedEvent).toBeDefined();
     expect(postedEvent[1]).toMatchObject({
       postId: 'post-success',
+      network: 'X',
+      postUrl: 'https://x.com/user/status/123',
+    });
+  });
+
+  it('P1-04a: postById() on success marks VERIFIED and emits POST_VERIFIED for verifiable networks', async () => {
+    const mockContext = createMockContext();
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
+    ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
+    ctx.postsService.findById.mockResolvedValue({
+      ...APPROVED_POST_X,
+      id: 'post-verified',
+      network: SocialNetwork.X,
+    });
+    ctx.sessionsService.getOrCreateSession.mockResolvedValue(ACTIVE_SESSION);
+    ctx.xPoster.post.mockResolvedValue({ url: 'https://x.com/user/status/123' });
+
+    const result = await ctx.service.postById('post-verified');
+
+    expect(result).toEqual({ success: true, url: 'https://x.com/user/status/123' });
+
+    // updateStatus called with VERIFIED + postUrl
+    const verifiedCall = ctx.postsService.updateStatus.mock.calls.find(
+      (c: unknown[]) => c[0] === 'post-verified' && c[1]?.status === PostStatus.VERIFIED,
+    );
+    expect(verifiedCall).toBeDefined();
+    expect(verifiedCall[1].postUrl).toBe('https://x.com/user/status/123');
+
+    // POST_VERIFIED event emitted after POSTED
+    const verifiedEvent = ctx.eventEmitter.emit.mock.calls.find(
+      (c: unknown[]) => c[0] === PostEvents.VERIFIED && c[1]?.postId === 'post-verified',
+    );
+    expect(verifiedEvent).toBeDefined();
+    expect(verifiedEvent[1]).toMatchObject({
+      postId: 'post-verified',
       network: 'X',
       postUrl: 'https://x.com/user/status/123',
     });
@@ -933,6 +996,17 @@ describe('MOD-03: PostingService', () => {
       (c: unknown[]) => c[0] === PostEvents.POSTED,
     );
     expect(postedEvents.length).toBeGreaterThanOrEqual(4);
+
+    // P1-04a: successful replies are also marked VERIFIED and emit POST_VERIFIED
+    const replyVerifiedCalls = ctx.postsService.updateStatus.mock.calls.filter(
+      (c: unknown[]) => c[1]?.status === PostStatus.VERIFIED && c[0] !== 'post-thread-root',
+    );
+    expect(replyVerifiedCalls).toHaveLength(3);
+
+    const verifiedEvents = ctx.eventEmitter.emit.mock.calls.filter(
+      (c: unknown[]) => c[0] === PostEvents.VERIFIED,
+    );
+    expect(verifiedEvents.length).toBeGreaterThanOrEqual(4); // root + 3 replies
   });
 
   it('UTC-077: postById() thread partial failure — reply 1 POSTED, reply 2 FAILED → only reply 2 retried on resume', async () => {
@@ -1174,5 +1248,97 @@ describe('MOD-03: PostingService', () => {
 
     // findThreadContinuations NOT called (no threadId)
     expect(ctx.postsService.findThreadContinuations).not.toHaveBeenCalled();
+  });
+
+  // ── Phase 2 social syndication networks ─────────────────────────────────────
+
+  it('UTC-085: postById() calls BlueskyPoster and emits POSTED + VERIFIED for Bluesky', async () => {
+    process.env.ENABLED_NETWORKS = 'X,THREADS,FACEBOOK,BLUESKY';
+    const mockContext = createMockContext();
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
+    ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
+    ctx.postsService.findById.mockResolvedValue({
+      ...APPROVED_POST_X,
+      id: 'post-bluesky',
+      network: SocialNetwork.BLUESKY,
+    });
+    ctx.sessionsService.getOrCreateSession.mockResolvedValue(ACTIVE_SESSION);
+    ctx.blueskyPoster.post.mockResolvedValue({ url: 'https://bsky.app/profile/handle.bsky.social/post/3k2' });
+
+    const result = await ctx.service.postById('post-bluesky');
+
+    expect(result.success).toBe(true);
+    expect(ctx.blueskyPoster.post).toHaveBeenCalledWith(mockContext, ctx.browser, 'Mercury retrograde is coming! ♋');
+    expect(ctx.postsService.updateStatus).toHaveBeenCalledWith('post-bluesky', { status: PostStatus.VERIFIED, postUrl: 'https://bsky.app/profile/handle.bsky.social/post/3k2' });
+  });
+
+  it('UTC-086: postById() calls MastodonPoster and emits POSTED + VERIFIED for Mastodon', async () => {
+    process.env.ENABLED_NETWORKS = 'X,THREADS,FACEBOOK,MASTODON';
+    const mockContext = createMockContext();
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
+    ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
+    ctx.postsService.findById.mockResolvedValue({
+      ...APPROVED_POST_X,
+      id: 'post-mastodon',
+      network: SocialNetwork.MASTODON,
+    });
+    ctx.sessionsService.getOrCreateSession.mockResolvedValue(ACTIVE_SESSION);
+    ctx.mastodonPoster.post.mockResolvedValue({ url: 'https://mastodon.social/@user/123456' });
+
+    const result = await ctx.service.postById('post-mastodon');
+
+    expect(result.success).toBe(true);
+    expect(ctx.mastodonPoster.post).toHaveBeenCalledWith(mockContext, ctx.browser, 'Mercury retrograde is coming! ♋');
+    expect(ctx.postsService.updateStatus).toHaveBeenCalledWith('post-mastodon', { status: PostStatus.VERIFIED, postUrl: 'https://mastodon.social/@user/123456' });
+  });
+
+  it('UTC-087: postById() calls TelegramAdapter.postMessage and emits POSTED + VERIFIED for Telegram', async () => {
+    process.env.ENABLED_NETWORKS = 'X,THREADS,FACEBOOK,TELEGRAM';
+    const mockContext = createMockContext();
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
+    ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
+    ctx.postsService.findById.mockResolvedValue({
+      ...APPROVED_POST_X,
+      id: 'post-telegram',
+      network: SocialNetwork.TELEGRAM,
+    });
+    ctx.sessionsService.getOrCreateSession.mockResolvedValue(ACTIVE_SESSION);
+    ctx.telegramAdapter.postMessage.mockResolvedValue({ url: 'https://t.me/channel/123' });
+
+    const result = await ctx.service.postById('post-telegram');
+
+    expect(result.success).toBe(true);
+    expect(ctx.telegramAdapter.postMessage).toHaveBeenCalledWith('Mercury retrograde is coming! ♋');
+    expect(ctx.postsService.updateStatus).toHaveBeenCalledWith('post-telegram', { status: PostStatus.VERIFIED, postUrl: 'https://t.me/channel/123' });
+  });
+
+  it('UTC-088: postById() calls LinkedinSocialPoster and emits POSTED + VERIFIED for LinkedIn SOCIAL_POST', async () => {
+    process.env.ENABLED_NETWORKS = 'X,THREADS,FACEBOOK,LINKEDIN';
+    const mockContext = createMockContext();
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
+    ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
+    ctx.postsService.findById.mockResolvedValue({
+      ...APPROVED_POST_X,
+      id: 'post-linkedin-social',
+      network: SocialNetwork.LINKEDIN,
+      contentType: ContentType.SOCIAL_POST,
+    });
+    ctx.sessionsService.getOrCreateSession.mockResolvedValue(ACTIVE_SESSION);
+    ctx.linkedinSocialPoster.post.mockResolvedValue({
+      url: 'https://www.linkedin.com/feed/update/urn:li:activity:123456',
+    });
+
+    const result = await ctx.service.postById('post-linkedin-social');
+
+    expect(result.success).toBe(true);
+    expect(ctx.linkedinSocialPoster.post).toHaveBeenCalledWith(
+      mockContext,
+      ctx.browser,
+      'Mercury retrograde is coming! ♋',
+    );
+    expect(ctx.postsService.updateStatus).toHaveBeenCalledWith('post-linkedin-social', {
+      status: PostStatus.VERIFIED,
+      postUrl: 'https://www.linkedin.com/feed/update/urn:li:activity:123456',
+    });
   });
 });

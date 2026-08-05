@@ -487,6 +487,15 @@ const envSchema = Joi.object({
   RATE_LIMIT_DAILY_QUORA: Joi.number().integer().min(0).default(2),
   RATE_LIMIT_DAILY_PINTEREST: Joi.number().integer().min(0).default(3),
 
+  // P2-04: Social promo trigger — generate platform-native promo posts when an
+  // article or social post is published and verified.
+  SOCIAL_PROMO_ENABLED: Joi.string().valid('true', 'false').default('false'),
+
+  // P1-07: IndexNow — submit canonical URLs to Bing/Yandex after publish
+  INDEXNOW_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  INDEXNOW_KEY: Joi.string().allow('').default(''),
+  INDEXNOW_HOST: Joi.string().allow('').default(''),
+
   // ── BrowserAgentService (LLM-in-the-loop engine #47) ──
   // Max iterations for act() loop (screenshot → LLM → execute → check)
   BROWSER_AGENT_MAX_ITERATIONS: Joi.number().integer().min(1).max(50).default(10),

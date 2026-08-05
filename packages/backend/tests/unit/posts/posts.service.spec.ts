@@ -225,6 +225,22 @@ describe('MOD-02: PostsService', () => {
     expect(arg.data.approvedAt).toBeUndefined();
   });
 
+  it('P1-04a: updateStatus() allows POSTED → VERIFIED transition with postUrl', async () => {
+    const existing = { ...fixturePost, id: 'post-1', status: 'POSTED' };
+    prisma.post.findUnique.mockResolvedValue(existing);
+    prisma.post.update.mockResolvedValue({ ...existing, status: 'VERIFIED' });
+
+    await service.updateStatus('post-1', {
+      status: 'VERIFIED',
+      postUrl: 'https://x.com/123',
+    });
+
+    const arg = prisma.post.update.mock.calls[0][0];
+    expect(arg.data.status).toBe('VERIFIED');
+    expect(arg.data.postUrl).toBe('https://x.com/123');
+    expect(arg.data.postedAt).toBeUndefined();
+  });
+
   it('UTC-037: updateStatus() sets FAILED with errorMessage', async () => {
     const existing = { ...fixturePost, id: 'post-1', status: 'POSTING' };
     prisma.post.findUnique.mockResolvedValue(existing);

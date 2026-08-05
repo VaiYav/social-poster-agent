@@ -17,6 +17,7 @@ import type {
   PostRejectedEvent,
   PostingStartedEvent,
   PostPostedEvent,
+  PostVerifiedEvent,
   PostFailedEvent,
   OrchestratorCycleEndEvent,
 } from '@spa/shared';
@@ -74,6 +75,11 @@ export class SseEventListener {
   @OnEvent(PostEvents.POSTED)
   async handlePosted(payload: PostPostedEvent): Promise<void> {
     return this.publishPostStatus('POSTED', payload);
+  }
+
+  @OnEvent(PostEvents.VERIFIED)
+  async handleVerified(payload: PostVerifiedEvent): Promise<void> {
+    return this.publishPostStatus('VERIFIED', payload);
   }
 
   @OnEvent(PostEvents.FAILED)

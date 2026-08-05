@@ -28,8 +28,10 @@ import {
   GenerationRunStatus,
   GenerationTrigger,
   PostStatus,
+  ContentType,
+  Post as PrismaPost,
 } from '@prisma/client';
-import type { ContentTopic, GenerateArticleOptions, ArticleGraphState } from '@spa/shared';
+import type { ContentTopic, GenerateArticleOptions, ArticleGraphState, ArticleContent } from '@spa/shared';
 import { buildGenerationGraph, createInitialState, type GeneratedPost, type ProgressPublisher } from './generation.graph.js';
 import { buildArticleGraph, createArticleInitialState } from './article-graph.js';
 import { CanonicalUrlService } from '../canonical/canonical-url.service.js';
@@ -366,11 +368,12 @@ export class GenerationService {
     generatedPosts: GeneratedPost[],
     accountByNetwork: Map<SocialNetwork, AccountResult | null | undefined>,
     runId: string,
-    sourceRef: { type: string; path: string; topic: string; keywords: string[] },
+    sourceRef: { type: string; path: string; topic: string; keywords: string[]; originalPostId?: string; originalTopic?: string },
     options: {
       language?: string;
       recentHashes?: string[];
       promptLabels?: Record<string, { label: string; isFallback?: boolean }>;
+      canonicalUrl?: string;
     } = {},
   ): Promise<{ id: string; network: SocialNetwork; llmMetadata: Prisma.JsonValue }[]> {
     const savedPosts: { id: string; network: SocialNetwork; llmMetadata: Prisma.JsonValue }[] = [];
@@ -401,6 +404,7 @@ export class GenerationService {
         generationRunId: runId,
         simhash: candidateHash,
         sourceRef,
+        canonicalUrl: options.canonicalUrl ?? null,
         llmMetadata: this.buildPostLlmMetadata(
           genPost,
           candidateHash,
@@ -1034,6 +1038,132 @@ export class GenerationService {
     }
   }
 
+  // P2-04: Networks eligible for social promo posts triggered by article/social publish.
+  private static readonly SOCIAL_PROMO_NETWORKS = new Set<SocialNetwork>([
+    SocialNetwork.X,
+    SocialNetwork.THREADS,
+    SocialNetwork.FACEBOOK,
+    SocialNetwork.BLUESKY,
+    SocialNetwork.MASTODON,
+    SocialNetwork.TELEGRAM,
+    SocialNetwork.LINKEDIN,
+  ]);
+
+  /**
+   * P2-04: Social promo trigger — when a post is published and verified, spin up
+   * platform-native promo posts for all enabled social networks.
+   *
+   * The original post becomes the content source: articles become topics from the
+   * article title/excerpt/tags; social posts become topics from their content.
+   * Generated promo posts inherit the original canonical URL (for articles) and
+   * are linked via `originalPostId` in sourceRef.
+   */
+  async generateSocialPromo(
+    originalPost: PrismaPost,
+    targetNetworks?: SocialNetwork[],
+  ): Promise<string | null> {
+    if (originalPost.status !== PostStatus.POSTED && originalPost.status !== PostStatus.VERIFIED) {
+      this.logger.debug(`Social promo skipped for post ${originalPost.id} — status ${originalPost.status}`);
+      return null;
+    }
+
+    const topic = this.buildPromoTopic(originalPost);
+    if (!topic) {
+      this.logger.warn(`Social promo could not build a topic from post ${originalPost.id}`);
+      return null;
+    }
+
+    const networks = this.resolveTargetNetworks(
+      targetNetworks ??
+        Array.from(GenerationService.SOCIAL_PROMO_NETWORKS).filter((n) => n !== originalPost.network),
+    );
+    if (networks.length === 0) {
+      this.logger.debug(`Social promo: no eligible networks for post ${originalPost.id}`);
+      return null;
+    }
+
+    const run = await this.prisma.generationRun.create({
+      data: { triggeredBy: GenerationTrigger.CRON, sourceTopics: [topic.topic] },
+    });
+
+    try {
+      this.logger.log(`Social promo: generating posts for "${topic.topic}" from ${originalPost.id} → ${networks.join(', ')}`);
+
+      const brandVoice = await this.loadBrandVoice();
+      const savedPosts = await this.generatePostsForTopic(topic, networks, brandVoice, run.id, false, false, topic.language);
+
+      // Inherit canonical URL from the original post (articles) and tag the source.
+      if (originalPost.canonicalUrl) {
+        await this.prisma.post.updateMany({
+          where: { id: { in: savedPosts.map((p) => p.id) } },
+          data: { canonicalUrl: originalPost.canonicalUrl },
+        });
+      }
+
+      const postCount = savedPosts.length;
+      await this.markRunCompleted(run.id, [topic.topic]);
+      this.logger.log(`Social promo run ${run.id}: ${postCount} promo drafts created from ${originalPost.id}`);
+      return run.id;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Social promo failed for ${originalPost.id}: ${message}`);
+      await this.prisma.generationRun.update({
+        where: { id: run.id },
+        data: { status: GenerationRunStatus.FAILED, completedAt: new Date(), errorMessage: message },
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Build a ContentTopic from a published post so the social generation graph can
+   * create platform-native promo posts from it.
+   */
+  private buildPromoTopic(originalPost: PrismaPost): ContentTopic | null {
+    const base: ContentTopic = {
+      sourceType: 'topic' as const,
+      path: `promo://${originalPost.id}`,
+      topic: originalPost.content.slice(0, 120),
+      keywords: [],
+      facts: [originalPost.content],
+      originalPostId: originalPost.id,
+      language: originalPost.language,
+    };
+
+    if (originalPost.contentType === ContentType.ARTICLE) {
+      let article: ArticleContent;
+      try {
+        article = JSON.parse(originalPost.content) as ArticleContent;
+      } catch {
+        this.logger.warn(`Social promo: post ${originalPost.id} has ARTICLE contentType but invalid JSON`);
+        return null;
+      }
+
+      return {
+        ...base,
+        sourceType: 'article' as const,
+        path: originalPost.canonicalUrl || `promo://article/${article.slug || originalPost.id}`,
+        topic: article.title || base.topic,
+        keywords: article.tags || [],
+        facts: [article.excerpt || article.bodyMarkdown.slice(0, 200)],
+        originalTopic: article.title,
+        canonicalUrl: originalPost.canonicalUrl || undefined,
+      };
+    }
+
+    if (originalPost.sourceRef && typeof originalPost.sourceRef === 'object') {
+      const ref = originalPost.sourceRef as Record<string, unknown>;
+      if (typeof ref.path === 'string') base.path = ref.path;
+      if (typeof ref.topic === 'string') {
+        base.topic = ref.topic;
+        base.originalTopic = ref.topic;
+      }
+      if (Array.isArray(ref.keywords)) base.keywords = ref.keywords as string[];
+    }
+
+    return base;
+  }
+
   /**
    * Generate posts for a single topic across all target networks.
    * Uses the §10.3 parallel LangGraph workflow — one invocation, 3 posts.
@@ -1136,8 +1266,10 @@ export class GenerationService {
         path: topic.path,
         topic: topic.topic,
         keywords: topic.keywords,
+        ...(topic.originalPostId ? { originalPostId: topic.originalPostId } : {}),
+        ...(topic.originalTopic ? { originalTopic: topic.originalTopic } : {}),
       },
-      { language, recentHashes, promptLabels },
+      { language, recentHashes, promptLabels, canonicalUrl: topic.canonicalUrl },
     );
 
     // F2/P4: Multi-Stage Posting with Thread Depth Service.

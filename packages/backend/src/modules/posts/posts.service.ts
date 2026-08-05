@@ -48,7 +48,7 @@ export class PostsService {
       // in tests and by the worker setting FAILED before POSTING (disabled network).
       [PostStatus.APPROVED]: [PostStatus.POSTING, PostStatus.POSTED, PostStatus.FAILED],
       [PostStatus.POSTING]: [PostStatus.POSTED, PostStatus.FAILED, PostStatus.APPROVED],
-      [PostStatus.POSTED]: [],
+      [PostStatus.POSTED]: [PostStatus.VERIFIED],
       [PostStatus.FAILED]: [],
       [PostStatus.REJECTED]: [],
       // Phase 1+ syndication statuses

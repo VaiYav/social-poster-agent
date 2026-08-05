@@ -12,7 +12,11 @@ import { SseModule } from '../infrastructure/sse/sse.module';
 import { PrismaModule } from '../infrastructure/prisma/prisma.module';
 import { PostsModule } from '../modules/posts/posts.module';
 import { QueueModule as QueueInfraModule } from '../infrastructure/queue/queue.module';
+import { GenerationModule } from '../modules/generation/generation.module';
 import { SseEventListener } from './listeners/sse-event.listener';
+import { SocialPromoListener } from './listeners/social-promo.listener.js';
+import { IndexNowListener } from './listeners/indexnow.listener.js';
+import { IndexNowService } from '../infrastructure/indexnow/indexnow.service.js';
 
 @Module({
   imports: [
@@ -29,8 +33,9 @@ import { SseEventListener } from './listeners/sse-event.listener';
     PrismaModule,
     PostsModule,
     QueueInfraModule,
+    GenerationModule,
   ],
-  providers: [SseEventListener],
+  providers: [SseEventListener, SocialPromoListener, IndexNowListener, IndexNowService],
   exports: [EventEmitterModule],
 })
 export class EventsEdaModule {}

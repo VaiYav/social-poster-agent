@@ -10,6 +10,10 @@ export const NETWORK_LIMITS: Partial<Record<SocialNetwork, number>> = {
   [SocialNetwork.X]: 280,
   [SocialNetwork.THREADS]: 500,
   [SocialNetwork.FACEBOOK]: 500,
+  [SocialNetwork.BLUESKY]: 300,
+  [SocialNetwork.MASTODON]: 500,
+  [SocialNetwork.TELEGRAM]: 4096,
+  [SocialNetwork.LINKEDIN]: 3000,
 };
 
 export interface LengthCheck {

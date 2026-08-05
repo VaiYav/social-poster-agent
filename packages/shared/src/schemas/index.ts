@@ -35,15 +35,15 @@ export const ApprovePostDtoSchema = z.object({
 export type ApprovePostDto = z.infer<typeof ApprovePostDtoSchema>;
 
 export const UpdatePostStatusDtoSchema = z.object({
-  status: z.enum(['DRAFT', 'APPROVED', 'POSTING', 'POSTED', 'FAILED', 'REJECTED']),
+  status: z.enum(['DRAFT', 'APPROVED', 'POSTING', 'POSTED', 'FAILED', 'REJECTED', 'JUDGED', 'VERIFIED']),
   postUrl: z.string().url().optional(),
   errorMessage: z.string().optional(),
 });
 export type UpdatePostStatusDto = z.infer<typeof UpdatePostStatusDtoSchema>;
 
 export const PostQueryDtoSchema = z.object({
-  status: z.enum(['DRAFT', 'APPROVED', 'POSTING', 'POSTED', 'FAILED', 'REJECTED']).optional(),
-  network: z.enum(['X', 'THREADS', 'FACEBOOK']).optional(),
+  status: z.enum(['DRAFT', 'APPROVED', 'POSTING', 'POSTED', 'FAILED', 'REJECTED', 'JUDGED', 'VERIFIED']).optional(),
+  network: z.enum(['X', 'THREADS', 'FACEBOOK', 'DEVTO', 'HASHNODE', 'LINKEDIN', 'BLUESKY', 'MASTODON', 'TELEGRAM', 'MEDIUM', 'SUBSTACK', 'REDDIT', 'QUORA', 'PINTEREST']).optional(),
   accountId: z.string().uuid().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),

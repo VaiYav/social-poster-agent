@@ -116,6 +116,10 @@ export const ContentTopicSchema = z.object({
   publishedAt: z.coerce.date().optional(),
   // Language code (ISO 639-1): en, ru, uk, es, it — used for multilingual generation
   language: z.string().default('en'),
+  // P2-04: social promo trigger — track the original published post this topic was derived from
+  originalPostId: z.string().optional(),
+  originalTopic: z.string().optional(),
+  canonicalUrl: z.string().url().optional(),
 });
 export type ContentTopic = z.infer<typeof ContentTopicSchema>;
 

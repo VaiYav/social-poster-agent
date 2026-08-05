@@ -15,18 +15,22 @@ import { XPoster } from './posters/x.poster';
 import { ThreadsPoster } from './posters/threads.poster';
 import { FacebookPoster } from './posters/facebook.poster';
 import type { PostResult } from './posters/base.poster.js';
-import { Post, PostStatus, SocialNetwork } from '@prisma/client';
+import { Post, PostStatus, SocialNetwork, ContentType } from '@prisma/client';
 import { PostEvents } from '../../events/enums/post-events.enum.js';
 import { withRetry } from '../../domain/retry.js';
 import { CircuitBreakerRegistry, CircuitOpenError } from '../../domain/circuit-breaker.js';
 import { DevtoPoster } from './posters/devto.poster.js';
 import { HashnodePoster } from './posters/hashnode.poster.js';
 import { LinkedinPoster } from './posters/linkedin.poster.js';
+import { BlueskyPoster } from './posters/bluesky.poster.js';
+import { MastodonPoster } from './posters/mastodon.poster.js';
+import { LinkedinSocialPoster } from './posters/linkedin-social.poster.js';
+import { TelegramAdapter } from '../../infrastructure/telegram/telegram.adapter.js';
 import { RetryableError, SpaError } from '../../domain/errors.js';
 import { isNetworkEnabled } from '../../domain/enabled-networks.js';
 import { ContentPillarTracker } from '../content-enhancements/content-pillar.tracker.js';
 import { ABVariantService } from '../content-enhancements/ab-variant.service.js';
-import type { SourceRef, PostingStartedEvent, PostPostedEvent, PostFailedEvent } from '@spa/shared';
+import type { SourceRef, PostingStartedEvent, PostPostedEvent, PostVerifiedEvent, PostFailedEvent } from '@spa/shared';
 
 /**
  * Posting service — orchestrates browser-based posting.
@@ -44,6 +48,20 @@ import type { SourceRef, PostingStartedEvent, PostPostedEvent, PostFailedEvent }
  * Idempotent: checks post status before posting (won't double-post).
  * With BullMQ: enqueue() adds job to queue, worker calls postById().
  */
+
+/** Networks that emit a POST_VERIFIED event after a successful publish. */
+const VERIFIABLE_NETWORKS = new Set<SocialNetwork>([
+  SocialNetwork.X,
+  SocialNetwork.THREADS,
+  SocialNetwork.FACEBOOK,
+  SocialNetwork.DEVTO,
+  SocialNetwork.HASHNODE,
+  SocialNetwork.LINKEDIN,
+  SocialNetwork.BLUESKY,
+  SocialNetwork.MASTODON,
+  SocialNetwork.TELEGRAM,
+]);
+
 @Injectable()
 export class PostingService {
   private readonly logger = new Logger(PostingService.name);
@@ -81,6 +99,10 @@ export class PostingService {
     @Optional() private readonly flowControl?: FlowControlService,
     @Optional() private readonly pillarTracker?: ContentPillarTracker,
     @Optional() private readonly abVariantService?: ABVariantService,
+    @Optional() private readonly blueskyPoster?: BlueskyPoster,
+    @Optional() private readonly mastodonPoster?: MastodonPoster,
+    @Optional() private readonly linkedinSocialPoster?: LinkedinSocialPoster,
+    @Optional() private readonly telegramAdapter?: TelegramAdapter,
   ) {}
 
   /**
@@ -164,8 +186,8 @@ export class PostingService {
       throw new RetryableError(post.network, 'Posting flow is paused — job will retry when resumed');
     }
 
-    // Idempotent — don't post if already posted/posting
-    if (post.status === PostStatus.POSTED) {
+    // Idempotent — don't post if already posted/verified/posting
+    if (post.status === PostStatus.POSTED || post.status === PostStatus.VERIFIED) {
       return { success: true, url: post.postUrl ?? undefined };
     }
     if (post.status === PostStatus.POSTING) {
@@ -288,7 +310,7 @@ export class PostingService {
         // URL instead of re-posting. Single posts only — threads have their own per-reply
         // ThreadProgress idempotency, and a partial-thread re-post must not be short-circuited.
         if (postAttempt > 1 && context && threadItems.length === 0) {
-          const live = await this.findLivePostUrl(post.network, context, post.content);
+          const live = await this.findLivePostUrl(post, context);
           if (live) {
             this.logger.warn(
               `Pre-retry verify: post ${postId} already live (${live}) — skipping duplicate re-submit`,
@@ -303,12 +325,36 @@ export class PostingService {
             return this.threadsPoster.post(context!, this.browser, post.content, threadItems.length > 0 ? threadItems : undefined);
           case SocialNetwork.FACEBOOK:
             return this.facebookPoster.post(context!, this.browser, post.content);
+          case SocialNetwork.BLUESKY:
+            if (!this.blueskyPoster) {
+              throw new Error('BlueskyPoster is not available — check PostingModule providers');
+            }
+            return this.blueskyPoster.post(context!, this.browser, post.content);
+          case SocialNetwork.MASTODON:
+            if (!this.mastodonPoster) {
+              throw new Error('MastodonPoster is not available — check PostingModule providers');
+            }
+            return this.mastodonPoster.post(context!, this.browser, post.content);
+          case SocialNetwork.TELEGRAM:
+            if (!this.telegramAdapter) {
+              throw new Error('TelegramAdapter is not available — check PostingModule providers');
+            }
+            return this.telegramAdapter.postMessage(post.content);
           case SocialNetwork.DEVTO:
           case SocialNetwork.HASHNODE:
-          case SocialNetwork.LINKEDIN:
             return this.postArticle(context!, post);
+          case SocialNetwork.LINKEDIN:
+            // LinkedIn has two posters: long-form articles (SyndicationModule) and
+            // short social updates (LinkedinSocialPoster, in PostingModule).
+            if (post.contentType === ContentType.ARTICLE) {
+              return this.postArticle(context!, post);
+            }
+            if (!this.linkedinSocialPoster) {
+              throw new Error('LinkedinSocialPoster is not available — check PostingModule providers');
+            }
+            return this.linkedinSocialPoster.post(context!, this.browser, post.content);
           default: {
-            // Unimplemented syndication networks (Bluesky, Mastodon, etc. — Phase 2+)
+            // Unimplemented syndication networks (Phase 3+)
             throw new Error(`Posting not yet implemented for network: ${post.network}`);
           }
         }
@@ -432,7 +478,7 @@ export class PostingService {
             // M1/P3 + H2: before re-posting, verify the original attempt didn't already
             // publish — skip the re-post to avoid a duplicate (success-detection can misfire
             // into a "session expired"-looking error). Shared guard with the pre-retry path.
-            const existingUrl = await this.findLivePostUrl(post.network, context, post.content);
+            const existingUrl = await this.findLivePostUrl(post, context);
             if (existingUrl) {
               this.logger.warn(
                 `Self-recovery: post ${postId} is already live (${existingUrl}) — skipping re-post to avoid a duplicate`,
@@ -584,6 +630,18 @@ export class PostingService {
               network: networkKey,
               postUrl: result.url,
             } satisfies PostPostedEvent);
+            // P1-04a: Mark successful reply as verified and emit POST_VERIFIED.
+            if (result.url && VERIFIABLE_NETWORKS.has(post.network)) {
+              await this.postsService.updateStatus(cp.id, {
+                status: PostStatus.VERIFIED,
+                postUrl: result.url,
+              });
+              this.eventEmitter.emit(PostEvents.VERIFIED, {
+                postId: cp.id,
+                network: networkKey,
+                postUrl: result.url,
+              } satisfies PostVerifiedEvent);
+            }
             // P0-H2: Persist per-reply success for crash recovery
             await this.threadProgressService.markReplyPosted(postId, cp.id, result.url ?? '');
             // 2.8.2: Record continuation post against its pillar (only after POSTED).
@@ -625,6 +683,18 @@ export class PostingService {
             network: networkKey,
             postUrl: result.url,
           } satisfies PostPostedEvent);
+          // P1-04a: Mark continuation as verified and emit POST_VERIFIED.
+          if (result.url && VERIFIABLE_NETWORKS.has(post.network)) {
+            await this.postsService.updateStatus(cp.id, {
+              status: PostStatus.VERIFIED,
+              postUrl: result.url,
+            });
+            this.eventEmitter.emit(PostEvents.VERIFIED, {
+              postId: cp.id,
+              network: networkKey,
+              postUrl: result.url,
+            } satisfies PostVerifiedEvent);
+          }
           // P0-H2: Persist per-reply success for crash recovery
           await this.threadProgressService.markReplyPosted(postId, cp.id, result.url ?? '');
           // 2.8.2: Record continuation post against its pillar (only after POSTED).
@@ -642,6 +712,19 @@ export class PostingService {
         network: networkKey,
         postUrl: result.url,
       } satisfies PostPostedEvent);
+
+      // P1-04a: Mark post as verified and emit POST_VERIFIED after successful publish.
+      if (result.url && VERIFIABLE_NETWORKS.has(post.network)) {
+        await this.postsService.updateStatus(postId, {
+          status: PostStatus.VERIFIED,
+          postUrl: result.url,
+        });
+        this.eventEmitter.emit(PostEvents.VERIFIED, {
+          postId,
+          network: networkKey,
+          postUrl: result.url,
+        } satisfies PostVerifiedEvent);
+      }
 
       this.logger.log(`Post ${postId} posted successfully to ${post.network as string}`);
       return { success: true, url: result.url };
@@ -697,6 +780,10 @@ export class PostingService {
       [SocialNetwork.X]: [/^https?:\/\/(www\.)?x\.com\/?$/, /^https?:\/\/(www\.)?x\.com\/home\/?$/],
       [SocialNetwork.THREADS]: [/^https?:\/\/(www\.)?threads\.com\/?$/, /^https?:\/\/(www\.)?threads\.com\/@[^/]+\/?$/],
       [SocialNetwork.FACEBOOK]: [/^https?:\/\/(www\.)?facebook\.com\/?$/, /^https?:\/\/(www\.)?facebook\.com\/[^/]+\/?$/],
+      [SocialNetwork.BLUESKY]: [/^https?:\/\/(www\.)?bsky\.app\/?$/, /^https?:\/\/(www\.)?bsky\.app\/feed\/?$/],
+      [SocialNetwork.MASTODON]: [/^https?:\/\/(www\.)?[^/]+\/?$/],
+      [SocialNetwork.TELEGRAM]: [/^https?:\/\/(www\.)?t\.me\/?$/, /^https?:\/\/(www\.)?t\.me\/[^/]+\/?$/],
+      [SocialNetwork.LINKEDIN]: [/^https?:\/\/(www\.)?linkedin\.com\/?$/, /^https?:\/\/(www\.)?linkedin\.com\/feed\/?$/],
     };
 
     for (const pattern of homepagePatterns[network] ?? []) {
@@ -708,6 +795,10 @@ export class PostingService {
       [SocialNetwork.X]: /\/status\/[A-Za-z0-9]+/,
       [SocialNetwork.THREADS]: /(?:\/@[^/]+\/post\/|\/t\/)[A-Za-z0-9_-]+/,
       [SocialNetwork.FACEBOOK]: /\/(posts|permalink|photos)\/\d+/,
+      [SocialNetwork.BLUESKY]: /\/profile\/[^/]+\/post\/[^/]+/,
+      [SocialNetwork.MASTODON]: /(?:\/users\/[^/]+\/statuses\/[^/]+|\/statuses\/[^/]+|\/@[^/]+\/\d+)/,
+      [SocialNetwork.TELEGRAM]: /\/[^/]+\/\d+$/,
+      [SocialNetwork.LINKEDIN]: /(?:\/feed\/update\/urn:li:(?:activity|share|ugcPost):\d+|\/posts\/[^/]+\/\d+)/,
     };
 
     const postPattern = postPatterns[network];
@@ -715,7 +806,7 @@ export class PostingService {
   }
 
   /** Resolve the concrete poster for a network (used for verification + posting). */
-  private getPoster(network: SocialNetwork) {
+  private getPoster(network: SocialNetwork, contentType: ContentType) {
     switch (network) {
       case SocialNetwork.X:
         return this.xPoster;
@@ -723,10 +814,21 @@ export class PostingService {
         return this.threadsPoster;
       case SocialNetwork.FACEBOOK:
         return this.facebookPoster;
+      case SocialNetwork.BLUESKY:
+        return this.blueskyPoster ?? null;
+      case SocialNetwork.MASTODON:
+        return this.mastodonPoster ?? null;
+      case SocialNetwork.TELEGRAM:
+        // Telegram has no browser profile/verifyPosted; it reports its URL directly from the API response.
+        return null;
+      case SocialNetwork.LINKEDIN:
+        // LinkedIn article posters are not verified via the browser profile heuristic.
+        // LinkedIn short-form social can be verified via the poster's verifyPosted.
+        return contentType === ContentType.ARTICLE ? null : (this.linkedinSocialPoster ?? null);
       default: {
-        // Article posters (Dev.to, Hashnode, LinkedIn) are resolved lazily via ModuleRef
+        // Article posters (Dev.to, Hashnode) are resolved lazily via ModuleRef
         // in postArticle() — they're only registered when SYNDICATION_ENABLED=true
-        throw new Error(`No direct poster for network: ${network}`);
+        return null;
       }
     }
   }
@@ -793,12 +895,12 @@ export class PostingService {
    * session-expiry self-recovery loop. Best-effort + fail-safe: any error → null (caller posts).
    */
   private async findLivePostUrl(
-    network: SocialNetwork,
+    post: { network: SocialNetwork; content: string; contentType: ContentType },
     context: Awaited<ReturnType<IBrowserPort['acquireContext']>>,
-    content: string,
   ): Promise<string | null> {
-    const poster = this.getPoster(network);
-    if (typeof poster.verifyPosted !== 'function') return null;
+    const { network, content, contentType } = post;
+    const poster = this.getPoster(network, contentType);
+    if (!poster || typeof poster.verifyPosted !== 'function') return null;
     const url = await poster.verifyPosted(context, content).catch(() => null);
     return url && this.isValidPostUrl(url, network) ? url : null;
   }

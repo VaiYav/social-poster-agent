@@ -240,6 +240,11 @@ export function createMockBrowserPort(): IBrowserPort {
     dismissDialogs: vi.fn().mockResolvedValue(undefined),
     suppressPageErrors: vi.fn().mockResolvedValue(undefined),
     applyResourceBlocking: vi.fn().mockResolvedValue(undefined),
+    // P2 LLM-in-the-loop primitives
+    act: vi.fn().mockResolvedValue({ success: true, action: 'mock' }),
+    extract: vi.fn().mockResolvedValue(null),
+    observe: vi.fn().mockResolvedValue([]),
+    verify: vi.fn().mockResolvedValue(true),
   } as unknown as IBrowserPort;
 }
 

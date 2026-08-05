@@ -65,6 +65,14 @@ describe('SseEventListener (ARCH-001 — event bus safety)', () => {
       extra: { url: 'https://x.com/status/1' },
     },
     {
+      name: 'handleVerified',
+      event: PostEvents.VERIFIED,
+      handler: 'handleVerified',
+      payload: { ...basePayload, postUrl: 'https://x.com/status/1' },
+      expectedStatus: 'VERIFIED',
+      extra: { url: 'https://x.com/status/1' },
+    },
+    {
       name: 'handleFailed',
       event: PostEvents.FAILED,
       handler: 'handleFailed',
