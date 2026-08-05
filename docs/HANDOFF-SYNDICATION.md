@@ -1,307 +1,222 @@
 # Handoff — Cross-Platform Content Syndication
 
-> **Date:** 2026-08-05
-> **From:** Devin session (architecture + planning phase)
-> **To:** Next agent / developer picking up implementation
-> **Status:** Planning complete, implementation not started (Phase 0, 0%)
+> **Date:** 2026-08-05 (updated)
+> **From:** Devin session (Phase 0 + Phase 1 MVP complete)
+> **To:** Next Devin session — Phase 2 social platforms
+> **Status:** Phase 0 + Phase 1 MVP complete (20 issues closed, commit `ca38098`)
+> **Git:** `main` branch, ahead of origin by 2 commits
 
 ---
 
-## 1. What was done in this session
+## 1. What's done (don't redo)
 
-### 1.1 Strategy pivot
+### Phase 0 — 12 issues closed (#3-#10, #47, #49, #51, #53)
 
-The user initially wanted a standalone content syndication system using Pipepost MCP.
-After research, the decision was made to **extend the existing `social-poster-agent` (SPA)**
-instead of building a new service. Rationale: SPA already has 90% of the required
-infrastructure (BullMQ, LangGraph, LLM router, judge, auto-approve, browser automation,
-rate limiting, health monitoring, 458 tests). Building standalone would duplicate all of it.
+- **Prisma schema**: 11 new `SocialNetwork` enum values (DEVTO, HASHNODE, LINKEDIN, BLUESKY, MASTODON, TELEGRAM, MEDIUM, SUBSTACK, REDDIT, QUORA, PINTEREST), `ContentType` enum, new Post fields (`canonicalUrl`, `syndicatedUrls`, `contentType`, `judgeScores`, `judgeRetried`)
+- **IBrowserPort**: extended with `act()`, `extract()`, `observe()`, `verify()` methods
+- **BrowserFactory**: 10 new persistent Camoufox contexts (`PERSISTENT_NETWORKS` Set)
+- **CanonicalUrlService** (`src/modules/canonical/canonical-url.service.ts`): POSSE canonical URL management — `buildBlogUrl()`, `slugify()`, `setCanonical()`, `addSyndicatedUrl()`, `verifyCanonical()`. Handles empty slug fallback, missing post gracefully.
+- **SyndicationModule** (`src/modules/syndication/syndication.module.ts`): feature-flagged wrapper (`SYNDICATION_ENABLED`). `forRoot()` registers CanonicalModule, GenerationModule, BrowserAgentModule, article posters.
+- **Article graph skeleton** → **real implementation** (see Phase 1)
+- **5 article fallback prompts** in `fallback-prompts.ts`: `ARTICLE_RESEARCH_EXTRACT_PROMPT`, `ARTICLE_OUTLINE_PROMPT`, `ARTICLE_DRAFT_PROMPT`, `ARTICLE_JUDGE_PROMPT`, `ARTICLE_REFINE_PROMPT`
+- **40+ env vars** in `env.validation.ts`: `BLOG_BASE_URL`, `SYNDICATION_ENABLED`, per-platform credentials, rate limits, auto-approve thresholds, `BROWSER_AGENT_MAX_ITERATIONS`, `BROWSER_AGENT_CACHE_TTL_MS`
+- **ArticleGenerationCron**: dynamic cron registration via `SchedulerRegistry`, skipped when `ORCHESTRATOR_ENABLED=true`
 
-### 1.2 Documents created
+### Phase 1 MVP — 8 issues closed (#11-#15, #16, #18, #19)
 
-#### In `astro-ai-landing` repo (the content source / blog)
+- **#47 BrowserAgentService** (`src/modules/browser-agent/browser-agent.service.ts`): LLM-in-the-loop browser engine. 4 primitives:
+  - `act(page, instruction)` — screenshot → LLM vision → parse JSON action → execute (click/fill/scroll/navigate/done). Max 10 iterations, consecutive failure guard (3 max, resets on success).
+  - `extract(page, schema)` — screenshot + DOM → LLM → Zod validation → typed result
+  - `observe(page, instruction)` — screenshot + DOM → LLM → element list
+  - `verify(page, question)` — screenshot → LLM → boolean
+  - SHA256 screenshot cache (5-min TTL, `BROWSER_AGENT_CACHE_TTL_MS`). Accessibility tree for DOM context. Multi-strategy element finding (CSS → role → label → text).
+  - **26 unit tests** (BA-001..BA-091)
 
-| File | Purpose |
-|------|---------|
-| `.devin/rules/content-syndication.md` | Rule: syndication strategy = extend SPA |
-| `.devin/plans/cross-platform-syndication-system.md` | Architecture + rollout plan |
-| `.devin/plans/syndication-loop.md` | Loop spec (generate → judge → publish → verify) |
-| `AGENTS.md` | Updated with reference to the new strategy |
+- **#15 Article graph real implementation** (`src/modules/generation/article-graph.ts`): all 7 nodes now make real LLM calls:
+  - `research_extract` — `article-research-extract` prompt, parses numbered facts list
+  - `build_outline` — `article-outline` prompt, parses markdown H2/H3 structure into `ArticleOutlineSection[]`
+  - `draft_article` — `article-draft` prompt, parses H1 title + body + excerpt + slug
+  - `judge_article` — `article-judge` prompt, extracts JSON scores, validates 5 criteria (anti_ai_tone, hook_strength, factual_accuracy, structure_quality, seo_optimization)
+  - `refine_article` — `article-refine` prompt, rewrites based on judge feedback
+  - `set_canonical` — calls `CanonicalUrlService.buildBlogUrl()` + `setCanonical()`
+  - `save_to_db` — formats state (Prisma persistence happens in GenerationService)
+  - Judge router: avg < 0.7 + refineCount < 3 → refine. `MAX_REFINES=3`, `JUDGE_THRESHOLD=0.7` (hardcoded constants — #15 review noted these should be env-configurable)
+  - **15 unit tests** (AG-001..AG-071)
 
-#### In `social-poster-agent` repo (the implementation target)
+- **#16 Auto-approve per-platform thresholds** (`src/modules/autonomy/auto-approve.service.ts`):
+  - `getThresholdForNetwork(network)` — returns per-platform threshold from `perPlatformThresholds` Map
+  - 14 networks configured. Env vars: `AUTO_APPROVE_MIN_SCORE_{NET}` (e.g. `AUTO_APPROVE_MIN_SCORE_REDDIT=9`)
+  - Falls back to global `AUTO_APPROVE_MIN_SCORE` (default 7)
+  - `failOpenMissingScore` also uses per-network threshold
 
-| File | Purpose | Committed? |
-|------|---------|------------|
-| `docs/adr/ADR-007-cross-platform-syndication.md` | Formal ADR: extend SPA for syndication | Yes (69cbde7) |
-| `docs/features/cross-platform-syndication.md` | Detailed feature spec (platforms, modes, judge, POSSE) | Yes (69cbde7) |
-| `ROADMAP-SYNDICATION.md` | 6 phases, 42 tasks, gates, completion criteria | Yes (69cbde7) |
-| `docs/ARCHITECTURE-DIAGRAMS.md` | 13 Mermaid diagrams (C4 L1-L3 + behavioral) | **No — uncommitted** |
+- **#18 BullMQ queues**: already supported by generic `QueueFactory.getQueue(network, action)`. No changes needed — queues created on-demand.
 
-### 1.3 GitHub project
+- **#19 Rate limiter** (`src/modules/rate-limit/rate-limit.service.ts`):
+  - Extended from 3 networks to 14 (original 3 + 11 syndication)
+  - New platforms: `RATE_LIMIT_DAILY_{NET}` env vars (default: 3/day for article platforms vs 1/day for micro-posts)
+  - Weekly: `RATE_LIMIT_WEEKLY_{NET}` (default: 10/week for new, 5/week for original)
+  - Legacy `RATE_LIMIT_{NET}_MAX_PER_DAY` still supported (checked first)
 
-- **Project:** "Cross-Platform Content Syndication" in `my-zodiac-ai` org
-- **Issues:** 42 issues (#3–#44), one per roadmap task
-- **Labels:** `syndication`, `phase-0-foundation` through `phase-5-polish`, `P0`/`P1`/`P2`
-- **Issue mapping:** `P0-01` = #3, `P0-02` = #4, ... `P5-07` = #44
+- **#14 PostingService extension** (`src/modules/posting/posting.service.ts`):
+  - New `postArticle(context, post)` method — dispatches to article posters via `ModuleRef` lazy resolution
+  - Post.content parsed as JSON `ArticleContent` (title, bodyMarkdown, slug, tags, excerpt)
+  - Canonical URL from `post.canonicalUrl` or built from slug
+  - Article posters resolved only when `SYNDICATION_ENABLED=true` — graceful error when disabled
+  - Switch cases added: `DEVTO`, `HASHNODE`, `LINKEDIN` → `postArticle()`
 
-### 1.4 Architecture diagrams
+- **#11/#12/#13 Article posters**:
+  - `ArticleBasePoster` (`src/modules/posting/posters/article-base.poster.ts`) — abstract base with `postArticle()` flow: navigate → LLM fills title → LLM fills body (markdown) → LLM fills tags → LLM sets canonical URL → LLM clicks publish → LLM extracts URL
+  - `DevtoPoster` — editor `https://dev.to/new`
+  - `HashnodePoster` — editor `https://hashnode.com/new`
+  - `LinkedinPoster` — editor `https://www.linkedin.com/article/new`
+  - All registered in `SyndicationModule.forRoot()` providers + exports
 
-`docs/ARCHITECTURE-DIAGRAMS.md` contains 13 Mermaid diagrams documenting the **current**
-SPA architecture (not the future syndication state):
+### Bug fixes from code review
 
-1. System Context (C4 L1)
-2. Container Diagram (C4 L2)
-3. Component Diagram — Backend Modules (C4 L3)
-4. Hexagonal Ports & Adapters
-5. LangGraph Generation State Machine
-6. Auto-Approve / LLM-as-a-Judge Flowchart
-7. Orchestrator Decision Loop
-8. End-to-End Data Flow
-9. Prisma ERD (16 models, 9 enums)
-10. SSE Event Flow
-11. LLM Provider Chain & Circuit Breaker (15 providers)
-12. Browser Pool & Context Lifecycle
-13. BullMQ Queue Topology
+- **CRITICAL**: LLM `cacheKey()` now includes `imageBase64` hash (vision calls were returning cached responses for different screenshots with same text prompt)
+- **CRITICAL**: Vision calls (`role='vision'`) bypass LLM cache entirely (screenshots are unique per capture)
+- **HIGH**: `act()` loop has consecutive failure guard (3 max failures → returns `consecutive_failures`, resets on successful action)
+- **MEDIUM**: `generateVision()` validates image format (must be `data:image/png;base64,`) + 10MB size limit
+- **MEDIUM**: `buildBlogUrl('')` falls back to `/blog/untitled` for empty slugs
+- **MEDIUM**: `setCanonical()` silently skips when post not found (try/catch)
+- **BUG**: Article graph node `outline` renamed to `build_outline` (LangGraph rejects node name matching state channel name)
 
----
+### Test state
 
-## 2. Current state
-
-### 2.1 What exists (SPA today)
-
-- **3 platforms:** X, Threads, Facebook (all via Camoufox browser automation)
-- **Content types:** Short social posts only
-- **Generation:** LangGraph per-topic fan-out → 3 posts (one per network)
-- **Approval:** HITL by default (`AUTO_APPROVE_ENABLED=false`)
-- **Judge:** LLM-as-a-Judge with 4 criteria (anti_ai_tone, hook_strength, factual_accuracy, character_limit)
-- **Orchestrator:** Full autonomous loop (feature-flagged, `ORCHESTRATOR_ENABLED=false`)
-- **Observability:** Langfuse prompt management + tracing, SSE real-time UI, Discord alerts
-
-### 2.2 What needs to be built (syndication extension)
-
-- **9 new platforms:** Dev.to, Hashnode, LinkedIn (API-based); Bluesky, Mastodon, Telegram (API-based); Medium, Substack (browser-based); Reddit, Quora (participation); Pinterest (visual)
-- **2 new content types:** Long-form articles, Q&A answers
-- **New port:** `IApiPosterPort` for API-based posting (distinct from browser-based `IBrowserPort`)
-- **Article generation graph:** New LangGraph for long-form (outline → draft → critique → refine → judge)
-- **Canonical URL management:** POSSE pattern — blog is canonical, syndicated posts link back
-- **Autonomous mode:** Enable `AUTO_APPROVE_ENABLED=true` with judge-score-based approval
-- **IndexNow:** Submit URLs to Bing/Yandex after publish
-- **Participation module:** Find questions on Reddit/Quora, draft answers, judge, post
-
-### 2.3 Roadmap status
-
-```
-Phase 0: Foundation          [░░░░░░░░░░░░░░░░░░░░]   0%  📋 Not started
-Phase 1: MVP (Dev.to+Hash+LI)[░░░░░░░░░░░░░░░░░░░░]   0%  📋 Not started
-Phase 2: Social expansion    [░░░░░░░░░░░░░░░░░░░░]   0%  📋 Not started
-Phase 3: Browser platforms   [░░░░░░░░░░░░░░░░░░░░]   0%  📋 Not started
-Phase 4: Participation       [░░░░░░░░░░░░░░░░░░░░]   0%  📋 Not started
-Phase 5: Polish & backfill   [░░░░░░░░░░░░░░░░░░░░]   0%  📋 Not started
-```
+- **1484 passed**, 14 pre-existing failures, 0 regressions
+- 39 new tests: BrowserAgent (26), CanonicalUrl (16), ArticleGraph (15)
+- 14 pre-existing failures are in: `auto-approve`, `browsing-session`, `engagement-graph`, `batched-judge` — all unrelated to syndication
 
 ---
 
-## 3. Immediate next steps
+## 2. What's next — Phase 2 social platforms
 
-### 3.1 Uncommitted work
+### Phase 1 remainder (4 open issues, P1-P2 priority)
 
-**`docs/ARCHITECTURE-DIAGRAMS.md` is uncommitted** in the SPA repo. It should be
-committed before starting implementation:
+| Issue | Title | Priority | Notes |
+|-------|-------|----------|-------|
+| #50 | P1-04a: Emit POST_VERIFIED event after successful publish + verify | P1 | Needed for #25 social promo trigger |
+| #17 | P1-07: IndexNow service — submit URLs after publish | P1 | SEO — ping search engines after article publish |
+| #20 | P1-10: End-to-end test — Dev.to full flow | P1 | Dry-run test of Dev.to poster |
+| #21 | P1-11: SPA UI — syndication dashboard | P2 | Vue UI for syndication status |
+
+### Phase 2 — social platforms (6 open issues)
+
+| Issue | Title | Priority | Type |
+|-------|-------|----------|------|
+| **#22** | P2-01: Bluesky poster (Camoufox + LLM-in-the-loop) | **P0** | Browser |
+| **#23** | P2-02: Mastodon poster (Camoufox + LLM-in-the-loop) | **P0** | Browser |
+| **#24** | P2-03: Telegram adapter (Bot API — only API exception) | **P0** | API |
+| **#25** | P2-04: Social promo trigger — auto-generate social posts on article publish | **P0** | Event |
+| #52 | P2-04a: Extend social generation graph for new networks | P1 | Graph |
+| #45 | P2-05: End-to-end tests — Bluesky + Mastodon + Telegram | P1 | Test |
+
+### Recommended order for Phase 2
+
+1. **#50** POST_VERIFIED event (needed for #25)
+2. **#22** Bluesky poster (Camoufox + LLM-in-the-loop, same pattern as article posters but for short-form posts)
+3. **#23** Mastodon poster (same pattern)
+4. **#24** Telegram adapter (Bot API — direct HTTP, no browser. `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHANNEL_ID`, `POST /bot{token}/sendMessage` with `parse_mode=MarkdownV2`)
+5. **#25** Social promo trigger (listens for POST_VERIFIED → triggers social generation graph → generates platform-native promo posts with canonical URL)
+6. **#52** Extend social generation graph for new networks (add BLUESKY, MASTODON, TELEGRAM, LINKEDIN to generation graph fan-out)
+7. **#17** IndexNow (submit URLs to Bing/Yandex after publish)
+8. **#45** E2e tests
+
+---
+
+## 3. Architecture context for Phase 2
+
+### Bluesky/Mastodon posters — key difference from article posters
+
+Article posters (Dev.to, Hashnode, LinkedIn) publish **long-form articles** via `ArticleBasePoster.postArticle()`. Bluesky/Mastodon publish **short-form social posts** (300-500 char limit). They should extend `BasePoster` (like `XPoster`, `ThreadsPoster`) and implement `post()` method, not `ArticleBasePoster`.
+
+**Pattern**: Use `BrowserAgentService.act()` for all interactions — same LLM-in-the-loop approach, but for short-form compose boxes instead of article editors.
+
+**Files to create**:
+- `src/modules/posting/posters/bluesky.poster.ts` — extends `BasePoster`
+- `src/modules/posting/posters/mastodon.poster.ts` — extends `BasePoster`
+
+**Register in**: `SyndicationModule.forRoot()` providers + exports (same as article posters)
+
+**PostingService dispatch**: Add `case SocialNetwork.BLUESKY` / `MASTODON` to the switch in `postById()` — resolve via `ModuleRef.get(BlueskyPoster, { strict: false })`
+
+### Telegram adapter — no browser
+
+Telegram uses Bot API directly (HTTP calls, no Camoufox). This is the **only API exception** in the architecture.
+
+**Files to create**:
+- `src/infrastructure/telegram/telegram.adapter.ts` — direct HTTP via `fetch` or `axios`
+- `src/infrastructure/telegram/telegram.module.ts` — NestJS module
+
+**Env vars** (already in `env.validation.ts`): `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHANNEL_ID`
+
+**PostingService dispatch**: Add `case SocialNetwork.TELEGRAM` → resolve `TelegramAdapter` via `ModuleRef`
+
+### Social promo trigger (#25)
+
+Listens for `POST_VERIFIED` domain event → triggers existing social generation graph (`generation.graph.ts`) with article as content source → generates platform-native promo posts for all enabled social networks → each goes through judge → auto-approve → publish.
+
+**Key**: The social generation graph already exists and works for X/Threads/Facebook. Phase 2 extends it to Bluesky/Mastodon/Telegram/LinkedIn (#52).
+
+**Files to create**:
+- `src/modules/generation/social-promo.trigger.ts`
+- `src/events/listeners/social-promo.listener.ts`
+
+**Dependency**: #50 (POST_VERIFIED event) must be implemented first.
+
+---
+
+## 4. Key files to read before starting
+
+| File | Why |
+|------|-----|
+| `src/modules/posting/posters/article-base.poster.ts` | Pattern for LLM-in-the-loop posting |
+| `src/modules/browser-agent/browser-agent.service.ts` | The 4 LLM primitives (act/extract/observe/verify) |
+| `src/modules/posting/posters/x.poster.ts` | Pattern for short-form social poster (extends BasePoster) |
+| `src/modules/posting/posting.service.ts` | How dispatch works (switch + ModuleRef for new posters) |
+| `src/modules/syndication/syndication.module.ts` | Where new posters are registered |
+| `src/modules/generation/generation.graph.ts` | Social generation graph (fan-out per network) |
+| `src/modules/rate-limit/rate-limit.service.ts` | Rate limits already configured for 14 networks |
+| `src/modules/autonomy/auto-approve.service.ts` | Per-platform thresholds already configured |
+| `src/infrastructure/config/env.validation.ts` | All env vars (Telegram, Bluesky, Mastodon credentials) |
+| `AGENTS.md` | Project conventions (ESM .js imports, Langfuse, orchestrator) |
+| `CLAUDE.md` | Architecture overview, traps, test taxonomy |
+
+---
+
+## 5. Conventions to follow
+
+- **ESM imports**: Orchestrator + syndication modules use `.js` extensions (`import { X } from './foo.js'`)
+- **Feature flags**: New modules behind `SYNDICATION_ENABLED` in `app.module.ts` (same pattern as `ENGAGEMENT_ENABLED`)
+- **ModuleRef for cross-module**: PostingService uses `ModuleRef.get(Poster, { strict: false })` to resolve article posters from SyndicationModule — avoids hard dependency
+- **LLM-in-the-loop**: No hardcoded selectors. All browser interactions via `BrowserAgentService.act()` / `extract()` / `observe()` / `verify()`
+- **Tests**: Unit tests in `tests/unit/{module}/`. Test IDs: `XX-NNN` format (e.g. `BP-001` for Bluesky Poster)
+- **Typecheck**: `cd packages/backend && npx tsc --noEmit` — must pass 0 errors
+- **Tests**: `cd packages/backend && npx vitest run tests/unit/` — 14 pre-existing failures are OK, 0 new failures
+
+---
+
+## 6. Known issues / tech debt
+
+- `MAX_REFINES=3` and `JUDGE_THRESHOLD=0.7` in `article-graph.ts` are hardcoded (should be env-configurable — noted in code review #15)
+- `ArticleBasePoster` has `import { z } from 'zod'` at the bottom of the file (should be at top, but works due to hoisting)
+- `BrowserAgentService.cacheKey()` doesn't include LLM parameters (temperature, maxTokens) — low priority since BrowserAgent always uses temperature=0
+- 14 pre-existing test failures in `auto-approve`, `browsing-session`, `engagement-graph`, `batched-judge` — unrelated to syndication
+- `LlmRole` type now includes `'outline'` — added for article graph, may need provider routing config in `LLM_ROLE_CHAINS` if outline calls should use a specific provider chain
+
+---
+
+## 7. Quick start for new session
 
 ```bash
+# Verify state
 cd /Users/valentinyakovlev/projects/agents/social-poster-agent
-git add docs/ARCHITECTURE-DIAGRAMS.md
-git commit -m "docs: add architecture diagrams (13 Mermaid, C4 L1-L3 + behavioral)"
+git log --oneline -3  # should show ca38098 as latest
+cd packages/backend && npx tsc --noEmit  # 0 errors
+npx vitest run tests/unit/  # 1484 passed, 14 pre-existing failures
+
+# Open issues for Phase 2
+gh issue list --state open --label "phase-2-social"
+
+# Start with #50 (POST_VERIFIED event) then #22 (Bluesky poster)
 ```
-
-### 3.2 Phase 0 — first implementation tasks
-
-The roadmap defines 8 Phase 0 tasks (issue #3–#10). They should be done in order:
-
-| # | Issue | Task | Dependencies |
-|---|-------|------|-------------|
-| 1 | #3 | P0-01: Prisma schema migration | None — start here |
-| 2 | #5 | P0-03: Extend SocialNetwork enum + ContentType | #3 |
-| 3 | #4 | P0-02: Create IApiPosterPort | #5 |
-| 4 | #6 | P0-04: CanonicalUrlService | None |
-| 5 | #7 | P0-05: Article generation graph skeleton | #4 |
-| 6 | #8 | P0-06: Add article prompts to Langfuse | #7 |
-| 7 | #9 | P0-07: Env vars + validation | #3 |
-| 8 | #10 | P0-08: Article generation cron service | #7, #9 |
-
-**Start with #3 (Prisma schema migration).** It unblocks everything else.
-
-### 3.3 API keys needed
-
-Before Phase 1 implementation, the user needs to obtain:
-
-| Platform | API | Env var | Notes |
-|----------|-----|---------|-------|
-| Dev.to | Forem API | `DEVTO_API_KEY` | Free, instant. https://developers.forem.com/api |
-| Hashnode | GraphQL API | `HASHNODE_PAT` | Free, instant. https://hashnode.com/settings/developer |
-| LinkedIn | rest/posts API | `LINKEDIN_ACCESS_TOKEN` | OAuth2, requires app approval. https://learn.microsoft.com/en-us/linkedin/marketing/integrations/community-management/sharing/api |
-| Bluesky | AT Protocol | `BLUESKY_HANDLE` + `BLUESKY_APP_PASSWORD` | Free, instant. https://bsky.app/settings/app-passwords |
-| Mastodon | Instance API | `MASTODON_ACCESS_TOKEN` | Free, instance-specific. |
-| Telegram | Bot API | `TELEGRAM_BOT_TOKEN` | Free, instant via @BotFather. |
-| IndexNow | — | `INDEXNOW_KEY` | Already exists in astro-ai-landing (`e6821772f3a8677c2db4ea5b14c9bdf4`). |
-
-Medium and Substack have **no public posting API** — they will use Camoufox browser
-automation (Phase 3). Reddit and Quora also use browser automation (Phase 4).
-
----
-
-## 4. Key architectural decisions
-
-### 4.1 Extend SPA, don't build standalone
-
-**Decision:** ADR-007. Extend `social-poster-agent` with new posters, new content types,
-and autonomous mode. Do not build a separate syndication service.
-
-**Rationale:** SPA already has BullMQ queues, LangGraph generation, LLM router (15 providers),
-LLM-as-a-Judge, auto-approve pipeline, rate limiting, health monitoring, SimHash dedup,
-SSE real-time UI, hexagonal ports, 458 tests. A standalone service would duplicate 90% of this.
-
-### 4.2 Two posting ports
-
-- `IBrowserPort` (existing) — for browser-automated platforms (X, Threads, Facebook, Medium, Substack)
-- `IApiPosterPort` (new) — for API-based platforms (Dev.to, Hashnode, LinkedIn, Bluesky, Mastodon, Telegram)
-
-`PostingService` dispatches based on `post.network` → either browser poster or API poster.
-
-### 4.3 POSSE canonical URLs
-
-Blog (`my-zodiac-ai.com/blog/{slug}`) is the canonical source. All syndicated posts
-link back to it. `CanonicalUrlService` builds, sets, and verifies canonical URLs.
-
-### 4.4 Autonomous mode = LLM-as-a-Judge gate
-
-No human checkpoint before publishing. The LLM-judge's score determines approval:
-- All 4 criteria pass thresholds → AUTO_APPROVE → enqueue
-- Any criterion below reject threshold → REJECT
-- Otherwise → HUMAN_REVIEW (fallback, not the default path)
-
-`AUTO_APPROVE_ENABLED=true` + `AUTO_APPROVE_USE_JUDGE_SCORES=true` enables this.
-
-### 4.5 Article generation = new LangGraph
-
-Separate from the social-post graph. Different state schema (`ArticleGraphState`),
-different nodes (research → outline → draft_article → critique → refine → judge),
-different length targets (1500-3000 words vs 280 chars).
-
----
-
-## 5. Key files to read before starting
-
-### 5.1 In SPA repo (`/Users/valentinyakovlev/projects/agents/social-poster-agent`)
-
-| File | Why |
-|------|-----|
-| `AGENTS.md` | Project conventions (Langfuse, orchestrator, browser memory, Playwright patch) |
-| `CLAUDE.md` | Operational guide (doc-lag caveats, traps, test taxonomy) |
-| `docs/ARCHITECTURE-DIAGRAMS.md` | 13 diagrams of current architecture |
-| `docs/adr/ADR-007-cross-platform-syndication.md` | The decision to extend SPA |
-| `docs/features/cross-platform-syndication.md` | Full feature spec |
-| `ROADMAP-SYNDICATION.md` | 42 tasks across 6 phases |
-| `packages/backend/prisma/schema.prisma` | Current schema (will be extended in P0-01) |
-| `packages/backend/src/app.module.ts` | Module registration (feature-flag pattern) |
-| `packages/backend/src/domain/ports/` | All 6 existing ports (pattern to follow for IApiPosterPort) |
-| `packages/backend/src/modules/generation/generation.graph.ts` | Current LangGraph (pattern for article graph) |
-| `packages/backend/src/modules/posting/posting.service.ts` | Current dispatch (will be extended) |
-| `packages/backend/src/modules/autonomy/auto-approve.service.ts` | Auto-approve logic (will be tuned per-platform) |
-
-### 5.2 In astro-ai-landing repo (`/Users/valentinyakovlev/projects/astro-ai-landing`)
-
-| File | Why |
-|------|-----|
-| `.devin/rules/content-syndication.md` | Syndication rule |
-| `.devin/plans/cross-platform-syndication-system.md` | Architecture + rollout plan |
-| `.devin/plans/syndication-loop.md` | Loop spec |
-
-### 5.3 In CAP repo (`/Users/valentinyakovlev/projects/agents/content-agent-platform`)
-
-SPA reads from CAP's `runs/brief-*`, `runs/topics-*`, `runs/create-*` folders.
-The article generation graph will consume the same content sources but produce
-long-form output.
-
----
-
-## 6. Build / test / lint commands (SPA)
-
-```bash
-# Typecheck
-cd packages/backend && npx tsc --noEmit
-
-# Unit tests
-cd packages/backend && npx vitest run tests/unit/
-
-# Full test suite
-cd packages/backend && npx vitest run
-
-# Lint (oxlint) + format (oxfmt)
-pnpm lint && pnpm format
-
-# Prisma migrate
-pnpm prisma:migrate -- --name <migration-name>
-
-# Dev (all services)
-pnpm dev:all
-
-# Dry-run posting (safe — intercepts final submit)
-pnpm dry-run
-
-# Infra (Postgres :5433, Redis :6381)
-pnpm infra:up
-```
-
-**Ports:** API `:3100` (`/api/v1`, Swagger `/docs`), UI `:3101`. Node ≥22, pnpm ≥10.
-
----
-
-## 7. Risks & open questions
-
-1. **LinkedIn API approval** — requires a LinkedIn app with `w_member_social` scope.
-   Approval can take days. Start the application early (before Phase 1).
-
-2. **Medium/Substack have no posting API** — Camoufox browser automation is the only
-   option. Medium's editor is a rich-text React app; selector drift is likely.
-   Phase 3 includes a selector health service for these.
-
-3. **Reddit/Quora participation** — these platforms have aggressive anti-bot detection.
-   Camoufox helps, but account bans are likely. Phase 4 includes ban recovery.
-   Consider whether the ROI justifies the effort.
-
-4. **Article quality at scale** — generating 1500-3000 word articles via free-tier LLMs
-   (Groq, SambaNova) may hit quality ceilings. The judge's `factual_accuracy` criterion
-   is critical here. May need to route article generation to paid providers (OpenAI,
-   Anthropic) via the per-role chain (`LLM_ROLE_CHAINS=article=anthropic,openai`).
-
-5. **Backfill volume** — 39K existing blog posts. Phase 5 backfill must be batched
-   and rate-limited to avoid platform bans. Estimate: months, not days.
-
-6. **Autonomous mode safety** — enabling `AUTO_APPROVE_ENABLED=true` removes the human
-   checkpoint. The judge must be calibrated first (Phase 5-02: track scores vs outcomes).
-   Recommend a shadow-mode period where auto-approve runs but doesn't enqueue — just
-   logs what it would have approved.
-
----
-
-## 8. GitHub project board
-
-- **Project URL:** `https://github.com/orgs/my-zodiac-ai/projects/<N>` (check org projects)
-- **42 issues:** #3–#44 in `my-zodiac-ai/social-poster-agent`
-- **Labels to filter by phase:** `phase-0-foundation`, `phase-1-mvp`, `phase-2-social`,
-  `phase-3-browser`, `phase-4-participation`, `phase-5-polish`
-- **Priority labels:** `P0` (critical blocker), `P1` (important), `P2` (nice to have)
-
----
-
-## 9. Session history
-
-Full conversation history saved at:
-`/Users/valentinyakovlev/.local/share/devin/cli/summaries/history_befd7d13d06b41f8.md`
-
-Key commits:
-- `69cbde7` — feat: add cross-platform content syndication architecture (ADR-007 + roadmap + feature spec)
-
-Uncommitted:
-- `docs/ARCHITECTURE-DIAGRAMS.md` — 13 Mermaid architecture diagrams
