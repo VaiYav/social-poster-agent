@@ -1,4 +1,5 @@
 import { Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import type { ModuleRef } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import type { Browser, BrowserContext, Locator, Page } from '../../domain/ports/browser-primitives.js';
 import type { SocialNetwork } from '@prisma/client';
@@ -7,6 +8,8 @@ import type {
   IBrowserPort,
   ScrollDirection,
   ScreenshotPhase,
+  LLMActionResult,
+  ObservableElement,
 } from '../../domain/ports/browser.port.js';
 import { mkdirSync, existsSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
@@ -49,10 +52,30 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
   // Without this, multiple concurrent getBrowser() calls race to download/extract
   // the addon to the same path → "manifest.json is missing" from confirmPaths().
   private browserLaunchPromise: Promise<Browser> | null = null;
-  // Persistent context for Facebook — stores fingerprint + cookies on disk
-  // to avoid "suspicious login" challenges on every run.
+  // Persistent context for Facebook + syndication platforms — stores fingerprint
+  // + cookies on disk to avoid "suspicious login" challenges on every run.
   // Key: `${network}:${accountId ?? 'default'}` → persistent BrowserContext
   private readonly persistentContexts = new Map<string, BrowserContext>();
+
+  // P0-09: Networks that use persistent context (user_data_dir on disk) instead
+  // of pooled contexts. Facebook was the original; all new syndication platforms
+  // (Dev.to, Hashnode, LinkedIn, Bluesky, Mastodon, Medium, Substack, Reddit,
+  // Quora, Pinterest) use persistent context too — same pattern as Facebook.
+  // Telegram is NOT here — it uses Bot API, not Camoufox.
+  // X/Threads remain pooled (existing behavior, storageState saved between posts).
+  private static readonly PERSISTENT_NETWORKS: Set<SocialNetwork> = new Set<SocialNetwork>([
+    'FACEBOOK' as SocialNetwork,
+    'DEVTO' as SocialNetwork,
+    'HASHNODE' as SocialNetwork,
+    'LINKEDIN' as SocialNetwork,
+    'BLUESKY' as SocialNetwork,
+    'MASTODON' as SocialNetwork,
+    'MEDIUM' as SocialNetwork,
+    'SUBSTACK' as SocialNetwork,
+    'REDDIT' as SocialNetwork,
+    'QUORA' as SocialNetwork,
+    'PINTEREST' as SocialNetwork,
+  ]);
   // P5: key `${network}:${accountId ?? 'default'}` → in-flight launch promise, so concurrent callers share a
   // single Camoufox launch instead of racing two processes onto one user_data_dir.
   private readonly persistentContextPromises = new Map<string, Promise<BrowserContext>>();
@@ -110,6 +133,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
   constructor(
     private readonly configService: ConfigService,
     @Optional() private readonly proxyRotation?: ProxyRotationService,
+    @Optional() private readonly moduleRef?: ModuleRef,
   ) {
     this.headless = parseBool(this.configService.get<string>('CAMOUFOX_HEADLESS', 'true'));
     this.humanize = parseBool(this.configService.get<string>('CAMOUFOX_HUMANIZE', 'true'));
@@ -503,8 +527,9 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     const key = this.contextKey(network, accountId);
     const accountSuffix = accountId ? `:${accountId}` : '';
 
-    // Facebook: use persistent context to avoid repeated challenges
-    if (network === 'FACEBOOK') {
+    // Persistent-context networks (Facebook + all syndication platforms): use
+    // persistent context to avoid repeated "suspicious login" challenges
+    if (BrowserFactory.PERSISTENT_NETWORKS.has(network)) {
       const persistentContext = await this.getOrCreatePersistentContext(network, accountId);
       this.persistentContextLastUsed.set(key, Date.now());
       return persistentContext;
@@ -562,8 +587,8 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     const key = this.contextKey(network, accountId);
     const accountSuffix = accountId ? `:${accountId}` : '';
 
-    // Facebook: persistent context is shared (not pooled) — return it directly
-    if (network === 'FACEBOOK') {
+    // Persistent-context networks: shared (not pooled) — return it directly
+    if (BrowserFactory.PERSISTENT_NETWORKS.has(network)) {
       const ctx = await this.getOrCreatePersistentContext(network, accountId);
       this.persistentContextLastUsed.set(key, Date.now());
       return ctx;
@@ -685,8 +710,8 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     const key = this.contextKey(network, accountId);
     const accountSuffix = accountId ? `:${accountId}` : '';
 
-    // Facebook: persistent context is not pooled — just return (context stays alive)
-    if (network === 'FACEBOOK') {
+    // Persistent-context networks: not pooled — just return (context stays alive)
+    if (BrowserFactory.PERSISTENT_NETWORKS.has(network)) {
       return;
     }
 
@@ -1044,6 +1069,81 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     } catch {
       // route() can fail if the page/context is already closed — non-fatal
     }
+  }
+
+  // ── LLM-in-the-loop (Phase 1 — #47 BrowserAgentService) ────────
+  // Delegates to BrowserAgentService when available (SYNDICATION_ENABLED=true).
+  // When BrowserAgentService is not registered (SYNDICATION_ENABLED=false),
+  // throws "not implemented" — these methods are only called by syndication posters.
+
+  private browserAgentService: unknown | null = null;
+  private browserAgentResolved = false;
+
+  /**
+   * Lazy-resolve BrowserAgentService via ModuleRef.
+   * Avoids circular dependency: BrowserAgentModule imports LlmModule,
+   * BrowserModule imports nothing — BrowserFactory resolves BrowserAgentService
+   * at runtime only when SYNDICATION_ENABLED=true.
+   */
+  private getBrowserAgent(): {
+    act: (page: Page, instruction: string) => Promise<LLMActionResult>;
+    extract: <T>(page: Page, schema: import('zod').ZodSchema<T>) => Promise<T | null>;
+    observe: (page: Page) => Promise<ObservableElement[]>;
+    verify: (page: Page, stateDescription: string) => Promise<boolean>;
+  } | null {
+    if (this.browserAgentResolved) return this.browserAgentService as never;
+    this.browserAgentResolved = true;
+    if (!this.moduleRef) return null;
+    try {
+      // Lazy import to avoid circular dependency at module load time
+      const { BrowserAgentService } = require('../../modules/browser-agent/browser-agent.service.js');
+      this.browserAgentService = this.moduleRef.get(BrowserAgentService, { strict: false });
+    } catch {
+      // BrowserAgentService not registered (SYNDICATION_ENABLED=false)
+      this.browserAgentService = null;
+    }
+    return this.browserAgentService as never;
+  }
+
+  async act(page: Page, instruction: string): Promise<LLMActionResult> {
+    const agent = this.getBrowserAgent();
+    if (!agent) {
+      throw new Error(
+        'IBrowserPort.act() not available — BrowserAgentService requires SYNDICATION_ENABLED=true. ' +
+          'See ROADMAP-SYNDICATION.md "LLM-in-the-loop browser engine".',
+      );
+    }
+    return agent.act(page, instruction);
+  }
+
+  async extract<T>(page: Page, schema: import('zod').ZodSchema<T>): Promise<T | null> {
+    const agent = this.getBrowserAgent();
+    if (!agent) {
+      throw new Error(
+        'IBrowserPort.extract() not available — BrowserAgentService requires SYNDICATION_ENABLED=true.',
+      );
+    }
+    return agent.extract(page, schema);
+  }
+
+  async observe(page: Page): Promise<ObservableElement[]> {
+    const agent = this.getBrowserAgent();
+    if (!agent) {
+      throw new Error(
+        'IBrowserPort.observe() not available — BrowserAgentService requires SYNDICATION_ENABLED=true.',
+      );
+    }
+    return agent.observe(page);
+  }
+
+  async verify(page: Page, stateDescription: string): Promise<boolean> {
+    const agent = this.getBrowserAgent();
+    if (!agent) {
+      throw new Error(
+        'IBrowserPort.verify() not available — BrowserAgentService requires SYNDICATION_ENABLED=true.',
+      );
+    }
+    return agent.verify(page, stateDescription);
   }
 
   /**

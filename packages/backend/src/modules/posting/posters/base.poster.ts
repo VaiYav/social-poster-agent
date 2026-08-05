@@ -427,8 +427,9 @@ export abstract class BasePoster {
       case 'FACEBOOK':
         return 'div[data-testid="post_message"], div[dir="auto"], article';
       default: {
-        const _exhaustive: never = this.network;
-        return `article, [data-testid="tweetText"] /* unknown: ${String(_exhaustive)} */`;
+        // New syndication networks (Dev.to, Hashnode, LinkedIn, etc.) use
+        // LLM-in-the-loop and don't need CSS selectors — return generic fallback.
+        return `article, [data-testid="tweetText"] /* unhandled network: ${this.network} */`;
       }
     }
   }
@@ -889,8 +890,8 @@ export abstract class BasePoster {
         return slug ? `https://www.facebook.com/${slug}` : null;
       }
       default: {
-        const _exhaustive: never = this.network;
-        this.logger.warn(`Unknown network in getVerificationProfileUrl: ${String(_exhaustive)}`);
+        // New syndication networks — verification handled by LLM-in-the-loop verify()
+        this.logger.warn(`Unhandled network in getVerificationProfileUrl: ${this.network}`);
         return null;
       }
     }
@@ -907,8 +908,8 @@ export abstract class BasePoster {
       case 'X':
         return /\/status\/[A-Za-z0-9]+/;
       default: {
-        const _exhaustive: never = this.network;
-        throw new Error(`Unknown network: ${String(_exhaustive)}`);
+        // New syndication networks — URL pattern verification handled by LLM-in-the-loop
+        throw new Error(`Unhandled network for URL pattern: ${this.network}`);
       }
     }
   }

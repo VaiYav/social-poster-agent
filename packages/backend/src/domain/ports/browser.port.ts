@@ -4,6 +4,7 @@
 
 import type { BrowserContext, Locator, Page } from './browser-primitives.js';
 import type { SocialNetwork } from '@spa/shared';
+import type { ZodSchema } from 'zod';
 
 export const IBrowserPort = Symbol('IBrowserPort');
 
@@ -173,4 +174,95 @@ export interface IBrowserPort {
    *   need rendered images). Media + fonts are always blocked.
    */
   applyResourceBlocking(page: Page, opts?: { blockImages?: boolean }): Promise<void>;
+
+  // ── LLM-in-the-loop (Phase 0 stubs, Phase 1 real impl #47) ──────
+  // No hardcoded CSS selectors — LLM vision resolves elements at runtime.
+  // Pattern: browser-use / Stagehand / Skyvern — screenshot + DOM → LLM decides.
+  // Eliminates selector drift entirely. See ROADMAP-SYNDICATION.md "LLM-in-the-loop".
+
+  /**
+   * Execute a natural-language instruction on the page via LLM vision.
+   * The LLM sees a screenshot + simplified DOM, identifies the target element,
+   * and performs the action (click, type, scroll, navigate).
+   *
+   * @example
+   * await browser.act(page, 'Click the "Publish" button to publish the article');
+   * await browser.act(page, 'Find the canonical URL field in settings and type the URL');
+   *
+   * @param page - Playwright/Camoufox page to act on
+   * @param instruction - Natural-language description of the action to perform
+   * @returns Action result with success status and optional metadata
+   *
+   * Phase 0: stub — throws "not implemented". Phase 1 (#47): real LLM engine.
+   */
+  act(page: Page, instruction: string): Promise<LLMActionResult>;
+
+  /**
+   * Extract structured data from the page via LLM vision.
+   * The LLM sees a screenshot + DOM and returns data matching the Zod schema.
+   *
+   * @example
+   * const url = await browser.extract(page, z.object({ canonicalUrl: z.string() }));
+   *
+   * @param page - Playwright/Camoufox page to extract from
+   * @param schema - Zod schema describing the expected data structure
+   * @returns Extracted data validated against the schema, or null on failure
+   *
+   * Phase 0: stub — throws "not implemented". Phase 1 (#47): real LLM engine.
+   */
+  extract<T>(page: Page, schema: ZodSchema<T>): Promise<T | null>;
+
+  /**
+   * Return a list of actionable elements on the page (LLM-resolved, not CSS-parsed).
+   * The LLM identifies interactive elements (buttons, links, inputs) and returns
+   * them with descriptions. Useful for debugging and for the agent to "see" what
+   * it can do.
+   *
+   * @param page - Playwright/Camoufox page to observe
+   * @returns List of actionable elements with descriptions
+   *
+   * Phase 0: stub — throws "not implemented". Phase 1 (#47): real LLM engine.
+   */
+  observe(page: Page): Promise<ObservableElement[]>;
+
+  /**
+   * Verify that the page is in a described state via LLM vision.
+   * The LLM sees a screenshot and returns a boolean: does the page match the
+   * description?
+   *
+   * @example
+   * const isPublished = await browser.verify(page, 'Is the article published with the canonical URL set?');
+   *
+   * @param page - Playwright/Camoufox page to verify
+   * @param stateDescription - Natural-language description of the expected state
+   * @returns true if the LLM confirms the page matches the description
+   *
+   * Phase 0: stub — throws "not implemented". Phase 1 (#47): real LLM engine.
+   */
+  verify(page: Page, stateDescription: string): Promise<boolean>;
+}
+
+// ── LLM-in-the-loop result types ────────────────────────────────
+
+/** Result of an `act()` call — whether the LLM successfully performed the action. */
+export interface LLMActionResult {
+  success: boolean;
+  /** What the LLM did (for logging/debugging). */
+  action: string;
+  /** Error message if the action failed. */
+  error?: string;
+  /** Number of LLM iterations taken (screenshot → decide → execute loop). */
+  iterations?: number;
+}
+
+/** An actionable element identified by `observe()`. */
+export interface ObservableElement {
+  /** Element description (e.g. "Publish button", "Title input field"). */
+  description: string;
+  /** Element type (button, link, input, textarea, select, etc.). */
+  type: string;
+  /** Whether the element is currently visible/interactable. */
+  interactable: boolean;
+  /** Bounding box coordinates (for debugging). */
+  boundingBox?: { x: number; y: number; width: number; height: number };
 }

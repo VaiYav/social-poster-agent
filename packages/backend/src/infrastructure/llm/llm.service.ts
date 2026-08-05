@@ -758,6 +758,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
     userPrompt: string,
     options: GenerateOptions | undefined,
     provider: LlmProviderConfig,
+    imageBase64?: string,
   ): string {
     const temp = options?.temperature;
     const tempKey = temp === undefined ? 'undef' : String(temp);
@@ -770,6 +771,12 @@ export class LlmService implements ILlmPort, OnModuleInit {
       `maxTokens=${options?.maxTokens ?? 'undef'}`,
       `role=${options?.role ?? 'none'}`,
     ];
+    // Vision calls: include image hash in cache key to avoid collisions
+    // between different screenshots with the same text prompt
+    if (imageBase64) {
+      const imgHash = createHash('sha256').update(imageBase64).digest('hex').slice(0, 16);
+      parts.push(`img=${imgHash}`);
+    }
     const input = parts.join('||');
     return createHash('sha256').update(input).digest('hex').slice(0, 32);
   }
@@ -783,6 +790,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
     systemPrompt: string,
     userPrompt: string,
     options?: GenerateOptions,
+    imageBase64?: string,
   ): Promise<LlmResponse> {
     if (this.providers.length === 0) {
       throw new Error('No LLM providers configured');
@@ -792,7 +800,12 @@ export class LlmService implements ILlmPort, OnModuleInit {
     // Q1: creative roles (draft/hook) bypass the cache — identical prompts
     // must still produce fresh creative output (dedup happens upstream via
     // the hook cache and SimHash).
-    const cacheable = options?.role !== 'draft' && options?.role !== 'hook';
+    // Vision calls also bypass the cache — screenshots are unique per capture
+    // and caching them would return stale actions for changed page states.
+    const cacheable =
+      options?.role !== 'draft' &&
+      options?.role !== 'hook' &&
+      options?.role !== 'vision';
 
     // Q1: role-aware provider ordering (falls back to sticky default)
     const ordered = this.orderedProviders(options?.role);
@@ -803,7 +816,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
     await this.acquireSlot();
     try {
       for (const provider of ordered) {
-        const key = this.cacheKey(systemPrompt, userPrompt, options, provider);
+        const key = this.cacheKey(systemPrompt, userPrompt, options, provider, imageBase64);
         if (cacheable) {
           const cached = await this.cacheBackend.get(key);
           if (cached) {
@@ -843,12 +856,35 @@ export class LlmService implements ILlmPort, OnModuleInit {
         // reasoning models get both parameters omitted entirely.
         const model = this.getModelForProvider(provider, options);
 
-        const messages = systemPrompt
-          ? [
-              { role: 'system' as const, content: systemPrompt },
-              { role: 'user' as const, content: userPrompt },
-            ]
-          : [{ role: 'user' as const, content: userPrompt }];
+        const messages = imageBase64
+          ? // Vision/multimodal call — content is an array of text + image blocks
+            (systemPrompt
+              ? [
+                  { role: 'system' as const, content: systemPrompt },
+                  {
+                    role: 'user' as const,
+                    content: [
+                      { type: 'text' as const, text: userPrompt },
+                      { type: 'image_url' as const, image_url: { url: imageBase64 } },
+                    ],
+                  },
+                ]
+              : [
+                  {
+                    role: 'user' as const,
+                    content: [
+                      { type: 'text' as const, text: userPrompt },
+                      { type: 'image_url' as const, image_url: { url: imageBase64 } },
+                    ],
+                  },
+                ])
+          : // Text-only call — content is a plain string
+            (systemPrompt
+              ? [
+                  { role: 'system' as const, content: systemPrompt },
+                  { role: 'user' as const, content: userPrompt },
+                ]
+              : [{ role: 'user' as const, content: userPrompt }]);
 
         // Langfuse tracing: merge callbacks from GenerateOptions (explicit)
         // and AsyncLocalStorage (ambient — set by GenerationService around
@@ -1063,6 +1099,65 @@ export class LlmService implements ILlmPort, OnModuleInit {
 
   async generate(prompt: string, options?: GenerateOptions): Promise<LlmResponse> {
     return this.generateChat('', prompt, options);
+  }
+
+  /**
+   * Generate text from a system + user prompt pair WITH a screenshot image.
+   * Used by the LLM-in-the-loop browser engine (BrowserAgentService #47).
+   *
+   * Routes to vision-capable providers via role='vision'. The free-first
+   * router will skip providers that don't support vision — only providers
+   * with vision-capable models will be tried.
+   *
+   * @param systemPrompt - System prompt (instructions for the LLM)
+   * @param userPrompt - User prompt (the question/task)
+   * @param imageBase64 - Base64-encoded PNG image (data:image/png;base64,...)
+   * @param options - Generation options (role defaults to 'vision')
+   * @returns LLM response with text content
+   */
+  async generateVision(
+    systemPrompt: string,
+    userPrompt: string,
+    imageBase64: string,
+    options?: GenerateOptions,
+  ): Promise<LlmResponse> {
+    // Validate image format — must be a PNG data URL
+    if (!imageBase64.startsWith('data:image/png;base64,')) {
+      throw new Error('generateVision: imageBase64 must be a data:image/png;base64 URL');
+    }
+    // Reject images larger than 10MB (safety — avoids token explosion / OOM)
+    if (imageBase64.length > 10_000_000) {
+      throw new Error('generateVision: image too large — max 10MB');
+    }
+
+    const alsContext = llmContextStorage.getStore();
+    const effectiveSignal = combineSignals(options?.signal, alsContext?.signal);
+    const budgetScope = options?.budgetScope ?? alsContext?.budgetScope;
+    const budgetRunId = options?.budgetRunId ?? alsContext?.budgetRunId;
+    if (budgetScope) {
+      options = { ...options, budgetScope, budgetRunId };
+    }
+
+    // Default role to 'vision' for provider routing
+    const visionOptions: GenerateOptions = {
+      ...options,
+      role: options?.role ?? 'vision',
+      // Vision tasks need deterministic output — temperature=0 when not explicitly set
+      temperature: options?.temperature ?? 0,
+    };
+
+    if (effectiveSignal?.aborted) {
+      throw new Error('Abort');
+    }
+
+    if (!effectiveSignal) {
+      return this.invokeWithFallback(systemPrompt, userPrompt, visionOptions, imageBase64);
+    }
+
+    return await Promise.race([
+      this.invokeWithFallback(systemPrompt, userPrompt, visionOptions, imageBase64),
+      signalToPromise(effectiveSignal),
+    ]);
   }
 
   /**

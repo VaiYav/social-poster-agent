@@ -231,12 +231,12 @@ export abstract class BaseEngager extends BasePoster {
    * Resolve a relative URL to an absolute URL based on the network.
    */
   protected resolveAbsoluteUrl(href: string): string {
-    const domains: Record<SocialNetwork, string> = {
+    const domains: Partial<Record<SocialNetwork, string>> = {
       X: 'https://x.com',
       THREADS: 'https://www.threads.com',
       FACEBOOK: 'https://www.facebook.com',
     };
-    return href.startsWith('http') ? href : `${domains[this.network]}${href}`;
+    return href.startsWith('http') ? href : `${domains[this.network] ?? ""}${href}`;
   }
 
   /**
@@ -615,12 +615,12 @@ export abstract class BaseEngager extends BasePoster {
    */
   protected resolveProfileUrl(handle: string): string {
     const cleanHandle = handle.replace('@', '');
-    const domains: Record<SocialNetwork, string> = {
+    const domains: Partial<Record<SocialNetwork, string>> = {
       X: `https://x.com/${cleanHandle}`,
       THREADS: `https://www.threads.com/@${cleanHandle}`,
       FACEBOOK: `https://www.facebook.com/${cleanHandle}`,
     };
-    return domains[this.network];
+    return domains[this.network] ?? "";
   }
 
   /**

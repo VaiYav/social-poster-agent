@@ -33,7 +33,7 @@ const DEFAULT_THREAD_DEPTH = 2;
 const MIN_FACTS_FOR_DEEP_THREAD = 3;
 
 /** Per-network max thread depth (Facebook = 1, no threads). */
-const NETWORK_MAX_DEPTH: Record<SocialNetwork, number> = {
+const NETWORK_MAX_DEPTH: Partial<Record<SocialNetwork, number>> = {
   [SocialNetwork.X]: MAX_THREAD_DEPTH,
   [SocialNetwork.THREADS]: MAX_THREAD_DEPTH,
   [SocialNetwork.FACEBOOK]: 1, // Facebook doesn't support threads

@@ -421,6 +421,77 @@ const envSchema = Joi.object({
   ENGAGEMENT_LOCK_KEY: Joi.string().default('spa:lock:engagement'),
   ENGAGEMENT_LOCK_TTL_BUFFER_MS: Joi.number().integer().min(0).default(300000),
   ENGAGEMENT_LOCK_ACQUIRE_RETRY_MS: Joi.number().integer().min(100).default(1000),
+
+  // ── Syndication (Phase 0+ — cross-platform content syndication) ──
+  // Feature flag — when false, SyndicationModule + ParticipationModule are not registered
+  SYNDICATION_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  // Blog base URL for canonical URLs (POSSE — Publish Own Site, Syndicate Elsewhere)
+  BLOG_BASE_URL: Joi.string().uri().default('https://my-zodiac-ai.com'),
+  // Article generation cron schedule (default: weekly Monday 9am)
+  CRON_ARTICLE_GENERATION_SCHEDULE: Joi.string().default('0 9 * * 1'),
+  // Participation cron schedule (default: daily 10am)
+  CRON_PARTICIPATION_SCHEDULE: Joi.string().default('0 10 * * *'),
+
+  // Telegram (only API-based platform — Bot API is free, no approval)
+  TELEGRAM_BOT_TOKEN: Joi.string().allow('').default(''),
+  TELEGRAM_CHANNEL_ID: Joi.string().allow('').default(''),
+
+  // Account credentials for Camoufox login (email/password)
+  // Stored as credentials_ref in DB (env var name, not the secret itself)
+  DEVTO_EMAIL: Joi.string().allow('').default(''),
+  DEVTO_PASSWORD: Joi.string().allow('').default(''),
+  HASHNODE_EMAIL: Joi.string().allow('').default(''),
+  HASHNODE_PASSWORD: Joi.string().allow('').default(''),
+  LINKEDIN_EMAIL: Joi.string().allow('').default(''),
+  LINKEDIN_PASSWORD: Joi.string().allow('').default(''),
+  BLUESKY_HANDLE: Joi.string().allow('').default(''),
+  BLUESKY_APP_PASSWORD: Joi.string().allow('').default(''),
+  MASTODON_INSTANCE: Joi.string().default('mastodon.social'),
+  MASTODON_EMAIL: Joi.string().allow('').default(''),
+  MASTODON_PASSWORD: Joi.string().allow('').default(''),
+  MEDIUM_EMAIL: Joi.string().allow('').default(''),
+  MEDIUM_PASSWORD: Joi.string().allow('').default(''),
+  SUBSTACK_PUBLICATION: Joi.string().allow('').default(''),
+  SUBSTACK_EMAIL: Joi.string().allow('').default(''),
+  SUBSTACK_PASSWORD: Joi.string().allow('').default(''),
+  REDDIT_USERNAME: Joi.string().allow('').default(''),
+  REDDIT_PASSWORD: Joi.string().allow('').default(''),
+  QUORA_EMAIL: Joi.string().allow('').default(''),
+  QUORA_PASSWORD: Joi.string().allow('').default(''),
+  PINTEREST_EMAIL: Joi.string().allow('').default(''),
+  PINTEREST_PASSWORD: Joi.string().allow('').default(''),
+
+  // Per-platform auto-approve thresholds (fallback to AUTO_APPROVE_MIN_SCORE)
+  AUTO_APPROVE_MIN_SCORE_DEVTO: Joi.number().integer().min(1).max(10).default(7),
+  AUTO_APPROVE_MIN_SCORE_HASHNODE: Joi.number().integer().min(1).max(10).default(7),
+  AUTO_APPROVE_MIN_SCORE_LINKEDIN: Joi.number().integer().min(1).max(10).default(7),
+  AUTO_APPROVE_MIN_SCORE_BLUESKY: Joi.number().integer().min(1).max(10).default(7),
+  AUTO_APPROVE_MIN_SCORE_MASTODON: Joi.number().integer().min(1).max(10).default(7),
+  AUTO_APPROVE_MIN_SCORE_TELEGRAM: Joi.number().integer().min(1).max(10).default(7),
+  AUTO_APPROVE_MIN_SCORE_MEDIUM: Joi.number().integer().min(1).max(10).default(7),
+  AUTO_APPROVE_MIN_SCORE_SUBSTACK: Joi.number().integer().min(1).max(10).default(7),
+  AUTO_APPROVE_MIN_SCORE_REDDIT: Joi.number().integer().min(1).max(10).default(9), // strictest — Reddit bans for self-promo
+  AUTO_APPROVE_MIN_SCORE_QUORA: Joi.number().integer().min(1).max(10).default(8),
+  AUTO_APPROVE_MIN_SCORE_PINTEREST: Joi.number().integer().min(1).max(10).default(7),
+
+  // Per-platform rate limits (daily)
+  RATE_LIMIT_DAILY_DEVTO: Joi.number().integer().min(0).default(3),
+  RATE_LIMIT_DAILY_HASHNODE: Joi.number().integer().min(0).default(3),
+  RATE_LIMIT_DAILY_LINKEDIN: Joi.number().integer().min(0).default(2),
+  RATE_LIMIT_DAILY_BLUESKY: Joi.number().integer().min(0).default(5),
+  RATE_LIMIT_DAILY_MASTODON: Joi.number().integer().min(0).default(5),
+  RATE_LIMIT_DAILY_TELEGRAM: Joi.number().integer().min(0).default(10),
+  RATE_LIMIT_DAILY_MEDIUM: Joi.number().integer().min(0).default(2),
+  RATE_LIMIT_DAILY_SUBSTACK: Joi.number().integer().min(0).default(2),
+  RATE_LIMIT_DAILY_REDDIT: Joi.number().integer().min(0).default(2),
+  RATE_LIMIT_DAILY_QUORA: Joi.number().integer().min(0).default(2),
+  RATE_LIMIT_DAILY_PINTEREST: Joi.number().integer().min(0).default(3),
+
+  // ── BrowserAgentService (LLM-in-the-loop engine #47) ──
+  // Max iterations for act() loop (screenshot → LLM → execute → check)
+  BROWSER_AGENT_MAX_ITERATIONS: Joi.number().integer().min(1).max(50).default(10),
+  // Screenshot cache TTL in ms (identical screenshots skip LLM call)
+  BROWSER_AGENT_CACHE_TTL_MS: Joi.number().integer().min(0).default(300000), // 5 min
 }).pattern(
   /^SOCIAL_(X|THREADS|FACEBOOK)_(USERNAME|EMAIL|PASSWORD|COOKIES|PAGE_SLUG|WARMUP|ACTIVE|PROXY_URL|DISPLAY_NAME|PRIORITY|FINGERPRINT_SEED)_\d+$/,
   Joi.string().allow(''),

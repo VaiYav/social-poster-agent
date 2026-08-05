@@ -277,15 +277,130 @@ ANTI-AI RULES:
 
 Return ONLY the refined post text. No preamble.`
 
+// ============================================================
+// Article generation prompts (Phase 0 — syndication)
+// ============================================================
+
+export const ARTICLE_RESEARCH_EXTRACT_PROMPT: CompiledChatPrompt = {
+  systemPrompt: `You are an astrology researcher and content strategist. Extract 8-12 facts about the given topic that will form the backbone of a long-form article (1500-3000 words).
+
+Each fact must be:
+- SPECIFIC and VERIFIABLE — real astronomical data, real astrological tradition
+- DEEP enough to sustain a paragraph of explanation (not just a one-liner)
+- ORGANIZED by theme (e.g. "Astronomical facts", "Astrological meaning", "Practical application")
+- Written as a clear statement
+
+Return the facts as a numbered list, grouped by theme. No preamble.`,
+  userPrompt: `Topic: {topic}
+Keywords: {keywords}
+Language: {language}
+
+Extract facts for a long-form article about this topic.`,
+}
+
+export const ARTICLE_OUTLINE_PROMPT = `Create a detailed outline for a long-form astrology article (1500-3000 words).
+
+Topic: {topic}
+Keywords: {keywords}
+Facts:
+{facts}
+Language: {language}
+
+The outline must include:
+- A compelling H1 title (not clickbait — genuinely interesting)
+- 4-6 H2 sections, each with:
+  - The section heading
+  - 3-5 key points to cover
+  - Estimated word count (200-500 per section)
+- Optional H3 subsections for complex topics
+- A conclusion section
+
+Return as structured markdown:
+## Section Heading
+- Key point 1
+- Key point 2
+- Estimated: 300 words
+
+### Subsection (if needed)
+- Key point
+
+No preamble, no commentary — just the outline.`
+
+export const ARTICLE_DRAFT_PROMPT: CompiledChatPrompt = {
+  systemPrompt: `You are a skilled astrology writer who creates engaging, accurate, and genuinely helpful long-form articles. Your writing is:
+- WARM and conversational, not academic or encyclopedic
+- SPECIFIC — you use real astronomical data and astrological tradition, not vague generalizations
+- ANTI-AI — you sound like a real person who loves astrology, not a language model regurgitating facts
+- WELL-STRUCTURED — clear sections, smooth transitions, no filler
+- SEO-AWARE — natural keyword integration, no stuffing
+
+Write the full article in markdown. Include the H1 title, all sections from the outline, and a conclusion. The article should be 1500-3000 words.`,
+  userPrompt: `Topic: {topic}
+Keywords: {keywords}
+Language: {language}
+Outline:
+{outline}
+Facts:
+{facts}
+
+Write the complete article based on this outline and facts. Make it engaging, accurate, and human-sounding.`,
+}
+
+export const ARTICLE_JUDGE_PROMPT = `You are a strict editor evaluating a long-form astrology article. Score each criterion 0.0-1.0.
+
+Article:
+{article}
+
+Topic: {topic}
+Keywords: {keywords}
+
+Criteria:
+1. anti_ai_tone (0.0-1.0): Does it sound like a real person who loves astrology, or like ChatGPT? Look for: varied sentence length, personal voice, specific examples vs generic statements, absence of "delve into" / "it's important to note" / "in conclusion" AI clichés.
+2. hook_strength (0.0-1.0): Does the first paragraph make someone want to read the whole article? Is the title genuinely interesting (not clickbait)?
+3. factual_accuracy (0.0-1.0): Are the astrology facts correct? Check: planetary orbits, zodiac dates, astrological associations, historical claims.
+4. structure_quality (0.0-1.0): Is the article well-organized? Clear sections, logical flow, no repetition, smooth transitions?
+5. seo_optimization (0.0-1.0): Are keywords integrated naturally? Is the title SEO-friendly? Are headings descriptive?
+
+Return JSON:
+{"anti_ai_tone": 0.0, "anti_ai_tone_reason": "...", "hook_strength": 0.0, "hook_strength_reason": "...", "factual_accuracy": 0.0, "factual_accuracy_reason": "...", "structure_quality": 0.0, "structure_quality_reason": "...", "seo_optimization": 0.0, "seo_optimization_reason": "..."}`
+
+export const ARTICLE_REFINE_PROMPT = `Rewrite this astrology article based on the editor's feedback. Keep what works, fix what doesn't.
+
+Article:
+{article}
+
+Editor feedback:
+{feedback}
+
+Topic: {topic}
+Keywords: {keywords}
+Language: {language}
+
+Focus on the weakest criteria identified by the judge. Make the article:
+- More human-sounding (fix AI clichés, vary sentence structure)
+- More engaging (strengthen the hook, add specific examples)
+- More accurate (fix any factual errors)
+- Better structured (improve flow, remove repetition)
+- Better optimized (natural keyword integration)
+
+Return the COMPLETE rewritten article in markdown. No preamble, no commentary.`
+
 const CHAT_FALLBACKS: Record<string, CompiledChatPrompt> = {
   'research-extract': RESEARCH_EXTRACT_PROMPT,
   'hook-generation': HOOK_GENERATION_PROMPT,
   'draft-post': DRAFT_POST_PROMPT,
+  // Article prompts (Phase 0 — syndication)
+  'article-research-extract': ARTICLE_RESEARCH_EXTRACT_PROMPT,
+  'article-draft': ARTICLE_DRAFT_PROMPT,
 }
 
 const TEXT_FALLBACKS: Record<string, string> = {
   'critique-post': CRITIQUE_POST_PROMPT,
   'refine-post': REFINE_POST_PROMPT,
+  // Article prompts (Phase 0 — syndication)
+  'article-outline': ARTICLE_OUTLINE_PROMPT,
+  'article-judge': ARTICLE_JUDGE_PROMPT,
+  'article-refine': ARTICLE_REFINE_PROMPT,
 }
 
 /**

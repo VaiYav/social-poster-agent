@@ -77,7 +77,7 @@ export class AutoCheckService {
     });
 
     // 2. Character limit
-    const limit = NETWORK_LIMITS[network];
+    const limit = NETWORK_LIMITS[network] ?? 280;
     checks.push({
       name: 'char_limit',
       passed: content.length <= limit,

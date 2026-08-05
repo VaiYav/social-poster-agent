@@ -173,7 +173,7 @@ export type GenerationStateType = typeof GenerationState.State;
  * "Stay within {limit}" makes the LLM FILL the limit; on Threads short
  * 1-2 sentence posts outperform essays, so we target well below the cap.
  */
-const NETWORK_LENGTH_GUIDANCE: Record<SocialNetwork, string> = {
+const NETWORK_LENGTH_GUIDANCE: Partial<Record<SocialNetwork, string>> = {
   [SocialNetwork.X]: 'Max 280 characters. One idea. If it needs two ideas, cut one.',
   [SocialNetwork.THREADS]: 'Target 150-280 characters (short posts outperform essays on Threads). Hard cap 500.',
   [SocialNetwork.FACEBOOK]: 'Target 200-400 characters. Hard cap 500.',
@@ -244,13 +244,13 @@ const LANGUAGE_INSTRUCTIONS: Record<string, string> = {
   it: ' Use natural conversational Italian. Use standard Italian, not dialects.',
 };
 
-const NETWORK_TONE: Record<SocialNetwork, string> = {
+const NETWORK_TONE: Partial<Record<SocialNetwork, string>> = {
   [SocialNetwork.X]: 'Punchy, hook-first, confident. One idea per post. Can be sarcastic, bold, or deadpan. NO hashtags — X algorithm deprioritizes them and 3+ triggers spam filters. No filler.',
   [SocialNetwork.THREADS]: 'Narrative, storytelling, personal. Like texting a friend about something you noticed. Can be vulnerable, funny, or reflective. NO hashtags — Threads doesn\'t use hashtags for discovery.',
   [SocialNetwork.FACEBOOK]: 'Conversational, community-oriented. Relatable, warm, but not corny. End with a genuine question (not engagement bait). NO hashtags — Facebook algorithm treats them as spam signals.',
 };
 
-const NETWORK_ANGLE: Record<SocialNetwork, string> = {
+const NETWORK_ANGLE: Partial<Record<SocialNetwork, string>> = {
   [SocialNetwork.X]: 'bold take or counter-intuitive observation — max impact in 280 chars, make someone stop mid-scroll',
   [SocialNetwork.THREADS]: 'personal story or reflective observation — "I noticed something about..." energy, warmer, more context',
   [SocialNetwork.FACEBOOK]: 'relatable + discussion-starter — everyday life angle, "has anyone else noticed..." energy, invite genuine discussion',
@@ -262,7 +262,7 @@ const NETWORK_ANGLE: Record<SocialNetwork, string> = {
  * The draft node concatenates `state.brandVoice` + this persona block in the
  * system prompt so each network speaks to its audience in the right register.
  */
-const NETWORK_PERSONA: Record<SocialNetwork, string> = {
+const NETWORK_PERSONA: Partial<Record<SocialNetwork, string>> = {
   [SocialNetwork.X]: `X PERSONA — "the one at the party who actually reads charts and has opinions about it":
 - Voice: confident, a bit edgy, has opinions and isn't afraid of them. But also admits when they're wrong.
 - Energy: main-character energy but not cringe. Would call out a bad astrology take. Would also admit their own takes are sometimes wrong.
@@ -453,7 +453,7 @@ function anglePerNetworkNode(state: GenerationStateType): Partial<GenerationStat
     if (!net) continue;
     // Assign different hooks to different networks (cycle through available hooks)
     const hook = state.hooks[i % state.hooks.length] ?? state.hooks[0] ?? '';
-    const angle = NETWORK_ANGLE[net];
+    const angle = NETWORK_ANGLE[net] ?? '';
     // P1: Classify the hook technique for performance tracking.
     // The technique is stored in NetworkResult and propagated to Post.llmMetadata.
     const hookTechnique = classifyHookTechnique(hook);
@@ -494,9 +494,9 @@ function makeDraftNode(network: SocialNetwork, promptPort: IPromptPort, draftTem
     const netResult = state.results[network];
     if (!netResult) return {};
 
-    const charLimit = NETWORK_LIMITS[network];
-    const tone = NETWORK_TONE[network];
-    const persona = NETWORK_PERSONA[network];
+    const charLimit = NETWORK_LIMITS[network] ?? 280;
+    const tone = NETWORK_TONE[network] ?? '';
+    const persona = NETWORK_PERSONA[network] ?? '';
 
     // Multilingual support — determine the language for this post
     const lang = state.language || 'en';
@@ -533,12 +533,12 @@ function makeDraftNode(network: SocialNetwork, promptPort: IPromptPort, draftTem
 
     const variables = {
       brandVoice: state.brandVoice,
-      persona,
+      persona: persona ?? '',
       styleGuidance,
       humorGuidance,
       network,
       charLimit: String(charLimit),
-      lengthGuidance: NETWORK_LENGTH_GUIDANCE[network],
+      lengthGuidance: NETWORK_LENGTH_GUIDANCE[network] ?? '',
       langName,
       langInstruction,
       topic: state.topic.topic,
@@ -600,7 +600,7 @@ function makeCritiqueNode(network: SocialNetwork, promptPort: IPromptPort) {
     // Sprint I: Skip if draft already failed
     if (netResult.error) return {};
 
-    const charLimit = NETWORK_LIMITS[network];
+    const charLimit = NETWORK_LIMITS[network] ?? 280;
 
     // P9: Engagement-Bait Detector — deterministic pattern check.
     // When bait is detected, the critique prompt explicitly flags it so the
@@ -733,7 +733,7 @@ function makeRefineNode(network: SocialNetwork, promptPort: IPromptPort, refineT
       };
     }
 
-    const charLimit = NETWORK_LIMITS[network];
+    const charLimit = NETWORK_LIMITS[network] ?? 280;
 
     const gateInstructions = [baitInstruction, humanizeInstruction].filter(Boolean).join('\n');
     const critiqueText = isJudgeRetry
@@ -1003,7 +1003,7 @@ function makeJudgeNode(
         return {
           network: net,
           content: c,
-          charLimit: NETWORK_LIMITS[net],
+          charLimit: NETWORK_LIMITS[net] ?? 280,
           factsText,
           slopList,
         };

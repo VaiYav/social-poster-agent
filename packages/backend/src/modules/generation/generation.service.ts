@@ -29,8 +29,10 @@ import {
   GenerationTrigger,
   PostStatus,
 } from '@prisma/client';
-import type { ContentTopic } from '@spa/shared';
+import type { ContentTopic, GenerateArticleOptions, ArticleGraphState } from '@spa/shared';
 import { buildGenerationGraph, createInitialState, type GeneratedPost, type ProgressPublisher } from './generation.graph.js';
+import { buildArticleGraph, createArticleInitialState } from './article-graph.js';
+import { CanonicalUrlService } from '../canonical/canonical-url.service.js';
 import type { JudgeScores } from '@spa/shared';
 import { Command } from '@langchain/langgraph';
 import { simhash, isDuplicateHash } from './simhash.js';
@@ -82,6 +84,8 @@ export class GenerationService {
   private readonly logger = new Logger(GenerationService.name);
   private brandVoice: string | null = null;
   private compiledGraph: CompiledGraph | null = null;
+  /** Article generation graph (lazy-compiled, like social graph) */
+  private compiledArticleGraph: Awaited<ReturnType<typeof buildArticleGraph>> | null = null;
   /** Active run cancellations — runId → AbortController */
   private readonly activeRuns = new Map<string, AbortController>();
   /** Languages for multilingual post generation (ISO 639-1 codes) */
@@ -164,6 +168,89 @@ export class GenerationService {
       this.logger.log('LangGraph workflow compiled with Redis checkpoint saver + SSE progress (§10.3 parallel graph)');
     }
     return this.compiledGraph;
+  }
+
+  /**
+   * Lazy-compile the article generation graph.
+   * Done on first use (not constructor) to ensure dependencies are ready.
+   *
+   * Phase 0: stub nodes. Phase 1 (P1-05): real LLM implementations.
+   *
+   * Note: CanonicalUrlService is injected via ModuleRef to avoid a circular
+   * dependency (CanonicalModule → PrismaModule, GenerationModule → ...).
+   */
+  private async getArticleGraph() {
+    if (!this.compiledArticleGraph) {
+      // CanonicalUrlService is optional in Phase 0 — the graph works without it
+      // (set_canonical node handles null gracefully via a fallback slugify)
+      let canonicalService: CanonicalUrlService | undefined;
+      try {
+        const { ModuleRef } = await import('@nestjs/core');
+        const moduleRef = (this as unknown as { moduleRef?: InstanceType<typeof ModuleRef> }).moduleRef;
+        if (moduleRef) {
+          canonicalService = moduleRef.get(CanonicalUrlService, { strict: false });
+        }
+      } catch {
+        // CanonicalUrlService not registered yet (SYNDICATION_ENABLED=false)
+      }
+
+      // Fallback canonical service if not available
+      const fallbackCanonical = {
+        buildBlogUrl: (slug: string) => `https://my-zodiac-ai.com/blog/${slug}`,
+        slugify: (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
+        setCanonical: async () => {},
+        addSyndicatedUrl: async () => {},
+        verifyCanonical: async () => true,
+      } as unknown as CanonicalUrlService;
+
+      this.compiledArticleGraph = buildArticleGraph({
+        llm: this.llm,
+        promptPort: this.promptPort ?? null,
+        canonicalService: canonicalService ?? fallbackCanonical,
+      });
+      this.logger.log('Article generation graph compiled (Phase 0 stub nodes)');
+    }
+    return this.compiledArticleGraph;
+  }
+
+  /**
+   * Generate an article using the article LangGraph.
+   *
+   * Flow: research_extract → outline → draft_article → judge_article →
+   *   [refine_article loop, max 3] → set_canonical → save_to_db
+   *
+   * Phase 0: stub nodes — returns placeholder article.
+   * Phase 1 (P1-05): real LLM implementations.
+   *
+   * @param options - Article generation options (topic, keywords, language, targetNetworks)
+   * @returns Final article state with canonical URL
+   */
+  async generateArticle(options: GenerateArticleOptions): Promise<ArticleGraphState> {
+    const runId = `article-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    this.logger.log(`generateArticle: topic="${options.topic}", runId=${runId}`);
+
+    const initialState = createArticleInitialState(options, runId);
+    const config = {
+      configurable: { thread_id: `${runId}:${options.topic}` },
+      recursionLimit: 50,
+    };
+
+    try {
+      const graph = await this.getArticleGraph();
+      const finalState = await graph.invoke(initialState, config);
+      this.logger.log(
+        `Article generation complete: topic="${options.topic}", canonical=${finalState.canonicalUrl}`,
+      );
+      return finalState as ArticleGraphState;
+    } catch (error) {
+      this.logger.error(
+        `Article generation failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return {
+        ...initialState,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   /**

@@ -455,4 +455,23 @@ export class DryRunBrowserPort implements IBrowserPort {
   applyResourceBlocking(page: Page, opts?: { blockImages?: boolean }): Promise<void> {
     return this.real.applyResourceBlocking(page, opts);
   }
+
+  // ── LLM-in-the-loop stubs (Phase 0) — delegate to real BrowserFactory ──
+  // Real implementation in Phase 1 (#47). These throw "not implemented" via the real factory.
+
+  act(page: Page, instruction: string): Promise<import('../domain/ports/browser.port.js').LLMActionResult> {
+    return this.real.act(page, instruction);
+  }
+
+  extract<T>(page: Page, schema: import('zod').ZodSchema<T>): Promise<T | null> {
+    return this.real.extract(page, schema);
+  }
+
+  observe(page: Page): Promise<import('../domain/ports/browser.port.js').ObservableElement[]> {
+    return this.real.observe(page);
+  }
+
+  verify(page: Page, stateDescription: string): Promise<boolean> {
+    return this.real.verify(page, stateDescription);
+  }
 }

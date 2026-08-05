@@ -44,6 +44,7 @@ import { SseModule } from './infrastructure/sse/sse.module';
 import { MultiInstanceModule } from './infrastructure/multi-instance/multi-instance.module';
 import { EmailModule } from './infrastructure/email/email.module';
 import { OrchestratorModule } from './modules/orchestrator/orchestrator.module';
+import { SyndicationModule } from './modules/syndication/syndication.module.js';
 import { MonitoringController } from './modules/monitoring/monitoring.controller';
 import { metricsPublisherProviders } from './modules/monitoring/monitoring.providers';
 import { parseBool } from './infrastructure/config/parse-bool.js';
@@ -73,6 +74,15 @@ const repliesImports =
  * When disabled, the old cron-based scheduling is used.
  */
 const orchestratorImports = parseBool(process.env.ORCHESTRATOR_ENABLED) ? [OrchestratorModule] : [];
+
+/**
+ * Syndication (cross-platform content syndication) — Phase 0+.
+ * Gated behind SYNDICATION_ENABLED (default: false).
+ * When disabled, no syndication modules, article cron, or canonical URL service.
+ */
+const syndicationImports = parseBool(process.env.SYNDICATION_ENABLED)
+  ? [SyndicationModule.forRoot()]
+  : [];
 
 @Module({
   controllers: [MonitoringController],
@@ -122,6 +132,7 @@ const orchestratorImports = parseBool(process.env.ORCHESTRATOR_ENABLED) ? [Orche
     FlowControlModule, // ADR-006: Flow control (pause/resume, crisis mode)
     AutonomyModule, // ADR-006: Auto-check, auto-approve, autonomous runner
     ...orchestratorImports, // LangGraph orchestrator — gated by ORCHESTRATOR_ENABLED
+    ...syndicationImports, // Cross-platform syndication — gated by SYNDICATION_ENABLED
   ],
   providers: [
     ...metricsPublisherProviders,

@@ -106,24 +106,39 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     // Global min delay between posts (env: RATE_LIMIT_MIN_DELAY_MS, default 5 min)
     const globalMinDelay = this.parseNumericConfig('RATE_LIMIT_MIN_DELAY_MS', 300_000);
 
-    const networks = ['X', 'THREADS', 'FACEBOOK'] as const;
+    // P1-09: All networks — original 3 + 11 new syndication platforms
+    const networks = [
+      'X', 'THREADS', 'FACEBOOK',
+      'DEVTO', 'HASHNODE', 'LINKEDIN',
+      'BLUESKY', 'MASTODON', 'TELEGRAM',
+      'MEDIUM', 'SUBSTACK',
+      'REDDIT', 'QUORA', 'PINTEREST',
+    ] as const;
 
     this.dailyLimits = {};
     this.weeklyLimits = {};
     this.minIntervalMs = {};
 
     for (const net of networks) {
-      // Read env vars matching .env.example: RATE_LIMIT_{NET}_MAX_PER_DAY
-      this.dailyLimits[net] = this.parseNumericConfig(
+      // Original 3 networks: RATE_LIMIT_{NET}_MAX_PER_DAY (default: 1 — constitution §8)
+      // New syndication platforms: RATE_LIMIT_DAILY_{NET} (default: 3 — articles, not micro-posts)
+      const isNewPlatform = !['X', 'THREADS', 'FACEBOOK'].includes(net);
+      const dailyDefault = isNewPlatform ? 3 : 1;
+      const weeklyDefault = isNewPlatform ? 10 : 5;
+
+      // Try both env var formats: RATE_LIMIT_{NET}_MAX_PER_DAY (legacy) and RATE_LIMIT_DAILY_{NET} (new)
+      const dailyLimit = this.parseNumericConfig(
         `RATE_LIMIT_${net}_MAX_PER_DAY`,
-        1, // constitution §8 default: 1 post/day
+        this.parseNumericConfig(`RATE_LIMIT_DAILY_${net}`, dailyDefault),
       );
 
-      this.weeklyLimits[net] = this.parseNumericConfig(
+      const weeklyLimit = this.parseNumericConfig(
         `RATE_LIMIT_${net}_MAX_PER_WEEK`,
-        5, // constitution §7 RateLimitConfig default: 5/week
+        this.parseNumericConfig(`RATE_LIMIT_WEEKLY_${net}`, weeklyDefault),
       );
 
+      this.dailyLimits[net] = dailyLimit;
+      this.weeklyLimits[net] = weeklyLimit;
       this.minIntervalMs[net] = globalMinDelay;
     }
 
@@ -179,12 +194,10 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit(): void {
-    this.logger.log(
-      `Rate limiter initialized (shared Redis connection) — ` +
-        `limits: X=${this.dailyLimits['X']}/day ${this.weeklyLimits['X']}/week, ` +
-        `THREADS=${this.dailyLimits['THREADS']}/day ${this.weeklyLimits['THREADS']}/week, ` +
-        `FACEBOOK=${this.dailyLimits['FACEBOOK']}/day ${this.weeklyLimits['FACEBOOK']}/week`,
-    );
+    const summary = Object.entries(this.dailyLimits)
+      .map(([net, daily]) => `${net}=${daily}/day ${this.weeklyLimits[net]}/week`)
+      .join(', ');
+    this.logger.log(`Rate limiter initialized (shared Redis) — ${summary}`);
   }
 
   onModuleDestroy(): void {

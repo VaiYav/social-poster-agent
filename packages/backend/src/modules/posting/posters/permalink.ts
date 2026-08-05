@@ -7,7 +7,7 @@ import { FACEBOOK_SELECTORS } from './selectors/facebook.selectors.js';
  * P1: native post-permalink shape per network — the single source of truth is the
  * poster selectors' `postUrlPattern` (so this never drifts from the capture logic).
  */
-const POST_URL_PATTERN: Record<SocialNetwork, RegExp> = {
+const POST_URL_PATTERN: Partial<Record<SocialNetwork, RegExp>> = {
   X: X_SELECTORS.compose.postUrlPattern,
   THREADS: THREADS_SELECTORS.compose.postUrlPattern,
   FACEBOOK: FACEBOOK_SELECTORS.compose.postUrlPattern,
@@ -23,7 +23,9 @@ const POST_URL_PATTERN: Record<SocialNetwork, RegExp> = {
  */
 export function isPermalink(url: string | null | undefined, network: SocialNetwork): boolean {
   if (!url) return false;
-  return POST_URL_PATTERN[network].test(url);
+  const pattern = POST_URL_PATTERN[network];
+  if (!pattern) return false;
+  return pattern.test(url);
 }
 
 /**

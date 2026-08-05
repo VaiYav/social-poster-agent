@@ -42,7 +42,7 @@ export class PostsService {
    */
   private isValidTransition(current: PostStatus, next: PostStatus): boolean {
     if (current === next) return true;
-    const allowed: Record<PostStatus, PostStatus[]> = {
+    const allowed: Partial<Record<PostStatus, PostStatus[]>> = {
       [PostStatus.DRAFT]: [PostStatus.APPROVED, PostStatus.REJECTED],
       // APPROVED can also be set directly to POSTED/FAILED by posting/continuations
       // in tests and by the worker setting FAILED before POSTING (disabled network).
@@ -51,6 +51,9 @@ export class PostsService {
       [PostStatus.POSTED]: [],
       [PostStatus.FAILED]: [],
       [PostStatus.REJECTED]: [],
+      // Phase 1+ syndication statuses
+      [PostStatus.JUDGED]: [PostStatus.APPROVED, PostStatus.REJECTED],
+      [PostStatus.VERIFIED]: [],
     };
     return allowed[current]?.includes(next) ?? false;
   }

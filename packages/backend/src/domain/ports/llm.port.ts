@@ -11,7 +11,7 @@ export const ILlmPort = Symbol('ILlmPort');
  * Creative roles (draft/hook) can be routed to stronger models while
  * analytical roles (critique/judge) stay on the cheapest chain.
  */
-export type LlmRole = 'draft' | 'hook' | 'critique' | 'judge' | 'facts' | 'utility' | 'refine';
+export type LlmRole = 'draft' | 'hook' | 'critique' | 'judge' | 'facts' | 'utility' | 'refine' | 'vision' | 'outline';
 
 export interface GenerateOptions {
   systemPrompt?: string;
@@ -78,6 +78,31 @@ export interface ILlmPort {
   generateChat(
     systemPrompt: string,
     userPrompt: string,
+    options?: GenerateOptions,
+  ): Promise<LlmResponse>;
+
+  /**
+   * Generate text from a system + user prompt pair WITH a screenshot image.
+   * Used by the LLM-in-the-loop browser engine (BrowserAgentService #47).
+   *
+   * The image is passed as a base64-encoded PNG data URL. The LLM sees the
+   * screenshot and the text prompt, and returns a text response (action
+   * decision, extracted data, verification result, etc.).
+   *
+   * Providers that support vision: OpenAI (gpt-4o), Anthropic (Claude 3.5),
+   * Google Gemini, OpenRouter (vision models). The free-first router will
+   * skip providers that don't support vision — see LlmService for routing.
+   *
+   * @param systemPrompt - System prompt (instructions for the LLM)
+   * @param userPrompt - User prompt (the question/task)
+   * @param imageBase64 - Base64-encoded PNG image (data:image/png;base64,...)
+   * @param options - Generation options (role='vision' routes to vision-capable providers)
+   * @returns LLM response with text content
+   */
+  generateVision(
+    systemPrompt: string,
+    userPrompt: string,
+    imageBase64: string,
     options?: GenerateOptions,
   ): Promise<LlmResponse>;
 

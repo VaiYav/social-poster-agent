@@ -6,7 +6,7 @@ import { SocialNetwork } from '@prisma/client';
  * post can't be approved and then fail at posting time. Counting is by Unicode code points so
  * multi-byte emoji are not over-counted relative to UTF-16 units.
  */
-export const NETWORK_LIMITS: Record<SocialNetwork, number> = {
+export const NETWORK_LIMITS: Partial<Record<SocialNetwork, number>> = {
   [SocialNetwork.X]: 280,
   [SocialNetwork.THREADS]: 500,
   [SocialNetwork.FACEBOOK]: 500,

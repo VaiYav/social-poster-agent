@@ -47,7 +47,7 @@ export interface VisualConcept {
  * Threads: 4:5 (1080x1350) for portrait
  * Facebook: 1.91:1 (1200x630) for link-style images
  */
-const NETWORK_DIMENSIONS: Record<SocialNetwork, { width: number; height: number; ratio: string }> = {
+const NETWORK_DIMENSIONS: Partial<Record<SocialNetwork, { width: number; height: number; ratio: string }>> = {
   [SocialNetwork.X]: { width: 1200, height: 675, ratio: '16:9' },
   [SocialNetwork.THREADS]: { width: 1080, height: 1350, ratio: '4:5' },
   [SocialNetwork.FACEBOOK]: { width: 1200, height: 630, ratio: '1.91:1' },

@@ -498,7 +498,7 @@ describe('MOD-03: PostingService', () => {
 
     // The throw in the switch default is caught by the catch block
     expect(result.success).toBe(false);
-    expect(result.error).toContain('Unknown network');
+    expect(result.error).toContain('not yet implemented for network');
 
     // FAILED status set
     const failedCall = ctx.postsService.updateStatus.mock.calls.find(

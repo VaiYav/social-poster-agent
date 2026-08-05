@@ -45,7 +45,19 @@ export class SessionsService implements OnModuleInit {
   // X-only fields (nextButton, twoFactorInput, twoFactorConfirm, accountSwitcher) are
   // included as empty strings in THREADS/FACEBOOK for type union compatibility — X is the
   // only network with a multi-step onboarding wizard + 2FA (stealth-x Step 1.5/3).
-  private readonly LOGIN_SELECTORS = {
+  // Phase 0: Partial — new syndication networks will get login selectors in Phase 1+
+  // when LLM-in-the-loop browser engine (#47) is implemented.
+  private readonly LOGIN_SELECTORS: Partial<Record<SocialNetwork, {
+    url: string;
+    usernameInput: string;
+    passwordInput: string;
+    nextButton: string;
+    submitButton: string;
+    twoFactorInput: string;
+    twoFactorConfirm: string;
+    accountSwitcher: string;
+    successIndicator: string;
+  }>> = {
     X: {
       // X uses onboarding wizard (/i/flow/login → /i/jf/onboarding/web?mode=login)
       // Multi-step wizard: Step 1 = username → Next → Step 2 = password → Log in → /home
@@ -1320,7 +1332,7 @@ export class SessionsService implements OnModuleInit {
    * Used for deep health check — validates cookies, not just URL.
    * Reference: facebook-scraper validates c_user + xs, twscrape validates ct0 + auth_token.
    */
-  private readonly AUTH_COOKIES: Record<SocialNetwork, Array<{ name: string; domain: string }>> = {
+  private readonly AUTH_COOKIES: Partial<Record<SocialNetwork, Array<{ name: string; domain: string }>>> = {
     X: [
       { name: 'auth_token', domain: 'x.com' },
       { name: 'ct0', domain: 'x.com' },
@@ -1747,7 +1759,7 @@ export class SessionsService implements OnModuleInit {
   private async getVisibleUsernameInput(page: Page, timeoutMs = 15000): Promise<Locator | null> {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      const all = await page.locator(this.LOGIN_SELECTORS.X.usernameInput).all();
+      const all = await page.locator(this.LOGIN_SELECTORS.X?.usernameInput ?? '').all();
       for (const input of all) {
         if (await this.isActuallyRendered(input)) return input;
       }

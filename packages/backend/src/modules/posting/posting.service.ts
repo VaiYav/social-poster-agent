@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ModuleRef } from '@nestjs/core';
 import { IBrowserPort } from '../../domain/ports/browser.port.js';
 import { AccountsService } from '../accounts/accounts.service';
 import { SessionsService } from '../sessions/sessions.service';
@@ -18,6 +19,9 @@ import { Post, PostStatus, SocialNetwork } from '@prisma/client';
 import { PostEvents } from '../../events/enums/post-events.enum.js';
 import { withRetry } from '../../domain/retry.js';
 import { CircuitBreakerRegistry, CircuitOpenError } from '../../domain/circuit-breaker.js';
+import { DevtoPoster } from './posters/devto.poster.js';
+import { HashnodePoster } from './posters/hashnode.poster.js';
+import { LinkedinPoster } from './posters/linkedin.poster.js';
 import { RetryableError, SpaError } from '../../domain/errors.js';
 import { isNetworkEnabled } from '../../domain/enabled-networks.js';
 import { ContentPillarTracker } from '../content-enhancements/content-pillar.tracker.js';
@@ -72,6 +76,7 @@ export class PostingService {
     private readonly threadsPoster: ThreadsPoster,
     private readonly facebookPoster: FacebookPoster,
     private readonly configService: ConfigService,
+    private readonly moduleRef: ModuleRef,
     @Optional() private readonly queueFactory?: QueueFactory,
     @Optional() private readonly flowControl?: FlowControlService,
     @Optional() private readonly pillarTracker?: ContentPillarTracker,
@@ -298,9 +303,13 @@ export class PostingService {
             return this.threadsPoster.post(context!, this.browser, post.content, threadItems.length > 0 ? threadItems : undefined);
           case SocialNetwork.FACEBOOK:
             return this.facebookPoster.post(context!, this.browser, post.content);
+          case SocialNetwork.DEVTO:
+          case SocialNetwork.HASHNODE:
+          case SocialNetwork.LINKEDIN:
+            return this.postArticle(context!, post);
           default: {
-            const _exhaustive: never = post.network;
-            throw new Error(`Unknown network: ${String(_exhaustive)}`);
+            // Unimplemented syndication networks (Bluesky, Mastodon, etc. — Phase 2+)
+            throw new Error(`Posting not yet implemented for network: ${post.network}`);
           }
         }
       };
@@ -684,24 +693,25 @@ export class PostingService {
     if (!url || url.trim() === '') return false;
 
     // Reject obvious homepage URLs
-    const homepagePatterns: Record<SocialNetwork, RegExp[]> = {
+    const homepagePatterns: Partial<Record<SocialNetwork, RegExp[]>> = {
       [SocialNetwork.X]: [/^https?:\/\/(www\.)?x\.com\/?$/, /^https?:\/\/(www\.)?x\.com\/home\/?$/],
       [SocialNetwork.THREADS]: [/^https?:\/\/(www\.)?threads\.com\/?$/, /^https?:\/\/(www\.)?threads\.com\/@[^/]+\/?$/],
       [SocialNetwork.FACEBOOK]: [/^https?:\/\/(www\.)?facebook\.com\/?$/, /^https?:\/\/(www\.)?facebook\.com\/[^/]+\/?$/],
     };
 
-    for (const pattern of homepagePatterns[network]) {
+    for (const pattern of homepagePatterns[network] ?? []) {
       if (pattern.test(url)) return false;
     }
 
     // Check for post-specific patterns
-    const postPatterns: Record<SocialNetwork, RegExp> = {
+    const postPatterns: Partial<Record<SocialNetwork, RegExp>> = {
       [SocialNetwork.X]: /\/status\/[A-Za-z0-9]+/,
       [SocialNetwork.THREADS]: /(?:\/@[^/]+\/post\/|\/t\/)[A-Za-z0-9_-]+/,
       [SocialNetwork.FACEBOOK]: /\/(posts|permalink|photos)\/\d+/,
     };
 
-    return postPatterns[network].test(url);
+    const postPattern = postPatterns[network];
+    return postPattern ? postPattern.test(url) : false;
   }
 
   /** Resolve the concrete poster for a network (used for verification + posting). */
@@ -714,10 +724,65 @@ export class PostingService {
       case SocialNetwork.FACEBOOK:
         return this.facebookPoster;
       default: {
-        const _exhaustive: never = network;
-        throw new Error(`Unknown network: ${String(_exhaustive)}`);
+        // Article posters (Dev.to, Hashnode, LinkedIn) are resolved lazily via ModuleRef
+        // in postArticle() — they're only registered when SYNDICATION_ENABLED=true
+        throw new Error(`No direct poster for network: ${network}`);
       }
     }
+  }
+
+  /**
+   * P1-04: Post an article to a syndication platform (Dev.to, Hashnode, LinkedIn).
+   *
+   * Article posters are resolved lazily via ModuleRef because they depend on
+   * BrowserAgentService + CanonicalUrlService, which are only registered when
+   * SYNDICATION_ENABLED=true. This avoids a hard dependency from PostingModule
+   * to SyndicationModule.
+   *
+   * The post's content is expected to be JSON-serialized ArticleContent
+   * (title, bodyMarkdown, slug, tags, excerpt).
+   */
+  private async postArticle(context: import('../../domain/ports/browser-primitives.js').BrowserContext, post: Post): Promise<PostResult> {
+    // Parse article content from post.content (stored as JSON)
+    let articleContent: import('@spa/shared').ArticleContent;
+    try {
+      articleContent = JSON.parse(post.content) as import('@spa/shared').ArticleContent;
+    } catch {
+      return { error: 'Article content is not valid JSON — expected ArticleContent', retryable: false };
+    }
+
+    // Resolve the article poster via ModuleRef (lazy — only available when SYNDICATION_ENABLED)
+    let poster: DevtoPoster | HashnodePoster | LinkedinPoster;
+    try {
+      switch (post.network) {
+        case SocialNetwork.DEVTO:
+          poster = this.moduleRef.get(DevtoPoster, { strict: false });
+          break;
+        case SocialNetwork.HASHNODE:
+          poster = this.moduleRef.get(HashnodePoster, { strict: false });
+          break;
+        case SocialNetwork.LINKEDIN:
+          poster = this.moduleRef.get(LinkedinPoster, { strict: false });
+          break;
+        default:
+          return { error: `No article poster for network: ${post.network}`, retryable: false };
+      }
+    } catch {
+      return {
+        error: `Article poster for ${post.network} not available — is SYNDICATION_ENABLED=true?`,
+        retryable: false,
+      };
+    }
+
+    // Build canonical URL from post's canonicalUrl field or slug
+    const canonicalUrl = post.canonicalUrl ?? `https://my-zodiac-ai.com/blog/${articleContent.slug}`;
+
+    const result = await poster.postArticle(context, articleContent, canonicalUrl);
+    return {
+      url: result.url,
+      error: result.error,
+      retryable: !result.success, // Retry on failure
+    };
   }
 
   /**

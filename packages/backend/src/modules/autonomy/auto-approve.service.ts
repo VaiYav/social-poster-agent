@@ -39,10 +39,13 @@ export interface ApproveResult {
 export class AutoApproveService {
   private readonly logger = new Logger(AutoApproveService.name);
   private readonly enabled: boolean;
-  private readonly autoApproveThreshold: number;  // ≥ this → auto-approve
+  private readonly autoApproveThreshold: number;  // ≥ this → auto-approve (global default)
   private readonly humanReviewThreshold: number;   // ≥ this → human review
   private readonly rejectStreakAlertLimit: number;
   private readonly failOpenMissingScore: boolean;
+
+  // P1-06: Per-platform auto-approve thresholds (fallback to global default)
+  private readonly perPlatformThresholds: Map<SocialNetwork, number>;
 
   // P1: LLM-as-a-Judge gate (AutoApprove now uses judgeScores, not just critique qualityScore)
   private readonly useJudgeScores: boolean;
@@ -77,6 +80,32 @@ export class AutoApproveService {
     this.minJudgeCharacter = Number(this.configService.get<string>('AUTO_APPROVE_MIN_JUDGE_CHARACTER', '0.8'));
     this.rejectJudgeAntiAi = Number(this.configService.get<string>('AUTO_APPROVE_REJECT_JUDGE_ANTI_AI', '0.3'));
     this.rejectJudgeFactual = Number(this.configService.get<string>('AUTO_APPROVE_REJECT_JUDGE_FACTUAL', '0.3'));
+
+    // P1-06: Load per-platform thresholds from env (fallback to global default)
+    this.perPlatformThresholds = new Map<SocialNetwork, number>([
+      [SocialNetwork.X, this.autoApproveThreshold], // X uses global default
+      [SocialNetwork.THREADS, this.autoApproveThreshold],
+      [SocialNetwork.FACEBOOK, this.autoApproveThreshold],
+      [SocialNetwork.DEVTO, this.configService.get<number>('AUTO_APPROVE_MIN_SCORE_DEVTO', this.autoApproveThreshold)],
+      [SocialNetwork.HASHNODE, this.configService.get<number>('AUTO_APPROVE_MIN_SCORE_HASHNODE', this.autoApproveThreshold)],
+      [SocialNetwork.LINKEDIN, this.configService.get<number>('AUTO_APPROVE_MIN_SCORE_LINKEDIN', this.autoApproveThreshold)],
+      [SocialNetwork.BLUESKY, this.configService.get<number>('AUTO_APPROVE_MIN_SCORE_BLUESKY', this.autoApproveThreshold)],
+      [SocialNetwork.MASTODON, this.configService.get<number>('AUTO_APPROVE_MIN_SCORE_MASTODON', this.autoApproveThreshold)],
+      [SocialNetwork.TELEGRAM, this.configService.get<number>('AUTO_APPROVE_MIN_SCORE_TELEGRAM', this.autoApproveThreshold)],
+      [SocialNetwork.MEDIUM, this.configService.get<number>('AUTO_APPROVE_MIN_SCORE_MEDIUM', this.autoApproveThreshold)],
+      [SocialNetwork.SUBSTACK, this.configService.get<number>('AUTO_APPROVE_MIN_SCORE_SUBSTACK', this.autoApproveThreshold)],
+      [SocialNetwork.REDDIT, this.configService.get<number>('AUTO_APPROVE_MIN_SCORE_REDDIT', this.autoApproveThreshold)],
+      [SocialNetwork.QUORA, this.configService.get<number>('AUTO_APPROVE_MIN_SCORE_QUORA', this.autoApproveThreshold)],
+      [SocialNetwork.PINTEREST, this.configService.get<number>('AUTO_APPROVE_MIN_SCORE_PINTEREST', this.autoApproveThreshold)],
+    ]);
+  }
+
+  /**
+   * P1-06: Get the auto-approve threshold for a specific network.
+   * Falls back to the global default if no per-platform override is set.
+   */
+  getThresholdForNetwork(network: SocialNetwork): number {
+    return this.perPlatformThresholds.get(network) ?? this.autoApproveThreshold;
   }
 
   /**
@@ -153,7 +182,7 @@ export class AutoApproveService {
     // to auto-approve with the threshold score when AutoCheck passed.
     if (qualityScore === undefined || qualityScore === null) {
       if (this.enabled && this.failOpenMissingScore) {
-        const defaultScore = this.autoApproveThreshold; // assume "good enough" — AutoCheck already filtered unsafe content
+        const defaultScore = this.getThresholdForNetwork(network); // assume "good enough" — AutoCheck already filtered unsafe content
         this.logger.warn(
           `Missing quality score for ${postId} — AutoCheck passed, auto-approving with default score ${defaultScore}`,
         );
@@ -167,16 +196,19 @@ export class AutoApproveService {
 
     const score = qualityScore;
 
+    // P1-06: Use per-platform threshold (falls back to global default)
+    const threshold = this.getThresholdForNetwork(network);
+
     // Decision matrix
     let decision: ApproveDecision;
     let reason: string;
 
-    if (score >= this.autoApproveThreshold) {
+    if (score >= threshold) {
       decision = 'AUTO_APPROVE';
-      reason = `Quality score ${score} ≥ threshold ${this.autoApproveThreshold} — auto-approved`;
+      reason = `Quality score ${score} ≥ threshold ${threshold} for ${network} — auto-approved`;
     } else if (score >= this.humanReviewThreshold) {
       decision = 'HUMAN_REVIEW';
-      reason = `Quality score ${score} in review range [${this.humanReviewThreshold}, ${this.autoApproveThreshold}) — flagged for optional review`;
+      reason = `Quality score ${score} in review range [${this.humanReviewThreshold}, ${threshold}) for ${network} — flagged for optional review`;
     } else {
       decision = 'REJECT';
       reason = `Quality score ${score} < minimum ${this.humanReviewThreshold} — rejected`;

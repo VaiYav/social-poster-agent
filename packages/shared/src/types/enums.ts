@@ -5,6 +5,18 @@ export const SocialNetworkSchema = {
   X: 'X',
   THREADS: 'THREADS',
   FACEBOOK: 'FACEBOOK',
+  // ── Syndication platforms (Phase 1-4) ──
+  DEVTO: 'DEVTO',
+  HASHNODE: 'HASHNODE',
+  LINKEDIN: 'LINKEDIN',
+  BLUESKY: 'BLUESKY',
+  MASTODON: 'MASTODON',
+  TELEGRAM: 'TELEGRAM',
+  MEDIUM: 'MEDIUM',
+  SUBSTACK: 'SUBSTACK',
+  REDDIT: 'REDDIT',
+  QUORA: 'QUORA',
+  PINTEREST: 'PINTEREST',
 } as const;
 export type SocialNetwork = (typeof SocialNetworkSchema)[keyof typeof SocialNetworkSchema];
 
@@ -15,8 +27,20 @@ export const PostStatusSchema = {
   POSTED: 'POSTED',
   FAILED: 'FAILED',
   REJECTED: 'REJECTED',
+  // ── Syndication statuses ──
+  JUDGED: 'JUDGED',     // LLM-as-a-Judge evaluated, awaiting auto-approve decision
+  VERIFIED: 'VERIFIED', // Published AND verified on platform (POST_VERIFIED event emitted)
 } as const;
 export type PostStatus = (typeof PostStatusSchema)[keyof typeof PostStatusSchema];
+
+// ContentType — distinguishes social posts from articles from participation answers
+export const ContentTypeSchema = {
+  SOCIAL_POST: 'SOCIAL_POST',
+  ARTICLE: 'ARTICLE',
+  ANSWER: 'ANSWER',
+  PIN: 'PIN',
+} as const;
+export type ContentType = (typeof ContentTypeSchema)[keyof typeof ContentTypeSchema];
 
 export const SessionStatusSchema = {
   ACTIVE: 'ACTIVE',
