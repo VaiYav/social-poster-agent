@@ -339,6 +339,7 @@ interface TestContext {
   mockPage: ReturnType<typeof createMockPage>;
   mockContext: ReturnType<typeof createMockContext>;
   configService: ConfigService;
+  postStore: Map<string, Record<string, unknown>>;
 }
 
 async function buildTestingModule(
@@ -473,16 +474,28 @@ async function buildTestingModule(
     mockPage,
     mockContext,
     configService,
+    postStore: new Map<string, Record<string, unknown>>(),
   };
 }
 
 /** Reset all Prisma/browser mocks to default return values. */
 function resetDefaultMocks(ctx: TestContext) {
-  const { prisma, browserPort, mockPage } = ctx;
+  const { prisma, browserPort, mockPage, postStore } = ctx;
 
   // Prisma — post
-  prisma.post.findUnique.mockResolvedValue({ ...APPROVED_POST_X });
-  prisma.post.update.mockResolvedValue({ ...APPROVED_POST_X });
+  ctx.postStore.clear();
+  ctx.postStore.set(APPROVED_POST_X.id as string, { ...APPROVED_POST_X });
+
+  prisma.post.findUnique.mockImplementation(({ where }: { where: { id: string } }) =>
+    Promise.resolve(postStore.get(where.id) ?? null),
+  );
+  prisma.post.update.mockImplementation(({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+    const existing = postStore.get(where.id);
+    if (!existing) return Promise.resolve(null);
+    const updated = { ...existing, ...data };
+    postStore.set(where.id, updated);
+    return Promise.resolve(updated);
+  });
   prisma.post.findMany.mockResolvedValue([]);
   prisma.post.count.mockResolvedValue(0);
 
@@ -537,7 +550,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
 
   it('ITC-010: PostingService calls IBrowserPort.createContext(network, storageState) and saveStorageState() — post marked POSTED', async () => {
     // Arrange: APPROVED post + ACTIVE session (defaults already set)
-    ctx.prisma.post.findUnique.mockResolvedValue({ ...APPROVED_POST_X, id: 'post-010' });
+    ctx.postStore.set('post-010', { ...APPROVED_POST_X, id: 'post-010' });
 
     // Act
     const result = await ctx.postingService.postById('post-010');
@@ -568,7 +581,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
   // ── ITC-011: Posting → Sessions Integration ───────────────────────────────
 
   it('ITC-011: PostingService calls SessionsService.getOrCreateSession(network) before posting — storageState flows to createContext', async () => {
-    ctx.prisma.post.findUnique.mockResolvedValue({ ...APPROVED_POST_X, id: 'post-011' });
+    ctx.postStore.set('post-011', { ...APPROVED_POST_X, id: 'post-011' });
 
     // Spy on the real getOrCreateSession — calls through to original
     const getOrCreateSpy = vi.spyOn(ctx.sessionsService, 'getOrCreateSession');
@@ -638,7 +651,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
   // ── ITC-013: Posting → RateLimit + SSE Integration (Full Posting Flow) ────
 
   it('ITC-013: Full posting flow — rate check → SSE POSTING → post → SSE POSTED → recordPost (correct sequence)', async () => {
-    ctx.prisma.post.findUnique.mockResolvedValue({ ...APPROVED_POST_X, id: 'post-013' });
+    ctx.postStore.set('post-013', { ...APPROVED_POST_X, id: 'post-013' });
 
     // Spy on real service methods (call through to original)
     const checkRateSpy = vi.spyOn(ctx.rateLimitService, 'checkRateLimit');
@@ -712,7 +725,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
     const intervalKey = 'spa:ratelimit:X:acc-001:interval';
     redisStore.set(intervalKey, Date.now().toString());
 
-    ctx.prisma.post.findUnique.mockResolvedValue({ ...APPROVED_POST_X, id: 'post-014' });
+    ctx.postStore.set('post-014', { ...APPROVED_POST_X, id: 'post-014' });
 
     // Spy on SSE publish BEFORE the call to verify no events are emitted
     const publishSpy = vi.spyOn(ctx.sseService, 'publish');
@@ -747,7 +760,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
     // Arrange: make XPoster fail by having page.goto throw "Navigation timeout"
     // (Navigation timeouts are classified as retryable network errors.)
     ctx.mockPage.goto.mockRejectedValue(new Error('Navigation timeout'));
-    ctx.prisma.post.findUnique.mockResolvedValue({ ...APPROVED_POST_X, id: 'post-023' });
+    ctx.postStore.set('post-023', { ...APPROVED_POST_X, id: 'post-023' });
 
     // Spy on SSE publish BEFORE the call to capture all events
     const publishSpy = vi.spyOn(ctx.sseService, 'publish');
@@ -803,7 +816,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
     // Arrange: no account → getOrCreateSession returns null → throws RetryableError
     ctx.prisma.socialAccount.findUnique.mockResolvedValue(null);
     ctx.prisma.socialAccount.findFirst.mockResolvedValue(null);
-    ctx.prisma.post.findUnique.mockResolvedValue({ ...APPROVED_POST_X, id: 'post-024' });
+    ctx.postStore.set('post-024', { ...APPROVED_POST_X, id: 'post-024' });
 
     // Spy on SSE publish BEFORE the call to capture all events
     const publishSpy = vi.spyOn(ctx.sseService, 'publish');
@@ -866,7 +879,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
 
   it('ITC-025: postById returns success with existing url when post already POSTED — no browser, no SSE, no side effects', async () => {
     // Arrange: post already POSTED with postUrl
-    ctx.prisma.post.findUnique.mockResolvedValue({
+    ctx.postStore.set('post-025', {
       ...POSTED_POST_X,
       id: 'post-025',
     });
@@ -902,7 +915,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
     ctx.prisma.session.findFirst.mockResolvedValue(null); // no active session
     ctx.prisma.session.create.mockResolvedValue({ ...NEW_SESSION });
     ctx.prisma.socialAccount.findFirst.mockResolvedValue({ ...ACCOUNT_X });
-    ctx.prisma.post.findUnique.mockResolvedValue({ ...APPROVED_POST_X, id: 'post-034' });
+    ctx.postStore.set('post-034', { ...APPROVED_POST_X, id: 'post-034' });
 
     // Mock page: login succeeds (success indicator visible).
     // URL 'https://x.com/status/123456789' works for BOTH:

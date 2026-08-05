@@ -1425,14 +1425,15 @@ export function buildGenerationGraph(
  */
 export function createInitialState(
   topic: ContentTopic,
-  targetNetworks: SocialNetwork[],
+  targetNetworks: SocialNetwork | SocialNetwork[],
   brandVoice: string,
   humanReview = false,
   language = 'en',
 ): GenerationStateType {
+  const networks = Array.isArray(targetNetworks) ? targetNetworks : [targetNetworks];
   return {
     topic,
-    targetNetworks,
+    targetNetworks: networks,
     brandVoice,
     language,
     facts: [],

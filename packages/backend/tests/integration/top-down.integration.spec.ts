@@ -744,9 +744,9 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     expect(runId).toBe('run-026');
     // 3 topics × 3 networks = 9 DRAFT posts
     expect(prisma.post.create).toHaveBeenCalledTimes(9);
-    // 3 topics × 13 LLM calls = 39 generateChat calls
-    // (per topic: 1 hook + 3 drafts + 3 critiques + 3 refines + 3 judges)
-    expect(llm.generateChat).toHaveBeenCalledTimes(39);
+    // 3 topics × 11 LLM calls = 33 generateChat calls
+    // (per topic: 1 hook + 3 drafts + 3 critiques + 3 refines + 1 batched judge)
+    expect(llm.generateChat).toHaveBeenCalledTimes(33);
 
     // Verify all three networks are represented in created posts
     const networks = prisma.post.create.mock.calls.map(

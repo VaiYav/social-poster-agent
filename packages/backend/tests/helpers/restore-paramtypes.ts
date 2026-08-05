@@ -23,6 +23,8 @@ import { SseModule } from '../../src/infrastructure/sse/sse.module';
 import { QueueFactory } from '../../src/infrastructure/queue/queue.factory';
 import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint.js';
 import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service.js';
+import { IndexNowService } from '../../src/infrastructure/indexnow/indexnow.service.js';
+import { TelegramAdapter } from '../../src/infrastructure/telegram/telegram.adapter.js';
 import { TopicGenerationService } from '../../src/infrastructure/content/topic-generation.service';
 import { EmailReaderService } from '../../src/infrastructure/email/email-reader.service.js';
 import { LangfuseService } from '../../src/infrastructure/langfuse/langfuse.service.js';
@@ -33,6 +35,7 @@ import { InstanceHeartbeatService } from '../../src/infrastructure/multi-instanc
 import { QueueModule } from '../../src/modules/queue/queue.module';
 import { QueueService } from '../../src/modules/queue/queue.service';
 import { QueueController } from '../../src/modules/queue/queue.controller';
+import { QueueTriageService } from '../../src/modules/queue/queue-triage.service.js';
 
 // Accounts
 import { AccountsService } from '../../src/modules/accounts/accounts.service';
@@ -59,6 +62,9 @@ import { ThreadProgressService } from '../../src/modules/posting/thread-progress
 import { XPoster } from '../../src/modules/posting/posters/x.poster';
 import { ThreadsPoster } from '../../src/modules/posting/posters/threads.poster';
 import { FacebookPoster } from '../../src/modules/posting/posters/facebook.poster';
+import { BlueskyPoster } from '../../src/modules/posting/posters/bluesky.poster.js';
+import { MastodonPoster } from '../../src/modules/posting/posters/mastodon.poster.js';
+import { LinkedinSocialPoster } from '../../src/modules/posting/posters/linkedin-social.poster.js';
 
 // Sessions
 import { SessionsService } from '../../src/modules/sessions/sessions.service';
@@ -91,6 +97,8 @@ import { AutonomousRunnerService } from '../../src/modules/autonomy/autonomous-r
 import { SseController } from '../../src/modules/sse/sse.controller';
 import { AutoApproveListener } from '../../src/modules/autonomy/auto-approve.listener';
 import { SseEventListener } from '../../src/events/listeners/sse-event.listener';
+import { IndexNowListener } from '../../src/events/listeners/indexnow.listener.js';
+import { SocialPromoListener } from '../../src/events/listeners/social-promo.listener.js';
 
 // Health
 import { HealthController } from '../../src/modules/health/health.controller';
@@ -199,6 +207,8 @@ export function restoreAllDesignParamtypes(): void {
   defineParamtypes(QueueFactory, [ConfigService, DiscordNotificationService, Object, Object]); // Object = @Optional() @Inject(SHARED_REDIS), Object = @Optional() @Inject(SHARED_REDIS_SUBSCRIBER)
   defineParamtypes(EncryptionService, [ConfigService]);
   defineParamtypes(DiscordNotificationService, [ConfigService]);
+  defineParamtypes(IndexNowService, [ConfigService]);
+  defineParamtypes(TelegramAdapter, [ConfigService]);
   defineParamtypes(TopicGenerationService, [PrismaService, ConfigService, SchedulerRegistry, LlmService, Object]); // Object = @Optional() @Inject(IPromptPort)
   defineParamtypes(EmailReaderService, [ConfigService]);
   defineParamtypes(LangfuseService, [Object, ConfigService]); // Object = LANGFUSE_PROMPT_BREAKER
@@ -261,15 +271,23 @@ export function restoreAllDesignParamtypes(): void {
     ThreadsPoster,
     FacebookPoster,
     ConfigService,
+    ModuleRef,
     Object, // @Optional() QueueFactory
     Object, // @Optional() FlowControlService
     Object, // @Optional() ContentPillarTracker
     Object, // @Optional() ABVariantService
+    BlueskyPoster, // @Optional()
+    MastodonPoster, // @Optional()
+    LinkedinSocialPoster, // @Optional()
+    TelegramAdapter, // @Optional()
   ]);
   defineParamtypes(PostingController, [PostingService]);
   defineParamtypes(XPoster, [Object, ConfigService]); // @Inject(IBrowserPort), @Inject(ConfigService)
   defineParamtypes(ThreadsPoster, [Object, ConfigService]); // @Inject(IBrowserPort), @Inject(ConfigService)
   defineParamtypes(FacebookPoster, [Object, ConfigService]); // @Inject(IBrowserPort)
+  defineParamtypes(BlueskyPoster, [Object, ConfigService]); // @Inject(IBrowserPort), @Inject(ConfigService)
+  defineParamtypes(MastodonPoster, [Object, ConfigService]); // @Inject(IBrowserPort), @Inject(ConfigService)
+  defineParamtypes(LinkedinSocialPoster, [Object, ConfigService]); // @Inject(IBrowserPort), @Inject(ConfigService)
 
   // ── Sessions ─────────────────────────────────────────────────────────────
   defineParamtypes(SessionsService, [
@@ -345,10 +363,21 @@ export function restoreAllDesignParamtypes(): void {
   defineParamtypes(SseController, [SseService]);
   defineParamtypes(AutoApproveListener, [PrismaService, ModuleRef, ConfigService, Object]); // Object = @Inject(IPostingQueuePort)
   defineParamtypes(SseEventListener, [SseService]);
+  defineParamtypes(IndexNowListener, [ConfigService, PrismaService, IndexNowService]);
+  defineParamtypes(SocialPromoListener, [ConfigService, PrismaService, GenerationService]);
 
   // ── Queue ────────────────────────────────────────────────────────────────
   defineParamtypes(QueueService, [QueueFactory]);
   defineParamtypes(QueueController, [QueueService]);
+  defineParamtypes(QueueTriageService, [
+    QueueFactory,
+    PrismaService,
+    ConfigService,
+    Object, // @Optional() @Inject(ILlmPort)
+    Object, // @Optional() @Inject(IPromptPort)
+    Object, // @Optional() SseService
+    Object, // @Optional() FlowControlService
+  ]);
 
   // ── Health ───────────────────────────────────────────────────────────────
   defineParamtypes(HealthController, [PrismaService, Object, ConfigService, QueueFactory]); // Object = @Inject(SHARED_REDIS)

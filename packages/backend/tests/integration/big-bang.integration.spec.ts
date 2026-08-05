@@ -745,10 +745,21 @@ describe('Big-Bang Integration: Full AppModule (ITC-017..020, ITC-035)', () => {
         const sseService = moduleRef.get(SseService);
 
         // Arrange prisma mocks for the posting flow.
-        // findById (findUnique) is called multiple times by postsService —
-        // always return the APPROVED post.
-        prisma.post.findUnique.mockResolvedValue({ ...APPROVED_POST_X });
-        prisma.post.update.mockResolvedValue({ ...APPROVED_POST_X });
+        // Stateful post store: PostsService re-reads the post between status
+        // transitions (POSTING → POSTED → VERIFIED), so updates must persist.
+        const postStore = new Map<string, Record<string, unknown>>();
+        postStore.set('post-020', { ...APPROVED_POST_X });
+
+        prisma.post.findUnique.mockImplementation(({ where }: { where: { id: string } }) =>
+          Promise.resolve(postStore.get(where.id) ?? null),
+        );
+        prisma.post.update.mockImplementation(({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+          const existing = postStore.get(where.id);
+          if (!existing) return Promise.resolve(null);
+          const updated = { ...existing, ...data };
+          postStore.set(where.id, updated);
+          return Promise.resolve(updated);
+        });
         prisma.post.findMany.mockResolvedValue([{ ...APPROVED_POST_X }]);
         prisma.post.count.mockResolvedValue(1);
         prisma.socialAccount.findUnique.mockResolvedValue({ ...ACCOUNT_X });
