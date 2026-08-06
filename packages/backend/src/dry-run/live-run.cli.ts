@@ -7,9 +7,14 @@
 //   node dist/dry-run/live-run.cli.js --feature engagement --network X --scroll-duration 20 --yes
 
 import 'reflect-metadata';
+import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { SocialNetwork, PostStatus, GenerationTrigger } from '@prisma/client';
 import { AppModule } from '../app.module';
+import type { BrowserContext, Page } from '../domain/ports/browser-primitives.js';
+import type { BaseEngager } from '../modules/engagement/engagers/base.engager.js';
+import type { ScrapedTrendingTopic, MergedTrendingTopic } from '../modules/trending/trending-scraper.service.js';
+import type { TrendingTopic } from '../modules/trending/trending.service.js';
 import { GenerationService } from '../modules/generation/generation.service';
 import { PostingService } from '../modules/posting/posting.service';
 import { PostsService } from '../modules/posts/posts.service';
@@ -51,7 +56,7 @@ function parseArgs(argv: string[]): Args {
 }
 
 // ── POSTING ──────────────────────────────────────────────────────
-async function runPosting(app: any, args: Args): Promise<void> {
+async function runPosting(app: INestApplication, args: Args): Promise<void> {
   console.log('\n▶ POSTING (real)');
 
   const generationService = app.get(GenerationService);
@@ -90,7 +95,7 @@ async function runPosting(app: any, args: Args): Promise<void> {
 }
 
 // ── ENGAGEMENT ───────────────────────────────────────────────────
-async function runEngagement(app: any, args: Args): Promise<void> {
+async function runEngagement(app: INestApplication, args: Args): Promise<void> {
   console.log('\n▶ ENGAGEMENT (real)');
 
   const sessionsService = app.get(SessionsService);
@@ -111,7 +116,7 @@ async function runEngagement(app: any, args: Args): Promise<void> {
   console.log('  ✓ Logged in (session=' + session.id.slice(0, 8) + ')');
 
   // Get engager
-  let engager: any = null;
+  let engager: BaseEngager | null = null;
   try {
     engager = args.network === SocialNetwork.X
       ? app.get(XEngager)
@@ -129,12 +134,20 @@ async function runEngagement(app: any, args: Args): Promise<void> {
   const storageState = session.storageState
     ? sessionsService.decryptStorageState(session)
     : undefined;
-  let context: any = null;
-  let page: any = null;
+  let context: BrowserContext | null = null;
+  let page: Page | null = null;
 
   try {
     context = await browser.acquireContext(args.network, storageState, account.id);
+    if (!context) {
+      console.log('  ✗ Failed to acquire browser context');
+      return;
+    }
     page = await context.newPage();
+    if (!page) {
+      console.log('  ✗ Failed to create new page');
+      return;
+    }
 
     // Scroll feed — collect real post URLs
     console.log('  Scrolling feed for ' + args.scrollDuration + 's...');
@@ -187,7 +200,7 @@ async function runEngagement(app: any, args: Args): Promise<void> {
 }
 
 // ── TRENDING ─────────────────────────────────────────────────────
-async function runTrending(app: any, args: Args): Promise<void> {
+async function runTrending(app: INestApplication, args: Args): Promise<void> {
   console.log('\n▶ TRENDING (real)');
   const scraper = app.get(TrendingScraperService);
   const trendingService = app.get(TrendingService);
@@ -195,27 +208,27 @@ async function runTrending(app: any, args: Args): Promise<void> {
   console.log('  Fetching Google Trends...');
   const google = await scraper.getGoogleTrends(10);
   console.log('  ✓ Google Trends: ' + google.length + ' topics');
-  google.slice(0, 5).forEach((t: any, i: number) => console.log('    ' + (i + 1) + '. ' + t.topic));
+  google.slice(0, 5).forEach((t: ScrapedTrendingTopic, i: number) => console.log('    ' + (i + 1) + '. ' + t.topic));
 
   if (args.network === SocialNetwork.X) {
     console.log('  Scraping X trends (needs session)...');
     try {
       const xTrends = await scraper.getXTrends(10);
       console.log('  ✓ X Trends: ' + xTrends.length + ' topics');
-      xTrends.slice(0, 5).forEach((t: any, i: number) => console.log('    ' + (i + 1) + '. ' + t.topic));
+      xTrends.slice(0, 5).forEach((t: ScrapedTrendingTopic, i: number) => console.log('    ' + (i + 1) + '. ' + t.topic));
     } catch (e) {
       console.log('  ⚠ X Trends failed: ' + (e as Error).message.slice(0, 80));
     }
   }
 
   console.log('  Merging with astro trending...');
-  const astro = trendingService.getActiveTrending().map((t: any) => ({ topic: t.topic, networks: t.networks }));
+  const astro = trendingService.getActiveTrending().map((t: TrendingTopic) => ({ topic: t.topic, networks: t.networks }));
   const merged = await scraper.getMergedTrending(astro);
   console.log('  ✓ Merged: ' + merged.length + ' topics');
 }
 
 // ── REPLIES ──────────────────────────────────────────────────────
-async function runReplies(app: any, args: Args): Promise<void> {
+async function runReplies(app: INestApplication, args: Args): Promise<void> {
   console.log('\n▶ REPLIES MONITOR (real)');
   const sessionsService = app.get(SessionsService);
   const accountsService = app.get(AccountsService);

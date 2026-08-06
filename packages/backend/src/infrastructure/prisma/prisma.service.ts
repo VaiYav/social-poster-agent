@@ -50,7 +50,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
   private attachSlowQueryLogger(): void {
     if (this.slowQueryThresholdMs <= 0) return;
-    (this as any).$on('query', (event: Prisma.QueryEvent) => {
+    (this as unknown as { $on(event: 'query', listener: (e: Prisma.QueryEvent) => void): void }).$on(
+      'query',
+      (event: Prisma.QueryEvent) => {
       if (event.duration >= this.slowQueryThresholdMs) {
         this.logger.warn(
           `Slow query (${event.duration}ms >= ${this.slowQueryThresholdMs}ms): ${event.query}`,

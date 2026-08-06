@@ -48,6 +48,12 @@
   },
   "overrides": [
     {
+      "files": ["**/tests/**", "packages/backend/scripts/**"],
+      "rules": {
+        "typescript/no-explicit-any": "off"
+      }
+    },
+    {
       "files": ["**/*.vue"],
       "rules": {
         "vue/no-arrow-functions-in-watch": "error",

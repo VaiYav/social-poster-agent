@@ -10,6 +10,7 @@
 
 import { Logger } from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common';
+import type { BrowserContext, Page } from '../domain/ports/browser-primitives.js';
 import { SocialNetwork, PostStatus, GenerationTrigger } from '@prisma/client';
 import { GenerationService } from '../modules/generation/generation.service';
 import { PostingService } from '../modules/posting/posting.service';
@@ -303,12 +304,20 @@ export class DryRunRunner {
       const storageState = session.storageState
         ? sessionsService.decryptStorageState(session)
         : undefined;
-      let context: any = null;
-      let page: any = null;
+      let context: BrowserContext | null = null;
+      let page: Page | null = null;
 
       try {
         context = await browser.acquireContext(opts.network, storageState, account.id);
+        if (!context) {
+          this.reporter.step('fail', `Failed to acquire browser context for ${opts.network}`);
+          return;
+        }
         page = await context.newPage();
+        if (!page) {
+          this.reporter.step('fail', `Failed to create new page for ${opts.network}`);
+          return;
+        }
 
         if (typeof browser.setEngagementMode === 'function') {
           browser.setEngagementMode(page, true);
