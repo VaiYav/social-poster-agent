@@ -411,6 +411,8 @@ const envSchema = Joi.object({
   REPLIES_CRON_SCHEDULE: Joi.string().default('0 */4 * * *'),
   REPLIES_AUTO_REPLY_COMPLEXITY: Joi.string().valid('low', 'medium', 'high').default('medium'),
   REPLIES_TEMPERATURE: Joi.number().min(0).max(2).default(0.6),
+  REPLIES_SAFETY_TEMPERATURE: Joi.number().min(0).max(2).default(0.2),
+  REPLIES_MAX_PER_DAY: Joi.number().integer().min(0).default(10),
   // Hook performance bank aggregation cron
   HOOK_BANK_AGGREGATE_SCHEDULE: Joi.string().default('0 7 * * *'),
 

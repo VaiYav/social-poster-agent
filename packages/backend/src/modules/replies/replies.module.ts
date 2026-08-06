@@ -15,6 +15,8 @@ import { RepliesMonitorService } from './replies-monitor.service';
 import { RepliesController } from './replies.controller';
 import { QuestionClassifierService } from './question-classifier.service.js';
 import { DialogueService } from './dialogue.service.js';
+import { CommentSafetyClassifierService } from './comment-safety-classifier.service.js';
+import { ToneAnalyzerService } from './tone-analyzer.service.js';
 import { AccountsModule } from '../accounts/accounts.module';
 import { SessionsModule } from '../sessions/sessions.module';
 import { PrismaModule } from '../../infrastructure/prisma/prisma.module';
@@ -22,6 +24,7 @@ import { BrowserModule } from '../../infrastructure/browser/browser.module';
 import { LlmModule } from '../../infrastructure/llm/llm.module';
 import { SseModule } from '../../infrastructure/sse/sse.module';
 import { QueueModule as QueueInfraModule } from '../../infrastructure/queue/queue.module';
+import { RedisModule } from '../../infrastructure/redis/redis.module';
 import { FlowControlModule } from '../flow-control/flow-control.module';
 import { IRepliesMonitorPort } from '../orchestrator/ports.js';
 
@@ -36,19 +39,22 @@ import { IRepliesMonitorPort } from '../orchestrator/ports.js';
     LlmModule,
     SseModule,
     QueueInfraModule, // RP1: QueueFactory for scheduling delayed auto-reply jobs
+    RedisModule, // F4: daily reply rate-limit counters
     FlowControlModule,
   ],
   providers: [
     RepliesMonitorService,
     QuestionClassifierService,
     DialogueService,
+    CommentSafetyClassifierService,
+    ToneAnalyzerService,
     {
       provide: IRepliesMonitorPort,
       useExisting: RepliesMonitorService,
     },
   ],
   controllers: [RepliesController],
-  exports: [RepliesMonitorService, IRepliesMonitorPort],
+  exports: [RepliesMonitorService, IRepliesMonitorPort, CommentSafetyClassifierService, ToneAnalyzerService],
 })
 export class RepliesModule {
   // Allow conditional registration with engagement module
@@ -65,6 +71,7 @@ export class RepliesModule {
         LlmModule,
         SseModule,
         QueueInfraModule, // RP1: QueueFactory for scheduling delayed auto-reply jobs
+        RedisModule, // F4: daily reply rate-limit counters
         engagementModule,
         FlowControlModule,
       ],
@@ -72,6 +79,8 @@ export class RepliesModule {
         RepliesMonitorService,
         QuestionClassifierService,
         DialogueService,
+        CommentSafetyClassifierService,
+        ToneAnalyzerService,
         {
           provide: IRepliesMonitorPort,
           useExisting: RepliesMonitorService,

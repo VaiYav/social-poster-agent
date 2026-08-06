@@ -10,6 +10,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ConfigService } from '@nestjs/config';
 import { RepliesMonitorService } from '../../../src/modules/replies/replies-monitor.service';
+import { ToneAnalyzerService } from '../../../src/modules/replies/tone-analyzer.service';
 import { DialogueService } from '../../../src/modules/replies/dialogue.service';
 import { createMockPrismaService } from '../../mocks/index.js';
 
@@ -324,9 +325,11 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
   function createServiceWithLlm(mockLlm: any) {
     const config = createMockConfigService({ REPLIES_ENABLED: 'true' });
     const questionClassifier = createMockQuestionClassifier();
+    const toneAnalyzer = new ToneAnalyzerService();
     const dialogueService = new DialogueService(
       mockLlm as any,
       questionClassifier as any,
+      toneAnalyzer,
       prisma as any,
       config as any,
     );

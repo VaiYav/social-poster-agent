@@ -53,7 +53,6 @@ import { CronService } from '../../src/modules/generation/cron.service';
 // Posts
 import { PostsService } from '../../src/modules/posts/posts.service';
 import { PostsController } from '../../src/modules/posts/posts.controller';
-import { PostingWindowService } from '../../src/modules/orchestrator/posting-window.service.js';
 
 // Posting
 import { PostingService } from '../../src/modules/posting/posting.service';

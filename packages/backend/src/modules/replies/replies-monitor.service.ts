@@ -29,6 +29,7 @@ import { Injectable, Logger, Optional, Inject, type OnModuleInit } from '@nestjs
 import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
+import IORedis from 'ioredis';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { SessionsService } from '../sessions/sessions.service';
@@ -42,6 +43,7 @@ import { SseService } from '../../infrastructure/sse/sse.service.js';
 import { EngagementService } from '../engagement/engagement.service.js';
 import { QueueFactory } from '../../infrastructure/queue/queue.factory.js';
 import { FlowControlService } from '../flow-control/flow-control.service.js';
+import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
 import { PostStatus, SocialNetwork, CommentStatus } from '@prisma/client';
 import type { IncomingComment } from '@prisma/client';
 import type { Locator, Page } from '../../domain/ports/browser-primitives.js';
@@ -53,6 +55,10 @@ import { detectLanguage } from '../../infrastructure/util/language-detector.js';
 import { getEnabledNetworks } from '../../domain/enabled-networks.js';
 import { DialogueService, type DialogueDecision } from './dialogue.service.js';
 import { QuestionClassifierService } from './question-classifier.service.js';
+import {
+  CommentSafetyClassifierService,
+  type CommentSafetyClassification,
+} from './comment-safety-classifier.service.js';
 
 export interface ScrapedComment {
   commentId: string; // platform native id or h:hash
@@ -74,6 +80,7 @@ export class RepliesMonitorService implements OnModuleInit {
   private readonly maxConversationDepth: number;
   private readonly autoReplyComplexity: 'low' | 'medium' | 'high';
   private readonly repliesTemperature: number;
+  private readonly maxRepliesPerDay: number;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -93,6 +100,8 @@ export class RepliesMonitorService implements OnModuleInit {
     @Optional() private readonly flowControl?: FlowControlService,
     // Sprint P: versioned reply-decision prompt via PromptRegistry; absent in unit tests.
     @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
+    @Optional() private readonly commentSafetyClassifier?: CommentSafetyClassifierService,
+    @Optional() @Inject(SHARED_REDIS) private readonly redis?: IORedis,
   ) {
     this.enabled = parseBool(this.configService.get<string>('REPLIES_ENABLED', 'false'));
     this.cronSchedule = this.configService.get<string>('REPLIES_CRON_SCHEDULE', '0 */4 * * *');
@@ -105,6 +114,10 @@ export class RepliesMonitorService implements OnModuleInit {
     // B1: read temperature from ConfigService (validated by Joi) instead of process.env at import time.
     const rawTemp = Number(this.configService.get<string>('REPLIES_TEMPERATURE', '0.6'));
     this.repliesTemperature = Number.isFinite(rawTemp) && rawTemp >= 0 && rawTemp <= 2 ? rawTemp : 0.6;
+
+    // F4: daily per-network reply budget. 0 means unlimited.
+    const rawDaily = Number(this.configService.get<string>('REPLIES_MAX_PER_DAY', '10'));
+    this.maxRepliesPerDay = Number.isFinite(rawDaily) && rawDaily >= 0 ? Math.floor(rawDaily) : 10;
   }
 
   onModuleInit(): void {
@@ -640,7 +653,24 @@ export class RepliesMonitorService implements OnModuleInit {
       return { action: 'skip', reason: lowValue.reason ?? 'Low-value comment — skipped' };
     }
 
-    // 5. Dialogue graph: classify the comment as a question, build conversation
+    // 5. F4: LLM safety gate — detect prompt injection, spam, toxicity, and sensitive topics.
+    // Runs before the reply-generation LLM so we never generate a reply for an unsafe comment.
+    const safety = await this.runSafetyCheck(text);
+    if (safety) {
+      return safety;
+    }
+
+    // 6. F4: daily per-network reply budget. Exceeding the budget short-circuits
+    // before the reply LLM, saving tokens and preventing bot-like over-replying.
+    const dailyBudgetAvailable = await this.checkDailyReplyBudget(post.network as SocialNetwork);
+    if (!dailyBudgetAvailable) {
+      return {
+        action: 'skip',
+        reason: `Daily reply budget reached for ${post.network} (${this.maxRepliesPerDay}/day)`,
+      };
+    }
+
+    // 7. Dialogue graph: classify the comment as a question, build conversation
     // context, and decide whether to reply / skip / escalate. The graph enforces
     // the hard depth limit and language/script validation.
     if (!this.llmService) {
@@ -681,6 +711,40 @@ export class RepliesMonitorService implements OnModuleInit {
     return this.dialogueService.processComment(fullComment, post.content);
   }
 
+  /**
+   * F4: run the LLM-based safety classifier and convert the result into a reply decision.
+   * Returns a decision if the comment should be skipped or escalated; null if it is safe
+   * to continue down the reply pipeline.
+   */
+  private async runSafetyCheck(text: string): Promise<DialogueDecision | null> {
+    if (!this.commentSafetyClassifier) {
+      // No classifier wired (e.g. unit tests) — continue to the next filter.
+      return null;
+    }
+
+    const detectedLanguage = detectLanguage(text);
+    const classification = await this.commentSafetyClassifier.classify(text, detectedLanguage);
+
+    if (classification.risk === 'none') {
+      return null;
+    }
+
+    this.logger.log(`Safety gate: comment classified as ${classification.risk} (${classification.confidence.toFixed(2)}). ${classification.reason}`);
+
+    // Spam/injection are silently skipped. Toxic/sensitive are escalated for human review.
+    if (classification.risk === 'injection' || classification.risk === 'spam') {
+      return {
+        action: 'skip',
+        reason: `Safety gate: ${classification.risk} (${classification.reason})`,
+      };
+    }
+
+    return {
+      action: 'human_review',
+      reason: `Safety gate: ${classification.risk} — escalated to human review`,
+      reviewReason: classification.reason,
+    };
+  }
 
   /**
    * Execute the reply decision — post reply, flag for review, or skip.
@@ -812,6 +876,66 @@ export class RepliesMonitorService implements OnModuleInit {
   }
 
   /**
+   * F4: check the daily per-network reply budget.
+   * Returns true when the budget has not been reached (or no Redis/max is 0).
+   */
+  private async checkDailyReplyBudget(network: SocialNetwork): Promise<boolean> {
+    if (this.maxRepliesPerDay <= 0 || !this.redis) {
+      return true;
+    }
+    const count = await this.getDailyReplyCount(network);
+    return count < this.maxRepliesPerDay;
+  }
+
+  /**
+   * F4: reserve a daily reply slot. Returns true if the slot was within budget.
+   * The counter is set with a 2-day TTL so it cleans itself up.
+   */
+  private async reserveDailyReplySlot(network: SocialNetwork): Promise<boolean> {
+    if (this.maxRepliesPerDay <= 0 || !this.redis) {
+      return true;
+    }
+    try {
+      const key = this.dailyReplyKey(network);
+      const count = await this.redis.incr(key);
+      await this.redis.expire(key, 2 * 24 * 60 * 60).catch(() => {});
+      if (count > this.maxRepliesPerDay) {
+        // Over budget — roll back and signal unavailable.
+        await this.redis.decr(key).catch(() => {});
+        return false;
+      }
+      return true;
+    } catch {
+      return true;
+    }
+  }
+
+  /**
+   * F4: release a previously reserved daily reply slot (e.g. the job was dropped).
+   */
+  private async releaseDailyReplySlot(network: SocialNetwork): Promise<void> {
+    if (this.maxRepliesPerDay <= 0 || !this.redis) {
+      return;
+    }
+    await this.redis.decr(this.dailyReplyKey(network)).catch(() => {});
+  }
+
+  private async getDailyReplyCount(network: SocialNetwork): Promise<number> {
+    if (!this.redis) return 0;
+    try {
+      const raw = await this.redis.get(this.dailyReplyKey(network));
+      return raw ? Number(raw) : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  private dailyReplyKey(network: string): string {
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    return `spa:replies:daily:${network}:${today}`;
+  }
+
+  /**
    * RP1: post a scheduled auto-reply. Invoked by the engagement BullMQ worker after the
    * delay elapses (or inline as a fallback when no queue is wired). Throws on failure so
    * BullMQ retries and ultimately DLQ-alerts; the comment then stays NEW for a retry.
@@ -845,18 +969,38 @@ export class RepliesMonitorService implements OnModuleInit {
       return;
     }
 
+    // F4: reserve the daily per-network reply budget slot before posting.
+    const slotReserved = await this.reserveDailyReplySlot(data.network as SocialNetwork);
+    if (!slotReserved) {
+      this.logger.warn(`Daily reply budget reached for ${data.network} — dropping scheduled reply`);
+      await this.prisma.incomingComment.update({
+        where: { id: data.commentDbId },
+        data: { status: CommentStatus.SKIPPED },
+      });
+      return;
+    }
+
     const targetUrl = data.targetCommentUrl ?? data.postUrl ?? '';
     if (!targetUrl) {
+      await this.releaseDailyReplySlot(data.network as SocialNetwork);
       throw new Error('No target URL for reply');
     }
-    const result = await this.engagementService.reply(
-      data.network as SocialNetwork,
-      targetUrl,
-      data.replyText,
-    );
+
+    let result: Awaited<ReturnType<typeof this.engagementService.reply>>;
+    try {
+      result = await this.engagementService.reply(
+        data.network as SocialNetwork,
+        targetUrl,
+        data.replyText,
+      );
+    } catch (err) {
+      await this.releaseDailyReplySlot(data.network as SocialNetwork);
+      throw err;
+    }
 
     if (!result.success) {
       // Throw → BullMQ retries (and DLQ-alerts on exhaustion). Comment stays NEW.
+      await this.releaseDailyReplySlot(data.network as SocialNetwork);
       throw new Error(result.error ?? 'Reply posting failed');
     }
 
@@ -920,6 +1064,11 @@ export class RepliesMonitorService implements OnModuleInit {
       return { success: false, error: 'Engagement service not available' };
     }
 
+    const slotReserved = await this.reserveDailyReplySlot(comment.post.network as SocialNetwork);
+    if (!slotReserved) {
+      return { success: false, error: `Daily reply budget reached for ${comment.post.network}` };
+    }
+
     try {
       const result = await this.engagementService.reply(
         comment.post.network,
@@ -927,20 +1076,23 @@ export class RepliesMonitorService implements OnModuleInit {
         replyText,
       );
 
-      if (result.success) {
-        await this.prisma.incomingComment.update({
-          where: { id: commentId },
-          data: {
-            status: CommentStatus.REPLIED_MANUAL,
-            replyText,
-            replyPostedAt: new Date(),
-            needsHumanReview: false,
-          },
-        });
-        return { success: true };
+      if (!result.success) {
+        await this.releaseDailyReplySlot(comment.post.network as SocialNetwork);
+        return { success: false, error: result.error };
       }
-      return { success: false, error: result.error };
+
+      await this.prisma.incomingComment.update({
+        where: { id: commentId },
+        data: {
+          status: CommentStatus.REPLIED_MANUAL,
+          replyText,
+          replyPostedAt: new Date(),
+          needsHumanReview: false,
+        },
+      });
+      return { success: true };
     } catch (err) {
+      await this.releaseDailyReplySlot(comment.post.network as SocialNetwork);
       return { success: false, error: (err as Error).message };
     }
   }

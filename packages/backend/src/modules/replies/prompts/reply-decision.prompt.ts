@@ -10,6 +10,7 @@
  *   - {questionType} — factual|opinion|personal|offtopic or none
  *   - {detectedLanguage} — ISO 639-1 language label (en, ru, uk, es, it)
  *   - {network} — target social network (X, THREADS, FACEBOOK)
+ *   - {tone} — tone of the latest comment (neutral|casual|formal|playful|sarcastic|sincere)
  *
  * Used by:
  *   - `replies-monitor.service.ts` and `dialogue.graph.ts` (inline fallback)
@@ -31,8 +32,18 @@ CURRENT MESSAGE:
 - Language: {detectedLanguage}
 - Network: {network}
 - Question classifier: isQuestion={isQuestion}, type={questionType}
+- Tone of latest comment: {tone}
 - Current depth: {depth} (how many of our replies already happened in this chain)
 - Max depth allowed: {maxDepth}
+
+TONE — CRITICAL:
+- Match the detected tone of the latest comment: {tone}.
+- If tone is "playful" or "casual" — be relaxed, use contractions, short sentences, maybe one emoji.
+- If tone is "formal" — be measured, polite, structured; avoid slang.
+- If tone is "sarcastic" — reply with dry, understated humor; don't escalate.
+- If tone is "sincere" — be warm, genuine, take them seriously.
+- If tone is "neutral" — keep it natural and conversational, not corporate.
+- Do not switch to a different tone unless the conversation clearly calls for it.
 
 LANGUAGE — CRITICAL:
 - The comment language has already been detected for you: {detectedLanguage}.

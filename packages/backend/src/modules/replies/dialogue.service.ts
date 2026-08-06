@@ -16,6 +16,7 @@ import { IPromptPort } from '../../domain/ports/prompt.port.js';
 import { detectLanguage } from '../../infrastructure/util/language-detector.js';
 import type { IncomingComment, SocialNetwork } from '@prisma/client';
 import { QuestionClassifierService } from './question-classifier.service.js';
+import { ToneAnalyzerService } from './tone-analyzer.service.js';
 import {
   compileDialogueGraph,
   createDialogueState,
@@ -39,6 +40,7 @@ export class DialogueService {
   constructor(
     @Inject(ILlmPort) private readonly llm: ILlmPort,
     private readonly questionClassifier: QuestionClassifierService,
+    private readonly toneAnalyzer: ToneAnalyzerService,
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
@@ -61,6 +63,7 @@ export class DialogueService {
         {
           llm: this.llm,
           questionClassifier: this.questionClassifier,
+          toneAnalyzer: this.toneAnalyzer,
           promptPort: this.promptPort,
           repliesTemperature: this.repliesTemperature,
         },

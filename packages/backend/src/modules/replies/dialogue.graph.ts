@@ -19,6 +19,7 @@ import { matchesScript, normalizeLanguage } from '../../infrastructure/util/scri
 import { interpolate } from '../../domain/prompt-interpolation.js';
 import { REPLY_DECISION_PROMPT } from './prompts/reply-decision.prompt.js';
 import type { QuestionClassification, QuestionClassifierService } from './question-classifier.service.js';
+import type { CommentTone, ToneAnalyzerService } from './tone-analyzer.service.js';
 
 // ── State Definition ───────────────────────────────────────────────────────
 
@@ -30,6 +31,7 @@ export interface DialogueMessage {
   depth: number;
   isQuestion?: boolean;
   questionType?: string | null;
+  tone?: CommentTone;
 }
 
 export interface DialogueDecision {
@@ -87,6 +89,10 @@ export const DialogueState = Annotation.Root({
     reducer: (_, next) => next,
     default: () => null,
   }),
+  tone: Annotation<CommentTone>({
+    reducer: (_, next) => next,
+    default: () => 'neutral',
+  }),
 });
 
 export type DialogueStateType = typeof DialogueState.State;
@@ -96,6 +102,7 @@ export type DialogueStateType = typeof DialogueState.State;
 export interface DialogueGraphDeps {
   llm: ILlmPort;
   questionClassifier: QuestionClassifierService;
+  toneAnalyzer: ToneAnalyzerService;
   promptPort?: IPromptPort;
   repliesTemperature?: number;
 }
@@ -153,11 +160,11 @@ function classifyNode(deps: DialogueGraphDeps) {
     if (!lastUser) {
       return { error: 'No user message to classify' };
     }
-    const classification = await deps.questionClassifier.classify(
-      lastUser.text,
-      state.detectedLanguage,
-    );
-    return { classification };
+    const [classification, tone] = await Promise.all([
+      deps.questionClassifier.classify(lastUser.text, state.detectedLanguage),
+      deps.toneAnalyzer.detectTone(lastUser.text, state.detectedLanguage),
+    ]);
+    return { classification, tone: tone.tone };
   };
 }
 
@@ -197,6 +204,7 @@ function decideNode(deps: DialogueGraphDeps) {
         questionType: classification?.questionType ?? 'none',
         detectedLanguage: state.detectedLanguage,
         network: state.network,
+        tone: state.tone ?? 'neutral',
       },
       REPLY_DECISION_PROMPT,
     );
@@ -321,6 +329,7 @@ export function createDialogueState(input: {
   maxDepth: number;
   autoReplyComplexity: 'low' | 'medium' | 'high';
   messages: DialogueMessage[];
+  tone?: CommentTone;
 }): DialogueStateType {
   return {
     conversationId: input.conversationId,
@@ -334,5 +343,6 @@ export function createDialogueState(input: {
     classification: null,
     decision: null,
     error: null,
+    tone: input.tone ?? 'neutral',
   };
 }
