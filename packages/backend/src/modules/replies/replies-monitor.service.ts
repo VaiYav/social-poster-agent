@@ -60,6 +60,44 @@ import {
   type CommentSafetyClassification,
 } from './comment-safety-classifier.service.js';
 
+const DAILY_REPLY_TTL_SECONDS = 2 * 24 * 60 * 60; // 2 days
+
+/**
+ * Atomically reserve a daily reply slot. Returns {1, newCount} if within the
+ * limit, or {0, currentCount} if the budget has been reached.
+ *
+ * Keeps the check-and-increment in a single Redis EVAL to avoid TOCTOU races
+ * when multiple workers or instances reserve concurrently.
+ */
+const RESERVE_REPLY_SLOT_SCRIPT = `
+local key = KEYS[1]
+local limit = tonumber(ARGV[1])
+local ttl = tonumber(ARGV[2])
+
+local current = tonumber(redis.call('get', key) or '0')
+if limit > 0 and current >= limit then
+  return {0, current}
+end
+
+local new = redis.call('incr', key)
+if new == 1 then
+  redis.call('expire', key, ttl)
+end
+return {1, new}
+`;
+
+/**
+ * Atomically release a previously reserved slot, but never below zero.
+ */
+const RELEASE_REPLY_SLOT_SCRIPT = `
+local key = KEYS[1]
+local current = tonumber(redis.call('get', key) or '0')
+if current > 0 then
+  redis.call('decr', key)
+end
+return current
+`;
+
 export interface ScrapedComment {
   commentId: string; // platform native id or h:hash
   author: string;
@@ -81,6 +119,7 @@ export class RepliesMonitorService implements OnModuleInit {
   private readonly autoReplyComplexity: 'low' | 'medium' | 'high';
   private readonly repliesTemperature: number;
   private readonly maxRepliesPerDay: number;
+  private readonly failClosed: boolean;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -118,6 +157,8 @@ export class RepliesMonitorService implements OnModuleInit {
     // F4: daily per-network reply budget. 0 means unlimited.
     const rawDaily = Number(this.configService.get<string>('REPLIES_MAX_PER_DAY', '10'));
     this.maxRepliesPerDay = Number.isFinite(rawDaily) && rawDaily >= 0 ? Math.floor(rawDaily) : 10;
+
+    this.failClosed = parseBool(this.configService.get<string>('RATE_LIMIT_FAIL_CLOSED', 'false'));
   }
 
   onModuleInit(): void {
@@ -878,10 +919,15 @@ export class RepliesMonitorService implements OnModuleInit {
   /**
    * F4: check the daily per-network reply budget.
    * Returns true when the budget has not been reached (or no Redis/max is 0).
+   * When RATE_LIMIT_FAIL_CLOSED=true and Redis is unreachable, returns false so
+   * we do not burn LLM calls on replies we cannot reliably gate.
    */
   private async checkDailyReplyBudget(network: SocialNetwork): Promise<boolean> {
-    if (this.maxRepliesPerDay <= 0 || !this.redis) {
+    if (this.maxRepliesPerDay <= 0) {
       return true;
+    }
+    if (!this.redis) {
+      return !this.failClosed;
     }
     const count = await this.getDailyReplyCount(network);
     return count < this.maxRepliesPerDay;
@@ -890,43 +936,57 @@ export class RepliesMonitorService implements OnModuleInit {
   /**
    * F4: reserve a daily reply slot. Returns true if the slot was within budget.
    * The counter is set with a 2-day TTL so it cleans itself up.
+   *
+   * Uses a Redis Lua script (EVAL) so the check+incr is atomic and safe for
+   * concurrent workers or multi-instance deployments.
    */
   private async reserveDailyReplySlot(network: SocialNetwork): Promise<boolean> {
-    if (this.maxRepliesPerDay <= 0 || !this.redis) {
+    if (this.maxRepliesPerDay <= 0) {
       return true;
     }
+    if (!this.redis) {
+      return !this.failClosed;
+    }
     try {
-      const key = this.dailyReplyKey(network);
-      const count = await this.redis.incr(key);
-      await this.redis.expire(key, 2 * 24 * 60 * 60).catch(() => {});
-      if (count > this.maxRepliesPerDay) {
-        // Over budget — roll back and signal unavailable.
-        await this.redis.decr(key).catch(() => {});
-        return false;
-      }
-      return true;
-    } catch {
-      return true;
+      const result = (await this.redis.eval(
+        RESERVE_REPLY_SLOT_SCRIPT,
+        1,
+        this.dailyReplyKey(network),
+        this.maxRepliesPerDay,
+        DAILY_REPLY_TTL_SECONDS,
+      )) as [number, number];
+      const allowed = result[0];
+      const newCount = result[1];
+      this.logger.debug(`Reply budget ${network}: ${newCount}/${this.maxRepliesPerDay}`);
+      return allowed === 1;
+    } catch (err) {
+      this.logger.warn(`Redis eval failed during reserveDailyReplySlot: ${(err as Error).message}`);
+      return !this.failClosed;
     }
   }
 
   /**
    * F4: release a previously reserved daily reply slot (e.g. the job was dropped).
+   * Uses a Lua script so the decr is guarded against negative counts.
    */
   private async releaseDailyReplySlot(network: SocialNetwork): Promise<void> {
     if (this.maxRepliesPerDay <= 0 || !this.redis) {
       return;
     }
-    await this.redis.decr(this.dailyReplyKey(network)).catch(() => {});
+    try {
+      await this.redis.eval(RELEASE_REPLY_SLOT_SCRIPT, 1, this.dailyReplyKey(network));
+    } catch (err) {
+      this.logger.warn(`Redis eval failed during releaseDailyReplySlot: ${(err as Error).message}`);
+    }
   }
 
   private async getDailyReplyCount(network: SocialNetwork): Promise<number> {
-    if (!this.redis) return 0;
+    if (!this.redis) return this.failClosed ? this.maxRepliesPerDay : 0;
     try {
       const raw = await this.redis.get(this.dailyReplyKey(network));
       return raw ? Number(raw) : 0;
     } catch {
-      return 0;
+      return this.failClosed ? this.maxRepliesPerDay : 0;
     }
   }
 
@@ -1070,9 +1130,15 @@ export class RepliesMonitorService implements OnModuleInit {
     }
 
     try {
+      const targetUrl = (comment.commentUrl ?? comment.post.postUrl) ?? '';
+      if (!targetUrl) {
+        await this.releaseDailyReplySlot(comment.post.network as SocialNetwork);
+        return { success: false, error: 'No target URL for reply' };
+      }
+
       const result = await this.engagementService.reply(
         comment.post.network,
-        comment.post.postUrl,
+        targetUrl,
         replyText,
       );
 

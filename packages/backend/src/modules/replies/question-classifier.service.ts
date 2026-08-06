@@ -11,6 +11,7 @@ import { IPromptPort } from '../../domain/ports/prompt.port.js';
 import { interpolate } from '../../domain/prompt-interpolation.js';
 import { QUESTION_CLASSIFIER_PROMPT } from './prompts/question-classifier.prompt.js';
 import { sanitizeUntrustedInput } from '../../infrastructure/llm/sanitize-untrusted-input.js';
+import { extractFirstJsonObject } from '../../infrastructure/util/extract-json.js';
 
 export interface QuestionClassification {
   isQuestion: boolean;
@@ -58,18 +59,10 @@ Return JSON only.`;
         role: 'utility',
       });
 
-      const jsonMatch = response.content.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        this.logger.warn('Question classifier: no JSON found in response');
+      const parsed = extractFirstJsonObject<Record<string, unknown>>(response.content);
+      if (!parsed) {
+        this.logger.warn('Question classifier: no valid JSON found in response');
         return this.fallback(text, 'no JSON');
-      }
-
-      let parsed: Record<string, unknown>;
-      try {
-        parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
-      } catch {
-        this.logger.warn('Question classifier: JSON parse failed');
-        return this.fallback(text, 'JSON parse failed');
       }
 
       const isQuestion = parsed.isQuestion === true;

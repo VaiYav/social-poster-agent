@@ -13,6 +13,7 @@ import { interpolate } from '../../domain/prompt-interpolation.js';
 import { COMMENT_SAFETY_PROMPT } from './prompts/comment-safety.prompt.js';
 import { sanitizeUntrustedInput } from '../../infrastructure/llm/sanitize-untrusted-input.js';
 import { detectSensitive, isLikelyTroll, isLowValueComment } from './sensitive-filter.js';
+import { extractFirstJsonObject } from '../../infrastructure/util/extract-json.js';
 
 export interface CommentSafetyClassification {
   risk: 'none' | 'injection' | 'spam' | 'toxic' | 'sensitive';
@@ -59,17 +60,9 @@ Return JSON only.`;
         role: 'utility',
       });
 
-      const jsonMatch = response.content.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        this.logger.warn('Comment safety classifier: no JSON found in response');
-        return this.fallback(text);
-      }
-
-      let parsed: Record<string, unknown>;
-      try {
-        parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
-      } catch {
-        this.logger.warn('Comment safety classifier: JSON parse failed');
+      const parsed = extractFirstJsonObject<Record<string, unknown>>(response.content);
+      if (!parsed) {
+        this.logger.warn('Comment safety classifier: no valid JSON found in response');
         return this.fallback(text);
       }
 
@@ -94,7 +87,7 @@ Return JSON only.`;
     const sensitive = detectSensitive(text);
     if (sensitive.sensitive) {
       return {
-        risk: sensitive.kind === 'crisis' ? 'sensitive' : 'sensitive',
+        risk: 'sensitive',
         confidence: 0.7,
         reason: sensitive.reason ?? 'Deterministic sensitive filter triggered',
       };

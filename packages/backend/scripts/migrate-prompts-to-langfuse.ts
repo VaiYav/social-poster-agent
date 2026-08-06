@@ -28,6 +28,9 @@ import {
   ENGAGEMENT_COMMENT_PROMPT,
   ENGAGEMENT_QUOTE_PROMPT,
 } from '../src/infrastructure/llm/prompts/v0.4.0/engagement-decision.js';
+import { QUESTION_CLASSIFIER_PROMPT } from '../src/modules/replies/prompts/question-classifier.prompt.js';
+import { COMMENT_SAFETY_PROMPT } from '../src/modules/replies/prompts/comment-safety.prompt.js';
+import { REPLY_DECISION_PROMPT } from '../src/modules/replies/prompts/reply-decision.prompt.js';
 
 // Env vars loaded via: npx tsx --env-file=../../.env scripts/migrate-prompts-to-langfuse.ts
 
@@ -157,6 +160,37 @@ const PROMPTS: PromptDef[] = [
     type: 'chat' as const,
     labels: ['production'],
     prompt: chatMessages(ENGAGEMENT_QUOTE_PROMPT),
+  },
+  {
+    name: 'question-classifier',
+    type: 'chat' as const,
+    labels: ['production'],
+    prompt: chatMessages({
+      systemPrompt: QUESTION_CLASSIFIER_PROMPT,
+      userPrompt: 'Comment: "{{commentText}}"\n\nReturn JSON only.',
+    }),
+  },
+  {
+    name: 'comment-safety',
+    type: 'chat' as const,
+    labels: ['production'],
+    prompt: chatMessages({
+      systemPrompt: COMMENT_SAFETY_PROMPT,
+      userPrompt: 'Comment: "{{commentText}}"\n\nReturn JSON only.',
+    }),
+  },
+  {
+    name: 'reply-decision',
+    type: 'chat' as const,
+    labels: ['production'],
+    prompt: chatMessages({
+      systemPrompt: REPLY_DECISION_PROMPT,
+      userPrompt: `Post: "{{postContent}}"
+
+Latest comment from @{{author}}: "{{commentText}}"
+
+Return JSON only.`,
+    }),
   },
 ];
 

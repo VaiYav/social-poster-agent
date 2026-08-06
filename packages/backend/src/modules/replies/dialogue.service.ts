@@ -88,6 +88,7 @@ export class DialogueService {
     const state = createDialogueState({
       conversationId,
       postId: comment.postId,
+      commentDbId: comment.id,
       network: comment.network,
       postContent,
       detectedLanguage,

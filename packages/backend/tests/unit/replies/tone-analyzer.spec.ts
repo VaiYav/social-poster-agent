@@ -48,4 +48,32 @@ describe('ToneAnalyzerService', () => {
     const result = svc.detectTone('Будьте добры, прошу вас объяснить этот аспект', 'ru');
     expect(result.tone).toBe('formal');
   });
+
+  it('F4-D9: does not lose emoji detection across sequential calls', () => {
+    // Stateful /g regex would miss emojis on the second call; match() should not.
+    const first = svc.detectTone('plain text', 'en');
+    expect(first.tone).toBe('neutral');
+    const second = svc.detectTone('🔥🔥🔥 wow', 'en');
+    expect(second.tone).toBe('playful');
+    const third = svc.detectTone('this is great 😂', 'en');
+    expect(third.tone).toBe('playful');
+  });
+
+  it('F4-D10: detects all-caps across Latin, Cyrillic and Spanish accents', () => {
+    const upperCyrillic = svc.detectTone('ЭТО ПРОСТО ВЕЛИКОЛЕПНО!!!', 'ru');
+    expect(upperCyrillic.tone).toBe('playful');
+
+    const upperSpanish = svc.detectTone('¡GENIAL! ME ENCANTA', 'es');
+    expect(upperSpanish.tone).toBe('playful');
+
+    const upperItalian = svc.detectTone('FANTASTICO! GRAZIE MILLE', 'it');
+    expect(upperItalian.tone).toBe('playful');
+  });
+
+  it('F4-D11: does not crash on emoji-only or non-alphabetic input', () => {
+    const result = svc.detectTone('🌙✨🔮', 'en');
+    // Emoji-only is a playful signal; the point is no NaN/crash on zero letters.
+    expect(result.tone).toBe('playful');
+    expect(result.confidence).toBeGreaterThan(0);
+  });
 });

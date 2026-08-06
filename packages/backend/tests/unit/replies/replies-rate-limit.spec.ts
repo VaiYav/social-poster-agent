@@ -37,17 +37,26 @@ function makeRedis() {
   const store = new Map<string, string>();
   return {
     get: vi.fn((key: string) => Promise.resolve(store.get(key) ?? null)),
-    incr: vi.fn(async (key: string) => {
-      const next = (Number(store.get(key)) || 0) + 1;
-      store.set(key, String(next));
-      return next;
+    eval: vi.fn(async (_script: string, _numKeys: number, ...rest: unknown[]) => {
+      const key = rest[0] as string;
+      const current = Number(store.get(key)) || 0;
+      // RESERVE_REPLY_SLOT_SCRIPT: key, limit, ttl
+      if (rest.length === 3) {
+        const limit = Number(rest[1]);
+        if (limit > 0 && current >= limit) {
+          return [0, current];
+        }
+        const next = current + 1;
+        store.set(key, String(next));
+        return [1, next];
+      }
+      // RELEASE_REPLY_SLOT_SCRIPT: key
+      if (current > 0) {
+        const next = current - 1;
+        store.set(key, String(next));
+      }
+      return current;
     }),
-    decr: vi.fn(async (key: string) => {
-      const next = Math.max(0, (Number(store.get(key)) || 0) - 1);
-      store.set(key, String(next));
-      return next;
-    }),
-    expire: vi.fn().mockResolvedValue(1),
     store,
   };
 }
@@ -165,7 +174,7 @@ describe('F4.B — daily reply rate limit', () => {
   it('F4-B4: manualReply increments and respects the daily budget', async () => {
     const { svc } = makeService({ maxPerDay: 2 });
 
-    const comment = { post: { postUrl: 'https://x.com/u/status/1', network: 'X' } };
+    const comment = { post: { postUrl: 'https://x.com/u/status/1', network: 'X' }, commentUrl: null };
     (svc as any).prisma = {
       incomingComment: {
         findUnique: vi.fn().mockResolvedValue(comment),

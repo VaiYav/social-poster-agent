@@ -16,6 +16,7 @@ import type { ILlmPort, LlmResponse } from '../../domain/ports/llm.port.js';
 import { IPromptPort } from '../../domain/ports/prompt.port.js';
 import { sanitizeUntrustedInput } from '../../infrastructure/llm/sanitize-untrusted-input.js';
 import { matchesScript, normalizeLanguage } from '../../infrastructure/util/script-check.js';
+import { extractFirstJsonObject } from '../../infrastructure/util/extract-json.js';
 import { interpolate } from '../../domain/prompt-interpolation.js';
 import { REPLY_DECISION_PROMPT } from './prompts/reply-decision.prompt.js';
 import type { QuestionClassification, QuestionClassifierService } from './question-classifier.service.js';
@@ -50,6 +51,10 @@ export const DialogueState = Annotation.Root({
     default: () => '',
   }),
   postId: Annotation<string>({
+    reducer: (_, next) => next,
+    default: () => '',
+  }),
+  commentDbId: Annotation<string>({
     reducer: (_, next) => next,
     default: () => '',
   }),
@@ -143,13 +148,7 @@ async function getCompiledText(
 }
 
 function parseDecisionJson(raw: string): Partial<DialogueDecision> | null {
-  const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) return null;
-  try {
-    return JSON.parse(jsonMatch[0]) as Partial<DialogueDecision>;
-  } catch {
-    return null;
-  }
+  return extractFirstJsonObject<Partial<DialogueDecision>>(raw);
 }
 
 // ── Nodes ───────────────────────────────────────────────────────────────────
@@ -287,7 +286,7 @@ Return JSON only.`;
       reviewReason: action === 'human_review' ? parsed.reviewReason ?? parsed.reason : undefined,
       detectedLanguage: normalizeLanguage(parsed.detectedLanguage ?? state.detectedLanguage),
       targetCommentId: lastUser.commentId,
-      targetCommentDbId: state.postId,
+      targetCommentDbId: state.commentDbId,
     };
 
     return { decision };
@@ -323,6 +322,7 @@ export function compileDialogueGraph(deps: DialogueGraphDeps) {
 export function createDialogueState(input: {
   conversationId: string;
   postId: string;
+  commentDbId?: string;
   network: string;
   postContent: string;
   detectedLanguage: string;
@@ -334,6 +334,7 @@ export function createDialogueState(input: {
   return {
     conversationId: input.conversationId,
     postId: input.postId,
+    commentDbId: input.commentDbId ?? '',
     network: input.network,
     postContent: input.postContent,
     detectedLanguage: input.detectedLanguage,
