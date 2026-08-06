@@ -101,6 +101,16 @@ export class RecyclingService implements OnModuleInit {
   }
 
   /**
+   * F13: expose cron configuration so the UI can show whether scheduled recycling is on.
+   */
+  getCronConfig(): { enabled: boolean; schedule: string } {
+    return {
+      enabled: parseBool(this.configService.get<string>('RECYCLING_CRON_ENABLED', 'false')),
+      schedule: this.configService.get<string>('RECYCLING_CRON_SCHEDULE', '0 8 * * 1'),
+    };
+  }
+
+  /**
    * RC2: recycling never ran automatically — there was no scheduler, only a manual endpoint.
    * Flag-gated cron (default OFF, like the other autonomy features) so enabling auto-recycling
    * is an explicit opt-in. NOTE: until metrics land (AN1), candidate selection is by age, not

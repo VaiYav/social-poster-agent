@@ -303,13 +303,13 @@ export class BrowsingSessionService {
       // P0: conversation-ready targeting — check if this account has unreplied comments
       // on its own posts for this network. If so, the engagement graph will prefer
       // 'own-post' / 'notifications' sources over the algorithmic feed.
-      const newRepliesCount = await this.prisma.incomingComment.count({
+      const newRepliesCount = await (this.prisma.incomingComment?.count({
         where: {
           network,
           status: 'NEW',
           post: { accountId: session.accountId },
         },
-      }).catch(() => 0);
+      }) ?? Promise.resolve(0)).catch(() => 0);
       const conversationReady = newRepliesCount > 0;
 
       // Build and invoke the EngagementGraph (LangGraph)

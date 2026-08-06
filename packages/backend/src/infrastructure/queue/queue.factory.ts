@@ -371,7 +371,7 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
    */
   registerWorker(
     network: string,
-    handler: (job: Job) => Promise<void>,
+    handler: (job: Job, token?: string) => Promise<void>,
     action: 'posting' | 'engagement' = 'posting',
   ): Worker {
     const queueName = `${this.queuePrefix}-${action}-${network.toLowerCase()}`;

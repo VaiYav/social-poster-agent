@@ -14,8 +14,9 @@ import {
   Logger,
   Inject,
 } from '@nestjs/common';
-import type { SocialNetwork } from '@prisma/client';
+import { type SocialNetwork, PostStatus } from '@prisma/client';
 import { IPostingQueuePort } from '../../domain/ports/posting-queue.port.js';
+import { PostingWindowService } from '../orchestrator/posting-window.service.js';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiParam } from '@nestjs/swagger';
 import { PostsService } from './posts.service';
 import {
@@ -23,10 +24,14 @@ import {
   UpdatePostStatusDtoSchema,
   PostQueryDtoSchema,
   ApprovePostDtoSchema,
+  CalendarQueryDtoSchema,
+  SchedulePostDtoSchema,
   type CreatePostDto,
   type UpdatePostStatusDto,
   type PostQueryDto,
   type ApprovePostDto,
+  type CalendarQueryDto,
+  type SchedulePostDto,
 } from '../../domain/dtos.js';
 
 @ApiTags('posts')
@@ -37,18 +42,48 @@ export class PostsController {
   constructor(
     private readonly postsService: PostsService,
     @Inject(IPostingQueuePort) private readonly postingQueue: IPostingQueuePort,
+    private readonly postingWindowService: PostingWindowService,
   ) {}
 
   /**
    * A5: enqueue via IPostingQueuePort (bound in QueueInfraModule). The port breaks the
    * PostsModule → QueueModule → PostingModule → PostsModule cycle without a ModuleRef hack.
-   * Failures are swallowed — the reconciliation cron re-enqueues APPROVED posts that weren't queued.
+   *
+   * F7: if a scheduled time is set and is in the future, post at that exact time.
+   *
+   * F11 Best Time to Post: if the post is approved outside the current engagement window,
+   * enqueue it with a delay so the worker runs inside the next window.
    */
-  private async enqueueForPosting(postId: string, network: string): Promise<void> {
+  private async enqueueForPosting(post: {
+    id: string;
+    network: SocialNetwork;
+    approvedAt: Date | null;
+  }): Promise<void> {
     try {
-      await this.postingQueue.enqueuePosting(postId, network as SocialNetwork);
+      const { id: postId, network, approvedAt } = post;
+
+      // F7: respect a future scheduled time before applying posting-window logic.
+      if (approvedAt && approvedAt.getTime() > Date.now()) {
+        const delay = approvedAt.getTime() - Date.now();
+        this.logger.log(
+          `Post ${postId} scheduled for ${approvedAt.toISOString()} — delaying ${Math.round(delay / 60000)}min`,
+        );
+        await this.postingQueue.enqueuePosting(postId, network, { delay });
+        return;
+      }
+
+      const window = await this.postingWindowService.getRecommendation(network);
+      if (!window.inWindow) {
+        const delay = await this.postingWindowService.getDelayToNextWindow(network);
+        this.logger.log(
+          `Post ${postId} approved outside posting window for ${network} — delaying ${Math.round(delay / 60000)}min`,
+        );
+        await this.postingQueue.enqueuePosting(postId, network, { delay });
+        return;
+      }
+      await this.postingQueue.enqueuePosting(postId, network);
     } catch (err) {
-      this.logger.error(`Failed to enqueue post ${postId}: ${(err as Error).message}`);
+      this.logger.error(`Failed to enqueue post ${post.id}: ${(err as Error).message}`);
     }
   }
 
@@ -72,6 +107,24 @@ export class PostsController {
   @ApiResponse({ status: 200, description: 'List of draft posts' })
   async findDrafts(@Query('network') network?: 'X' | 'THREADS' | 'FACEBOOK') {
     return this.postsService.findDrafts(network);
+  }
+
+  @Get('calendar')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'F7: Get posts as calendar events in a date range' })
+  @ApiQuery({ name: 'from', required: true, type: String, description: 'Start date (ISO date or datetime)' })
+  @ApiQuery({ name: 'to', required: true, type: String, description: 'End date (ISO date or datetime)' })
+  @ApiQuery({ name: 'status', required: false, enum: ['DRAFT', 'APPROVED', 'POSTING', 'POSTED', 'FAILED', 'REJECTED', 'JUDGED', 'VERIFIED'] })
+  @ApiQuery({ name: 'network', required: false, enum: ['X', 'THREADS', 'FACEBOOK', 'DEVTO', 'HASHNODE', 'LINKEDIN', 'BLUESKY', 'MASTODON', 'TELEGRAM', 'MEDIUM', 'SUBSTACK', 'REDDIT', 'QUORA', 'PINTEREST'] })
+  @ApiResponse({ status: 200, description: 'List of calendar events' })
+  async getCalendar(@Query() rawQuery: unknown) {
+    let query: CalendarQueryDto;
+    try {
+      query = CalendarQueryDtoSchema.parse(rawQuery) as CalendarQueryDto;
+    } catch (err) {
+      throw new BadRequestException((err as Error).message);
+    }
+    return this.postsService.findCalendar(query);
   }
 
   @Get(':id')
@@ -139,7 +192,7 @@ export class PostsController {
       const post = await this.postsService.approve(id, dto.editedContent);
 
       // P0 fix: enqueue to BullMQ posting queue — this is the core approve→post happy path
-      await this.enqueueForPosting(post.id, post.network as string);
+      await this.enqueueForPosting(post);
       this.logger.log(`Post ${id} approved and enqueued for ${post.network}`);
 
       return post;
@@ -154,6 +207,43 @@ export class PostsController {
         throw err;
       }
       this.logger.error(`Approve failed for post ${id}: ${(err as Error).message}`);
+      throw new NotFoundException(`Post ${id} not found`);
+    }
+  }
+
+  @Patch(':id/schedule')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'F7: Reschedule a post to a specific date/time' })
+  @ApiParam({ name: 'id', type: String })
+  @ApiResponse({ status: 200, description: 'Post rescheduled' })
+  @ApiResponse({ status: 400, description: 'Invalid scheduledAt value' })
+  @ApiResponse({ status: 409, description: 'Post cannot be rescheduled from this status' })
+  @ApiResponse({ status: 404, description: 'Post not found' })
+  async schedule(@Param('id') id: string, @Body() rawBody: unknown) {
+    let dto: SchedulePostDto;
+    try {
+      dto = SchedulePostDtoSchema.parse(rawBody) as SchedulePostDto;
+    } catch (err) {
+      throw new BadRequestException((err as Error).message);
+    }
+    try {
+      const post = await this.postsService.schedule(id, dto);
+
+      // F7: if the post is already APPROVED/POSTING, re-enqueue with the new delay.
+      if (post.status === PostStatus.APPROVED || post.status === PostStatus.POSTING) {
+        await this.enqueueForPosting(post);
+      }
+
+      return post;
+    } catch (err) {
+      if (
+        err instanceof BadRequestException ||
+        err instanceof ConflictException ||
+        err instanceof NotFoundException
+      ) {
+        throw err;
+      }
+      this.logger.error(`Reschedule failed for post ${id}: ${(err as Error).message}`);
       throw new NotFoundException(`Post ${id} not found`);
     }
   }

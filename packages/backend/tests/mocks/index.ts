@@ -300,6 +300,9 @@ export function createMockPrismaService() {
     interaction: {
       ...createModelMock(),
     },
+    incomingComment: {
+      ...createModelMock(),
+    },
     contentSource: {
       ...createModelMock(),
     },

@@ -171,6 +171,10 @@ export class QuoteCardService {
     return this.enabled;
   }
 
+  getOutputDir(): string {
+    return this.outputDir;
+  }
+
   /**
    * Delete quote card PNG files older than maxAgeDays to prevent disk fill.
    * Called opportunistically after each generation (fire-and-forget).

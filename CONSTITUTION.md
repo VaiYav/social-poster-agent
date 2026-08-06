@@ -878,14 +878,14 @@ _Пока нет — все стартовые закрыты. Новые OQ д�
 - [x] **P0-H3: AES-256-GCM encryption** — storageState encrypted at rest (CryptoModule + EncryptionService)
 - [x] **E2E Tests** — 33 tests (full-flow, HITL, health-check, SSE, smoke) — Sprint D complete
 
-### Phase 2 — Расширение (после стабильного MVP)
-- [ ] **F6: Analytics Dashboard** — метрики engagement, top posts, сравнение сетей
-- [ ] **F7: Content Calendar** — планирование постов, визуальный календарь
-- [ ] **F11: Best Time to Post** — data-driven scheduling slots (после F6)
-- [ ] **F19: Image Quote Cards** — SVG→PNG pipeline, zodiac-themed templates
+### Phase 2 — Расширение (после стабильного MVP) — MOSTLY DONE
+- [x] **F6: Analytics Dashboard** — metrics endpoints, UI dashboard, top posts, network comparison (read-only, always available)
+- [x] **F7: Content Calendar** — GET /posts/calendar, PATCH /posts/:id/schedule, month/week/day views, network/status filters, status colors
+- [x] **F11: Best Time to Post** — PostingWindowService with engagement heatmap, recommended slots, wired into approve() enqueue delay
+- [x] **F19: Image Quote Cards** — Satori → @resvg/resvg-js PNG pipeline, POST /quote-cards/generate, GET /quote-cards/file, gated by QUOTE_CARDS_ENABLED
 - [ ] **F4: Adaptive Replies** — poll-based ответы на комментарии, injection detection
 - [ ] Image/media posts (browser upload через Playwright)
-- [ ] Scheduled posting (постинг в конкретное время)
+- [x] Scheduled posting (постинг в конкретное время) — posts can be scheduled via approvedAt before approval or rescheduled via PATCH /posts/:id/schedule
 - [ ] Residential proxies + fingerprint рандомизация (если нужны)
 - [ ] LinkedIn / Instagram
 - [ ] Несколько аккаунтов на сеть
@@ -973,7 +973,8 @@ _Пока нет — все стартовые закрыты. Новые OQ д�
 | 0.5.1 | 2026-07-16 | **Doc-code sync**: §6 structure updated (added engagement/, health-monitor/, cls/, monitoring/, filters/, checkpoint/, docker/, docs/ ADRs+runbooks). §16 Phase 0/1 marked as COMPLETED with [x]. Phase 1.5 marked as PARTIAL (Ollama, SSE, BullMQ per-network, reconciliation cron — done; F2/F10/F13/F22 — not started; F3/F5 — partial). ROADMAP.md fully synced with codebase (all phases, compliance score 92/100, new sprints A-G). 368 tests pass. |
 | 0.5.2 | 2026-07-27 | **Review fixes**: Removed dead Sprint K context pool (conflicted with P0-H1 context.close()). Fixed getCheckpointState thread_id (now requires topic param). Fixed resumeRun no-sourceTopics orphaned run + added outer try/catch. Added PAUSED status to GenerationRunStatus (pauseRun no longer marks as FAILED). Added SimHash dedup to resumeRun. Awaited SSE publish in generation.service.ts. Added SESSION_ENCRYPTION_KEY to .env.example. Fixed DATABASE_URL default (5432→5433, spa→social_poster). Removed TrendingController from providers. F2 continuation now LLM-generated (removed "link in bio"). Sprint O modules added to AppModule: Analytics + Recycling (always on), Captcha + Proxy + QuoteCard + Replies (feature-flagged, default: false). |
 | 0.5.3 | 2026-07-27 | **Sprint A doc sync**: §6 structure tree updated to reflect actual codebase — added events/ (EDA), analytics/, recycling/, quote-cards/, replies/, engagement/engagers/, sessions/warmup.module.ts, trending-scraper.service.ts, infrastructure/{redis,captcha,proxy,selector-health.service}, UI additions (NotFound.vue, PostEditor.vue, ToastContainer.vue, useToast.ts), new Prisma migrations (PAUSED run status, simhash index). Fixed false v0.5.2 changelog claim that Sprint O modules were removed (they are feature-flagged, not removed). app.module.ts wires 31 modules (5 feature-flagged: Engagement, Captcha, Proxy, QuoteCard, Replies). |
+| 0.5.4 | 2026-08-06 | **Phase 2 features + test stabilization:** F6 Analytics Dashboard UI, F7 Content Calendar (GET /posts/calendar, PATCH /posts/:id/schedule, Vue month/week/day), F11 Best Time to Post wired into approve queue, F19 Image Quote Cards (Satori/Resvg pipeline, file endpoint). Flow control adds `llm_triage` and `auto_approve`. Fixed 14 unit-test failures in auto-approve, browsing-session, engagement-graph, batched-judge. 1509 unit tests pass. §16 Phase 2 marked mostly done. |
 
 ---
 
-_Document created 2026-06-26 by Valentyn Yakovlev. MVP fully implemented (v0.5.3)._
+_Document created 2026-06-26 by Valentyn Yakovlev. MVP fully implemented (v0.5.4)._

@@ -27,6 +27,7 @@ async function generate() {
       text: text.value,
       author: author.value || undefined,
       network: network.value,
+      bgGradient: gradients[network.value],
     });
     if (res.data.path) {
       generatedUrl.value = res.data.path;

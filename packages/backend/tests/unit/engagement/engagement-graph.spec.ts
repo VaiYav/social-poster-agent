@@ -157,7 +157,7 @@ describe('EngagementGraph', () => {
     expect(warmupService.getWarmupStatus).toHaveBeenCalledWith('acc-1');
 
     // pick_source was called
-    expect(targetingService.pickSource).toHaveBeenCalledWith(SocialNetwork.X);
+    expect(targetingService.pickSource).toHaveBeenCalledWith(SocialNetwork.X, { conversationReady: false });
 
     // scroll_feed was called (via scrollUrl because the mock targeting service returns a URL)
     expect(engager.scrollUrl).toHaveBeenCalled();

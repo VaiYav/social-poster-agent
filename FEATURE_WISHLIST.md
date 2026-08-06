@@ -707,12 +707,12 @@ F19 (Quote Cards) ←─ F8 (A/B Testing)
 | F5 (Pauseable Environment) | Средняя | Нет | Высокая | Phase 1.5 (MVP+) |
 | F3 (On-Demand Launch) | Средняя | Нет | Высокая | Phase 1.5 (MVP+) |
 | F10 (Content Repurposing) | Средняя | Нет | Высокая | Phase 1.5 (MVP+) |
-| F13 (Content Recycling) | Средняя | Низкий | Высокая | Phase 1.5 (MVP+) |
+| F13 (Content Recycling) | Средняя | Низкий | Высокая | Phase 1.5 (MVP+) ✅ Done |
 | F22 (Trending Detection) | Средняя | Нет | Высокая | Phase 1.5 (MVP+) |
-| F6 (Analytics Dashboard) | Средняя | Низкий | Высокая | Phase 2 |
-| F7 (Content Calendar) | Средняя | Нет | Средняя | Phase 2 |
-| F11 (Best Time to Post) | Низкая | Нет | Средняя | Phase 2 (после F6) |
-| F19 (Image Quote Cards) | Средняя | Низкий | Высокая | Phase 2 |
+| F6 (Analytics Dashboard) | Средняя | Низкий | Высокая | Phase 2 ✅ Done |
+| F7 (Content Calendar) | Средняя | Нет | Средняя | Phase 2 ✅ Done |
+| F11 (Best Time to Post) | Низкая | Нет | Средняя | Phase 2 (после F6) ✅ Done |
+| F19 (Image Quote Cards) | Средняя | Низкий | Высокая | Phase 2 ✅ Done |
 | F4 (Adaptive Replies) | Высокая | Средний | Средняя | Phase 2 |
 | F8 (A/B Testing) | Высокая | Низкий | Средняя | Phase 2-3 |
 | F1 (Autonomous Agent) | Очень высокая | Высокий | Высокая | Phase 2-3 |
@@ -907,6 +907,7 @@ PostMetrics (F6)
 ## Changelog
 
 | Version | Date | Changes |
+| 0.5.0 | 2026-08-06 | Marked F6, F7, F11, F13, F19 as implemented. Updated feature priority table status. |
 |---------|------|---------|
 | 0.1.0 | 2026-06-26 | Initial wishlist: 5 features (F1-F5), prioritization, connections map |
 | 0.2.0 | 2026-06-26 | Brainstorm resolved: F1-F5 decisions, added F6-F9, 10 bottlenecks (B1-B10), infra impact (env vars, Prisma models, tRPC routers) |

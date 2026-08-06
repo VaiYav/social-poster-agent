@@ -31,25 +31,22 @@ function makeInput(overrides: Partial<{ anti: number; factual: number; hook: num
 }
 
 function makeLlmResponse(scores: { anti_ai_tone: number; factual_accuracy: number; hook_strength: number; character_limit: number }) {
+  const judgment = {
+    anti_ai_tone: scores.anti_ai_tone,
+    anti_ai_tone_reason: 'sounds human',
+    factual_accuracy: scores.factual_accuracy,
+    factual_accuracy_reason: 'facts correct',
+    hook_strength: scores.hook_strength,
+    hook_strength_reason: 'strong hook',
+    character_limit: scores.character_limit,
+    character_limit_reason: 'fits',
+  };
   return JSON.stringify({
-    X: {
-      anti_ai_tone: scores.anti_ai_tone,
-      factual_accuracy: scores.factual_accuracy,
-      hook_strength: scores.hook_strength,
-      character_limit: scores.character_limit,
-    },
-    THREADS: {
-      anti_ai_tone: scores.anti_ai_tone,
-      factual_accuracy: scores.factual_accuracy,
-      hook_strength: scores.hook_strength,
-      character_limit: scores.character_limit,
-    },
-    FACEBOOK: {
-      anti_ai_tone: scores.anti_ai_tone,
-      factual_accuracy: scores.factual_accuracy,
-      hook_strength: scores.hook_strength,
-      character_limit: scores.character_limit,
-    },
+    judgments: [
+      { network: 'X', ...judgment },
+      { network: 'THREADS', ...judgment },
+      { network: 'FACEBOOK', ...judgment },
+    ],
   });
 }
 
@@ -62,7 +59,7 @@ describe('BatchedJudgeService (P2 eval harness)', () => {
     const llm = createMockLlm(makeLlmResponse({ anti_ai_tone: 0.8, factual_accuracy: 0.7, hook_strength: 0.6, character_limit: 1.0 }));
     const judge = new BatchedJudgeService(llm, undefined);
     const result = await judge.judgeBatch([makeInput()]);
-    expect(Object.keys(result)).toEqual(['X', 'THREADS', 'FACEBOOK']);
+    expect(Object.keys(result)).toEqual(['X']);
     expect(result.X?.anti_ai_tone).toBe(0.8);
     expect(llm.generateChat).toHaveBeenCalledTimes(1);
   });

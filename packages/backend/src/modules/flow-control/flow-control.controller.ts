@@ -17,7 +17,7 @@ const reasonSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
-const VALID_FLOWS: FlowName[] = ['generation', 'posting', 'engagement', 'replies'];
+const VALID_FLOWS: FlowName[] = ['generation', 'posting', 'engagement', 'replies', 'llm_triage', 'auto_approve'];
 
 function parseFlow(flow: string): FlowName {
   if (!VALID_FLOWS.includes(flow as FlowName)) {

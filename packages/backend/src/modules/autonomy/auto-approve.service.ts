@@ -214,20 +214,14 @@ export class AutoApproveService {
       reason = `Quality score ${score} < minimum ${this.humanReviewThreshold} — rejected`;
     }
 
-    // P1: LLM-as-a-Judge decision matrix. The judge is the final gate; it can
-    // override a high critique score or hard-reject a low-quality post.
+    // P1: LLM-as-a-Judge decision matrix. The judge can only downgrade or
+    // hard-reject — it never promotes a post out of HUMAN_REVIEW or REJECT.
+    // Missing judge scores fail closed to HUMAN_REVIEW.
     if (this.useJudgeScores) {
       const judgeDecision = this.classifyByJudge(judgeScores);
-      if (judgeDecision) {
-        // Hard-reject always wins; missing judge drops to human review.
-        if (judgeDecision.decision === 'REJECT' || judgeDecision.decision === 'HUMAN_REVIEW') {
-          decision = judgeDecision.decision;
-          reason = judgeDecision.reason;
-        } else if (judgeDecision.decision === 'AUTO_APPROVE') {
-          // Judge is strong enough to auto-approve regardless of the critique band.
-          decision = 'AUTO_APPROVE';
-          reason = judgeDecision.reason;
-        }
+      if (judgeDecision && (judgeDecision.decision === 'REJECT' || judgeDecision.decision === 'HUMAN_REVIEW')) {
+        decision = judgeDecision.decision;
+        reason = judgeDecision.reason;
       }
     }
 
@@ -272,7 +266,14 @@ export class AutoApproveService {
       };
     }
 
-    return { decision: 'HUMAN_REVIEW', reason: 'Judge scores in review range — flagged for human review' };
+    // Build a specific reason naming each dimension that is below its minimum.
+    const below: string[] = [];
+    if (anti < this.minJudgeAntiAi) below.push(`anti-ai tone below threshold (${anti.toFixed(2)} < ${this.minJudgeAntiAi})`);
+    if (factual < this.minJudgeFactual) below.push(`factual accuracy below threshold (${factual.toFixed(2)} < ${this.minJudgeFactual})`);
+    if (hook < this.minJudgeHook) below.push(`hook strength below threshold (${hook.toFixed(2)} < ${this.minJudgeHook})`);
+    if (char < this.minJudgeCharacter) below.push(`character limit below threshold (${char.toFixed(2)} < ${this.minJudgeCharacter})`);
+
+    return { decision: 'HUMAN_REVIEW', reason: `Judge review: ${below.join(', ')}` };
   }
 
   /**

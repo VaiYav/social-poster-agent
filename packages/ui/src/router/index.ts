@@ -56,6 +56,16 @@ const router = createRouter({
       component: () => import('../views/QuoteCards.vue'),
     },
     {
+      path: '/recycling',
+      name: 'recycling',
+      component: () => import('../views/Recycling.vue'),
+    },
+    {
+      path: '/calendar',
+      name: 'calendar',
+      component: () => import('../views/Calendar.vue'),
+    },
+    {
       path: '/flow-control',
       name: 'flow-control',
       component: () => import('../views/FlowControl.vue'),

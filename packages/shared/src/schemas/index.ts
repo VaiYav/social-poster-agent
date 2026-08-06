@@ -50,6 +50,19 @@ export const PostQueryDtoSchema = z.object({
 });
 export type PostQueryDto = z.infer<typeof PostQueryDtoSchema>;
 
+export const CalendarQueryDtoSchema = z.object({
+  from: z.coerce.date(),
+  to: z.coerce.date(),
+  status: z.enum(['DRAFT', 'APPROVED', 'POSTING', 'POSTED', 'FAILED', 'REJECTED', 'JUDGED', 'VERIFIED']).optional(),
+  network: z.enum(['X', 'THREADS', 'FACEBOOK', 'DEVTO', 'HASHNODE', 'LINKEDIN', 'BLUESKY', 'MASTODON', 'TELEGRAM', 'MEDIUM', 'SUBSTACK', 'REDDIT', 'QUORA', 'PINTEREST']).optional(),
+});
+export type CalendarQueryDto = z.infer<typeof CalendarQueryDtoSchema>;
+
+export const SchedulePostDtoSchema = z.object({
+  scheduledAt: z.coerce.date(),
+});
+export type SchedulePostDto = z.infer<typeof SchedulePostDtoSchema>;
+
 // ============================================================
 // Generation schemas
 // ============================================================

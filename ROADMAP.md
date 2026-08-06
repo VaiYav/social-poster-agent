@@ -579,25 +579,26 @@
 |---------|-------|--------|-------|
 | F20 (Warm-up) | MVP | [x] | ✅ Done — warmup.service.ts, Prisma fields, canPost() check, WarmupModule, seedFromEnv() wires SOCIAL_*_WARMUP env vars |
 | F21 (Health Monitor) | MVP | [x] | ✅ Done — hourly cron, ban detection, DLQ alerting, SSE alerts, reconcile |
-| F2 (Multi-Stage Posting) | Phase 1.5 | [~] | Partial — backend done: multiStage param in GeneratePostsDto, GenerationService creates PostThread + continuation (position=1), PostingService loads thread items + passes to X/Threads posters, UI checkbox in Generate.vue. TODO: test with real threads, F13 recycling |
+| F2 (Multi-Stage Posting) | Phase 1.5 | [~] | Partial — backend done: multiStage param in GeneratePostsDto, GenerationService creates PostThread + continuation (position=1), PostingService loads thread items + passes to X/Threads posters, UI checkbox in Generate.vue. TODO: test with real threads |
 | F3 (On-Demand Launch) | Phase 1.5 | [~] | Partial — Generate.vue has count/network/source; no model picker, no F1/F2 control panel |
 | F5 (Pause/Resume) | Phase 1.5 | [~] | Partial — LangGraph checkpoint wired; Queue.vue has pause/resume UI + BullMQ stats per network |
 | F10 (Content Repurposing) | Phase 1.5 | [~] | Partial — backend done: repurposeFromArticles() in GenerationService extracts facts from articles + generates posts, /repurpose endpoint, UI button in Generate.vue. TODO: deeper fact extraction, source variety |
-| F13 (Content Recycling) | Phase 1.5 | [ ] | Not started — no evergreen revival |
+| F13 (Content Recycling) | Phase 1.5 | [x] | Done — RecyclingService, RecyclingController (POST /recycling/run, POST /recycling/:id/recycle), Recycling.vue UI, gated cron via RECYCLING_CRON_ENABLED |
 | F22 (Trending Topics) | Phase 1.5 | [~] | Partial — backend done: TrendingModule with TrendingService (astro events calendar), TrendingController (/trending endpoint), UI display in Generate.vue. TODO: Google Trends / X trending API integration |
 | F1 (Autonomous Agent) | Phase 2-3 | [~] | ⚠️ FROZEN — 1300 lines implemented (EngagementService + BrowsingSessionService + 3 engagers), gated behind ENGAGEMENT_ENABLED=false. Gaps: LLM integration, tests, UI, Swagger |
 | F4 (Adaptive Replies) | Phase 2 | [ ] | Not started |
-| F6 (Analytics Dashboard) | Phase 2 | [ ] | Not started |
-| F7 (Content Calendar) | Phase 2 | [ ] | Not started |
+| F6 (Analytics Dashboard) | Phase 2 | [x] | Done — AnalyticsService/Controller (overview, by-network, top-posts, metrics history), Analytics.vue dashboard, metrics scraper |
+| F7 (Content Calendar) | Phase 2 | [x] | Done — PostsService calendar aggregation, GET /posts/calendar, PATCH /posts/:id/schedule, Calendar.vue with month/week/day and status colors |
 | F8 (A/B Testing) | Phase 2-3 | [ ] | Not started |
-| F11 (Best Time to Post) | Phase 2 | [ ] | Not started |
-| F19 (Image Quote Cards) | Phase 2 | [ ] | Not started |
+| F11 (Best Time to Post) | Phase 2 | [x] | Done — PostingWindowService engagement-heatmap recommendations, wired into approve() enqueue delay and approve-reschedule |
+| F19 (Image Quote Cards) | Phase 2 | [x] | Done — QuoteCardService (Satori + resvg), POST /quote-cards/generate, GET /quote-cards/file, QuoteCards.vue, gated by QUOTE_CARDS_ENABLED |
 
 ---
 
 ## Changelog
 
 | Date | Version | Change |
+| 2026-08-06 | 0.6.2 | **Phase 2 features + test stabilization:** F6 Analytics Dashboard, F7 Content Calendar (backend + Vue), F11 Best Time to Post wired into queue, F19 Image Quote Cards (Satori/Resvg + UI), F13 Content Recycling completed (UI + cron). FlowControl expanded with llm_triage and auto_approve. Fixed 14 unit-test failures (auto-approve, browsing-session, engagement-graph, batched-judge). 1509 unit tests pass. Feature Wishlist Mapping updated. |
 |------|---------|--------|
 | 2026-07-27 | 0.6.1 | **Sprint A partial:** CONSTITUTION §6 structure tree synced with actual codebase (v0.5.3). Fixed false v0.5.2 changelog claim that Sprint O modules were removed (they are feature-flagged, not removed). ROADMAP §4.4 task marked done. |
 | 2026-07-27 | 0.6.0 | **Bug fix sprint + Phase 1.5 features:** P0-1 approve()→BullMQ enqueue (ModuleRef lazy resolve), P0-2 thread/multi-post posting (PostingService loads thread items, passes to X/Threads posters, marks continuations POSTED). P1-3 Joi env validation (validateEnv() in AppModule.onModuleInit), P1-4 consecutive ban detection (streak analysis), P1-5 stuckPosting uses approvedAt, P1-6 SSE severity field, P1-7 RedactInterceptor exact key match. Minor-26 UTC getWeekStart, Minor-29 seedFromEnv→AccountsService.onModuleInit, Minor-30 Zod→400. F2/F10/F22 backend done (Sprint F partially complete). 375 tests (208 unit + 35 integration + 46 system + 82 acceptance + 4 e2e). Compliance: 95/100. |

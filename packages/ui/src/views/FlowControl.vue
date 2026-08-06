@@ -7,7 +7,7 @@
  * any flow if something goes wrong.
  */
 import { onMounted, computed } from 'vue';
-import { AlertTriangle, Play, Pause, Activity, Zap } from '@lucide/vue';
+import { AlertTriangle, Play, Pause, Activity, Zap, Scale, Bot } from '@lucide/vue';
 import { useFlowControlStore, type FlowName } from '../stores/flowControl';
 import { useToast } from '../composables/useToast';
 import { Card, Button, SectionHeader, Badge } from '../components/ui';
@@ -20,6 +20,8 @@ const flowLabels: Record<FlowName, string> = {
   posting: 'Post Publishing',
   engagement: 'Engagement (likes/comments)',
   replies: 'Reply Monitoring',
+  llm_triage: 'LLM Triage',
+  auto_approve: 'Auto Approve',
 };
 
 const flowIcons: Record<FlowName, typeof Activity> = {
@@ -27,6 +29,8 @@ const flowIcons: Record<FlowName, typeof Activity> = {
   posting: Activity,
   engagement: AlertTriangle,
   replies: Activity,
+  llm_triage: Scale,
+  auto_approve: Bot,
 };
 
 const crisisActive = computed(() => flowControl.pauseAll);

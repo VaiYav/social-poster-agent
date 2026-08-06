@@ -12,6 +12,8 @@ import {
   Activity,
   AlertTriangle,
   FileBarChart,
+  Recycle,
+  Calendar,
   X,
   type LucideIcon,
 } from '@lucide/vue';
@@ -34,6 +36,8 @@ const navItems: NavItem[] = [
   { label: 'Analytics', to: '/analytics', icon: BarChart3 },
   { label: 'Trending', to: '/trending', icon: TrendingUp },
   { label: 'Quote Cards', to: '/quote-cards', icon: ImageIcon },
+  { label: 'Recycling', to: '/recycling', icon: Recycle },
+  { label: 'Calendar', to: '/calendar', icon: Calendar },
   { label: 'Sessions', to: '/sessions', icon: Globe },
   { label: 'Flow Control', to: '/flow-control', icon: AlertTriangle },
   { label: 'Reports', to: '/reports', icon: FileBarChart },

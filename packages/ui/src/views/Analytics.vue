@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { BarChart3, TrendingUp, CheckCircle2, XCircle, Activity, ExternalLink, Zap, Award, RefreshCw } from '@lucide/vue';
+import { BarChart3, TrendingUp, CheckCircle2, XCircle, Activity, ExternalLink, Zap, Award, RefreshCw, Bot } from '@lucide/vue';
 import { useApi } from '../composables/useApi';
 import { useToast } from '../composables/useToast';
 import { Card, ProgressBar, Badge, SectionHeader, Button } from '../components/ui';
@@ -9,11 +9,14 @@ import LoadingSpinner from '../components/LoadingSpinner.vue';
 import ErrorState from '../components/ErrorState.vue';
 import NetworkIcon from '../components/NetworkIcon.vue';
 import { BarChart, DoughnutChart } from '../components/charts';
+import { useAnalyticsStore } from '../stores/analytics';
 import type { ABTest, ABTestVariant } from '@spa/shared';
 
 const api = useApi();
 const toast = useToast();
+const analyticsStore = useAnalyticsStore();
 const loading = ref(true);
+const scraping = ref(false);
 const error = ref<string | null>(null);
 
 interface AnalyticsSummary {
@@ -85,7 +88,20 @@ async function loadAnalytics() {
 onMounted(() => {
   loadAnalytics();
   loadAbTests();
+  analyticsStore.fetchAutonomousStats();
 });
+
+async function scrapeMetrics() {
+  scraping.value = true;
+  try {
+    const res = await api.post<{ collected: number; failed: number; skipped: number }>('/analytics/scrape');
+    toast.success(`Metrics scraped: ${res.data.collected} collected, ${res.data.failed} failed, ${res.data.skipped} skipped`);
+  } catch (err) {
+    toast.error((err as Error).message ?? 'Failed to scrape metrics');
+  } finally {
+    scraping.value = false;
+  }
+}
 
 async function refreshHookStats() {
   try {
@@ -173,6 +189,21 @@ const hookQualityChartData = computed(() => {
         borderWidth: 1,
       },
     ],
+  };
+});
+
+// Chart data: Quality score distribution from autonomous stats
+const qualityDistributionData = computed(() => {
+  const dist = analyticsStore.autonomousStats?.qualityDistribution ?? [];
+  return {
+    labels: dist.map(d => d.score.toString()),
+    datasets: [{
+      label: 'Posts',
+      data: dist.map(d => d.count),
+      backgroundColor: 'rgba(99, 102, 241, 0.6)',
+      borderColor: 'rgba(99, 102, 241, 1)',
+      borderWidth: 1,
+    }],
   };
 });
 
@@ -277,6 +308,48 @@ const statIcons = {
               <span>{{ stats.total }} total</span>
               <span>{{ stats.total > 0 ? Math.round((stats.posted / stats.total) * 100) : 0 }}% success</span>
             </div>
+          </div>
+        </div>
+      </Card>
+
+      <!-- Autonomous Pipeline -->
+      <Card>
+        <template #header>
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <Bot class="h-5 w-5 text-primary" />
+              <div>
+                <h2 class="text-lg font-semibold text-text-primary">Autonomous Pipeline</h2>
+                <p class="text-sm text-text-secondary">Auto-approve decisions and quality distribution</p>
+              </div>
+            </div>
+            <Button size="sm" variant="outline" :loading="scraping" @click="scrapeMetrics">
+              <RefreshCw class="mr-1 h-3.5 w-3.5" />
+              Scrape Metrics
+            </Button>
+          </div>
+        </template>
+
+        <div v-if="!analyticsStore.autonomousStats" class="py-12 text-center text-text-muted">
+          <Bot class="mx-auto mb-3 h-10 w-10 opacity-40" />
+          <p>No autonomous stats available.</p>
+        </div>
+        <div v-else class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <div class="grid grid-cols-2 gap-4">
+            <StatCard label="Total Generated" :value="analyticsStore.autonomousStats.totalGenerated" :icon="BarChart3" />
+            <StatCard label="Auto-Approved" :value="analyticsStore.autonomousStats.autoApproved" :icon="CheckCircle2" color="text-status-approved" />
+            <StatCard label="Human Review" :value="analyticsStore.autonomousStats.humanReview" :icon="Activity" color="text-status-pending" />
+            <StatCard label="Rejected" :value="analyticsStore.autonomousStats.rejected" :icon="XCircle" color="text-status-failed" />
+            <StatCard
+              class="col-span-2"
+              label="Avg Quality Score"
+              :value="analyticsStore.autonomousStats.avgQualityScore.toFixed(1)"
+              :icon="TrendingUp"
+              color="text-primary"
+            />
+          </div>
+          <div style="height: 200px;">
+            <BarChart :data="qualityDistributionData" />
           </div>
         </div>
       </Card>

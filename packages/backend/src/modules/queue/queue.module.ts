@@ -10,10 +10,12 @@ import { QueueService } from './queue.service';
 import { QueueController } from './queue.controller';
 import { QueueTriageService } from './queue-triage.service.js';
 import { SocialNetwork } from '@prisma/client';
-import { RateLimitError } from 'bullmq';
+import { DelayedError, RateLimitError } from 'bullmq';
 import { parseBool } from '../../infrastructure/config/parse-bool.js';
 import { getEnabledNetworks } from '../../domain/enabled-networks.js';
 import { IBrowsingSessionPort, IRepliesMonitorPort, IEngagementPort } from '../orchestrator/ports.js';
+import { PostingWindowService } from '../orchestrator/posting-window.service.js';
+import { PostingWindowModule } from '../orchestrator/posting-window.module.js';
 
 /**
  * Queue module — wires BullMQ workers to PostingService and feature-flagged ports.
@@ -27,7 +29,7 @@ import { IBrowsingSessionPort, IRepliesMonitorPort, IEngagementPort } from '../o
  * (QueueModule → EngagementModule → QueueModule).
  */
 @Module({
-  imports: [QueueInfraModule, PostingModule, FlowControlModule],
+  imports: [QueueInfraModule, PostingModule, FlowControlModule, PostingWindowModule],
   providers: [QueueService, QueueTriageService, QueueController],
   controllers: [QueueController],
   exports: [QueueService, QueueTriageService, QueueInfraModule],
@@ -38,6 +40,7 @@ export class QueueModule implements OnModuleInit {
   constructor(
     private readonly queueFactory: QueueFactory,
     private readonly postingService: PostingService,
+    private readonly postingWindowService: PostingWindowService,
     private readonly moduleRef: ModuleRef,
     private readonly configService: ConfigService,
   ) {}
@@ -54,8 +57,20 @@ export class QueueModule implements OnModuleInit {
 
     // Register posting workers (one per enabled network)
     for (const network of getEnabledNetworks()) {
-      this.queueFactory.registerWorker(network, async (job) => {
+      this.queueFactory.registerWorker(network, async (job, token) => {
         const { postId } = job.data as { postId: string };
+
+        // F11 Best Time to Post: hold jobs outside the engagement-optimized window.
+        const window = await this.postingWindowService.getRecommendation(network);
+        if (!window.inWindow) {
+          const nextAt = await this.postingWindowService.getNextWindowAt(network);
+          this.logger.log(
+            `Post ${postId} for ${network} outside posting window — delaying to ${new Date(nextAt).toISOString()}`,
+          );
+          await job.moveToDelayed(nextAt, token ?? job.token);
+          throw new DelayedError();
+        }
+
         const result = await this.postingService.postById(postId);
         if (!result.success) {
           // Rate-limited posts are not failures — tell BullMQ to delay the whole

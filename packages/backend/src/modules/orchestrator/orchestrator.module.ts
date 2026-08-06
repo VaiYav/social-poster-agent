@@ -26,7 +26,7 @@ import { parseBool } from '../../infrastructure/config/parse-bool.js';
 import { EngagementModule } from '../engagement/engagement.module.js';
 import { AccountsModule } from '../accounts/accounts.module';
 import { StateCollectorService } from './state-collector.service.js';
-import { PostingWindowService } from './posting-window.service.js';
+import { PostingWindowModule } from './posting-window.module.js';
 import { HardRulesService } from './hard-rules.service.js';
 import { LlmDecisionService } from './llm-decision.service.js';
 import { NetworkSelector } from './network-selector.js';
@@ -73,6 +73,7 @@ const engagementImports = parseBool(process.env.ENGAGEMENT_ENABLED)
     LlmModule,
     CheckpointModule,
     AccountsModule,
+    PostingWindowModule,
     ...engagementImports,
     // EventEmitter2 is provided globally by EventsEdaModule in app.module.ts
     // SseModule no longer needed — orchestrator emits domain events via EventEmitter2,
@@ -81,7 +82,6 @@ const engagementImports = parseBool(process.env.ENGAGEMENT_ENABLED)
   controllers: [OrchestratorController],
   providers: [
     StateCollectorService,
-    PostingWindowService,
     HardRulesService,
     LlmDecisionService,
     NetworkSelector,

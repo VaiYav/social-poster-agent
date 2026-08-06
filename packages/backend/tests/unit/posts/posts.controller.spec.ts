@@ -27,6 +27,10 @@ describe('MOD-02: PostsController', () => {
   };
   let moduleRef: { get: ReturnType<typeof vi.fn> };
   let queueService: { enqueuePosting: ReturnType<typeof vi.fn> };
+  let postingWindowService: {
+    getRecommendation: ReturnType<typeof vi.fn>;
+    getDelayToNextWindow: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(() => {
     postsService = {
@@ -41,6 +45,14 @@ describe('MOD-02: PostsController', () => {
     queueService = {
       enqueuePosting: vi.fn().mockResolvedValue(undefined),
     };
+    postingWindowService = {
+      getRecommendation: vi.fn().mockResolvedValue({
+        bestHours: [9, 12, 18, 21],
+        inWindow: true,
+        confidence: 'low',
+      }),
+      getDelayToNextWindow: vi.fn().mockResolvedValue(0),
+    };
     moduleRef = {
       get: vi.fn().mockReturnValue(queueService),
     };
@@ -48,6 +60,7 @@ describe('MOD-02: PostsController', () => {
       postsService as unknown as PostsService,
       // A5: PostsController now injects IPostingQueuePort directly (no ModuleRef).
       queueService as never,
+      postingWindowService as never,
     );
   });
 

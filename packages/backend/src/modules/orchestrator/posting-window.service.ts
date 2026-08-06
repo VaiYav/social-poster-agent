@@ -44,7 +44,7 @@ export class PostingWindowService {
     this.topHours = Number(this.configService.get<string>('POSTING_WINDOW_TOP_HOURS', '3'));
     this.decayDays = Number(this.configService.get<string>('POSTING_WINDOW_DECAY_DAYS', '30'));
     const fallbackCsv = this.configService.get<string>('POSTING_WINDOW_FALLBACK_HOURS', '9,12,18,21');
-    this.fallbackHours = fallbackCsv.split(',').map((h) => Number(h.trim())).filter((h) => !isNaN(h));
+    this.fallbackHours = fallbackCsv.split(',').map((h) => Number(h.trim())).filter((h) => !isNaN(h)).sort((a, b) => a - b);
     this.bypass = parseBool(this.configService.get<string>('POSTING_WINDOW_BYPASS', 'false'));
     if (this.bypass) {
       this.logger.log('Posting window bypass enabled — all networks will report inWindow=true');
@@ -73,9 +73,10 @@ export class PostingWindowService {
         };
       }
 
-      // Sort by score descending, take top N
+      // Sort by score descending, take top N, then return hours in ascending order
+      // so callers can compute the next upcoming window easily.
       const sorted = [...heatmap].sort((a, b) => b.score - a.score);
-      const best = sorted.slice(0, this.topHours).map((h) => h.hour);
+      const best = sorted.slice(0, this.topHours).map((h) => h.hour).sort((a, b) => a - b);
 
       const currentHour = new Date().getUTCHours();
       const inWindow = this.bypass || best.some((h) => Math.abs(h - currentHour) <= 1);
@@ -91,6 +92,37 @@ export class PostingWindowService {
         confidence: 'low',
       };
     }
+  }
+
+  /**
+   * Get the absolute timestamp (ms) of the next upcoming best-time window.
+   * If the current moment is already in a window, callers should not delay.
+   *
+   * Uses the same ±1 hour tolerance as getRecommendation, so a post delayed to
+   * the returned hour will be inside the window when it runs.
+   */
+  async getNextWindowAt(network: string, now = Date.now()): Promise<number> {
+    const { bestHours } = await this.getRecommendation(network);
+    const hours = bestHours.length > 0 ? bestHours : this.fallbackHours;
+    if (hours.length === 0) return now;
+
+    const d = new Date(now);
+    for (const h of hours) {
+      const target = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), h, 0, 0, 0);
+      if (target > now + 60000) return target; // at least 1 minute in the future
+    }
+
+    // Wrap to tomorrow's first hour
+    const first = hours[0]!;
+    const tomorrow = new Date(now + 24 * 60 * 60 * 1000);
+    return Date.UTC(tomorrow.getUTCFullYear(), tomorrow.getUTCMonth(), tomorrow.getUTCDate(), first, 0, 0, 0);
+  }
+
+  /**
+   * Get the number of milliseconds to wait until the next posting window.
+   */
+  async getDelayToNextWindow(network: string, now = Date.now()): Promise<number> {
+    return Math.max(0, (await this.getNextWindowAt(network, now)) - now);
   }
 
   /**

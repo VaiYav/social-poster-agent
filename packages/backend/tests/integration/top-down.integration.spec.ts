@@ -184,6 +184,7 @@ import { QueueController } from '../../src/modules/queue/queue.controller';
 import { QueueFactory } from '../../src/infrastructure/queue/queue.factory';
 import { PostingService } from '../../src/modules/posting/posting.service';
 import { PostingController } from '../../src/modules/posting/posting.controller';
+import { PostingWindowService } from '../../src/modules/orchestrator/posting-window.service.js';
 import { XPoster } from '../../src/modules/posting/posters/x.poster';
 import { ThreadsPoster } from '../../src/modules/posting/posters/threads.poster';
 import { FacebookPoster } from '../../src/modules/posting/posters/facebook.poster';
@@ -421,6 +422,16 @@ async function buildQueueModule(opts: {
     .useValue(opts.prisma)
     .overrideProvider(PostingService)
     .useValue(opts.postingService)
+    .overrideProvider(PostingWindowService)
+    .useValue({
+      getRecommendation: vi.fn().mockResolvedValue({
+        bestHours: [9, 12, 18, 21],
+        inWindow: true,
+        confidence: 'low',
+      }),
+      getNextWindowAt: vi.fn().mockResolvedValue(Date.now() + 1000),
+      getDelayToNextWindow: vi.fn().mockResolvedValue(0),
+    })
     .overrideProvider(IBrowserPort)
     .useValue(createMockBrowserPort())
     .overrideProvider(SseService)

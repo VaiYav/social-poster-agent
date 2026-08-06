@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, ConflictException, BadRequestExc
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { PostStatus, type SocialNetwork, type Prisma, type Post } from '@prisma/client';
-import type { PostQueryDto, UpdatePostStatusDto } from '../../domain/dtos.js';
+import type { PostQueryDto, UpdatePostStatusDto, CalendarQueryDto, SchedulePostDto } from '../../domain/dtos.js';
 import type { PostDraftGeneratedEvent, PostApprovedEvent, PostRejectedEvent } from '@spa/shared';
 import { PostEvents } from '../../events/enums/post-events.enum';
 import { checkContentLength } from './network-limits.js';
@@ -198,9 +198,12 @@ export class PostsService {
       );
     }
 
+    // F7: preserve a future scheduled time if the operator scheduled the draft
+    // before approving. Otherwise record approval time as now.
+    const now = new Date();
     const updateData: Prisma.PostUpdateInput = {
       status: PostStatus.APPROVED,
-      approvedAt: new Date(),
+      approvedAt: post.approvedAt && post.approvedAt > now ? post.approvedAt : now,
     };
 
     if (editedContent && editedContent.trim().length > 0) {
@@ -247,6 +250,100 @@ export class PostsService {
     });
     this.logger.log(`Post ${id}: ${post.status} → REJECTED`);
     this.eventEmitter.emit(PostEvents.REJECTED, { postId: id, network: post.network } satisfies PostRejectedEvent);
+    return updated;
+  }
+
+  /**
+   * F7: Content Calendar — fetch posts that should appear on a calendar, keyed by
+   * the best available event date (postedAt > approvedAt > createdAt).
+   *
+   * Uses a wide createdAt query plus an in-memory filter so the calendar naturally
+   * shows approved/posted events that may have been created much earlier.
+   */
+  async findCalendar(query: CalendarQueryDto) {
+    const from = new Date(query.from);
+    from.setHours(0, 0, 0, 0);
+    const to = new Date(query.to);
+    to.setHours(23, 59, 59, 999);
+
+    const bufferDays = 90;
+    const createdFrom = new Date(from);
+    createdFrom.setDate(createdFrom.getDate() - bufferDays);
+    const createdTo = new Date(to);
+    createdTo.setDate(createdTo.getDate() + bufferDays);
+
+    const where: Prisma.PostWhereInput = {
+      ...(query.network && { network: query.network }),
+      ...(query.status && { status: query.status }),
+      createdAt: { gte: createdFrom, lte: createdTo },
+    };
+
+    const posts = await this.prisma.post.findMany({
+      where,
+      include: { account: { select: { id: true, handle: true, network: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+
+    const events = posts
+      .map((post) => {
+        const timestamp =
+          post.status === PostStatus.POSTED || post.status === PostStatus.VERIFIED
+            ? post.postedAt ?? post.approvedAt ?? post.createdAt
+            : post.approvedAt ?? post.createdAt;
+        if (!timestamp) return null;
+        const t = new Date(timestamp);
+        if (t < from || t > to) return null;
+        return {
+          id: post.id,
+          network: post.network,
+          status: post.status,
+          content: post.content,
+          timestamp: t.toISOString(),
+          account: post.account,
+          postUrl: post.postUrl,
+          errorMessage: post.errorMessage,
+        };
+      })
+      .filter(Boolean);
+
+    return events as Array<{
+      id: string;
+      network: string;
+      status: string;
+      content: string;
+      timestamp: string;
+      account: { id: string; handle: string | null; network: string } | null;
+      postUrl: string | null;
+      errorMessage: string | null;
+    }>;
+  }
+
+  /**
+   * F7: Reschedule a post by updating its approvedAt timestamp.
+   * Allowed while the post is still in the pipeline (DRAFT, APPROVED, POSTING).
+   */
+  async schedule(id: string, dto: SchedulePostDto) {
+    const post = await this.findById(id);
+
+    if (
+      post.status === PostStatus.POSTED ||
+      post.status === PostStatus.FAILED ||
+      post.status === PostStatus.REJECTED ||
+      post.status === PostStatus.VERIFIED
+    ) {
+      throw new ConflictException(
+        `Post ${id} cannot be rescheduled from status ${post.status}`,
+      );
+    }
+
+    const scheduledAt = new Date(dto.scheduledAt);
+    const updated = await this.prisma.post.update({
+      where: { id },
+      data: { approvedAt: scheduledAt },
+    });
+
+    this.logger.log(`Post ${id} rescheduled to ${scheduledAt.toISOString()}`);
     return updated;
   }
 

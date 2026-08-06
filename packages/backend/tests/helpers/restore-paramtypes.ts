@@ -53,6 +53,7 @@ import { CronService } from '../../src/modules/generation/cron.service';
 // Posts
 import { PostsService } from '../../src/modules/posts/posts.service';
 import { PostsController } from '../../src/modules/posts/posts.controller';
+import { PostingWindowService } from '../../src/modules/orchestrator/posting-window.service.js';
 
 // Posting
 import { PostingService } from '../../src/modules/posting/posting.service';
@@ -217,7 +218,7 @@ export function restoreAllDesignParamtypes(): void {
 
   // ── Module classes with constructor DI ───────────────────────────────────
   defineParamtypes(SseModule, [SseService]);
-  defineParamtypes(QueueModule, [QueueFactory, PostingService, ModuleRef, ConfigService]);
+  defineParamtypes(QueueModule, [QueueFactory, PostingService, PostingWindowService, ModuleRef, ConfigService]);
 
   // ── Accounts ─────────────────────────────────────────────────────────────
   defineParamtypes(AccountsService, [PrismaService, ConfigService, Object]); // Object = @Optional() WarmupService
@@ -254,7 +255,7 @@ export function restoreAllDesignParamtypes(): void {
 
   // ── Posts ────────────────────────────────────────────────────────────────
   defineParamtypes(PostsService, [PrismaService, EventEmitter2]);
-  defineParamtypes(PostsController, [PostsService, Object]); // Object = @Inject(IPostingQueuePort)
+  defineParamtypes(PostsController, [PostsService, Object, PostingWindowService]); // Object = @Inject(IPostingQueuePort)
 
   // ── Posting ──────────────────────────────────────────────────────────────
   defineParamtypes(ThreadProgressService, [PrismaService]);

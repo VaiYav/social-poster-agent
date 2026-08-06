@@ -6,7 +6,7 @@ import { ref } from 'vue';
 import { useApi } from '../composables/useApi';
 import type { SSEvent } from '@spa/shared';
 
-export type FlowName = 'generation' | 'posting' | 'engagement' | 'replies';
+export type FlowName = 'generation' | 'posting' | 'engagement' | 'replies' | 'llm_triage' | 'auto_approve';
 
 interface FlowStatus {
   pauseAll: boolean;
@@ -21,6 +21,8 @@ export const useFlowControlStore = defineStore('flowControl', () => {
     posting: false,
     engagement: false,
     replies: false,
+    llm_triage: false,
+    auto_approve: false,
   });
   const loading = ref(false);
   const error = ref<string | null>(null);
