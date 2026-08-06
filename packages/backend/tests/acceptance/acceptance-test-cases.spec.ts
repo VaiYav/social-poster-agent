@@ -521,6 +521,7 @@ let mockThreadsPoster: { post: ReturnType<typeof vi.fn> };
 let mockFacebookPoster: { post: ReturnType<typeof vi.fn> };
 let publishSpy: ReturnType<typeof vi.spyOn>;
 let recordPostSpy: ReturnType<typeof vi.spyOn>;
+let postStore = new Map<string, Record<string, unknown>>();
 
 // ── Full AppModule builder ───────────────────────────────────────────────────
 
@@ -703,13 +704,31 @@ function setupDefaultMocks(): void {
 
   // Prisma — $queryRaw (health check DB)
   prisma.$queryRaw.mockResolvedValue([{ '?column?': 1 }]);
+
+  // Stateful post store: clear and wire findUnique/update from the store.
+  postStore.clear();
+  applyStatefulPostMocks();
+}
+
+// Stateful Prisma post mocks: findUnique reads from postStore, update merges.
+function applyStatefulPostMocks(): void {
+  prisma.post.findUnique.mockImplementation((args: { where: { id: string } }) =>
+    Promise.resolve(postStore.get(args.where.id) ?? null),
+  );
+  prisma.post.update.mockImplementation((args: { where: { id: string }; data: Record<string, unknown> }) => {
+    const existing = postStore.get(args.where.id);
+    if (!existing) return Promise.resolve(null);
+    const updated = { ...existing, ...args.data };
+    postStore.set(args.where.id, updated);
+    return Promise.resolve(updated);
+  });
 }
 
 // ── Helper: set up standard mocks for a successful posting flow ──────────────
 
 function setupPostingFlow(post = APPROVED_POST_X) {
-  prisma.post.findUnique.mockResolvedValue({ ...post });
-  prisma.post.update.mockResolvedValue({ ...post });
+  postStore.set(post.id as string, { ...post });
+  applyStatefulPostMocks();
   prisma.socialAccount.findUnique.mockImplementation((args: unknown) => {
     const id = args?.where?.id as string | undefined;
     if (id === 'acc-001') return Promise.resolve({ ...ACCOUNT_X });
@@ -1040,7 +1059,8 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
 
     it('ATP-003-2: GET /posts/:id returns single Post; 404 for non-existent', async () => {
       // Existing post
-      prisma.post.findUnique.mockResolvedValue({ ...APPROVED_POST_X });
+      postStore.set(APPROVED_POST_X.id, { ...APPROVED_POST_X });
+      applyStatefulPostMocks();
       const res1 = await request(app.getHttpServer()).get('/api/v1/posts/post-appr-x');
       expect(res1.status).toBe(200);
       expect(res1.body.id).toBe('post-appr-x');
@@ -1131,9 +1151,8 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
 
   describe('US-005: Approve a Draft Post', () => {
     it('ATP-005-1: POST /posts/:id/approve sets status APPROVED and records approvedAt', async () => {
-      prisma.post.findUnique.mockResolvedValue({ ...DRAFT_POST_X });
-      const approvedPost = { ...DRAFT_POST_X, status: PostStatus.APPROVED, approvedAt: new Date() };
-      prisma.post.update.mockResolvedValue(approvedPost);
+      postStore.set(DRAFT_POST_X.id, { ...DRAFT_POST_X });
+      applyStatefulPostMocks();
 
       const res = await request(app.getHttpServer())
         .post('/api/v1/posts/post-draft-x/approve');
@@ -1165,9 +1184,8 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
 
   describe('US-006: Reject a Draft Post', () => {
     it('ATP-006-1: POST /posts/:id/reject sets status REJECTED', async () => {
-      prisma.post.findUnique.mockResolvedValue({ ...DRAFT_POST_X });
-      const rejectedPost = { ...DRAFT_POST_X, status: PostStatus.REJECTED };
-      prisma.post.update.mockResolvedValue(rejectedPost);
+      postStore.set(DRAFT_POST_X.id, { ...DRAFT_POST_X });
+      applyStatefulPostMocks();
 
       const res = await request(app.getHttpServer())
         .post('/api/v1/posts/post-draft-x/reject');
@@ -1227,13 +1245,9 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
         { ...THREAD_POST_3 },
       ];
 
-      const postsMap = new Map(threadPosts.map((p) => [p.id, { ...p }]));
-      prisma.post.findUnique.mockImplementation(({ where }: unknown) =>
-        Promise.resolve(postsMap.get(where.id) ?? null),
-      );
-      prisma.post.update.mockImplementation(({ where, data }: unknown) =>
-        Promise.resolve({ ...postsMap.get(where.id), ...data }),
-      );
+      postStore.clear();
+      for (const post of threadPosts) postStore.set(post.id, { ...post });
+      applyStatefulPostMocks();
       prisma.socialAccount.findFirst.mockResolvedValue({ ...ACCOUNT_X });
       prisma.session.findFirst.mockResolvedValue({ ...ACTIVE_SESSION_X });
       prisma.session.update.mockResolvedValue({});
@@ -1286,13 +1300,9 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
       prisma.post.findMany.mockResolvedValue(approvedPosts);
       prisma.post.count.mockResolvedValue(3);
 
-      const postsMap = new Map(approvedPosts.map((p) => [p.id, { ...p }]));
-      prisma.post.findUnique.mockImplementation(({ where }: unknown) =>
-        Promise.resolve(postsMap.get(where.id) ?? null),
-      );
-      prisma.post.update.mockImplementation(({ where, data }: unknown) =>
-        Promise.resolve({ ...postsMap.get(where.id), ...data }),
-      );
+      postStore.clear();
+      for (const post of approvedPosts) postStore.set(post.id, { ...post });
+      applyStatefulPostMocks();
 
       prisma.socialAccount.findFirst.mockImplementation(({ where }: unknown) => {
         if (where.network === SocialNetwork.X) return Promise.resolve({ ...ACCOUNT_X });
@@ -1808,8 +1818,8 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
       browserPort.randomDelay.mockResolvedValue(undefined);
 
       // Act: trigger posting → getOrCreateSession → autoLogin
-      prisma.post.findUnique.mockResolvedValue({ ...APPROVED_POST_X });
-      prisma.post.update.mockResolvedValue({ ...APPROVED_POST_X });
+      postStore.set(APPROVED_POST_X.id, { ...APPROVED_POST_X });
+      applyStatefulPostMocks();
       prisma.post.findMany.mockResolvedValue([{ ...APPROVED_POST_X }]);
       prisma.post.count.mockResolvedValue(1);
 
@@ -1845,11 +1855,7 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
     });
 
     it('ATP-017-2: storageState persisted to Session.storageState JSONB after login', async () => {
-      prisma.socialAccount.findFirst.mockResolvedValue(ACCOUNT_X);
-      prisma.session.findFirst.mockResolvedValue({ ...ACTIVE_SESSION_X });
-      prisma.session.update.mockResolvedValue({});
-      prisma.post.findUnique.mockResolvedValue({ ...APPROVED_POST_X });
-      prisma.post.update.mockResolvedValue({ ...APPROVED_POST_X });
+      setupPostingFlow(APPROVED_POST_X);
 
       const postPage = createMockPage({ url: 'https://x.com/myzodiacai/status/999' });
       const postContext = createMockContext(postPage);
@@ -1910,8 +1916,9 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
 
       // Simulate 3 BullMQ retry attempts
       for (let attempt = 1; attempt <= 3; attempt++) {
-        prisma.post.findUnique.mockResolvedValue({ ...APPROVED_POST_X });
-        prisma.post.update.mockResolvedValue({ ...APPROVED_POST_X });
+        // Reset the post to APPROVED for each retry attempt
+        postStore.set(APPROVED_POST_X.id, { ...APPROVED_POST_X });
+        applyStatefulPostMocks();
         await postingService.postById('post-appr-x');
       }
 
@@ -1979,9 +1986,9 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
     it('ATP-019-1: RateLimitService.checkRateLimit is called before posting and blocks when exceeded', async () => {
       setupPostingFlow(APPROVED_POST_X);
 
-      // Pre-seed Redis: set X.com daily counter to 50 (the default daily limit).
+      // Pre-seed Redis: set X.com daily counter for acc-001 to 50 (the default daily limit).
       const today = new Date().toISOString().slice(0, 10);
-      const dailyKey = `spa:ratelimit:X:daily:${today}`;
+      const dailyKey = `spa:ratelimit:X:acc-001:daily:${today}`;
       sharedRedisStore.set(dailyKey, '50');
 
       const res = await request(app.getHttpServer())
@@ -2017,11 +2024,11 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
 
-      // Verify recordPost was called for X network
-      expect(recordPostSpy).toHaveBeenCalledWith('X');
+      // Verify recordPost was called for X network with accountId
+      expect(recordPostSpy).toHaveBeenCalledWith('X', 'acc-001');
 
       // Verify Redis sliding window interval key was set
-      const intervalKey = 'spa:ratelimit:X:interval';
+      const intervalKey = 'spa:ratelimit:X:acc-001:interval';
       expect(sharedRedisStore.has(intervalKey)).toBe(true);
       const recordedTs = parseInt(sharedRedisStore.get(intervalKey)!, 10);
       expect(recordedTs).toBeGreaterThan(0);
@@ -2033,7 +2040,7 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
 
       // Simulate 50 posts to X.com in one day → 51st post blocked
       const today = new Date().toISOString().slice(0, 10);
-      const dailyKey = `spa:ratelimit:X:daily:${today}`;
+      const dailyKey = `spa:ratelimit:X:acc-001:daily:${today}`;
       sharedRedisStore.set(dailyKey, '50');
 
       const res = await request(app.getHttpServer())
@@ -2051,7 +2058,7 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
       // Verify min interval (120s) enforced — set interval key to recent timestamp
       sharedRedisStore.clear();
       setupPostingFlow(APPROVED_POST_X);
-      const intervalKey = 'spa:ratelimit:X:interval';
+      const intervalKey = 'spa:ratelimit:X:acc-001:interval';
       // Set interval to 10 seconds ago (< 120s min interval)
       sharedRedisStore.set(intervalKey, String(Date.now() - 10000));
 
@@ -2332,8 +2339,8 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
     it('ATP-020-8: HITL gate — no post can be posted without APPROVED status; no autonomous posting', async () => {
       // Attempt to post a DRAFT post → should be rejected with 404
       // (PostingService throws NotFoundException for non-approved posts)
-      prisma.post.findUnique.mockResolvedValue({ ...DRAFT_POST_X });
-      prisma.post.update.mockResolvedValue({ ...DRAFT_POST_X });
+      postStore.set(DRAFT_POST_X.id, { ...DRAFT_POST_X });
+      applyStatefulPostMocks();
       browserPort.acquireContext.mockResolvedValue({ close: vi.fn().mockResolvedValue(undefined) });
 
       const res = await request(app.getHttpServer())
@@ -2370,8 +2377,8 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
 
     it('ATP-020-10: Idempotency — posting a POSTED post returns success without re-posting', async () => {
       // Post already POSTED → returns success without re-posting
-      prisma.post.findUnique.mockResolvedValue({ ...POSTED_POST });
-      prisma.post.update.mockResolvedValue({ ...POSTED_POST });
+      postStore.set(POSTED_POST.id, { ...POSTED_POST });
+      applyStatefulPostMocks();
       browserPort.acquireContext.mockReset();
       browserPort.acquireContext.mockResolvedValue({ close: vi.fn().mockResolvedValue(undefined) });
 

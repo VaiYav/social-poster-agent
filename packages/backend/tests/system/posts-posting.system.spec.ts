@@ -264,6 +264,7 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
   let publishSpy: ReturnType<typeof vi.spyOn>;
   let recordPostSpy: ReturnType<typeof vi.spyOn>;
   let originalMetricsInterval: string | undefined;
+  let postStore: Map<string, Record<string, unknown>>;
 
   beforeAll(async () => {
     // Disable the background metrics publisher so its periodic analytics
@@ -331,6 +332,9 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
     sharedRedisStore.clear();
     clearHookCache();
     vi.clearAllMocks();
+    // Stateful post store: findUnique/update read and merge from this map.
+    postStore = new Map();
+    applyStatefulPostMocks();
     // Restore default poster implementations after clearAllMocks
     xPoster.post.mockResolvedValue({ url: 'https://x.com/test_x_user/status/123' });
     threadsPoster.post.mockResolvedValue({ url: 'https://www.threads.com/@user/post/abc123' });
@@ -353,10 +357,27 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
     });
   });
 
+  // Stateful Prisma post mocks: findUnique reads from postStore, update merges
+  // data into the stored object and returns the merged object. This is required
+  // because PostingService now performs APPROVED → POSTING → POSTED → VERIFIED
+  // transitions within a single postById() call.
+  function applyStatefulPostMocks() {
+    prisma.post.findUnique.mockImplementation(({ where }: { where: { id: string } }) =>
+      Promise.resolve(postStore.get(where.id) ?? null),
+    );
+    prisma.post.update.mockImplementation(({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+      const existing = postStore.get(where.id);
+      if (!existing) return Promise.resolve(null);
+      const updated = { ...existing, ...data };
+      postStore.set(where.id, updated);
+      return Promise.resolve(updated);
+    });
+  }
+
   // Helper: set up standard mocks for a successful posting flow
   function setupPostingFlow(post = APPROVED_POST_X) {
-    prisma.post.findUnique.mockResolvedValue({ ...post });
-    prisma.post.update.mockResolvedValue({ ...post });
+    postStore.set(post.id as string, { ...post });
+    applyStatefulPostMocks();
     prisma.socialAccount.findFirst.mockResolvedValue({ ...ACCOUNT_X });
     prisma.session.findFirst.mockResolvedValue({ ...ACTIVE_SESSION_X });
     prisma.session.update.mockResolvedValue({});
@@ -677,14 +698,11 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
     prisma.post.findMany.mockResolvedValue(approvedPosts);
     prisma.post.count.mockResolvedValue(3);
 
-    // findUnique returns the right post per ID (called by postById → postsService.findById)
-    const postsMap = new Map(approvedPosts.map((p) => [p.id, { ...p }]));
-    prisma.post.findUnique.mockImplementation(({ where }: unknown) =>
-      Promise.resolve(postsMap.get(where.id) ?? null),
-    );
-    prisma.post.update.mockImplementation(({ where, data }: unknown) =>
-      Promise.resolve({ ...postsMap.get(where.id), ...data }),
-    );
+    // Stateful post store: findUnique/update read and merge from postStore so
+    // each post in the batch can transition APPROVED → POSTING → POSTED → VERIFIED.
+    postStore.clear();
+    for (const post of approvedPosts) postStore.set(post.id, { ...post });
+    applyStatefulPostMocks();
 
     // Account + session mocks per network
     prisma.socialAccount.findFirst.mockImplementation(({ where }: unknown) => {
@@ -731,10 +749,10 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
   it('STC-020: Rate limit check blocks posting when daily limit exceeded', async () => {
     setupPostingFlow(APPROVED_POST_X);
 
-    // Pre-seed Redis: set X.com daily counter to 50 (the default daily limit).
+    // Pre-seed Redis: set X.com daily counter for acc-001 to 50 (the default daily limit).
     // checkRateLimit() calls incr() first → 51, then checks 51 > 50 → blocked.
     const today = new Date().toISOString().slice(0, 10);
-    const dailyKey = `spa:ratelimit:X:daily:${today}`;
+    const dailyKey = `spa:ratelimit:X:acc-001:daily:${today}`;
     sharedRedisStore.set(dailyKey, '50');
 
     const res = await request(app.getHttpServer())
@@ -772,11 +790,11 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
 
-    // Verify recordPost was called for X network
-    expect(recordPostSpy).toHaveBeenCalledWith('X');
+    // Verify recordPost was called for X network with accountId
+    expect(recordPostSpy).toHaveBeenCalledWith('X', 'acc-001');
 
     // Verify Redis sliding window interval key was set
-    const intervalKey = 'spa:ratelimit:X:interval';
+    const intervalKey = 'spa:ratelimit:X:acc-001:interval';
     expect(sharedRedisStore.has(intervalKey)).toBe(true);
     const recordedTs = parseInt(sharedRedisStore.get(intervalKey)!, 10);
     expect(recordedTs).toBeGreaterThan(0);
@@ -886,12 +904,12 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
     xPoster.post.mockResolvedValue({ error: 'Camoufox launch failed' });
 
     // Simulate 3 BullMQ retry attempts.
-    // Between attempts, reset findUnique to return APPROVED (in real system,
+    // Between attempts, reset the post to APPROVED in the store (in real system,
     // BullMQ re-queues the same job; the worker calls postById again).
     for (let attempt = 1; attempt <= 3; attempt++) {
-      // Each attempt: findUnique returns APPROVED post
-      prisma.post.findUnique.mockResolvedValue({ ...APPROVED_POST_X });
-      prisma.post.update.mockResolvedValue({ ...APPROVED_POST_X });
+      // Each attempt: reset the post to APPROVED in the store
+      postStore.set(APPROVED_POST_X.id, { ...APPROVED_POST_X });
+      applyStatefulPostMocks();
 
       await postingService.postById('post-appr-x');
     }
@@ -917,14 +935,11 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
       { ...THREAD_POST_3 },
     ];
 
-    // Set up mocks for each post in the thread
-    const postsMap = new Map(threadPosts.map((p) => [p.id, { ...p }]));
-    prisma.post.findUnique.mockImplementation(({ where }: unknown) =>
-      Promise.resolve(postsMap.get(where.id) ?? null),
-    );
-    prisma.post.update.mockImplementation(({ where, data }: unknown) =>
-      Promise.resolve({ ...postsMap.get(where.id), ...data }),
-    );
+    // Stateful post store: findUnique/update read and merge from postStore so
+    // each thread post can transition APPROVED → POSTING → POSTED → VERIFIED.
+    postStore.clear();
+    for (const post of threadPosts) postStore.set(post.id, { ...post });
+    applyStatefulPostMocks();
     prisma.socialAccount.findFirst.mockResolvedValue({ ...ACCOUNT_X });
     prisma.session.findFirst.mockResolvedValue({ ...ACTIVE_SESSION_X });
     prisma.session.update.mockResolvedValue({});

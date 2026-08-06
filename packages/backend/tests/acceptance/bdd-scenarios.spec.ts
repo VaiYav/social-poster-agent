@@ -500,6 +500,7 @@ let generationService: GenerationService;
 let cronService: CronService;
 let publishSpy: ReturnType<typeof vi.spyOn>;
 let recordPostSpy: ReturnType<typeof vi.spyOn>;
+let postStore = new Map<string, Record<string, unknown>>();
 
 // ── Full AppModule builder ───────────────────────────────────────────────────
 
@@ -685,12 +686,30 @@ function setupDefaultMocks(): void {
   mockXPoster.post.mockResolvedValue({ url: 'https://x.com/myzodiacai/status/123' });
   mockThreadsPoster.post.mockResolvedValue({ url: 'https://threads.net/@myzodiacai/post/456' });
   mockFacebookPoster.post.mockResolvedValue({ url: 'https://facebook.com/myzodiacai/posts/789' });
+
+  // Stateful post store: clear and wire findUnique/update from the store.
+  postStore.clear();
+  applyStatefulPostMocks();
+}
+
+// Stateful Prisma post mocks: findUnique reads from postStore, update merges.
+function applyStatefulPostMocks(): void {
+  prisma.post.findUnique.mockImplementation((args: { where: { id: string } }) =>
+    Promise.resolve(postStore.get(args.where.id) ?? null),
+  );
+  prisma.post.update.mockImplementation((args: { where: { id: string }; data: Record<string, unknown> }) => {
+    const existing = postStore.get(args.where.id);
+    if (!existing) return Promise.resolve(null);
+    const updated = { ...existing, ...args.data };
+    postStore.set(args.where.id, updated);
+    return Promise.resolve(updated);
+  });
 }
 
 /** Helper: set up standard mocks for a successful posting flow. */
 function setupPostingFlow(post = APPROVED_POST_X) {
-  prisma.post.findUnique.mockResolvedValue({ ...post });
-  prisma.post.update.mockResolvedValue({ ...post });
+  postStore.set(post.id as string, { ...post });
+  applyStatefulPostMocks();
   prisma.socialAccount.findUnique.mockImplementation((args: unknown) => {
     const id = args?.where?.id as string | undefined;
     if (id === 'acc-001') return Promise.resolve({ ...ACCOUNT_X });
@@ -802,9 +821,10 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       const postsToApprove = draftPosts.slice(0, Math.min(2, draftPosts.length));
 
       for (const post of postsToApprove) {
-        prisma.post.findUnique.mockResolvedValueOnce({ ...post });
-        const approved = { ...post, status: PostStatus.APPROVED, approvedAt: new Date() };
-        prisma.post.update.mockResolvedValueOnce(approved);
+        // Seed the post store so approve() finds the DRAFT post and the stateful
+        // update merges it to APPROVED.
+        postStore.set(post.id, { ...post });
+        applyStatefulPostMocks();
 
         const approveRes = await request(app.getHttpServer())
           .post(`/api/v1/posts/${post.id}/approve`);
@@ -823,8 +843,8 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
 
       // When the BullMQ worker picks up a job (simulate via postById)
       const approvedPost = { ...postsToApprove[0], status: PostStatus.APPROVED };
-      prisma.post.findUnique.mockResolvedValue({ ...approvedPost });
-      prisma.post.update.mockResolvedValue({ ...approvedPost });
+      postStore.set(approvedPost.id, { ...approvedPost });
+      applyStatefulPostMocks();
       prisma.socialAccount.findFirst.mockResolvedValue({ ...ACCOUNT_X });
       prisma.session.findFirst.mockResolvedValue({ ...ACTIVE_SESSION_X });
       prisma.session.update.mockResolvedValue({});
@@ -863,7 +883,7 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       );
       expect(postedEvent).toBeDefined();
       expect(postedEvent[0].url).toBeDefined();
-      expect(recordPostSpy).toHaveBeenCalledWith('X');
+      expect(recordPostSpy).toHaveBeenCalledWith('X', 'acc-001');
 
       const postedUpdate = prisma.post.update.mock.calls.find(
         (c: unknown[]) => c[0]?.data?.status === PostStatus.POSTED,
@@ -979,8 +999,8 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
 
       // Then RateLimitService.recordPost is called after each successful post
       //   And the Redis sliding window counter is incremented
-      expect(recordPostSpy).toHaveBeenCalledWith('X');
-      const intervalKey = 'spa:ratelimit:X:interval';
+      expect(recordPostSpy).toHaveBeenCalledWith('X', 'acc-001');
+      const intervalKey = 'spa:ratelimit:X:acc-001:interval';
       expect(sharedRedisStore.has(intervalKey)).toBe(true);
 
       // When the 4th post is attempted before 120 seconds have elapsed
@@ -1030,7 +1050,7 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
 
       expect(retryRes.status).toBe(200);
       expect(retryRes.body.success).toBe(true);
-      expect(recordPostSpy).toHaveBeenCalledWith('X');
+      expect(recordPostSpy).toHaveBeenCalledWith('X', 'acc-001');
       const postedEvent = publishSpy.mock.calls.find(
         (c: unknown[]) => c[0]?.status === 'POSTED',
       );
@@ -1080,8 +1100,8 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       browserPort.randomDelay.mockResolvedValue(undefined);
 
       // Trigger posting → getOrCreateSession → autoLogin
-      prisma.post.findUnique.mockResolvedValue({ ...APPROVED_POST_X });
-      prisma.post.update.mockResolvedValue({ ...APPROVED_POST_X });
+      postStore.set(APPROVED_POST_X.id, { ...APPROVED_POST_X });
+      applyStatefulPostMocks();
       mockXPoster.post.mockResolvedValue({ url: 'https://x.com/myzodiacai/status/s4' });
 
       const postRes = await request(app.getHttpServer())
@@ -1178,9 +1198,8 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
     it('Scenario: Operator approves a draft post', async () => {
       // Given a draft post exists with id "post-123" and status DRAFT
       const draftPost = makePost({ id: 'post-123', status: PostStatus.DRAFT });
-      prisma.post.findUnique.mockResolvedValue({ ...draftPost });
-      const approvedPost = { ...draftPost, status: PostStatus.APPROVED, approvedAt: new Date() };
-      prisma.post.update.mockResolvedValue(approvedPost);
+      postStore.set(draftPost.id, { ...draftPost });
+      applyStatefulPostMocks();
 
       // When the operator sends POST /api/v1/posts/post-123/approve
       const res = await request(app.getHttpServer())
@@ -1223,9 +1242,8 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
     it('Scenario: Operator rejects a draft post', async () => {
       // Given a draft post exists with id "post-456" and status DRAFT
       const draftPost = makePost({ id: 'post-456', status: PostStatus.DRAFT });
-      prisma.post.findUnique.mockResolvedValue({ ...draftPost });
-      const rejectedPost = { ...draftPost, status: PostStatus.REJECTED };
-      prisma.post.update.mockResolvedValue(rejectedPost);
+      postStore.set(draftPost.id, { ...draftPost });
+      applyStatefulPostMocks();
 
       // When the operator sends POST /api/v1/posts/post-456/reject
       const res = await request(app.getHttpServer())
@@ -1404,7 +1422,7 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       // Given 50 posts have been made to X.com today
       //   And the X.com daily limit is 50 posts
       const today = new Date().toISOString().slice(0, 10);
-      const dailyKey = `spa:ratelimit:X:daily:${today}`;
+      const dailyKey = `spa:ratelimit:X:acc-001:daily:${today}`;
       sharedRedisStore.set(dailyKey, '50');
 
       // When another post to X.com is attempted
@@ -1437,8 +1455,8 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
   describe('BDD-HITL: HITL Gate Enforcement (REQ-CN-003)', () => {
     it('Scenario: Draft post cannot be posted directly', async () => {
       // Given a post exists with id "post-draft" and status DRAFT
-      prisma.post.findUnique.mockResolvedValue({ ...DRAFT_POST_X });
-      prisma.post.update.mockResolvedValue({ ...DRAFT_POST_X });
+      postStore.set(DRAFT_POST_X.id, { ...DRAFT_POST_X });
+      applyStatefulPostMocks();
       browserPort.acquireContext.mockResolvedValue({ close: vi.fn().mockResolvedValue(undefined) });
 
       // When the operator sends POST /api/v1/posting/post-draft
@@ -1466,13 +1484,9 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       // postAllApproved queries findMany with where status APPROVED
       prisma.post.findMany.mockResolvedValue([posts[1]]); // only APPROVED
       prisma.post.count.mockResolvedValue(1);
-      const postsMap = new Map(posts.map((p) => [p.id, { ...p }]));
-      prisma.post.findUnique.mockImplementation(({ where }: unknown) =>
-        Promise.resolve(postsMap.get(where.id) ?? null),
-      );
-      prisma.post.update.mockImplementation(({ where, data }: unknown) =>
-        Promise.resolve({ ...postsMap.get(where.id), ...data }),
-      );
+      postStore.clear();
+      for (const post of posts) postStore.set(post.id, { ...post });
+      applyStatefulPostMocks();
       prisma.socialAccount.findFirst.mockResolvedValue({ ...ACCOUNT_X });
       prisma.session.findFirst.mockResolvedValue({ ...ACTIVE_SESSION_X });
       prisma.session.update.mockResolvedValue({});
@@ -1552,8 +1566,8 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       );
       browserPort.randomDelay.mockResolvedValue(undefined);
 
-      prisma.post.findUnique.mockResolvedValue({ ...APPROVED_POST_X });
-      prisma.post.update.mockResolvedValue({ ...APPROVED_POST_X });
+      postStore.set(APPROVED_POST_X.id, { ...APPROVED_POST_X });
+      applyStatefulPostMocks();
       mockXPoster.post.mockResolvedValue({ url: 'https://x.com/myzodiacai/status/cred' });
 
       const res = await request(app.getHttpServer())
@@ -1799,8 +1813,8 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
   describe('BDD-IDEMP: Idempotency / Double-Posting Prevention (HAZ-005)', () => {
     it('Scenario: Already-posted post is not re-posted', async () => {
       // Given a post with id "post-789" has status POSTED and a postUrl
-      prisma.post.findUnique.mockResolvedValue({ ...POSTED_POST });
-      prisma.post.update.mockResolvedValue({ ...POSTED_POST });
+      postStore.set(POSTED_POST.id, { ...POSTED_POST });
+      applyStatefulPostMocks();
       browserPort.acquireContext.mockReset();
       browserPort.acquireContext.mockResolvedValue({ close: vi.fn().mockResolvedValue(undefined) });
 
@@ -1821,7 +1835,8 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
 
     it('Scenario: Post in POSTING state is not re-posted', async () => {
       // Given a post with id "post-999" has status POSTING
-      prisma.post.findUnique.mockResolvedValue({ ...POSTING_POST });
+      postStore.set(POSTING_POST.id, { ...POSTING_POST });
+      applyStatefulPostMocks();
       browserPort.acquireContext.mockResolvedValue({ close: vi.fn().mockResolvedValue(undefined) });
 
       // When a BullMQ retry attempts to post post-999

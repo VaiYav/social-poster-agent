@@ -564,6 +564,7 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
   let mockFacebookPoster: { post: ReturnType<typeof vi.fn> };
   let sseService: SseService;
   let httpPort: number;
+  let postStore: Map<string, Record<string, unknown>>;
 
   beforeAll(async () => {
     const result = await buildFullAppModule();
@@ -600,7 +601,40 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
     sharedRedisStore.clear();
     // Clear hook cache — previous tests may have cached hooks
     clearHookCache();
+    // Stateful post store so findUnique/update reflect the current post status.
+    postStore = new Map();
+    applyStatefulPostMocks();
   });
+
+  // Stateful Prisma post mocks: findUnique reads from postStore, update merges.
+  function applyStatefulPostMocks() {
+    prisma.post.findUnique.mockImplementation(({ where }: { where: { id: string } }) =>
+      Promise.resolve(postStore.get(where.id) ?? null),
+    );
+    prisma.post.update.mockImplementation(({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+      const existing = postStore.get(where.id);
+      if (!existing) return Promise.resolve(null);
+      const updated = { ...existing, ...data };
+      postStore.set(where.id, updated);
+      return Promise.resolve(updated);
+    });
+  }
+
+  // Helper: seed the post store and set the standard posting-flow mocks.
+  function setupPostingFlow(post = APPROVED_POST_X) {
+    postStore.set(post.id as string, { ...post });
+    applyStatefulPostMocks();
+    prisma.socialAccount.findFirst.mockResolvedValue({ ...ACCOUNT_X });
+    prisma.session.findFirst.mockResolvedValue({ ...ACTIVE_SESSION_X });
+    prisma.session.update.mockResolvedValue({});
+    browserPort.acquireContext.mockResolvedValue({
+      newPage: vi.fn().mockResolvedValue({}),
+      close: vi.fn().mockResolvedValue(undefined),
+      storageState: vi.fn().mockResolvedValue({ cookies: [], origins: [] }),
+    });
+    browserPort.saveStorageState.mockResolvedValue(JSON.stringify({ cookies: [], origins: [] }));
+    browserPort.randomDelay.mockResolvedValue(undefined);
+  }
 
   // ── STC-026: GET /sessions returns all sessions with status and lastHealthCheck ──
 
@@ -714,8 +748,8 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
 
     // Act: trigger posting → getOrCreateSession → autoLogin.
     // We need an APPROVED post to trigger the posting flow.
-    prisma.post.findUnique.mockResolvedValue({ ...APPROVED_POST_X });
-    prisma.post.update.mockResolvedValue({ ...APPROVED_POST_X });
+    postStore.set(APPROVED_POST_X.id, { ...APPROVED_POST_X });
+    applyStatefulPostMocks();
     prisma.post.findMany.mockResolvedValue([{ ...APPROVED_POST_X }]);
     prisma.post.count.mockResolvedValue(1);
 
@@ -760,8 +794,7 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
     prisma.socialAccount.findFirst.mockResolvedValue(ACCOUNT_X);
     prisma.session.findFirst.mockResolvedValue({ ...ACTIVE_SESSION_X });
     prisma.session.update.mockResolvedValue({});
-    prisma.post.findUnique.mockResolvedValue({ ...APPROVED_POST_X });
-    prisma.post.update.mockResolvedValue({ ...APPROVED_POST_X });
+    setupPostingFlow(APPROVED_POST_X);
 
     // Arrange: mock browser + poster for successful posting.
     const postPage = createMockPage({ url: 'https://x.com/myzodiacai/status/999' });
@@ -846,11 +879,10 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
   it('STC-031: Rate limit enforcement via Redis sliding window (REQ-NF-003, HAZ-006)', async () => {
     // Arrange: pre-seed Redis with 50 daily posts for X (daily limit reached).
     const today = new Date().toISOString().slice(0, 10);
-    sharedRedisStore.set(`spa:ratelimit:X:daily:${today}`, '50');
+    sharedRedisStore.set(`spa:ratelimit:X:acc-001:daily:${today}`, '50');
 
     // Arrange: APPROVED post for X.
-    prisma.post.findUnique.mockResolvedValue({ ...APPROVED_POST_X });
-    prisma.post.update.mockResolvedValue({ ...APPROVED_POST_X });
+    setupPostingFlow(APPROVED_POST_X);
     prisma.socialAccount.findFirst.mockResolvedValue(ACCOUNT_X);
 
     // Act: POST /api/v1/posting/post-approved-001 → should fail (51st post > 50 limit).
@@ -875,7 +907,7 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
     // Assert: rate limit counter was NOT incremented — checkRateLimit is read-only
     // (uses redis.get, not redis.incr). recordPost() would increment, but it's
     // never called because the rate limit check rejects before posting begins.
-    const dailyCount = sharedRedisStore.get(`spa:ratelimit:X:daily:${today}`);
+    const dailyCount = sharedRedisStore.get(`spa:ratelimit:X:acc-001:daily:${today}`);
     expect(parseInt(dailyCount ?? '0', 10)).toBe(50);
   });
 
@@ -1364,9 +1396,9 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
     expect(draftsRes.body.posts[0].status).toBe('DRAFT');
 
     // ── Step 3: POST /posts/:id/approve → 200 with APPROVED status ──
-    prisma.post.findUnique.mockResolvedValue(generatedPost);
+    postStore.set(generatedPost.id, { ...generatedPost });
+    applyStatefulPostMocks();
     const approvedPost = { ...generatedPost, status: PostStatus.APPROVED, approvedAt: new Date() };
-    prisma.post.update.mockResolvedValue(approvedPost);
 
     const approveRes = await request(app.getHttpServer())
       .post('/api/v1/posts/post-gen-051/approve');
@@ -1382,11 +1414,11 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
     expect(approveUpdate[0].data.approvedAt).toBeDefined();
 
     // ── Step 4: POST /posting/batch/all-approved → batch post ──
-    // Arrange: findMany returns the approved post, findById returns it.
+    // Arrange: findMany returns the approved post, findById reads from postStore.
+    postStore.set(approvedPost.id, { ...approvedPost });
+    applyStatefulPostMocks();
     prisma.post.findMany.mockResolvedValue([approvedPost]);
     prisma.post.count.mockResolvedValue(1);
-    prisma.post.findUnique.mockResolvedValue(approvedPost);
-    prisma.post.update.mockResolvedValue(approvedPost);
     prisma.socialAccount.findFirst.mockResolvedValue(ACCOUNT_X);
     prisma.session.findFirst.mockResolvedValue({ ...ACTIVE_SESSION_X });
     prisma.session.update.mockResolvedValue({});
@@ -1462,8 +1494,7 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
     expect(healthRes.body.message).toContain('No active session');
 
     // Step 3: Trigger posting → getOrCreateSession → autoLogin with env credentials.
-    prisma.post.findUnique.mockResolvedValue({ ...APPROVED_POST_X });
-    prisma.post.update.mockResolvedValue({ ...APPROVED_POST_X });
+    setupPostingFlow(APPROVED_POST_X);
     prisma.session.findFirst.mockResolvedValue(null); // no active session → autoLogin
     prisma.session.create.mockResolvedValue({
       id: 'sess-autologin-052',
