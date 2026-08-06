@@ -14,6 +14,7 @@ import {
   FileBarChart,
   Recycle,
   Calendar,
+  MessageSquare,
   X,
   type LucideIcon,
 } from '@lucide/vue';
@@ -41,6 +42,7 @@ const navItems: NavItem[] = [
   { label: 'Sessions', to: '/sessions', icon: Globe },
   { label: 'Flow Control', to: '/flow-control', icon: AlertTriangle },
   { label: 'Reports', to: '/reports', icon: FileBarChart },
+  { label: 'Replies', to: '/replies', icon: MessageSquare },
 ];
 
 const props = defineProps<{

@@ -75,6 +75,11 @@ const router = createRouter({
       name: 'reports',
       component: () => import('../views/Reports.vue'),
     },
+    {
+      path: '/replies',
+      name: 'replies',
+      component: () => import('../views/Replies.vue'),
+    },
     // Sprint N: 404 catch-all route
     {
       path: '/:pathMatch(.*)*',

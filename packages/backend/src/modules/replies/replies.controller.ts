@@ -9,6 +9,7 @@
  *   POST   /api/v1/replies/run               — manually trigger monitoring cycle
  */
 import { Controller, Get, Post, Body, Param, HttpCode, HttpStatus, BadRequestException } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/swagger';
 import { RepliesMonitorService } from './replies-monitor.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CommentStatus } from '@prisma/client';
@@ -18,6 +19,7 @@ const manualReplySchema = z.object({
   replyText: z.string().min(1).max(500),
 });
 
+@ApiTags('replies')
 @Controller('replies')
 export class RepliesController {
   constructor(
@@ -40,6 +42,8 @@ export class RepliesController {
    * Get comments pending human review.
    */
   @Get('pending')
+  @ApiOperation({ summary: 'Get comments pending human review' })
+  @ApiResponse({ status: 200, description: 'List of comments awaiting human review' })
   async getPending() {
     return this.repliesMonitor.getPendingHumanReview();
   }
@@ -48,6 +52,8 @@ export class RepliesController {
    * Get reply monitoring stats — counts by status.
    */
   @Get('stats')
+  @ApiOperation({ summary: 'Get reply monitoring stats' })
+  @ApiResponse({ status: 200, description: 'Reply monitoring statistics and enabled flag' })
   async getStats() {
     const [newCount, replied, skipped, humanReview, repliedManual] = await Promise.all([
       this.prisma.incomingComment.count({ where: { status: CommentStatus.NEW } }),
@@ -68,6 +74,12 @@ export class RepliesController {
    */
   @Post(':id/manual-reply')
   @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Manually reply to a human-review comment' })
+  @ApiParam({ name: 'id', description: 'Comment id' })
+  @ApiBody({ schema: { type: 'object', properties: { replyText: { type: 'string', minLength: 1, maxLength: 500 } }, required: ['replyText'] } })
+  @ApiResponse({ status: 200, description: 'Reply result' })
+  @ApiResponse({ status: 400, description: 'Replies module disabled or invalid reply text' })
+  @ApiResponse({ status: 404, description: 'Comment not found' })
   async manualReply(@Param('id') id: string, @Body() body: unknown) {
     this.ensureEnabled();
     const parsed = manualReplySchema.safeParse(body);
@@ -82,6 +94,10 @@ export class RepliesController {
    */
   @Post(':id/dismiss')
   @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Dismiss a human-review comment (skip replying)' })
+  @ApiParam({ name: 'id', description: 'Comment id' })
+  @ApiResponse({ status: 200, description: 'Dismiss result' })
+  @ApiResponse({ status: 400, description: 'Replies module disabled' })
   async dismiss(@Param('id') id: string) {
     this.ensureEnabled();
     await this.repliesMonitor.dismissReview(id);
@@ -93,6 +109,9 @@ export class RepliesController {
    */
   @Post('run')
   @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Manually trigger a replies monitoring cycle' })
+  @ApiResponse({ status: 200, description: 'Monitoring cycle statistics' })
+  @ApiResponse({ status: 400, description: 'Replies module disabled' })
   async runCycle() {
     this.ensureEnabled();
     return this.repliesMonitor.runMonitoringCycle();

@@ -586,7 +586,7 @@
 | F13 (Content Recycling) | Phase 1.5 | [x] | Done — RecyclingService, RecyclingController (POST /recycling/run, POST /recycling/:id/recycle), Recycling.vue UI, gated cron via RECYCLING_CRON_ENABLED |
 | F22 (Trending Topics) | Phase 1.5 | [~] | Partial — backend done: TrendingModule with TrendingService (astro events calendar), TrendingController (/trending endpoint), UI display in Generate.vue. TODO: Google Trends / X trending API integration |
 | F1 (Autonomous Agent) | Phase 2-3 | [~] | ⚠️ FROZEN — 1300 lines implemented (EngagementService + BrowsingSessionService + 3 engagers), gated behind ENGAGEMENT_ENABLED=false. Gaps: LLM integration, tests, UI, Swagger |
-| F4 (Adaptive Replies) | Phase 2 | [~] | Partial — F4.A safety classifier (injection/spam/toxic), F4.B daily per-network rate limit (Redis), F4.D tone analyzer + tone-aware reply prompt. TODO: notification scraping, factual grounding, dedicated reply queue UI |
+| F4 (Adaptive Replies) | Phase 2 | [x] | Done — RepliesMonitorService, safety/tone/question classifiers, daily per-network Redis rate limit, RepliesController with Swagger, /replies UI view + Pinia store, SSE events, ADR-008 + runbook. Future: notification-page scraping, factual grounding from content-agent-platform |
 | F6 (Analytics Dashboard) | Phase 2 | [x] | Done — AnalyticsService/Controller (overview, by-network, top-posts, metrics history), Analytics.vue dashboard, metrics scraper |
 | F7 (Content Calendar) | Phase 2 | [x] | Done — PostsService calendar aggregation, GET /posts/calendar, PATCH /posts/:id/schedule, Calendar.vue with month/week/day and status colors |
 | F8 (A/B Testing) | Phase 2-3 | [ ] | Not started |
