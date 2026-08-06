@@ -171,6 +171,8 @@ UI: Feature Control Panel
 
 ## F4. Adaptive Reply Handling (ответы на комментарии юзеров)
 
+**Status: MVP done** — backend, UI, tests, ADR-008 and runbook in place. Notification-page scraping and factual-grounded question answers remain future enhancements.
+
 ### Описание
 Если юзер оставил комментарий или ответил на наш пост — агент адаптивно
 проверяет что он написал и отвечает в рамках правильности контента.
@@ -184,7 +186,7 @@ UI: Feature Control Panel
 
 ### Концепция
 ```
-1. Poll/scan notifications (X: notifications, Threads: activity, FB: page inbox)
+1. Poll/scan comments on recent posts (notification-page scanning is a future enhancement)
 2. Для каждого нового комментария/reply:
    a. Прочитать контекст (оригинальный пост + ветка комментариев)
    b. LLM classify: genuine / injection / spam / toxic / question

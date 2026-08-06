@@ -244,13 +244,13 @@ describe('useSSE — P0-H4 Exponential Backoff Reconnection', () => {
     const es = MockEventSource.instances[0];
 
     es.simulateOpen();
-    es.simulateMessage({ type: 'post_status', postId: 'p1', status: 'POSTED' });
+    es.simulateMessage({ type: 'post_status', postId: 'p1', status: 'POSTED', network: 'X' });
 
-    expect(sseResult().data.value).toEqual({ type: 'post_status', postId: 'p1', status: 'POSTED' });
+    expect(sseResult().data.value).toEqual({ type: 'post_status', postId: 'p1', status: 'POSTED', network: 'X' });
   });
 
   // ── UTC-SSE-009: onmessage handles non-JSON data gracefully ──
-  it('UTC-SSE-009: onmessage handles non-JSON data by storing raw string', () => {
+  it('UTC-SSE-009: onmessage handles non-JSON data by clearing data and setting error', () => {
     const { sseResult } = createTestComponent('/api/v1/events/sse');
     const es = MockEventSource.instances[0];
 
@@ -260,7 +260,8 @@ describe('useSSE — P0-H4 Exponential Backoff Reconnection', () => {
     const event = new MessageEvent('message', { data: 'plain text' });
     es.onmessage?.(event);
 
-    expect(sseResult().data.value).toBe('plain text');
+    expect(sseResult().data.value).toBeNull();
+    expect(sseResult().error.value).toContain('SSE payload parse error');
   });
 
   // ── UTC-SSE-010: retryCount increments on each error ──

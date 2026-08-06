@@ -1,0 +1,9 @@
+{
+  "current_phase": "phase-0",
+  "current_sprint": "f4-ui-swagger",
+  "base_branch": "f4-adaptive-replies",
+  "active_branches": ["feat/phase-0-f4-ui-swagger"],
+  "completed_sprints": [],
+  "blockers": [],
+  "last_green_commit": "73f0be7"
+}

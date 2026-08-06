@@ -57,7 +57,15 @@ async function loadReport() {
     error.value = (err as Error).message ?? 'Failed to load report';
     // Try to build from summary endpoint as fallback
     try {
-      const summaryRes = await api.get<{ totalPosts: number; posted: number; failed: number; successRate: number }>('/analytics/summary');
+      const summaryRes = await api.get<{
+        totalPosts: number;
+        posted: number;
+        failed: number;
+        pending?: number;
+        successRate: number;
+        byNetwork: Record<string, { total: number; posted: number; failed: number; successRate: number }>;
+        last7Days: { date: string; posted: number; failed: number }[];
+      }>('/analytics/summary');
       report.value = {
         summary: {
           totalPosts: summaryRes.data.totalPosts,
