@@ -235,6 +235,9 @@ const envSchema = Joi.object({
   AUTONOMOUS_POSTING_DELAY_MAX_MS: Joi.number().integer().min(1000).default(3600000),
   // F2: delay between thread continuation posts (position × delayMs)
   THREAD_CONTINUATION_DELAY_MS: Joi.number().integer().min(0).default(1800000),
+  // F22: optional programmatic Google Trends proxy (fallback to public RSS)
+  TRENDING_GOOGLE_API_URL: Joi.string().uri().allow('').default(''),
+  TRENDING_GOOGLE_API_KEY: Joi.string().allow('').default(''),
   AUTO_APPROVE_MIN_SCORE: Joi.number().integer().min(1).max(10).default(7),
   AUTO_APPROVE_REVIEW_SCORE: Joi.number().integer().min(1).max(10).default(4),
   AUTO_APPROVE_REJECT_STREAK_ALERT: Joi.number().integer().min(1).default(3),
