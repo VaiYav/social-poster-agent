@@ -605,6 +605,8 @@ Alert в UI если что-то не так.
 
 ## F22. Trending Topic Detection
 
+**Status: MVP done** — Google Trends (RSS + programmatic proxy with API-key fallback), X trending browser scrape, merged sources, `TrendingController`, `Trending.vue`, and a `Dashboard.vue` snapshot card are implemented. Fast-track queue integration and operator push notifications are future enhancements.
+
 ### Описание
 Поймать когда астрология-тема trending (Mercury retrograde, eclipse,
 planetary event). Google Trends + X trending → приоритетная генерация поста
@@ -626,7 +628,7 @@ planetary event). Google Trends + X trending → приоритетная ген
 ```
 
 ### Ключевые аспекты
-- **Sources**: Google Trends API (free) + X trending topics (browser scrape)
+- **Sources**: Google Trends (RSS + optional programmatic proxy with API key) + X trending topics (browser scrape)
 - **Astro events calendar**: известные даты (Mercury retrograde, eclipses,
   planetary ingresses) — можно хардкодить или брать из CAP astro MCP
 - **Priority queue**: trending posts skip normal BullMQ queue

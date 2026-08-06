@@ -155,6 +155,8 @@ export class TrendingScraperService implements OnModuleInit {
   private readonly llmCacheMaxSize = 1000;
   private readonly llmCacheTtlMs = 6 * 60 * 60 * 1000; // 6 hours — trends rotate, stale relevance is wrong
   private readonly llmConcurrency: number;
+  private readonly googleApiUrl: string;
+  private readonly googleApiKey: string;
 
   constructor(
     private readonly configService: ConfigService,
@@ -173,6 +175,8 @@ export class TrendingScraperService implements OnModuleInit {
     this.llmFilterEnabled = parseBool(this.configService.get<string>('TRENDING_LLM_FILTER_ENABLED', 'true'));
     const rawConcurrency = Number(this.configService.get<string>('TRENDING_LLM_CONCURRENCY', '3'));
     this.llmConcurrency = Number.isFinite(rawConcurrency) && rawConcurrency > 0 ? rawConcurrency : 3;
+    this.googleApiUrl = this.configService.get<string>('TRENDING_GOOGLE_API_URL', '');
+    this.googleApiKey = this.configService.get<string>('TRENDING_GOOGLE_API_KEY', '');
   }
 
   /**
@@ -253,8 +257,11 @@ export class TrendingScraperService implements OnModuleInit {
   // ── Google Trends (RSS feed — no auth) ──
 
   /**
-   * Fetch Google Trends daily trending searches via public RSS feed.
-   * No API key required — this is public data.
+   * Fetch Google Trends daily trending searches.
+   *
+   * F22: If TRENDING_GOOGLE_API_URL and TRENDING_GOOGLE_API_KEY are configured,
+   * use the programmatic proxy endpoint first. On any failure, fall back to the
+   * public RSS feed. If only one of the two is set, log a warning and use RSS.
    * Cached for TRENDING_CACHE_TTL_MS (default 15 min).
    */
   async getGoogleTrends(limit = 20): Promise<ScrapedTrendingTopic[]> {
@@ -266,13 +273,35 @@ export class TrendingScraperService implements OnModuleInit {
       return this.googleTrendsCache.topics.slice(0, limit);
     }
 
+    const useApi = this.googleApiUrl.length > 0 && this.googleApiKey.length > 0;
+    if (this.googleApiUrl.length > 0 && this.googleApiKey.length === 0) {
+      this.logger.warn('TRENDING_GOOGLE_API_URL is set but TRENDING_GOOGLE_API_KEY is missing — using RSS fallback');
+    } else if (this.googleApiKey.length > 0 && this.googleApiUrl.length === 0) {
+      this.logger.warn('TRENDING_GOOGLE_API_KEY is set but TRENDING_GOOGLE_API_URL is missing — using RSS fallback');
+    }
+
     try {
-      const topics = await this.fetchGoogleTrendsRss(limit);
+      const topics = useApi
+        ? await this.fetchGoogleTrendsApi(limit)
+        : await this.fetchGoogleTrendsRss(limit);
       this.googleTrendsCache = { topics, expiresAt: Date.now() + this.cacheTtlMs };
-      this.logger.log(`Fetched ${topics.length} Google Trends topics`);
+      this.logger.log(`Fetched ${topics.length} Google Trends topics (${useApi ? 'API' : 'RSS'})`);
       return topics.slice(0, limit);
     } catch (err) {
-      this.logger.warn(`Failed to fetch Google Trends: ${(err as Error).message}`);
+      this.logger.warn(`Failed to fetch Google Trends (${useApi ? 'API' : 'RSS'}): ${(err as Error).message}`);
+
+      // F22: programmatic API failed — fall back to public RSS
+      if (useApi) {
+        try {
+          const topics = await this.fetchGoogleTrendsRss(limit);
+          this.googleTrendsCache = { topics, expiresAt: Date.now() + this.cacheTtlMs };
+          this.logger.log(`Fell back to RSS and fetched ${topics.length} Google Trends topics`);
+          return topics.slice(0, limit);
+        } catch (rssErr) {
+          this.logger.warn(`Google Trends RSS fallback also failed: ${(rssErr as Error).message}`);
+        }
+      }
+
       return this.googleTrendsCache?.topics ?? [];
     }
   }
@@ -311,6 +340,65 @@ export class TrendingScraperService implements OnModuleInit {
       traffic: t.traffic,
       scrapedAt: now,
     }));
+  }
+
+  // ── Google Trends (programmatic API — optional proxy) ──
+
+  /**
+   * F22: Fetch Google Trends via a configured programmatic API / proxy.
+   * Expects a JSON array of objects like { topic, rank?, url?, traffic? }.
+   * Sends the configured key in the Authorization: Bearer header.
+   */
+  private async fetchGoogleTrendsApi(limit: number): Promise<ScrapedTrendingTopic[]> {
+    if (!this.googleApiUrl || !this.googleApiKey) {
+      throw new Error('TRENDING_GOOGLE_API_URL and TRENDING_GOOGLE_API_KEY must both be set');
+    }
+
+    const response = await fetch(this.googleApiUrl, {
+      headers: {
+        'User-Agent': 'SocialPosterAgent/1.0 (trending detection)',
+        Accept: 'application/json',
+        Authorization: `Bearer ${this.googleApiKey}`,
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Google Trends API returned ${response.status}`);
+    }
+
+    const json = (await response.json()) as unknown;
+    return this.parseGoogleTrendsApi(json, limit);
+  }
+
+  /**
+   * Parse a programmatic Google Trends JSON response.
+   * Accepts an array of topic objects and normalizes them to ScrapedTrendingTopic.
+   */
+  private parseGoogleTrendsApi(json: unknown, limit: number): ScrapedTrendingTopic[] {
+    if (!Array.isArray(json)) {
+      throw new Error('Google Trends API did not return a JSON array');
+    }
+
+    const now = new Date();
+    const topics: ScrapedTrendingTopic[] = [];
+    for (let i = 0; i < Math.min(json.length, limit); i++) {
+      const raw = json[i];
+      if (!raw || typeof raw !== 'object') continue;
+      const item = raw as Record<string, unknown>;
+      const topicText = typeof item.topic === 'string' ? sanitizeUntrustedInput(item.topic, 200) : '';
+      if (!topicText) continue;
+
+      topics.push({
+        source: 'google_trends',
+        topic: topicText,
+        rank: typeof item.rank === 'number' ? item.rank : i + 1,
+        url: typeof item.url === 'string' ? item.url : undefined,
+        traffic: typeof item.traffic === 'string' ? item.traffic : undefined,
+        scrapedAt: now,
+      });
+    }
+    return topics;
   }
 
   // ── X Trends (browser scraping) ──

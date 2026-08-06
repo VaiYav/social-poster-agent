@@ -1,9 +1,9 @@
 {
-  "current_phase": "phase-0",
-  "current_sprint": "f4-ui-swagger",
+  "current_phase": "phase-1",
+  "current_sprint": "f22-trending",
   "base_branch": "f4-adaptive-replies",
-  "active_branches": [],
+  "active_branches": ["feat/phase-1-f22-trending"],
   "completed_sprints": ["f4-ui-swagger"],
   "blockers": ["test:coverage global threshold 66% < 80% (pre-existing, project-wide)"],
-  "last_green_commit": "f3a6ef5"
+  "last_green_commit": "9599300"
 }

@@ -13,6 +13,8 @@ import {
   AlertTriangle,
   Award,
   Bot,
+  TrendingUp,
+  Flame,
 } from '@lucide/vue';
 import { usePostsStore } from '../stores/posts';
 import { useStatsStore } from '../stores/stats';
@@ -50,6 +52,7 @@ const autonomousRuns = ref<number | null>(null);
 onMounted(async () => {
   await Promise.all([
     statsStore.fetchStats(),
+    statsStore.fetchTrending(),
     postsStore.fetchPosts({ limit: 5 }),
     fetchFlowControl(),
     fetchQualityMetrics(),
@@ -96,6 +99,11 @@ const allPaused = computed(() => {
   return flowState.value.crisisMode ||
     (flowState.value.generationPaused && flowState.value.postingPaused);
 });
+
+const activeTrends = computed(() => statsStore.trending.filter((t) => t.trending).slice(0, 5));
+const upcomingTrends = computed(() =>
+  statsStore.trending.filter((t) => !t.trending && t.daysUntil > 0 && t.daysUntil <= 14).slice(0, 5),
+);
 
 const statItems = [
   { label: 'Drafts', value: 'drafts', icon: FileText, color: 'text-status-draft' },
@@ -244,36 +252,80 @@ const statItems = [
         </div>
       </Card>
 
-      <!-- Quick Actions -->
-      <Card>
-        <template #header>
-          <h2 class="text-lg font-semibold text-text-primary">Quick Actions</h2>
-          <p class="text-sm text-text-secondary">Jump to common workflows</p>
-        </template>
+      <!-- Quick Actions + Trending -->
+      <div class="space-y-6">
+        <Card>
+          <template #header>
+            <h2 class="text-lg font-semibold text-text-primary">Quick Actions</h2>
+            <p class="text-sm text-text-secondary">Jump to common workflows</p>
+          </template>
 
-        <div class="space-y-2">
-          <Button class="w-full justify-between" @click="router.push('/queue')">
-            Review queue
+          <div class="space-y-2">
+            <Button class="w-full justify-between" @click="router.push('/queue')">
+              Review queue
+              <ArrowRight class="h-4 w-4" />
+            </Button>
+            <Button class="w-full justify-between" variant="secondary" @click="router.push('/generate')">
+              Generate posts
+              <ArrowRight class="h-4 w-4" />
+            </Button>
+            <Button class="w-full justify-between" variant="outline" @click="router.push('/analytics')">
+              View analytics
+              <ArrowRight class="h-4 w-4" />
+            </Button>
+            <Button class="w-full justify-between" variant="outline" @click="router.push('/flow-control')">
+              Flow control
+              <ArrowRight class="h-4 w-4" />
+            </Button>
+            <Button class="w-full justify-between" variant="outline" @click="router.push('/reports')">
+              Reports
+              <ArrowRight class="h-4 w-4" />
+            </Button>
+          </div>
+        </Card>
+
+        <!-- F22: Trending snapshot -->
+        <Card v-if="activeTrends.length > 0 || upcomingTrends.length > 0">
+          <template #header>
+            <div class="flex items-center gap-2">
+              <TrendingUp class="h-5 w-5 text-primary" />
+              <h2 class="text-lg font-semibold text-text-primary">Trending Snapshot</h2>
+            </div>
+          </template>
+
+          <div v-if="activeTrends.length > 0" class="mb-4 space-y-2">
+            <p class="text-xs font-medium uppercase tracking-wide text-text-muted">Now trending</p>
+            <div
+              v-for="t in activeTrends"
+              :key="t.event"
+              class="flex items-center gap-2 rounded-lg bg-primary-subtle p-2"
+            >
+              <Flame class="h-4 w-4 text-primary" />
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-sm font-medium text-text-primary">{{ t.event }}</p>
+                <p class="truncate text-xs text-text-secondary">{{ t.topic }}</p>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="upcomingTrends.length > 0" class="space-y-2">
+            <p class="text-xs font-medium uppercase tracking-wide text-text-muted">Upcoming</p>
+            <div
+              v-for="t in upcomingTrends"
+              :key="t.event"
+              class="flex items-center justify-between text-sm"
+            >
+              <span class="text-text-secondary">{{ t.event }}</span>
+              <Badge variant="info">in {{ t.daysUntil }} days</Badge>
+            </div>
+          </div>
+
+          <Button variant="ghost" size="sm" class="mt-3 w-full" @click="router.push('/trending')">
+            View all trends
             <ArrowRight class="h-4 w-4" />
           </Button>
-          <Button class="w-full justify-between" variant="secondary" @click="router.push('/generate')">
-            Generate posts
-            <ArrowRight class="h-4 w-4" />
-          </Button>
-          <Button class="w-full justify-between" variant="outline" @click="router.push('/analytics')">
-            View analytics
-            <ArrowRight class="h-4 w-4" />
-          </Button>
-          <Button class="w-full justify-between" variant="outline" @click="router.push('/flow-control')">
-            Flow control
-            <ArrowRight class="h-4 w-4" />
-          </Button>
-          <Button class="w-full justify-between" variant="outline" @click="router.push('/reports')">
-            Reports
-            <ArrowRight class="h-4 w-4" />
-          </Button>
-        </div>
-      </Card>
+        </Card>
+      </div>
     </div>
 
     <!-- Real-time Agent Grid -->

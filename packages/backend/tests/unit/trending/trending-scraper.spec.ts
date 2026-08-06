@@ -15,6 +15,12 @@ import { ConfigService } from '@nestjs/config';
 import { TrendingScraperService } from '../../../src/modules/trending/trending-scraper.service';
 
 // ── Sample Google Trends RSS XML ──
+const SAMPLE_API_JSON = [
+  { topic: 'OpenAI GPT-5', rank: 1, url: 'https://example.com/gpt5', traffic: '500K+' },
+  { topic: 'Mercury Retrograde', rank: 2, url: 'https://example.com/mercury', traffic: '200K+' },
+  { topic: 'Climate Summit 2026', rank: 3, traffic: '100K+' },
+];
+
 const SAMPLE_RSS_XML = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:ht="https://trends.google.com/trending/rss">
   <channel>
@@ -206,6 +212,78 @@ describe('TrendingScraperService (Item 38 — F22 Google Trends + X scraping)', 
     // Second call fails — should return cached results
     const second = await service.getGoogleTrends(10);
     expect(second).toHaveLength(3); // cached results
+
+    fetchSpy.mockRestore();
+  });
+
+  // ── Google Trends programmatic API (F22) ──
+
+  it('UTC-GT-007: uses API when TRENDING_GOOGLE_API_URL and KEY are configured', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: async () => SAMPLE_API_JSON,
+    } as Response);
+
+    const apiService = createService(
+      { TRENDING_GOOGLE_API_URL: 'https://api.example.com/trends', TRENDING_GOOGLE_API_KEY: 'secret' },
+      mockBrowser,
+    );
+    const topics = await apiService.getGoogleTrends(10);
+
+    expect(topics).toHaveLength(3);
+    expect(topics[0].topic).toBe('OpenAI GPT-5');
+    expect(topics[0].rank).toBe(1);
+    expect(topics[0].source).toBe('google_trends');
+    expect(topics[0].url).toBe('https://example.com/gpt5');
+    expect(topics[0].traffic).toBe('500K+');
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'https://api.example.com/trends',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer secret',
+          Accept: 'application/json',
+        }),
+      }),
+    );
+
+    fetchSpy.mockRestore();
+  });
+
+  it('UTC-GT-008: falls back to RSS when API fails', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch')
+      .mockRejectedValueOnce(new Error('API timeout'))
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => SAMPLE_RSS_XML,
+      } as Response);
+
+    const apiService = createService(
+      { TRENDING_GOOGLE_API_URL: 'https://api.example.com/trends', TRENDING_GOOGLE_API_KEY: 'secret' },
+      mockBrowser,
+    );
+    const topics = await apiService.getGoogleTrends(10);
+
+    expect(topics).toHaveLength(3);
+    expect(topics[0].topic).toBe('OpenAI GPT-5');
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+    fetchSpy.mockRestore();
+  });
+
+  it('UTC-GT-009: ignores API config when only URL or only KEY is set', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      text: async () => SAMPLE_RSS_XML,
+    } as Response);
+
+    const apiService = createService({ TRENDING_GOOGLE_API_URL: 'https://api.example.com/trends' }, mockBrowser);
+    const topics = await apiService.getGoogleTrends(10);
+
+    expect(topics).toHaveLength(3);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'https://trends.google.com/trending/rss?geo=US',
+      expect.any(Object),
+    );
 
     fetchSpy.mockRestore();
   });

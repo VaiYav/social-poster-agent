@@ -185,6 +185,33 @@ describe('MOD-06 / stats store', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // F22 — fetchTrending() populates trending astro events
+  // ---------------------------------------------------------------------------
+  it('F22-001: fetchTrending() populates trending astro events', async () => {
+    const trendingData = [
+      { event: 'Mercury Retrograde', topic: 'Communication delays', daysUntil: 0, trending: true, networks: ['X', 'THREADS'] },
+      { event: 'Full Moon', topic: 'Release and recharge', daysUntil: 3, trending: false, networks: ['X'] },
+    ];
+    (api.get as ReturnType<typeof vi.fn>).mockResolvedValue({ data: trendingData });
+
+    const store = useStatsStore();
+    await store.fetchTrending();
+
+    expect(api.get).toHaveBeenCalledWith('/trending');
+    expect(store.trending).toEqual(trendingData);
+    expect(store.trending).toHaveLength(2);
+  });
+
+  it('F22-002: fetchTrending() silently degrades to empty array on failure', async () => {
+    (api.get as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Trending API down'));
+
+    const store = useStatsStore();
+    await store.fetchTrending();
+
+    expect(store.trending).toEqual([]);
+  });
+
+  // ---------------------------------------------------------------------------
   // UTC-114 (stats portion) — initial state
   // ---------------------------------------------------------------------------
   it('UTC-114 (stats): initial state has loading=false, error=null, empty runs, zeroed stats', () => {
