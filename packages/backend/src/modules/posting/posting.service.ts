@@ -551,7 +551,7 @@ export class PostingService {
         // can recover and post again once the restriction clears.
         const error = result.error;
         const isPermanentRestriction =
-          /Account suspended|Account locked|We blocked an attempt to access your account|JavaScript is not available|graduated-access|has_graduated_access|__SCRIPT_LOAD_FAILURE__/i.test(error) ||
+          /Account suspended|Account locked|We blocked an attempt to access your account|graduated-access|has_graduated_access/i.test(error) ||
           (
             /(Account restricted|is restricted|is locked|is suspended)/i.test(error) &&
             !/temporarily|sensitive content/i.test(error)

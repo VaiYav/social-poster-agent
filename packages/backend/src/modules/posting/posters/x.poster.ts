@@ -1,5 +1,6 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import fs from 'node:fs';
 import type { BrowserContext, Page, Locator } from '../../../domain/ports/browser-primitives.js';
 import { IBrowserPort } from '../../../domain/ports/browser.port.js';
 import { BasePoster, type PostResult } from './base.poster.js';
@@ -76,10 +77,32 @@ export class XPoster extends BasePoster {
       }
       if (homeResult?.error) {
         // Home page compose returned an error (not "null" — null means dialog couldn't open)
-        this.logger.warn(`X home page compose failed: ${homeResult.error} — falling back to /compose/post`);
+        this.logger.warn(`X home page compose failed: ${homeResult.error}`);
+      } else if (homeResult === null) {
+        this.logger.warn(`X home page compose dialog could not be opened`);
       }
 
-      // Fallback: navigate to /compose/post page (legacy path)
+      // Fallback 1a: try the profile page — some sessions get a WAF/noscript page on /home
+      // but the profile page loads and the side nav "Post" button works the same way.
+      const profileHandle = await this.getAccountHandleFromConfig();
+      if (profileHandle) {
+        this.logger.log(`X trying profile page compose dialog for @${profileHandle}...`);
+        const profileResult = await this.postViaProfilePageCompose(page, content, profileHandle);
+        if (profileResult && !profileResult.error) {
+          if (profileResult.url && threadItems && threadItems.length > 0) {
+            const replyResults = await this.postThreadReplies(page, profileResult.url, threadItems);
+            return { ...profileResult, threadReplyResults: replyResults };
+          }
+          return profileResult;
+        }
+        if (profileResult?.error) {
+          this.logger.warn(`X profile page compose failed: ${profileResult.error}`);
+        } else {
+          this.logger.warn(`X profile page compose dialog could not be opened`);
+        }
+      }
+
+      // Fallback 1b: navigate to /compose/post page (legacy path)
       this.logger.log(`X navigating to compose page: ${X_SELECTORS.compose.url}`);
       this.assertPageAlive(page, 'navigate to compose page');
       await this.navigate(page, X_SELECTORS.compose.url, 'domcontentloaded');
@@ -776,24 +799,29 @@ export class XPoster extends BasePoster {
   }
 
   /**
-   * Fallback posting strategy: navigate to X home page, open the compose
+   * Fallback posting strategy: navigate to an X page (home or profile), open the compose
    * dialog via the "Post" button in the side nav, type content, and submit.
    *
    * Used when the /compose/post URL doesn't render the tweet button
-   * (degraded session, UI changes, etc.). The home page compose dialog
-   * is the canonical posting path and tends to be more reliable.
+   * (degraded session, UI changes, WAF/noscript pages, etc.). The side nav compose
+   * dialog is the canonical posting path and tends to be more reliable.
    *
    * @returns PostResult if the fallback was attempted (success or error),
    *          null if the compose dialog couldn't be opened.
    */
-  private async postViaHomePageCompose(page: Page, content: string): Promise<PostResult | null> {
+  private async postViaSideNavCompose(
+    page: Page,
+    content: string,
+    baseUrl: string,
+    label: string,
+  ): Promise<PostResult | null> {
     try {
-      this.logger.log(`X fallback: navigating to home page...`);
-      this.assertPageAlive(page, 'navigate to home page for compose');
+      this.logger.log(`X ${label}: navigating to ${baseUrl}...`);
+      this.assertPageAlive(page, `navigate to ${label} for compose`);
       // Use domcontentloaded to avoid waiting for heavy network idle on the X home page
       // (reduces renderer memory pressure and page-crash risk). The waitForSelector below
       // waits for the React SPA to mount, so hydration is still verified before interacting.
-      await this.navigate(page, 'https://x.com/home', 'domcontentloaded');
+      await this.navigate(page, baseUrl, 'domcontentloaded');
 
       // Check if logged in
       if (await this.isOnLoginPage(page)) {
@@ -803,7 +831,7 @@ export class XPoster extends BasePoster {
       // Wait for the React app to mount — X uses a SPA that renders after domcontentloaded.
       // The body text starts with <style> before React mounts, so we wait for a real X element.
       // Don't use [role="navigation"] — it matches the noscript fallback <nav> element.
-      this.logger.log(`X fallback: waiting for React app to mount on home page...`);
+      this.logger.log(`X ${label}: waiting for React app to mount...`);
       // Give X's heavy SPA more time to hydrate; many production failures show the body
       // still containing only <style> at the 20s mark, causing the compose button search to
       // fail immediately and forcing the fragile /compose/post fallback.
@@ -816,7 +844,7 @@ export class XPoster extends BasePoster {
       // X sometimes serves a degraded page (only <style> tags, no JS) on first load —
       // a reload forces a fresh fetch and the waitForSelector below verifies hydration.
       if (!spaMounted) {
-        this.logger.warn(`X fallback: SPA not mounted after 30s — reloading page...`);
+        this.logger.warn(`X ${label}: SPA not mounted after 30s — reloading page...`);
         await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
         await this.browser.randomDelay(2000, 4000);
         spaMounted = await page.waitForSelector(
@@ -826,13 +854,14 @@ export class XPoster extends BasePoster {
       }
 
       if (!spaMounted) {
-        this.logger.warn(`X fallback: SPA still not mounted after reload — giving up on home page compose`);
+        this.logger.warn(`X ${label}: SPA still not mounted after reload — giving up on ${label} compose`);
+        await this.dumpPageForDiagnostics(page, `${label.replace(/ /g, '-')}-spa-not-mounted`);
         return null;
       }
 
       // Wait for the side nav to load — the compose button may not be immediately visible
       // after navigation. Wait up to 30s for it to appear, and retry once after a short pause.
-      this.logger.log(`X fallback: waiting for compose button on home page...`);
+      this.logger.log(`X ${label}: waiting for compose button...`);
       // Click the compose button in the side nav.
       // X uses [data-testid="SideNav_NewTweet_Button"] for the compose button.
       const composeButton = page
@@ -852,7 +881,7 @@ export class XPoster extends BasePoster {
       // primary column appears, and the first waitFor can time out just before the button
       // mounts. A second check catches this transient race.
       if (!composeVisible) {
-        this.logger.warn(`X fallback: compose button not visible after first wait — pausing and retrying...`);
+        this.logger.warn(`X ${label}: compose button not visible after first wait — pausing and retrying...`);
         await this.browser.randomDelay(3000, 5000);
         await composeButton.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
         composeVisible = await composeButton.isVisible().catch(() => false);
@@ -860,11 +889,12 @@ export class XPoster extends BasePoster {
       if (!composeVisible) {
         // Log page state for debugging
         const bodyText = await page.textContent('body').catch(() => '');
-        this.logger.warn(`X fallback: compose button not found on home page. Body text (first 200): "${bodyText?.slice(0, 200)}"`);
+        this.logger.warn(`X ${label}: compose button not found. Body text (first 200): "${bodyText?.slice(0, 200)}"`);
+        await this.dumpPageForDiagnostics(page, `${label.replace(/ /g, '-')}-compose-not-found`);
         return null;
       }
 
-      this.logger.log(`X fallback: compose button found, clicking...`);
+      this.logger.log(`X ${label}: compose button found, clicking...`);
       await composeButton.click({ force: true, timeout: 10000 });
       await this.browser.randomDelay(1500, 3000);
 
@@ -880,8 +910,8 @@ export class XPoster extends BasePoster {
 
       // Type content using human-like typing via locator.pressSequentially (fires the real
       // key events X/Lexical needs to update React state and enable the Post button).
-      this.logger.log(`X fallback: typing tweet via humanType (locator.pressSequentially)...`);
-      this.assertPageAlive(page, 'type tweet content (home page compose)');
+      this.logger.log(`X ${label}: typing tweet via humanType...`);
+      this.assertPageAlive(page, `type tweet content (${label} compose)`);
       await this.setComposeText(page, textbox, content);
       await page.waitForTimeout(1000);
 
@@ -902,9 +932,9 @@ export class XPoster extends BasePoster {
       let fbDisabled = await postButton.isDisabled().catch(() => false);
       let fbAriaDisabled = await postButton.getAttribute('aria-disabled').catch(() => null);
       if (fbAriaDisabled === 'true') fbDisabled = true;
-      this.logger.log(`X fallback: post button disabled check: isDisabled=${fbDisabled}, aria-disabled=${fbAriaDisabled}`);
+      this.logger.log(`X ${label}: post button disabled check: isDisabled=${fbDisabled}, aria-disabled=${fbAriaDisabled}`);
       if (fbDisabled) {
-        this.logger.warn(`X fallback: post button disabled — trying fill() + DraftJS nudge...`);
+        this.logger.warn(`X ${label}: post button disabled — trying fill() + DraftJS nudge...`);
         await textbox.fill(content, { timeout: 10000 }).catch(() => {});
         await this.browser.randomDelay(500, 1000);
         await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
@@ -914,12 +944,12 @@ export class XPoster extends BasePoster {
         fbDisabled = await postButton.isDisabled().catch(() => false);
         fbAriaDisabled = await postButton.getAttribute('aria-disabled').catch(() => null);
         if (fbAriaDisabled === 'true') fbDisabled = true;
-        this.logger.log(`X fallback: after fill() + nudge — button disabled: ${fbDisabled}, aria-disabled: ${fbAriaDisabled}`);
+        this.logger.log(`X ${label}: after fill() + nudge — button disabled: ${fbDisabled}, aria-disabled: ${fbAriaDisabled}`);
       }
       if (fbDisabled) {
         // Strategy D (same as main path): dispatch InputEvent('beforeinput') directly.
         // DraftJS processes beforeinput events — execCommand/fill() may not fire them in Firefox.
-        this.logger.warn(`X fallback: post button still disabled — trying direct beforeinput InputEvent dispatch...`);
+        this.logger.warn(`X ${label}: post button still disabled — trying direct beforeinput InputEvent dispatch...`);
         await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
         await page.keyboard.press('Control+A').catch(() => {});
         await page.keyboard.press('Backspace').catch(() => {});
@@ -950,13 +980,13 @@ export class XPoster extends BasePoster {
           fbDisabled = await postButton.isDisabled().catch(() => false);
           fbAriaDisabled = await postButton.getAttribute('aria-disabled').catch(() => null);
           if (fbAriaDisabled === 'true') fbDisabled = true;
-          this.logger.log(`X fallback: after beforeinput dispatch — button disabled: ${fbDisabled}, aria-disabled: ${fbAriaDisabled}`);
+          this.logger.log(`X ${label}: after beforeinput dispatch — button disabled: ${fbDisabled}, aria-disabled: ${fbAriaDisabled}`);
         }
       }
       if (fbDisabled) {
-        this.logger.error(`X fallback: post button disabled after all strategies — DraftJS state not updated`);
+        this.logger.error(`X ${label}: post button disabled after all strategies — DraftJS state not updated`);
         await this.screenshot(page, 'button-disabled-abort');
-        return { error: 'Post button is disabled — DraftJS state not updated (home page compose)', retryable: false };
+        return { error: `Post button is disabled — DraftJS state not updated (${label} compose)`, retryable: false };
       }
 
       // Submit the tweet — prefer the native Ctrl+Enter keyboard shortcut.
@@ -964,7 +994,7 @@ export class XPoster extends BasePoster {
       // without posting; the keyboard shortcut avoids this. Reference: x-mcp-bridge commit 4e45794.
       let fbClickSuccess = false;
       try {
-        this.assertPageAlive(page, 'submit tweet (home page compose)');
+        this.assertPageAlive(page, `submit tweet (${label} compose)`);
         await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
         await this.browser.randomDelay(300, 600);
         await page.keyboard.press('Meta+Enter').catch(() => {});
@@ -972,23 +1002,23 @@ export class XPoster extends BasePoster {
         await page.keyboard.press('Control+Enter').catch(() => {});
         await this.browser.randomDelay(3000, 5000);
         fbClickSuccess = true;
-        this.logger.log(`X fallback: Ctrl+Enter shortcut sent`);
+        this.logger.log(`X ${label}: Ctrl+Enter shortcut sent`);
       } catch (submitErr) {
-        this.logger.warn(`X fallback: Ctrl+Enter failed: ${(submitErr as Error).message}`);
+        this.logger.warn(`X ${label}: Ctrl+Enter failed: ${(submitErr as Error).message}`);
       }
 
       // Check if textbox is empty after click (sign that tweet was submitted)
       const fbTextboxAfterClick = await textbox.innerText().catch(() => '');
-      this.logger.log(`X fallback: textbox after submit: "${fbTextboxAfterClick.slice(0, 60)}..." (len=${fbTextboxAfterClick.length})`);
+      this.logger.log(`X ${label}: textbox after submit: "${fbTextboxAfterClick.slice(0, 60)}..." (len=${fbTextboxAfterClick.length})`);
 
       // Fallback to humanClick on Post button if Ctrl+Enter didn't submit and the textbox still has content.
       if (!fbClickSuccess || (fbTextboxAfterClick.length > 0 && (page.url().includes('/compose/post') || page.url().includes('/home')))) {
-        this.logger.log(`X fallback: trying humanClick on Post button...`);
+        this.logger.log(`X ${label}: trying humanClick on Post button...`);
         try {
           await this.browser.humanClick(postButton, { timeoutMs: 10000 });
-          this.logger.log(`X fallback: humanClick on Post button succeeded`);
+          this.logger.log(`X ${label}: humanClick on Post button succeeded`);
         } catch (clickErr) {
-          this.logger.warn(`X fallback: humanClick failed: ${(clickErr as Error).message}`);
+          this.logger.warn(`X ${label}: humanClick failed: ${(clickErr as Error).message}`);
         }
         await this.browser.randomDelay(2000, 4000);
       }
@@ -997,13 +1027,13 @@ export class XPoster extends BasePoster {
 
       // Validate — check profile for the posted content
       const currentUrl = page.url();
-      this.logger.log(`X fallback: after submit — URL: ${currentUrl}`);
+      this.logger.log(`X ${label}: after submit — URL: ${currentUrl}`);
 
       // Try to find post URL
       const accountHandle = await this.getAccountHandle(page);
       const foundUrl = await this.findTweetUrlOnPage(page, accountHandle);
       if (foundUrl) {
-        this.logger.log(`X fallback: posted successfully — ${foundUrl}`);
+        this.logger.log(`X ${label}: posted successfully — ${foundUrl}`);
         return { url: foundUrl };
       }
 
@@ -1016,7 +1046,7 @@ export class XPoster extends BasePoster {
           content,
           X_SELECTORS.compose.postUrlPattern,
         );
-        this.logger.log(`X fallback: validated on profile — ${postUrl}`);
+        this.logger.log(`X ${label}: validated on profile — ${postUrl}`);
         return { url: postUrl };
       }
 
@@ -1037,11 +1067,43 @@ export class XPoster extends BasePoster {
       if (fallbackPermalink) {
         return { url: fallbackPermalink };
       }
-      this.logger.warn(`X fallback: submitted but no verifiable permalink captured (${currentUrl}) — marking failed`);
+      this.logger.warn(`X ${label}: submitted but no verifiable permalink captured (${currentUrl}) — marking failed`);
       return { error: 'submitted but no verifiable permalink captured', retryable: false };
     } catch (err) {
-      this.logger.error(`X fallback posting failed: ${(err as Error).message}`);
-      return { error: `X fallback failed: ${(err as Error).message}`, retryable: false };
+      this.logger.error(`X ${label} posting failed: ${(err as Error).message}`);
+      return { error: `X ${label} failed: ${(err as Error).message}`, retryable: false };
+    }
+  }
+
+  private async postViaHomePageCompose(page: Page, content: string): Promise<PostResult | null> {
+    return this.postViaSideNavCompose(page, content, 'https://x.com/home', 'home page');
+  }
+
+  private async postViaProfilePageCompose(page: Page, content: string, handle: string): Promise<PostResult | null> {
+    const clean = handle.replace(/^@/, '').trim();
+    return clean ? this.postViaSideNavCompose(page, content, `https://x.com/${clean}`, 'profile page') : null;
+  }
+
+  /**
+   * Dump the current page HTML and visible text to SPA_DEBUG_DIR (default /tmp/spa-debug)
+   * for forensic analysis. Called when X fails to render the compose dialog so operators
+   * can see the exact error page the browser received.
+   */
+  private async dumpPageForDiagnostics(page: Page, label: string): Promise<void> {
+    try {
+      const debugDir = process.env.SPA_DEBUG_DIR ?? '/tmp/spa-debug';
+      fs.mkdirSync(debugDir, { recursive: true });
+      const timestamp = Date.now();
+      const base = `${debugDir}/x-${label}-${timestamp}`;
+      const html = await page.content().catch(() => '');
+      const bodyText = (await page.textContent('body').catch(() => '')) ?? '';
+      const title = await page.title().catch(() => '');
+      fs.writeFileSync(`${base}.html`, html);
+      fs.writeFileSync(`${base}.txt`, `url: ${page.url()}\n\ntitle: ${title}\n\n${bodyText.slice(0, 5000)}`);
+      await this.screenshot(page, 'on-error');
+      this.logger.warn(`X diagnostic dump saved: ${base}.html`);
+    } catch (dumpErr) {
+      this.logger.warn(`X diagnostic dump failed: ${(dumpErr as Error).message}`);
     }
   }
 
