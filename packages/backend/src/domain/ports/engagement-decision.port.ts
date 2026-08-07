@@ -58,6 +58,10 @@ export interface PostContext {
   quotesThisSession?: number;
   /** Max quotes allowed this session. */
   quotesMaxPerSession?: number;
+  /** How many discussions (repost + quote) already performed this session. */
+  discussionsThisSession?: number;
+  /** Max discussions (repost + quote) allowed this session. */
+  discussionsMaxPerSession?: number;
 }
 
 /**

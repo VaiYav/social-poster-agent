@@ -2,6 +2,7 @@
 // All endpoints trigger browser automation to perform the action.
 
 import { Body, Controller, Get, Post, Query, BadRequestException } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { z } from 'zod';
 import { EngagementService } from './engagement.service.js';
 import { BrowsingSessionService } from './browsing-session.service.js';
@@ -45,6 +46,7 @@ const browsingSessionSchema = z.object({
   durationSec: z.number().min(60).max(3600).optional(),
 });
 
+@ApiTags('engagement')
 @Controller('engagement')
 export class EngagementController {
   constructor(
@@ -53,6 +55,9 @@ export class EngagementController {
   ) {}
 
   @Post('like')
+  @ApiOperation({ summary: 'F1: Like a post on the given network' })
+  @ApiResponse({ status: 201, description: 'Like interaction result' })
+  @ApiResponse({ status: 400, description: 'Invalid request body' })
   async like(@Body() body: unknown) {
     const parsed = likeSchema.safeParse(body);
     if (!parsed.success) {
@@ -65,6 +70,9 @@ export class EngagementController {
   }
 
   @Post('comment')
+  @ApiOperation({ summary: 'F1: Comment on a post on the given network' })
+  @ApiResponse({ status: 201, description: 'Comment interaction result' })
+  @ApiResponse({ status: 400, description: 'Invalid request body' })
   async comment(@Body() body: unknown) {
     const parsed = commentSchema.safeParse(body);
     if (!parsed.success) {
@@ -78,6 +86,9 @@ export class EngagementController {
   }
 
   @Post('follow')
+  @ApiOperation({ summary: 'F1: Follow a user/profile on the given network' })
+  @ApiResponse({ status: 201, description: 'Follow interaction result' })
+  @ApiResponse({ status: 400, description: 'Invalid request body' })
   async follow(@Body() body: unknown) {
     const parsed = followSchema.safeParse(body);
     if (!parsed.success) {
@@ -90,6 +101,9 @@ export class EngagementController {
   }
 
   @Post('reply')
+  @ApiOperation({ summary: 'F1: Reply to a comment on the given network' })
+  @ApiResponse({ status: 201, description: 'Reply interaction result' })
+  @ApiResponse({ status: 400, description: 'Invalid request body' })
   async reply(@Body() body: unknown) {
     const parsed = replySchema.safeParse(body);
     if (!parsed.success) {
@@ -103,6 +117,9 @@ export class EngagementController {
   }
 
   @Post('repost')
+  @ApiOperation({ summary: 'F1: Repost a post on the given network' })
+  @ApiResponse({ status: 201, description: 'Repost interaction result' })
+  @ApiResponse({ status: 400, description: 'Invalid request body' })
   async repost(@Body() body: unknown) {
     const parsed = repostSchema.safeParse(body);
     if (!parsed.success) {
@@ -115,6 +132,9 @@ export class EngagementController {
   }
 
   @Post('quote')
+  @ApiOperation({ summary: 'F1: Quote-post a post on the given network' })
+  @ApiResponse({ status: 201, description: 'Quote interaction result' })
+  @ApiResponse({ status: 400, description: 'Invalid request body' })
   async quote(@Body() body: unknown) {
     const parsed = quoteSchema.safeParse(body);
     if (!parsed.success) {
@@ -128,6 +148,9 @@ export class EngagementController {
   }
 
   @Post('browsing-session')
+  @ApiOperation({ summary: 'F1: Start a browsing session for the given network' })
+  @ApiResponse({ status: 201, description: 'Browsing session started' })
+  @ApiResponse({ status: 400, description: 'Invalid request body' })
   async startBrowsingSession(@Body() body: unknown) {
     const parsed = browsingSessionSchema.safeParse(body);
     if (!parsed.success) {
@@ -140,6 +163,9 @@ export class EngagementController {
   }
 
   @Get('stats')
+  @ApiOperation({ summary: 'F1: Get engagement stats for a network or all networks' })
+  @ApiQuery({ name: 'network', required: false, description: 'X, THREADS, or FACEBOOK' })
+  @ApiResponse({ status: 200, description: 'Engagement statistics' })
   async getStats(@Query('network') network?: string) {
     const networkEnum = network
       ? (SocialNetwork[network as keyof typeof SocialNetwork] as SocialNetwork)
@@ -148,6 +174,12 @@ export class EngagementController {
   }
 
   @Get('interactions')
+  @ApiOperation({ summary: 'F1: List recent interactions with optional filters' })
+  @ApiQuery({ name: 'network', required: false })
+  @ApiQuery({ name: 'type', required: false })
+  @ApiQuery({ name: 'status', required: false })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiResponse({ status: 200, description: 'List of interactions' })
   async getInteractions(
     @Query('network') network?: string,
     @Query('type') type?: string,
@@ -165,6 +197,11 @@ export class EngagementController {
   }
 
   @Get('browsing-sessions')
+  @ApiOperation({ summary: 'F1: List browsing sessions with optional filters' })
+  @ApiQuery({ name: 'network', required: false })
+  @ApiQuery({ name: 'status', required: false })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiResponse({ status: 200, description: 'List of browsing sessions' })
   async getBrowsingSessions(
     @Query('network') network?: string,
     @Query('status') status?: string,

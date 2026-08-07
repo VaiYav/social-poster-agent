@@ -585,7 +585,7 @@
 | F10 (Content Repurposing) | Phase 1.5 | [~] | Partial — backend done: repurposeFromArticles() in GenerationService extracts facts from articles + generates posts, /repurpose endpoint, UI button in Generate.vue. TODO: deeper fact extraction, source variety |
 | F13 (Content Recycling) | Phase 1.5 | [x] | Done — RecyclingService, RecyclingController (POST /recycling/run, POST /recycling/:id/recycle), Recycling.vue UI, gated cron via RECYCLING_CRON_ENABLED |
 | F22 (Trending Topics) | Phase 1.5 | [~] | MVP done — TrendingModule with astro calendar, TrendingController, Google Trends RSS + programmatic proxy (TRENDING_GOOGLE_API_URL/KEY with RSS fallback), X scrape, merged trending, UI in Trending.vue + Dashboard snapshot. Future: fast-track trending posts in queue and operator push notifications |
-| F1 (Autonomous Agent) | Phase 2-3 | [~] | ⚠️ FROZEN — 1300 lines implemented (EngagementService + BrowsingSessionService + 3 engagers), gated behind ENGAGEMENT_ENABLED=false. Gaps: LLM integration, tests, UI, Swagger |
+| F1 (Autonomous Agent) | Phase 2-3 | [~] | ⚠️ FROZEN — 1300 lines implemented (EngagementService + BrowsingSessionService + 3 engagers), gated behind ENGAGEMENT_ENABLED=false. Sprint 2.1: decision engine + daily limits + discussion budget + Swagger done. Gaps: UI, final unfreeze, real-credentials E2E |
 | F4 (Adaptive Replies) | Phase 2 | [x] | Done — RepliesMonitorService, safety/tone/question classifiers, daily per-network Redis rate limit, RepliesController with Swagger, /replies UI view + Pinia store, SSE events, ADR-008 + runbook. Future: notification-page scraping, factual grounding from content-agent-platform |
 | F6 (Analytics Dashboard) | Phase 2 | [x] | Done — AnalyticsService/Controller (overview, by-network, top-posts, metrics history), Analytics.vue dashboard, metrics scraper |
 | F7 (Content Calendar) | Phase 2 | [x] | Done — PostsService calendar aggregation, GET /posts/calendar, PATCH /posts/:id/schedule, Calendar.vue with month/week/day and status colors |
@@ -598,6 +598,7 @@
 ## Changelog
 
 | Date | Version | Change |
+| 2026-08-07 | 0.6.3 | **F1 Autonomous User-Agent — Sprint 2.1:** implemented discussion budget (repost + quote) and Phase 2 daily limits (20 likes / 5 comments / 2 discussions), added Swagger decorators to `EngagementController`, updated `.env.example` defaults + `env.validation.ts`. 161 engagement unit tests pass; 1574 total backend unit tests. F1 still feature-flagged (`ENGAGEMENT_ENABLED=false`). |
 | 2026-08-06 | 0.6.2 | **Phase 2 features + test stabilization:** F6 Analytics Dashboard, F7 Content Calendar (backend + Vue), F11 Best Time to Post wired into queue, F19 Image Quote Cards (Satori/Resvg + UI), F13 Content Recycling completed (UI + cron). FlowControl expanded with llm_triage and auto_approve. Fixed 14 unit-test failures (auto-approve, browsing-session, engagement-graph, batched-judge). 1509 unit tests pass. Feature Wishlist Mapping updated. |
 |------|---------|--------|
 | 2026-07-27 | 0.6.1 | **Sprint A partial:** CONSTITUTION §6 structure tree synced with actual codebase (v0.5.3). Fixed false v0.5.2 changelog claim that Sprint O modules were removed (they are feature-flagged, not removed). ROADMAP §4.4 task marked done. |

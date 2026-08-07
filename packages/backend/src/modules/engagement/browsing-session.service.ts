@@ -52,6 +52,7 @@ export class BrowsingSessionService {
   private readonly commentsMaxPerSession: number;
   private readonly repostsMaxPerSession: number;
   private readonly quotesMaxPerSession: number;
+  private readonly discussionsMaxPerSession: number;
   private readonly maxPostsPerSession: number;
   // F1 daily hard limits (per account, across all sessions)
   private readonly likesMaxPerDay: number;
@@ -96,6 +97,9 @@ export class BrowsingSessionService {
     );
     this.quotesMaxPerSession = Number(
       this.configService.get<string>('F1_QUOTES_MAX_PER_DAY', '3'),
+    );
+    this.discussionsMaxPerSession = Number(
+      this.configService.get<string>('F1_DISCUSSIONS_MAX_PER_DAY', '2'),
     );
     this.maxPostsPerSession = Number(
       this.configService.get<string>('F1_MAX_POSTS_PER_SESSION', '40'),
@@ -330,6 +334,7 @@ export class BrowsingSessionService {
         commentsMaxPerSession: commentsBudget,
         repostsMaxPerSession: repostsBudget,
         quotesMaxPerSession: quotesBudget,
+        discussionsMaxPerSession: this.discussionsMaxPerSession,
         conversationReady,
         page,
       });

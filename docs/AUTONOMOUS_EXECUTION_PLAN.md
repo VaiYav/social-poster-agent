@@ -192,10 +192,12 @@ WHILE remaining_sprints > 0:
 ### PHASE 2 — F1 Autonomous User-Agent (unfreeze)
 > Цель: вынуть `EngagementModule` из-за флага `ENGAGEMENT_ENABLED=false`.
 
-#### Sprint 2.1: F1 Decision Engine
-- Закончить `generateComment` (TODO в `browsing-session.service.ts:300`).
-- Реализовать `EngagementDecisionPort` + LLM-based decision graph.
-- Лимиты: 10-20 лайков, 3-5 комментов, 1-2 дискуссии в день.
+#### Sprint 2.1: F1 Decision Engine ✅
+- `generateComment` / `generateQuoteText` реализованы через `EngagementDecisionService` с brand-voice + языковыми guardrail.
+- `IEngagementDecisionPort` + LLM-based decision graph (individual + batch) + `HumanBehaviorEngine` интегрированы.
+- Discussion budget (repost + quote) + F1 limits: 20 likes / 5 comments / 2 discussions в день (per-session 4/1/2, clamped to global).
+- Swagger decorators добавлены в `EngagementController`.
+- Unit tests: 161+ тестов в `tests/unit/engagement/`.
 
 #### Sprint 2.2: F1 Targeting
 - Хэштеги/конкуренты/algorithmic feed selectors.

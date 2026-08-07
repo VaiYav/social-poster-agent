@@ -99,16 +99,18 @@ const envSchema = Joi.object({
   ORCHESTRATOR_COST_BUDGET_PER_HOUR: Joi.number().min(0).default(0),
   GENERATION_TOKEN_BUDGET_PER_RUN: Joi.number().integer().min(0).default(0),
   GENERATION_COST_BUDGET_PER_RUN: Joi.number().min(0).default(0),
-  // P0: F1 engagement per-session soft caps
-  F1_LIKES_MAX_PER_DAY: Joi.number().integer().min(0).default(25),
-  F1_COMMENTS_MAX_PER_DAY: Joi.number().integer().min(0).default(10),
-  F1_REPOSTS_MAX_PER_DAY: Joi.number().integer().min(0).default(8),
-  F1_QUOTES_MAX_PER_DAY: Joi.number().integer().min(0).default(3),
+  // P0: F1 engagement per-session soft caps (names say _PER_DAY for historical reasons,
+  // but these are per-session targets; global *_GLOBAL vars below are the daily hard caps).
+  F1_LIKES_MAX_PER_DAY: Joi.number().integer().min(0).default(4),
+  F1_COMMENTS_MAX_PER_DAY: Joi.number().integer().min(0).default(1),
+  F1_REPOSTS_MAX_PER_DAY: Joi.number().integer().min(0).default(1),
+  F1_QUOTES_MAX_PER_DAY: Joi.number().integer().min(0).default(1),
+  F1_DISCUSSIONS_MAX_PER_DAY: Joi.number().integer().min(0).default(2),
   // P0: F1 engagement daily hard limits (per account, across all sessions)
-  F1_MAX_LIKES_PER_DAY_GLOBAL: Joi.number().integer().min(0).default(150),
-  F1_MAX_COMMENTS_PER_DAY_GLOBAL: Joi.number().integer().min(0).default(50),
-  F1_MAX_REPOSTS_PER_DAY_GLOBAL: Joi.number().integer().min(0).default(40),
-  F1_MAX_QUOTES_PER_DAY_GLOBAL: Joi.number().integer().min(0).default(15),
+  F1_MAX_LIKES_PER_DAY_GLOBAL: Joi.number().integer().min(0).default(20),
+  F1_MAX_COMMENTS_PER_DAY_GLOBAL: Joi.number().integer().min(0).default(5),
+  F1_MAX_REPOSTS_PER_DAY_GLOBAL: Joi.number().integer().min(0).default(1),
+  F1_MAX_QUOTES_PER_DAY_GLOBAL: Joi.number().integer().min(0).default(1),
   // P0: engagement-first guardrail weight. Higher value = more likely to override POST/GENERATE with BROWSE.
   // A value of 0 disables the override. Formula: debt * weight > approvedDrafts.
   ENGAGEMENT_PRIORITY_WEIGHT: Joi.number().min(0).default(1.0),

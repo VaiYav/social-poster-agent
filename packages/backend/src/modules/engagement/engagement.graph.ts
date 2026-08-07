@@ -61,6 +61,7 @@ export const EngagementState = Annotation.Root({
   commentsMaxPerSession: Annotation<number>,
   repostsMaxPerSession: Annotation<number>,
   quotesMaxPerSession: Annotation<number>,
+  discussionsMaxPerSession: Annotation<number>,
   // Warmup — set by check_warmup node
   warmupStatus: Annotation<WarmupStatus | null>,
   warmupPhase: Annotation<string>,
@@ -69,6 +70,7 @@ export const EngagementState = Annotation.Root({
   commentsBudget: Annotation<number>,
   repostsBudget: Annotation<number>,
   quotesBudget: Annotation<number>,
+  discussionsBudget: Annotation<number>,
   // Targeting — set by pick_source node
   source: Annotation<EngagementSource>,
   sourceUrl: Annotation<string>,
@@ -132,6 +134,7 @@ function makeCheckWarmupNode(warmupService?: WarmupService) {
       let commentsBudget = state.commentsMaxPerSession;
       let repostsBudget = state.repostsMaxPerSession;
       let quotesBudget = state.quotesMaxPerSession;
+      let discussionsBudget = state.discussionsMaxPerSession ?? (repostsBudget + quotesBudget);
 
       switch (phase) {
         case 'browse-only':
@@ -139,18 +142,21 @@ function makeCheckWarmupNode(warmupService?: WarmupService) {
           commentsBudget = 0;
           repostsBudget = 0;
           quotesBudget = 0;
+          discussionsBudget = 0;
           break;
         case 'light':
           likesBudget = Math.min(likesBudget, warmupStatus.maxInteractionsPerDay);
           commentsBudget = 0;
           repostsBudget = 0;
           quotesBudget = 0;
+          discussionsBudget = 0;
           break;
         case 'moderate':
           likesBudget = Math.min(likesBudget, warmupStatus.maxInteractionsPerDay);
           commentsBudget = Math.min(commentsBudget, 1);
           repostsBudget = 0;
           quotesBudget = 0;
+          discussionsBudget = 0;
           break;
         case 'full':
           // No reduction
@@ -164,6 +170,7 @@ function makeCheckWarmupNode(warmupService?: WarmupService) {
         commentsBudget,
         repostsBudget,
         quotesBudget,
+        discussionsBudget,
       };
     }
 
@@ -175,6 +182,7 @@ function makeCheckWarmupNode(warmupService?: WarmupService) {
       commentsBudget: state.commentsMaxPerSession,
       repostsBudget: state.repostsMaxPerSession,
       quotesBudget: state.quotesMaxPerSession,
+      discussionsBudget: state.discussionsMaxPerSession ?? (state.repostsMaxPerSession + state.quotesMaxPerSession),
     };
   };
 }
@@ -324,6 +332,7 @@ function makeDecidePerPostNode(
         commentsMaxPerSession: state.commentsBudget,
         repostsMaxPerSession: state.repostsBudget,
         quotesMaxPerSession: state.quotesBudget,
+        discussionsMaxPerSession: state.discussionsBudget,
         maxPosts: state.maxPosts,
         durationSec: state.durationSec,
         sessionStartMs: state.sessionStartMs,
@@ -366,10 +375,11 @@ function recordNode(state: EngagementStateType): Partial<EngagementStateType> {
   const commentCount = state.results.filter((r) => r.action === 'comment' && r.success).length;
   const repostCount = state.results.filter((r) => r.action === 'repost' && r.success).length;
   const quoteCount = state.results.filter((r) => r.action === 'quote' && r.success).length;
+  const discussionCount = repostCount + quoteCount;
 
   logger.log(
     `record: ${state.results.length} posts processed, ${successCount} successful, ` +
-      `${likeCount} likes, ${commentCount} comments, ${repostCount} reposts, ${quoteCount} quotes ` +
+      `${likeCount} likes, ${commentCount} comments, ${repostCount} reposts, ${quoteCount} quotes, ${discussionCount} discussions ` +
       `(warmup: ${state.warmupPhase})`,
   );
 
@@ -429,9 +439,11 @@ export function createEngagementInitialState(opts: {
   commentsMaxPerSession: number;
   repostsMaxPerSession: number;
   quotesMaxPerSession: number;
+  discussionsMaxPerSession?: number;
   conversationReady?: boolean;
   page: Page | null;
 }): EngagementStateWithPageType {
+  const discussionsMax = opts.discussionsMaxPerSession ?? (opts.repostsMaxPerSession + opts.quotesMaxPerSession);
   return {
     network: opts.network,
     accountId: opts.accountId,
@@ -443,12 +455,14 @@ export function createEngagementInitialState(opts: {
     commentsMaxPerSession: opts.commentsMaxPerSession,
     repostsMaxPerSession: opts.repostsMaxPerSession,
     quotesMaxPerSession: opts.quotesMaxPerSession,
+    discussionsMaxPerSession: discussionsMax,
     warmupStatus: null,
     warmupPhase: 'none',
     likesBudget: opts.likesMaxPerSession,
     commentsBudget: opts.commentsMaxPerSession,
     repostsBudget: opts.repostsMaxPerSession,
     quotesBudget: opts.quotesMaxPerSession,
+    discussionsBudget: discussionsMax,
     source: 'home-feed',
     sourceUrl: '',
     sourceLabel: '',

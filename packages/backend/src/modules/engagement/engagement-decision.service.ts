@@ -81,6 +81,8 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
           repostsMaxPerSession: String(context.repostsMaxPerSession ?? 0),
           quotesThisSession: String(context.quotesThisSession ?? 0),
           quotesMaxPerSession: String(context.quotesMaxPerSession ?? 0),
+          discussionsThisSession: String(context.discussionsThisSession ?? (context.repostsThisSession ?? 0) + (context.quotesThisSession ?? 0)),
+          discussionsMaxPerSession: String(context.discussionsMaxPerSession ?? (context.repostsMaxPerSession ?? 0) + (context.quotesMaxPerSession ?? 0)),
         },
         ENGAGEMENT_DECISION_PROMPT,
       );
@@ -492,6 +494,16 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       this.logger.debug(`LLM said 'quote' but budget exhausted — downgrading to 'read'`);
       return { action: 'read', reason: 'Quote budget exhausted', confidence: 0.8 };
     }
+    // F1: discussions = repost + quote combined. If a session has e.g. reposts=1/quotes=1,
+    // the combined discussion budget may be 1, so a quote after a repost must be blocked.
+    if (decision.action === 'repost' || decision.action === 'quote') {
+      const discussionsThisSession = context.discussionsThisSession ?? ((context.repostsThisSession ?? 0) + (context.quotesThisSession ?? 0));
+      const discussionsMaxPerSession = context.discussionsMaxPerSession ?? ((context.repostsMaxPerSession ?? 0) + (context.quotesMaxPerSession ?? 0));
+      if (discussionsThisSession >= discussionsMaxPerSession) {
+        this.logger.debug(`LLM said '${decision.action}' but discussion budget exhausted — downgrading to 'read'`);
+        return { action: 'read', reason: 'Discussion budget exhausted', confidence: 0.8 };
+      }
+    }
     return null;
   }
 
@@ -521,13 +533,15 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
     return contexts
       .map((ctx, i) => {
         const postNum = i + 1;
+        const discussionsThisSession = ctx.discussionsThisSession ?? ((ctx.repostsThisSession ?? 0) + (ctx.quotesThisSession ?? 0));
+        const discussionsMaxPerSession = ctx.discussionsMaxPerSession ?? ((ctx.repostsMaxPerSession ?? 0) + (ctx.quotesMaxPerSession ?? 0));
         return `--- Post ${postNum} ---
 |- Platform: ${ctx.network}
 |- From: ${sanitizeUntrustedInput(ctx.source, 80)} (@${sanitizeUntrustedInput(ctx.authorHandle ?? 'unknown', 80)})
 |- Has media: ${ctx.hasMedia}
 |- Text: "${sanitizeUntrustedInput(ctx.postText, 300)}"
 ||- Detected language: ${detectLanguage(ctx.postText)}
-|- Budget: likes ${ctx.likesThisSession}/${ctx.likesMaxPerSession}, comments ${ctx.commentsThisSession}/${ctx.commentsMaxPerSession}, reposts ${ctx.repostsThisSession ?? 0}/${ctx.repostsMaxPerSession ?? 0}, quotes ${ctx.quotesThisSession ?? 0}/${ctx.quotesMaxPerSession ?? 0}`;
+|- Budget: likes ${ctx.likesThisSession}/${ctx.likesMaxPerSession}, comments ${ctx.commentsThisSession}/${ctx.commentsMaxPerSession}, reposts ${ctx.repostsThisSession ?? 0}/${ctx.repostsMaxPerSession ?? 0}, quotes ${ctx.quotesThisSession ?? 0}/${ctx.quotesMaxPerSession ?? 0}, discussions ${discussionsThisSession}/${discussionsMaxPerSession}`;
       })
       .join('\n\n');
   }

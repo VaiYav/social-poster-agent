@@ -24,6 +24,8 @@ LLM-управляемый браузерный агент, который им�
 дискуссии, репостит. Цель — создать реалистичный паттерн активности вокруг
 аккаунта, чтобы он выглядел как живой пользователь, а не как бот-постер.
 
+**Status:** Phase 2 — Sprint 2.1 done: `EngagementDecisionService` (individual + batch LLM decisions), `HumanBehaviorEngine`, discussion budget (repost + quote), daily limits (20 likes / 5 comments / 2 discussions), Swagger in `EngagementController`. Still gated by `ENGAGEMENT_ENABLED=false`.
+
 ### Мотивация
 - Аккаунт-только-постер выглядит подозрительно для алгоритмов соц-сетей
 - Реальная активность повышает trust score аккаунта → выше reach постов
@@ -855,11 +857,13 @@ APPROVED но job потерян в Redis → пост зависнет.
 ### Новые env vars
 ```env
 # F1 Autonomous Agent limits
-F1_LIKES_MAX_PER_DAY=15
-F1_COMMENTS_MAX_PER_DAY=4
-F1_DISCUSSIONS_MAX_PER_DAY=1
-F1_BROWSING_SESSIONS_PER_DAY=3
-F1_BROWSING_SESSION_MINUTES=10
+F1_LIKES_MAX_PER_DAY=4
+F1_COMMENTS_MAX_PER_DAY=1
+F1_REPOSTS_MAX_PER_DAY=1
+F1_QUOTES_MAX_PER_DAY=1
+F1_DISCUSSIONS_MAX_PER_DAY=2
+F1_BROWSING_SESSIONS_PER_DAY=5
+F1_BROWSING_SESSION_MINUTES=15
 
 # F2 Multi-stage posting
 F2_DELAY_BETWEEN_STAGES_MS=1800000   # 30 минут

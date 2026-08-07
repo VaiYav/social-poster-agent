@@ -57,6 +57,8 @@ export interface BehaviorEngineConfig {
   repostsMaxPerSession?: number;
   /** Max quotes per session. Defaults to 0 if not set. */
   quotesMaxPerSession?: number;
+  /** Max discussions (repost + quote) per session. Defaults to repostsMax + quotesMax if not set. */
+  discussionsMaxPerSession?: number;
   /** Max posts to evaluate per session (prevents infinite loops). */
   maxPosts: number;
   /** Total wall-clock budget for the session (scroll + interactions), in seconds. */
@@ -108,6 +110,7 @@ export class HumanBehaviorEngine {
     let commentsThisSession = 0;
     let repostsThisSession = 0;
     let quotesThisSession = 0;
+    let discussionsThisSession = 0;
     let postsProcessed = 0;
 
     // Respect the overall session duration budget. Scroll + interactions must fit.
@@ -147,6 +150,7 @@ export class HumanBehaviorEngine {
             HumanBehaviorEngine.EXTRACT_TIMEOUT_MS,
             `Extract post text for ${postUrl}`,
           );
+          const discussionsMax = config.discussionsMaxPerSession ?? ((config.repostsMaxPerSession ?? 0) + (config.quotesMaxPerSession ?? 0));
           contexts.push({
             network: config.network,
             postUrl,
@@ -158,10 +162,12 @@ export class HumanBehaviorEngine {
             commentsThisSession,
             repostsThisSession,
             quotesThisSession,
+            discussionsThisSession,
             likesMaxPerSession: config.likesMaxPerSession,
             commentsMaxPerSession: config.commentsMaxPerSession,
             repostsMaxPerSession: config.repostsMaxPerSession ?? 0,
             quotesMaxPerSession: config.quotesMaxPerSession ?? 0,
+            discussionsMaxPerSession: discussionsMax,
           });
         } catch (err) {
           const errMsg = (err as Error).message;
@@ -246,6 +252,10 @@ export class HumanBehaviorEngine {
         }
         if (decision.action === 'quote' && quotesThisSession >= (config.quotesMaxPerSession ?? 0)) {
           decision = { action: 'read', reason: 'Quote budget exhausted mid-batch', confidence: 0.8 };
+        }
+        const discussionsMax = config.discussionsMaxPerSession ?? ((config.repostsMaxPerSession ?? 0) + (config.quotesMaxPerSession ?? 0));
+        if ((decision.action === 'repost' || decision.action === 'quote') && discussionsThisSession >= discussionsMax) {
+          decision = { action: 'read', reason: 'Discussion budget exhausted mid-batch', confidence: 0.8 };
         }
 
         // First-interaction quota: if the session has been entirely non-engaging
@@ -336,8 +346,8 @@ export class HumanBehaviorEngine {
         if (result.success) {
           if (decision.action === 'like') likesThisSession++;
           if (decision.action === 'comment') commentsThisSession++;
-          if (decision.action === 'repost') repostsThisSession++;
-          if (decision.action === 'quote') quotesThisSession++;
+          if (decision.action === 'repost') { repostsThisSession++; discussionsThisSession++; }
+          if (decision.action === 'quote') { quotesThisSession++; discussionsThisSession++; }
         }
 
         results.push(result);

@@ -554,4 +554,75 @@ describe('EngagementDecisionService', () => {
     expect(result.approved).toBe(false);
     expect(result.score).toBe(0);
   });
+
+  // ── discussion budget (repost + quote) ──
+
+  it('ED-DISC-001: downgrades repost → read when discussion budget exhausted', async () => {
+    mockLlm = createMockLlm([
+      { content: '{"action":"repost","reason":"worth sharing","confidence":0.9}', model: 'mock' },
+    ]);
+    service = new EngagementDecisionService(mockLlm, configService);
+
+    const decision = await service.decideAction(createPostContext({
+      repostsThisSession: 0,
+      repostsMaxPerSession: 5,
+      quotesThisSession: 0,
+      quotesMaxPerSession: 5,
+      discussionsThisSession: 1,
+      discussionsMaxPerSession: 1,
+    }));
+    expect(decision.action).toBe('read');
+    expect(decision.reason).toContain('Discussion');
+  });
+
+  it('ED-DISC-002: downgrades quote → read when discussion budget exhausted', async () => {
+    mockLlm = createMockLlm([
+      { content: '{"action":"quote","reason":"sharp take","confidence":0.9,"quoteText":"Yes"}', model: 'mock' },
+    ]);
+    service = new EngagementDecisionService(mockLlm, configService);
+
+    const decision = await service.decideAction(createPostContext({
+      repostsThisSession: 1,
+      repostsMaxPerSession: 5,
+      quotesThisSession: 0,
+      quotesMaxPerSession: 5,
+      discussionsThisSession: 1,
+      discussionsMaxPerSession: 1,
+    }));
+    expect(decision.action).toBe('read');
+    expect(decision.reason).toContain('Discussion');
+  });
+
+  it('ED-DISC-003: allows repost when discussion budget is available', async () => {
+    mockLlm = createMockLlm([
+      { content: '{"action":"repost","reason":"worth sharing","confidence":0.9}', model: 'mock' },
+    ]);
+    service = new EngagementDecisionService(mockLlm, configService);
+
+    const decision = await service.decideAction(createPostContext({
+      repostsThisSession: 0,
+      repostsMaxPerSession: 5,
+      quotesThisSession: 0,
+      quotesMaxPerSession: 5,
+      discussionsThisSession: 0,
+      discussionsMaxPerSession: 2,
+    }));
+    expect(decision.action).toBe('repost');
+  });
+
+  it('ED-DISC-004: discussion budget falls back to repostsMax + quotesMax when not provided', async () => {
+    mockLlm = createMockLlm([
+      { content: '{"action":"quote","reason":"sharp take","confidence":0.9,"quoteText":"Yes"}', model: 'mock' },
+    ]);
+    service = new EngagementDecisionService(mockLlm, configService);
+
+    const decision = await service.decideAction(createPostContext({
+      repostsThisSession: 2,
+      repostsMaxPerSession: 1,
+      quotesThisSession: 0,
+      quotesMaxPerSession: 1,
+    }));
+    expect(decision.action).toBe('read');
+    expect(decision.reason).toContain('Discussion');
+  });
 });

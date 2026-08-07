@@ -59,6 +59,7 @@ export const ENGAGEMENT_DECISION_USER_TEMPLATE = `You're scrolling. Here's a pos
 |- Comments used: {commentsThisSession}/{commentsMaxPerSession}
 |- Reposts used: {repostsThisSession}/{repostsMaxPerSession}
 |- Quotes used: {quotesThisSession}/{quotesMaxPerSession}
+|- Discussions used: {discussionsThisSession}/{discussionsMaxPerSession} (reposts + quotes combined)
 |
 |What do you do? Respond as JSON only.`;
 
