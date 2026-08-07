@@ -176,16 +176,18 @@
 
 **B5. `BrowsingSessionService` `runBrowsingSession` `pre-session health check` calls `page.evaluate(() => 1)` with `withTimeout(10_000)`. If page is not responsive, it catches and continues. But for fatal errors like `Target page...` it throws. Good. But it doesn't test navigation, only JS evaluate. A page may evaluate JS but still fail to navigate. Acceptable.**
 
-**B6. `EngagementService.performInteraction` creates a `browser.createContext` (not `acquireContext`). It does not release/close the context after use? It closes `page` and `context` but does not call `releaseContext`. It uses `context.close()`. This is a new context each time, not pooled. For individual actions, it creates a new context and closes it. This is expensive. It should use `acquireContext`/`releaseContext` like `BrowsingSessionService` to reuse contexts. Also, `browser.createContext` may be for Facebook persistent context? The `browser.createContext` signature: `createContext(network, storageState?)`. It may be a new context per call. This is a performance issue. But individual actions are infrequent. However, it doesn't use the pool, so it doesn't benefit from `BrowserFactory` pooling. Should be `acquireContext`/`releaseContext`.**
+**B6. ~~`EngagementService.performInteraction` creates a `browser.createContext` (not `acquireContext`)~~ — RESOLVED**
+- Now uses `browser.acquireContext()` and `browser.releaseContext()` so pooled/persistent contexts are reused instead of creating a new Camoufox process per action.
 
-**B7. `EngagementService.performInteraction` `catch (err)` catches all errors and updates `Interaction` to `FAILED`, but does not close the context if the action failed. It has `await page.close().catch()` and `await context.close().catch()` in `try` block. If an error occurs before `page` is created, `page.close()` is not reached. If an error occurs after `page` is created but before `context.close()`, the `catch` block doesn't close. But `try` has `page.close()` and `context.close()` after `action`. If `action` throws, those are not executed. Then `catch` returns, leaving context/page open. **Memory leak** for individual actions. Need `finally` close. Same for `browsing-session.service`? It uses `finally` for page/context. Good. `EngagementService` does not. **Bug.**
+**B7. ~~`EngagementService.performInteraction` `catch` does not close context on failure~~ — RESOLVED**
+- The method already had a `finally` block that closes the page and releases the context; the fix in B6 ensures `releaseContext()` is used instead of `close()`.
 
 **B8. `EngagementService.performInteraction` `rateLimitService.recordPost(rateKey)` is called with `rateKey` `${network}-${type.toLowerCase()}` (e.g., `X-like`). `RateLimitService.resolveLimits` handles this. But `recordPost` uses `intervalMs = resolveLimits(rateKey).intervalMs` which for interaction is `interactionMinIntervalMs` (default 0). Good. `checkRateLimit` uses `resolveLimits` and reads `intervalKey`. But `recordPost` sets `intervalKey` with `PX intervalMs` only if `intervalMs > 0`. For interaction default 0, no interval. Good. But `RateLimitService` does not handle `0` for `interaction_*_MAX_PER_DAY` as B8 in rate-limit. If someone sets `RATE_LIMIT_INTERACTION_LIKE_MAX_PER_DAY=0`, it falls back to 60. This is a bug.**
 
 **B9. `EngagementService.performInteraction` `interactionId` is empty string in early returns (paused, rate limited, no session). The caller gets `interactionId: ''`. Should be null or omitted. But the return type says `EngagementResult & { interactionId: string }`. Empty string is valid type. Not ideal.**
 
-**B10. `EngagementService.performInteraction` does not check `WarmupService.canPost` before creating a session or interaction.**
-- A new account in `browse-only` warm-up should not be allowed to perform actions. `HumanBehaviorEngine` handles budgets, but `EngagementService` doesn't. For API-triggered individual actions, `WarmupService` is not checked. Should call `warmupService.canPost(accountId)`.
+**B10. ~~`EngagementService.performInteraction` does not check warm-up before creating a session or interaction~~ — RESOLVED**
+- Added optional `WarmupService` injection and `canInteract(session.accountId)` check after `getOrCreateSession`. Browse-only accounts are rejected before an `Interaction` is created.
 
 **B11. `HumanBehaviorEngine.processPosts` uses `postsProcessed` counter. It increments `postsProcessed` for extraction failures (line 177) and for each executed decision (line 231). But if an extraction fails and it continues, it doesn't record a result. Then if extraction fails, `postsProcessed` increments but `results` doesn't. It might exit early. This is okay for maxPosts count.**
 
@@ -295,14 +297,14 @@
 
 ## 7. New feature / improvement ideas
 
-**F1. Use `acquireContext`/`releaseContext` in `EngagementService` for individual actions**
-- Fix memory leak and improve performance.
+**F1. ~~Use `acquireContext`/`releaseContext` in `EngagementService` for individual actions~~ — RESOLVED**
+- `EngagementService.performInteraction` now acquires and releases browser contexts from the pool.
 
-**F2. Add `finally` block to `EngagementService.performInteraction` to close context/page**
-- Fix memory leak on errors.
+**F2. ~~Add `finally` block to `EngagementService.performInteraction` to close context/page~~ — RESOLVED**
+- Page close and `releaseContext` are in the `finally` block; the page is closed before the context is released.
 
-**F3. Add `WarmupService.canPost` check to `EngagementService` and `BrowsingSessionService`**
-- Respect warm-up phases for API-triggered actions.
+**F3. ~~Add `WarmupService.canPost` check to `EngagementService` and `BrowsingSessionService`~~ — RESOLVED**
+- Added `WarmupService.canInteract()` and gating in `EngagementService.performInteraction`. `BrowsingSessionService` already gates via the `check_warmup` graph node.
 
 **F4. Implement `own-post` targeting source**
 - Build account profile URL and use it to reply to comments on own posts.
@@ -310,8 +312,8 @@
 **F5. ~~Use `ConfigService` for `ENGAGEMENT_COMMENT_TEMPERATURE` and `ENGAGEMENT_QUOTE_TEMPERATURE`~~ — RESOLVED (Sprint 2.1)**
 - `ConfigService` now reads both in `EngagementDecisionService` constructor.
 
-**F6. Validate `network`, `type`, `status` in `EngagementController` query params**
-- Use `ParseEnumPipe` or Zod.
+**F6. ~~Validate `network`, `type`, `status` in `EngagementController` query params~~ — RESOLVED**
+- Implemented with Zod `safeParse` in `getStats`, `getInteractions`, and `getBrowsingSessions`.
 
 **F7. Add `IEngagerStrategy` Map injection**
 - Remove `getEngager` switch in both `EngagementService` and `BrowsingSessionService`.
@@ -372,24 +374,21 @@
 **B34. No global `F1_MAX_DISCUSSIONS_PER_DAY_GLOBAL` hard cap**
 - Discussion daily total is constrained only by `F1_MAX_REPOSTS_PER_DAY_GLOBAL=1` + `F1_MAX_QUOTES_PER_DAY_GLOBAL=1`. If those global caps are raised independently, discussions could exceed the intended 1-2 per day. Consider adding `F1_MAX_DISCUSSIONS_PER_DAY_GLOBAL` and clamping in `BrowsingSessionService`.
 
-**B35. `EngagementController` query params still not validated (unchanged from B30/B31/F6)**
-- `GET /engagement/interactions` and `/engagement/browsing-sessions` still cast `status`/`type` to `never` and `network` to `SocialNetwork` without validation. Invalid values reach Prisma.
+**B35. ~~`EngagementController` query params still not validated (unchanged from B30/B31/F6)~~ — RESOLVED**
+- `GET /engagement/stats`, `/engagement/interactions`, and `/engagement/browsing-sessions` now parse `network`/`type`/`status`/`limit` with Zod and return 400 for invalid values.
 
-**B36. `EngagementService` memory leak and context-pool issues remain (B7, P1, A3)**
-- Sprint 2.1 did not touch `EngagementService.performInteraction`; the `finally` close and `acquireContext` issues are still present. These are the biggest pre-existing risks.
+**B36. ~~`EngagementService` memory leak and context-pool issues remain (B7, P1, A3)~~ — RESOLVED**
+- `EngagementService.performInteraction` now uses `acquireContext`/`releaseContext` and the existing `finally` block closes the page and returns the context to the pool.
 
-### Health update after Sprint 2.1
-- The decision engine and budget layer are now coherent and tested. The module health improves from 5/10 to 6/10, but the pre-existing `EngagementService` context/memory risks and `own-post`/scheduler issues remain.
+### Health update after Sprint 2.1 + post-review fixes
+- The decision engine and budget layer are now coherent and tested. Post-review fixes resolved `EngagementService` context pooling, warm-up gating, and `EngagementController` query validation. Module health improves from 5/10 to 7/10; remaining risks are `own-post` source, scheduler delayed-job stacking, and the static browsing-session mutex.
 
 ## 9. Overall assessment
 
-- **Health**: 6/10. Sprint 2.1 closed the decision-engine and budget gaps and fixed the temperature/ConfigService issue. Pre-existing risks remain: memory leaks in `EngagementService`, `own-post` not implemented, `scheduleDailySessions` can stack delayed jobs, static mutex bottleneck, controller not validating query enums.
-- **Biggest strengths**: LLM-driven human-like behavior with batch and individual decisions, discussion budget, source rotation, warmup gating, `EngagementGraph` orchestration, resource blocking for memory, `checkStaleAndEnqueue` for orchestrator.
-- **Biggest risks**: `EngagementService` memory leak (no `finally` close context), `own-post` source not implemented, `scheduleDailySessions` can stack delayed jobs, static mutex limits throughput, controller validation gaps, no warm-up check for API actions.
+- **Health**: 7/10. Sprint 2.1 closed the decision-engine and budget gaps; post-review fixes resolved `EngagementService` context pooling, warm-up gating for API actions, and `EngagementController` query validation. Remaining risks: `own-post` source not implemented, `scheduleDailySessions` can stack delayed jobs, static mutex bottleneck.
+- **Biggest strengths**: LLM-driven human-like behavior with batch and individual decisions, discussion budget, source rotation, warmup gating, `EngagementGraph` orchestration, resource blocking for memory, pooled browser contexts for individual actions, `checkStaleAndEnqueue` for orchestrator.
+- **Biggest risks**: `own-post` source not implemented, `scheduleDailySessions` can stack delayed jobs, static mutex limits throughput.
 - **Recommended next actions**:
-  1. Add `finally` to `EngagementService.performInteraction` to close context/page.
-  2. Switch `EngagementService` to `acquireContext`/`releaseContext`.
-  3. Implement `own-post` source or remove it.
-  4. Fix `EngagementSchedulerService` to clear old delayed browsing jobs before re-scheduling.
-  5. Validate `network`/`type`/`status` in `EngagementController`.
-  6. Add `WarmupService.canPost` check for API actions.
+  1. Implement `own-post` source or remove it.
+  2. Fix `EngagementSchedulerService` to clear old delayed browsing jobs before re-scheduling.
+  3. Replace the global browsing-session mutex with a per-network pool semaphore.

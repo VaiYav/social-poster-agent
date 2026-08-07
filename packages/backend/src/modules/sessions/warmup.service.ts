@@ -102,6 +102,16 @@ export class WarmupService {
   }
 
   /**
+   * Check if any engagement interaction (like/comment/repost/quote/follow/reply) is allowed
+   * for an account during warm-up. Returns true if not in warm-up OR not in 'browse-only'.
+   */
+  async canInteract(accountId: string): Promise<boolean> {
+    const status = await this.getWarmupStatus(accountId);
+    if (!status) return true; // not in warm-up — full access
+    return status.canInteract;
+  }
+
+  /**
    * Complete warm-up — transition account to ACTIVE.
    */
   async completeWarmup(accountId: string): Promise<void> {

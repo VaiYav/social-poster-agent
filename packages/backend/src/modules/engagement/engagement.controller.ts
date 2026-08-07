@@ -6,7 +6,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { z } from 'zod';
 import { EngagementService } from './engagement.service.js';
 import { BrowsingSessionService } from './browsing-session.service.js';
-import { SocialNetwork } from '@prisma/client';
+import { SocialNetwork, InteractionType, InteractionStatus, BrowsingSessionStatus } from '@prisma/client';
 
 const likeSchema = z.object({
   network: z.enum(['X', 'THREADS', 'FACEBOOK']),
@@ -45,6 +45,12 @@ const browsingSessionSchema = z.object({
   network: z.enum(['X', 'THREADS', 'FACEBOOK']),
   durationSec: z.number().min(60).max(3600).optional(),
 });
+
+const networkQuerySchema = z.enum(['X', 'THREADS', 'FACEBOOK']).optional();
+const interactionTypeQuerySchema = z.enum(Object.values(InteractionType) as [string, ...string[]]).optional();
+const interactionStatusQuerySchema = z.enum(Object.values(InteractionStatus) as [string, ...string[]]).optional();
+const browsingSessionStatusQuerySchema = z.enum(Object.values(BrowsingSessionStatus) as [string, ...string[]]).optional();
+const limitQuerySchema = z.coerce.number().int().min(1).max(1000).optional();
 
 @ApiTags('engagement')
 @Controller('engagement')
@@ -166,10 +172,13 @@ export class EngagementController {
   @ApiOperation({ summary: 'F1: Get engagement stats for a network or all networks' })
   @ApiQuery({ name: 'network', required: false, description: 'X, THREADS, or FACEBOOK' })
   @ApiResponse({ status: 200, description: 'Engagement statistics' })
+  @ApiResponse({ status: 400, description: 'Invalid query parameter' })
   async getStats(@Query('network') network?: string) {
-    const networkEnum = network
-      ? (SocialNetwork[network as keyof typeof SocialNetwork] as SocialNetwork)
-      : undefined;
+    const parsed = networkQuerySchema.safeParse(network);
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.message);
+    }
+    const networkEnum = parsed.data ? SocialNetwork[parsed.data] : undefined;
     return this.engagementService.getStats(networkEnum);
   }
 
@@ -180,19 +189,30 @@ export class EngagementController {
   @ApiQuery({ name: 'status', required: false })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiResponse({ status: 200, description: 'List of interactions' })
+  @ApiResponse({ status: 400, description: 'Invalid query parameter' })
   async getInteractions(
     @Query('network') network?: string,
     @Query('type') type?: string,
     @Query('status') status?: string,
     @Query('limit') limit?: string,
   ) {
+    const parsedNetwork = networkQuerySchema.safeParse(network);
+    const parsedType = interactionTypeQuerySchema.safeParse(type);
+    const parsedStatus = interactionStatusQuerySchema.safeParse(status);
+    const parsedLimit = limitQuerySchema.safeParse(limit);
+    if (!parsedNetwork.success || !parsedType.success || !parsedStatus.success || !parsedLimit.success) {
+      throw new BadRequestException(
+        [parsedNetwork, parsedType, parsedStatus, parsedLimit]
+          .filter((p) => !p.success)
+          .map((p) => p.error!.message)
+          .join('; '),
+      );
+    }
     return this.browsingSessionService.findInteractions({
-      network: network
-        ? (SocialNetwork[network as keyof typeof SocialNetwork] as SocialNetwork)
-        : undefined,
-      type: type as never,
-      status: status as never,
-      limit: limit ? Number(limit) : undefined,
+      network: parsedNetwork.data ? SocialNetwork[parsedNetwork.data] : undefined,
+      type: parsedType.data as InteractionType | undefined,
+      status: parsedStatus.data as InteractionStatus | undefined,
+      limit: parsedLimit.data,
     });
   }
 
@@ -202,17 +222,27 @@ export class EngagementController {
   @ApiQuery({ name: 'status', required: false })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiResponse({ status: 200, description: 'List of browsing sessions' })
+  @ApiResponse({ status: 400, description: 'Invalid query parameter' })
   async getBrowsingSessions(
     @Query('network') network?: string,
     @Query('status') status?: string,
     @Query('limit') limit?: string,
   ) {
+    const parsedNetwork = networkQuerySchema.safeParse(network);
+    const parsedStatus = browsingSessionStatusQuerySchema.safeParse(status);
+    const parsedLimit = limitQuerySchema.safeParse(limit);
+    if (!parsedNetwork.success || !parsedStatus.success || !parsedLimit.success) {
+      throw new BadRequestException(
+        [parsedNetwork, parsedStatus, parsedLimit]
+          .filter((p) => !p.success)
+          .map((p) => p.error!.message)
+          .join('; '),
+      );
+    }
     return this.browsingSessionService.findAll({
-      network: network
-        ? (SocialNetwork[network as keyof typeof SocialNetwork] as SocialNetwork)
-        : undefined,
-      status: status as never,
-      limit: limit ? Number(limit) : undefined,
+      network: parsedNetwork.data ? SocialNetwork[parsedNetwork.data] : undefined,
+      status: parsedStatus.data as BrowsingSessionStatus | undefined,
+      limit: parsedLimit.data,
     });
   }
 }

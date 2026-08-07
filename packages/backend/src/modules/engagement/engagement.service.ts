@@ -4,6 +4,7 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service.js';
 import { SessionsService } from '../sessions/sessions.service.js';
+import { WarmupService } from '../sessions/warmup.service.js';
 import { AccountsService } from '../accounts/accounts.service.js';
 import { IBrowserPort } from '../../domain/ports/browser.port.js';
 import { SseService } from '../../infrastructure/sse/sse.service.js';
@@ -39,6 +40,7 @@ export class EngagementService implements IEngagementPort {
     private readonly threadsEngager: ThreadsEngager,
     private readonly facebookEngager: FacebookEngager,
     @Optional() private readonly accountsService?: AccountsService,
+    @Optional() private readonly warmupService?: WarmupService,
   ) {}
 
   /**
@@ -191,6 +193,16 @@ export class EngagementService implements IEngagementPort {
       };
     }
 
+    // Warm-up gating — API-triggered actions must respect the account's interaction phase.
+    if (this.warmupService && !(await this.warmupService.canInteract(session.accountId))) {
+      this.logger.warn(`Account ${session.accountId} is in browse-only warm-up — skipping ${type} on ${network}`);
+      return {
+        success: false,
+        error: 'Account is in warm-up browse-only phase',
+        interactionId: '',
+      };
+    }
+
     // Create interaction record
     const interaction = await this.prisma.interaction.create({
       data: {
@@ -214,17 +226,17 @@ export class EngagementService implements IEngagementPort {
 
     const engager = this.getEngager(network);
 
-    // Create browser context — decrypt storage state if encrypted (v1: prefix)
+    // Acquire pooled/persistent browser context — decrypt storage state if encrypted (v1: prefix)
     const storageState = session.storageState
       ? this.sessionsService.decryptStorageState(session)
       : undefined;
 
-    let context: Awaited<ReturnType<IBrowserPort['createContext']>> | null = null;
+    let context: Awaited<ReturnType<IBrowserPort['acquireContext']>> | null = null;
     let page: Page | null = null;
     let result: EngagementResult | null = null;
 
     try {
-      context = await this.browser.createContext(network, storageState, accountId);
+      context = await this.browser.acquireContext(network, storageState, accountId);
       page = await context.newPage();
 
       // Perform the engagement action
@@ -242,7 +254,8 @@ export class EngagementService implements IEngagementPort {
         await page.close().catch(() => void 0);
       }
       if (context) {
-        await context.close().catch(() => void 0);
+        // Return the context to the pool (or no-op for persistent contexts) instead of closing it.
+        this.browser.releaseContext(network, context, accountId);
       }
     }
 

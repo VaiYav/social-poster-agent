@@ -12,7 +12,8 @@ describe('EngagementService — performInteraction cleanup', () => {
   let service: EngagementService;
   let prisma: ReturnType<typeof createMockPrismaService>;
   let browser: {
-    createContext: ReturnType<typeof vi.fn>;
+    acquireContext: ReturnType<typeof vi.fn>;
+    releaseContext: ReturnType<typeof vi.fn>;
     saveStorageState: ReturnType<typeof vi.fn>;
   };
   let sessionsService: {
@@ -29,6 +30,7 @@ describe('EngagementService — performInteraction cleanup', () => {
   let xEngager: { like: ReturnType<typeof vi.fn> };
   let threadsEngager: { like: ReturnType<typeof vi.fn> };
   let facebookEngager: { like: ReturnType<typeof vi.fn> };
+  let warmupService: { canInteract: ReturnType<typeof vi.fn> };
   let mockPage: { close: ReturnType<typeof vi.fn> };
   let mockContext: { newPage: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> };
 
@@ -44,7 +46,8 @@ describe('EngagementService — performInteraction cleanup', () => {
     (prisma as any).interaction.update.mockResolvedValue({ id: 'interaction-1' });
 
     browser = {
-      createContext: vi.fn().mockResolvedValue(mockContext),
+      acquireContext: vi.fn().mockResolvedValue(mockContext),
+      releaseContext: vi.fn(),
       saveStorageState: vi.fn().mockResolvedValue(JSON.stringify({ cookies: [], origins: [] })),
     };
 
@@ -64,6 +67,7 @@ describe('EngagementService — performInteraction cleanup', () => {
     xEngager = { like: vi.fn() };
     threadsEngager = { like: vi.fn() };
     facebookEngager = { like: vi.fn() };
+    warmupService = { canInteract: vi.fn().mockResolvedValue(true) };
 
     service = new EngagementService(
       prisma as never,
@@ -75,10 +79,12 @@ describe('EngagementService — performInteraction cleanup', () => {
       xEngager as never,
       threadsEngager as never,
       facebookEngager as never,
+      undefined,
+      warmupService as never,
     );
   });
 
-  it('P1-1.2: closes page and context when the engager action throws', async () => {
+  it('P1-1.2: closes page and releases pooled context when the engager action throws', async () => {
     xEngager.like.mockRejectedValue(new Error('like selector missing'));
 
     const result = await service.like(SocialNetwork.X, 'https://x.com/post/1');
@@ -86,14 +92,38 @@ describe('EngagementService — performInteraction cleanup', () => {
     expect(result.success).toBe(false);
     expect(result.error).toBe('like selector missing');
     expect(mockPage.close).toHaveBeenCalled();
-    expect(mockContext.close).toHaveBeenCalled();
+    expect(browser.releaseContext).toHaveBeenCalledWith(SocialNetwork.X, mockContext, undefined);
     const pageCloseLast = mockPage.close.mock.invocationCallOrder[mockPage.close.mock.invocationCallOrder.length - 1];
-    const contextCloseFirst = mockContext.close.mock.invocationCallOrder[0];
-    expect(pageCloseLast).toBeLessThan(contextCloseFirst);
+    const releaseContextFirst = (browser.releaseContext as any).mock.invocationCallOrder[0];
+    expect(pageCloseLast).toBeLessThan(releaseContextFirst);
     expect((prisma as any).interaction.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ status: 'FAILED' }),
       }),
     );
+  });
+
+  it('P1-1.3: acquires context, saves storage state, and releases it on success', async () => {
+    xEngager.like.mockResolvedValue({ success: true });
+
+    const result = await service.like(SocialNetwork.X, 'https://x.com/post/1');
+
+    expect(result.success).toBe(true);
+    expect(browser.acquireContext).toHaveBeenCalledWith(SocialNetwork.X, undefined, undefined);
+    expect(browser.saveStorageState).toHaveBeenCalledWith(mockContext);
+    expect(sessionsService.updateStorageState).toHaveBeenCalledWith('sess-1', expect.any(String));
+    expect(mockPage.close).toHaveBeenCalled();
+    expect(browser.releaseContext).toHaveBeenCalledWith(SocialNetwork.X, mockContext, undefined);
+  });
+
+  it('P1-1.4: skips interaction when account is in warm-up browse-only phase', async () => {
+    warmupService.canInteract.mockResolvedValue(false);
+
+    const result = await service.like(SocialNetwork.X, 'https://x.com/post/1');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('Account is in warm-up browse-only phase');
+    expect(browser.acquireContext).not.toHaveBeenCalled();
+    expect((prisma as any).interaction.create).not.toHaveBeenCalled();
   });
 });
