@@ -893,14 +893,17 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
       url: 'https://x.com/myzodiacai/status/123456789',
     });
 
-    // Assert: IBrowserPort.createContext NOT called
+    // Assert: IBrowserPort.createContext NOT called (re-verification for X uses
+    // URL-pattern validation, no browser context needed).
     expect(ctx.browserPort.createContext).not.toHaveBeenCalled();
 
-    // Assert: no SSE events published (check via Redis publish not called)
-    // Since SseService.publish calls redis.publish, and no posting flow ran,
-    // the mock Redis publish should not have been called.
-    // We verify by checking no post.update calls were made.
-    expect(ctx.prisma.post.update).not.toHaveBeenCalled();
+    // Assert: post was re-verified to VERIFIED with the same postUrl
+    expect(ctx.prisma.post.update).toHaveBeenCalled();
+    const verifiedUpdate = ctx.prisma.post.update.mock.calls.find(
+      (c: unknown[]) => c[0]?.where?.id === 'post-025' && c[0]?.data?.status === PostStatus.VERIFIED,
+    );
+    expect(verifiedUpdate).toBeDefined();
+    expect(verifiedUpdate[0].data.postUrl).toBe('https://x.com/myzodiacai/status/123456789');
 
     // Assert: no rate limit check (checkRateLimit not called — no Redis incr)
     // The daily key would be set if checkRateLimit ran

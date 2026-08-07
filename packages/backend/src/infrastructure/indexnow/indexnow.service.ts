@@ -1,9 +1,17 @@
 /**
  * P1-07: IndexNow URL submission service.
  *
- * Submits canonical URLs to Bing and Yandex after a post is published and
- * verified, so search engines can discover and index the POSSE canonical
- * article quickly.
+ * Submits canonical and syndicated URLs to the IndexNow protocol after a post is
+ * published and verified, so search engines can discover and index the POSSE
+ * source and its syndicated copies quickly.
+ *
+ * Uses the official IndexNow endpoint:
+ *   POST https://api.indexnow.org/indexnow
+ *
+ * Payload:
+ *   { host, key, keyLocation, urlList }
+ *
+ * Batches are limited to 10,000 URLs per request per spec.
  *
  * Requires:
  *   INDEXNOW_ENABLED=true
@@ -15,6 +23,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { parseBool } from '../config/parse-bool.js';
+
+const INDEXNOW_ENDPOINT = 'https://api.indexnow.org/indexnow';
+const MAX_BATCH_SIZE = 10_000;
 
 @Injectable()
 export class IndexNowService {
@@ -32,8 +43,9 @@ export class IndexNowService {
   /**
    * Submit one or more URLs to IndexNow-enabled search engines.
    *
-   * @param urls Canonical URLs to submit. Only URLs on the configured host
-   *             (or the host derived from the first URL) are submitted.
+   * @param urls Canonical or syndicated URLs to submit. Duplicates and empty
+   *             values are removed; large lists are batched per the 10,000-URL
+   *             IndexNow limit.
    */
   async submit(urls: string | string[]): Promise<void> {
     if (!this.enabled) {
@@ -45,39 +57,49 @@ export class IndexNowService {
       return;
     }
 
-    const list = Array.isArray(urls) ? urls : [urls];
-    const first = list[0];
-    if (!first) return;
+    const list = (Array.isArray(urls) ? urls : [urls])
+      .map((u) => u?.trim())
+      .filter((u): u is string => Boolean(u));
+    const unique = [...new Set(list)];
+
+    if (unique.length === 0) {
+      this.logger.debug('IndexNow: no URLs to submit');
+      return;
+    }
 
     // Determine host from explicit env or the first URL
+    const first = unique[0]!;
     const host = this.host || this.extractHost(first);
     if (!host) {
       this.logger.warn(`IndexNow could not determine host for ${first} — skipping`);
       return;
     }
 
-    const payload = { host, key: this.key, urlList: list };
-    const endpoints = [
-      'https://www.bing.com/indexnow',
-      'https://yandex.com/indexnow',
-    ];
+    const keyLocation = `https://${host}/${this.key}.txt`;
 
-    for (const endpoint of endpoints) {
-      try {
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json; charset=utf-8' },
-          body: JSON.stringify(payload),
-        });
-        if (response.ok) {
-          this.logger.log(`IndexNow: submitted ${list.length} URL(s) to ${endpoint} for host ${host}`);
-        } else {
-          const body = await response.text().catch(() => '');
-          this.logger.warn(`IndexNow ${endpoint} returned ${response.status}: ${body.slice(0, 200)}`);
-        }
-      } catch (err) {
-        this.logger.warn(`IndexNow ${endpoint} request failed: ${(err as Error).message}`);
+    for (let i = 0; i < unique.length; i += MAX_BATCH_SIZE) {
+      const batch = unique.slice(i, i + MAX_BATCH_SIZE);
+      await this.submitBatch(host, keyLocation, batch);
+    }
+  }
+
+  private async submitBatch(host: string, keyLocation: string, urlList: string[]): Promise<void> {
+    const payload = { host, key: this.key, keyLocation, urlList };
+
+    try {
+      const response = await fetch(INDEXNOW_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        body: JSON.stringify(payload),
+      });
+      if (response.ok) {
+        this.logger.log(`IndexNow: submitted ${urlList.length} URL(s) for host ${host}`);
+      } else {
+        const body = await response.text().catch(() => '');
+        this.logger.warn(`IndexNow ${INDEXNOW_ENDPOINT} returned ${response.status}: ${body.slice(0, 200)}`);
       }
+    } catch (err) {
+      this.logger.warn(`IndexNow ${INDEXNOW_ENDPOINT} request failed: ${(err as Error).message}`);
     }
   }
 

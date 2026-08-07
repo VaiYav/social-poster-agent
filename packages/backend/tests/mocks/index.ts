@@ -43,6 +43,12 @@ export function createMockLlmPort(): ILlmPort {
       tokens: 150,
       cost: 0.001,
     } satisfies LlmResponse),
+    generateVision: vi.fn().mockResolvedValue({
+      content: 'true',
+      model: 'gpt-4o-mini',
+      tokens: 10,
+      cost: 0.001,
+    } satisfies LlmResponse),
   };
 }
 
@@ -206,15 +212,18 @@ export function createMockContext(
 }
 
 export function createMockBrowserPort(): IBrowserPort {
+  const mockPage = {
+    goto: vi.fn().mockResolvedValue(undefined),
+    click: vi.fn(),
+    fill: vi.fn(),
+    waitForSelector: vi.fn(),
+    waitForTimeout: vi.fn().mockResolvedValue(undefined),
+    screenshot: vi.fn(),
+    url: vi.fn().mockReturnValue('https://example.com/post/123'),
+    close: vi.fn().mockResolvedValue(undefined),
+  };
   const mockContext = {
-    newPage: vi.fn().mockResolvedValue({
-      goto: vi.fn(),
-      click: vi.fn(),
-      fill: vi.fn(),
-      waitForSelector: vi.fn(),
-      screenshot: vi.fn(),
-      close: vi.fn().mockResolvedValue(undefined),
-    }),
+    newPage: vi.fn().mockResolvedValue(mockPage),
     close: vi.fn().mockResolvedValue(undefined),
     storageState: vi.fn().mockResolvedValue({}),
   } as unknown;

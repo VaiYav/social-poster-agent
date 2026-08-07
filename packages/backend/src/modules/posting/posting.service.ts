@@ -186,9 +186,19 @@ export class PostingService {
       throw new RetryableError(post.network, 'Posting flow is paused — job will retry when resumed');
     }
 
-    // Idempotent — don't post if already posted/verified/posting
-    if (post.status === PostStatus.POSTED || post.status === PostStatus.VERIFIED) {
+    // Idempotent — don't post if already verified
+    if (post.status === PostStatus.VERIFIED) {
       return { success: true, url: post.postUrl ?? undefined };
+    }
+
+    // P1-04a: A POSTED post that hasn't been verified yet can be re-verified on a
+    // retry. This avoids the case where a publish succeeds but verification fails,
+    // leaving the post stuck in POSTED and never emitting POST_VERIFIED.
+    if (post.status === PostStatus.POSTED) {
+      if (post.postUrl) {
+        return this.reverifyPost(post);
+      }
+      // POSTED with no URL is an inconsistent state — proceed to post again.
     }
     if (post.status === PostStatus.POSTING) {
       // With concurrency=1 and jobId=postId, the only way this branch is reached is
@@ -687,6 +697,9 @@ export class PostingService {
                 postId: cp.id,
                 network: networkKey,
                 postUrl: result.url,
+                canonicalUrl: cp.canonicalUrl ?? post.canonicalUrl ?? undefined,
+                syndicatedUrl: result.url,
+                contentType: cp.contentType ?? post.contentType,
               } satisfies PostVerifiedEvent);
             }
             // P0-H2: Persist per-reply success for crash recovery
@@ -740,6 +753,9 @@ export class PostingService {
               postId: cp.id,
               network: networkKey,
               postUrl: result.url,
+              canonicalUrl: cp.canonicalUrl ?? post.canonicalUrl ?? undefined,
+              syndicatedUrl: result.url,
+              contentType: cp.contentType ?? post.contentType,
             } satisfies PostVerifiedEvent);
           }
           // P0-H2: Persist per-reply success for crash recovery
@@ -760,17 +776,29 @@ export class PostingService {
         postUrl: result.url,
       } satisfies PostPostedEvent);
 
-      // P1-04a: Mark post as verified and emit POST_VERIFIED after successful publish.
-      if (result.url && VERIFIABLE_NETWORKS.has(post.network)) {
-        await this.postsService.updateStatus(postId, {
-          status: PostStatus.VERIFIED,
-          postUrl: result.url,
-        });
-        this.eventEmitter.emit(PostEvents.VERIFIED, {
-          postId,
-          network: networkKey,
-          postUrl: result.url,
-        } satisfies PostVerifiedEvent);
+      // P1-04a: Verify the published post and emit POST_VERIFIED.
+      // Verification is network-specific: article posters re-open the published URL,
+      // social posters run a profile/URL check. If it fails we keep POSTED and let
+      // BullMQ retry via `reverifyPost`.
+      if (result.url && context) {
+        const verifiedUrl = await this.verifyPublishedPost(post, context, result.url);
+        if (verifiedUrl) {
+          await this.postsService.updateStatus(postId, {
+            status: PostStatus.VERIFIED,
+            postUrl: verifiedUrl,
+          });
+          this.eventEmitter.emit(PostEvents.VERIFIED, {
+            postId,
+            network: networkKey,
+            postUrl: verifiedUrl,
+            canonicalUrl: post.canonicalUrl ?? undefined,
+            syndicatedUrl: verifiedUrl,
+            contentType: post.contentType,
+          } satisfies PostVerifiedEvent);
+        } else {
+          this.logger.warn(`Post ${postId} published but verification failed — will retry`);
+          return { success: false, error: 'Post verification failed', retryable: true };
+        }
       }
 
       // F2: For multi-stage threads, schedule the next continuation after success.
@@ -839,6 +867,8 @@ export class PostingService {
       [SocialNetwork.MASTODON]: [/^https?:\/\/(www\.)?[^/]+\/?$/],
       [SocialNetwork.TELEGRAM]: [/^https?:\/\/(www\.)?t\.me\/?$/, /^https?:\/\/(www\.)?t\.me\/[^/]+\/?$/],
       [SocialNetwork.LINKEDIN]: [/^https?:\/\/(www\.)?linkedin\.com\/?$/, /^https?:\/\/(www\.)?linkedin\.com\/feed\/?$/],
+      [SocialNetwork.DEVTO]: [/^https?:\/\/(www\.)?dev\.to\/?$/],
+      [SocialNetwork.HASHNODE]: [/^https?:\/\/(www\.)?[^/]+\.hashnode\.dev\/?$/],
     };
 
     for (const pattern of homepagePatterns[network] ?? []) {
@@ -854,6 +884,8 @@ export class PostingService {
       [SocialNetwork.MASTODON]: /(?:\/users\/[^/]+\/statuses\/[^/]+|\/statuses\/[^/]+|\/@[^/]+\/\d+)/,
       [SocialNetwork.TELEGRAM]: /\/[^/]+\/\d+$/,
       [SocialNetwork.LINKEDIN]: /(?:\/feed\/update\/urn:li:(?:activity|share|ugcPost):\d+|\/posts\/[^/]+\/\d+)/,
+      [SocialNetwork.DEVTO]: /\/dev\.to\/[^/]+\/[\w-]+(?:-[a-z0-9]+)?$/,
+      [SocialNetwork.HASHNODE]: /\.hashnode\.dev\/[\w-]+$/,
     };
 
     const postPattern = postPatterns[network];
@@ -908,27 +940,9 @@ export class PostingService {
       return { error: 'Article content is not valid JSON — expected ArticleContent', retryable: false };
     }
 
-    // Resolve the article poster via ModuleRef (lazy — only available when SYNDICATION_ENABLED)
-    let poster: DevtoPoster | HashnodePoster | LinkedinPoster;
-    try {
-      switch (post.network) {
-        case SocialNetwork.DEVTO:
-          poster = this.moduleRef.get(DevtoPoster, { strict: false });
-          break;
-        case SocialNetwork.HASHNODE:
-          poster = this.moduleRef.get(HashnodePoster, { strict: false });
-          break;
-        case SocialNetwork.LINKEDIN:
-          poster = this.moduleRef.get(LinkedinPoster, { strict: false });
-          break;
-        default:
-          return { error: `No article poster for network: ${post.network}`, retryable: false };
-      }
-    } catch {
-      return {
-        error: `Article poster for ${post.network} not available — is SYNDICATION_ENABLED=true?`,
-        retryable: false,
-      };
+    const poster = await this.resolveArticlePoster(post);
+    if (poster instanceof Error) {
+      return { error: poster.message, retryable: false };
     }
 
     // Build canonical URL from post's canonicalUrl field or slug
@@ -940,6 +954,143 @@ export class PostingService {
       error: result.error,
       retryable: !result.success, // Retry on failure
     };
+  }
+
+  /**
+   * Resolve the lazy article poster for a syndication post.
+   * Returns the poster, or an Error if the poster is not available.
+   */
+  private async resolveArticlePoster(post: Post): Promise<DevtoPoster | HashnodePoster | LinkedinPoster | Error> {
+    try {
+      switch (post.network) {
+        case SocialNetwork.DEVTO:
+          return this.moduleRef.get(DevtoPoster, { strict: false });
+        case SocialNetwork.HASHNODE:
+          return this.moduleRef.get(HashnodePoster, { strict: false });
+        case SocialNetwork.LINKEDIN:
+          if (post.contentType === ContentType.ARTICLE) {
+            return this.moduleRef.get(LinkedinPoster, { strict: false });
+          }
+          return new Error(`LinkedIn social updates are not article posters`);
+        default:
+          return new Error(`No article poster for network: ${post.network}`);
+      }
+    } catch {
+      return new Error(`Article poster for ${post.network} not available — is SYNDICATION_ENABLED=true?`);
+    }
+  }
+
+  /**
+   * P1-04a: Verify a published post is actually live before emitting POST_VERIFIED.
+   *
+   * - Article posts (Dev.to, Hashnode, LinkedIn long-form): article poster navigates
+   *   to the published URL and uses LLM-in-the-loop to confirm the article is visible.
+   * - X/Threads/Facebook: uses the existing `verifyPosted` profile check.
+   * - Other networks: URL-pattern validation is treated as the verification.
+   *
+   * Returns the verified URL on success, or null if verification fails (caller should
+   * retry the job without re-posting).
+   */
+  private isArticleNetwork(post: Post): boolean {
+    return (
+      post.network === SocialNetwork.DEVTO ||
+      post.network === SocialNetwork.HASHNODE ||
+      (post.network === SocialNetwork.LINKEDIN && post.contentType === ContentType.ARTICLE)
+    );
+  }
+
+  private async verifyPublishedPost(
+    post: Post,
+    context: Awaited<ReturnType<IBrowserPort['acquireContext']>>,
+    url: string,
+  ): Promise<string | null> {
+    const network = post.network;
+
+    // Article networks: re-open the published URL and ask the LLM to confirm it is live.
+    if (this.isArticleNetwork(post)) {
+      const poster = await this.resolveArticlePoster(post);
+      if (poster instanceof Error) {
+        this.logger.warn(`Cannot verify article: ${poster.message}`);
+        return null;
+      }
+      return poster.verifyPosted(context, url);
+    }
+
+    // Social/short-form networks: the poster already extracted a permalink after publish.
+    // URL-pattern validation is the verification step here.
+    if (this.isValidPostUrl(url, network)) {
+      return url;
+    }
+
+    return null;
+  }
+
+  /**
+   * P1-04a: Re-verify a POSTED post without re-publishing it.
+   * Used when a prior verification attempt failed and BullMQ re-dispatches the job.
+   */
+  private emitPostVerified(post: Post, verifiedUrl: string): void {
+    this.eventEmitter.emit(PostEvents.VERIFIED, {
+      postId: post.id,
+      network: post.network,
+      postUrl: verifiedUrl,
+      canonicalUrl: post.canonicalUrl ?? undefined,
+      syndicatedUrl: verifiedUrl,
+      contentType: post.contentType,
+    } satisfies PostVerifiedEvent);
+  }
+
+  /**
+   * P1-04a: Re-verify a POSTED post without re-publishing it.
+   * Used when a prior verification attempt failed and BullMQ re-dispatches the job.
+   */
+  private async reverifyPost(
+    post: Post,
+  ): Promise<{ success: boolean; url?: string; error?: string; retryable?: boolean; rateLimit?: boolean; retryAfterMs?: number }> {
+    if (!post.postUrl) {
+      return { success: false, error: 'POSTED post has no URL to verify', retryable: false };
+    }
+
+    // Social/short-form posts: URL-pattern validation is sufficient, no browser session needed.
+    if (!this.isArticleNetwork(post)) {
+      if (this.isValidPostUrl(post.postUrl, post.network)) {
+        await this.postsService.updateStatus(post.id, {
+          status: PostStatus.VERIFIED,
+          postUrl: post.postUrl,
+        });
+        this.emitPostVerified(post, post.postUrl);
+        return { success: true, url: post.postUrl };
+      }
+      return { success: false, error: 'Post URL validation failed', retryable: true };
+    }
+
+    this.logger.log(`Re-verifying POSTED article ${post.id} on ${post.network}`);
+
+    const session = await this.sessionsService.getOrCreateSession(post.accountId, post.network, { deferFormLogin: true });
+    if (!session) {
+      return { success: false, error: 'No active session for re-verification', retryable: true };
+    }
+
+    const storageStateStr = session.storageState ? this.sessionsService.decryptStorageState(session) : undefined;
+    const context = await this.browser.acquireContext(post.network, storageStateStr, post.accountId);
+    try {
+      const verifiedUrl = await this.verifyPublishedPost(post, context, post.postUrl);
+      if (!verifiedUrl) {
+        return { success: false, error: 'Post verification failed', retryable: true };
+      }
+
+      await this.postsService.updateStatus(post.id, {
+        status: PostStatus.VERIFIED,
+        postUrl: verifiedUrl,
+      });
+      this.emitPostVerified(post, verifiedUrl);
+
+      return { success: true, url: verifiedUrl };
+    } finally {
+      if (context) {
+        this.browser.releaseContext(post.network, context, post.accountId);
+      }
+    }
   }
 
   /**

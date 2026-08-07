@@ -12,12 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { GenerationService } from '../../modules/generation/generation.service';
 import { parseBool } from '../../infrastructure/config/parse-bool.js';
-
-interface PostVerifiedEvent {
-  postId: string;
-  network: string;
-  postUrl?: string;
-}
+import type { PostVerifiedEvent } from '../post-verified.event.js';
 
 @Injectable()
 export class SocialPromoListener {

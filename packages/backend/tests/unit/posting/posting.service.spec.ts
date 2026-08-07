@@ -19,6 +19,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
 import { PostStatus, SocialNetwork, ContentType } from '@prisma/client';
+import type { ModuleRef } from '@nestjs/core';
 
 import { PostingService } from '../../../src/modules/posting/posting.service';
 import { PostEvents } from '../../../src/events/enums/post-events.enum';
@@ -175,6 +176,28 @@ function buildContext(queueFactory: ReturnType<typeof createMockQueueFactory> | 
   const telegramAdapter = createMockTelegramAdapter();
   const configService = createMockConfigService();
 
+  // P1-10: syndication article poster resolved lazily via ModuleRef
+  const devtoPoster = {
+    postArticle: vi.fn(),
+    verifyPosted: vi.fn(),
+  };
+  const hashnodePoster = {
+    postArticle: vi.fn(),
+    verifyPosted: vi.fn(),
+  };
+  const linkedinArticlePoster = {
+    postArticle: vi.fn(),
+    verifyPosted: vi.fn(),
+  };
+  const moduleRef = {
+    get: vi.fn((token: unknown) => {
+      if (token?.name === 'DevtoPoster') return devtoPoster;
+      if (token?.name === 'HashnodePoster') return hashnodePoster;
+      if (token?.name === 'LinkedinPoster') return linkedinArticlePoster;
+      return undefined;
+    }),
+  } as unknown as ModuleRef;
+
   // Override checkRateLimit to return { allowed: true } by default
   // (the shared mock returns undefined which doesn't match the service contract)
   rateLimitService.checkRateLimit = vi.fn().mockResolvedValue({ allowed: true });
@@ -192,7 +215,7 @@ function buildContext(queueFactory: ReturnType<typeof createMockQueueFactory> | 
     threadsPoster as unknown,
     facebookPoster as unknown,
     configService as unknown,
-    undefined as unknown,
+    moduleRef as unknown,
     queueFactory as unknown,
     undefined as unknown,
     undefined as unknown,
@@ -222,6 +245,10 @@ function buildContext(queueFactory: ReturnType<typeof createMockQueueFactory> | 
     telegramAdapter,
     configService,
     queueFactory,
+    moduleRef,
+    devtoPoster,
+    hashnodePoster,
+    linkedinArticlePoster,
   };
 }
 
@@ -249,10 +276,17 @@ describe('MOD-03: PostingService', () => {
     const result = await ctx.service.postById('post-1');
 
     expect(result).toEqual({ success: true, url: 'https://x.com/user/status/123' });
-    // No rate limit check, no browser, no SSE
+    // No rate limit check, no browser session needed for already-verified short-form posts
     expect(ctx.rateLimitService.checkRateLimit).not.toHaveBeenCalled();
     expect(ctx.browser.acquireContext).not.toHaveBeenCalled();
-    expect(ctx.eventEmitter.emit).not.toHaveBeenCalled();
+    expect(ctx.eventEmitter.emit).toHaveBeenCalledWith(
+      PostEvents.VERIFIED,
+      expect.objectContaining({
+        postId: 'post-1',
+        network: 'X',
+        postUrl: 'https://x.com/user/status/123',
+      }),
+    );
   });
 
   it('UTC-043: postById() returns failure when post already POSTING (idempotency)', async () => {
@@ -627,6 +661,59 @@ describe('MOD-03: PostingService', () => {
       postId: 'post-verified',
       network: 'X',
       postUrl: 'https://x.com/user/status/123',
+    });
+  });
+
+  it('P1-10: postById() posts and verifies a Dev.to article via the article poster', async () => {
+    process.env.ENABLED_NETWORKS = 'X,THREADS,FACEBOOK,DEVTO';
+    const mockContext = createMockContext();
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
+    ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
+    ctx.postsService.findById.mockResolvedValue({
+      ...APPROVED_POST_X,
+      id: 'post-devto-1',
+      network: SocialNetwork.DEVTO,
+      contentType: ContentType.ARTICLE,
+      content: JSON.stringify({
+        title: 'Test Dev.to Article',
+        bodyMarkdown: '# Hello\n\nThis is a test article.',
+        tags: ['test', 'spa'],
+        slug: 'test-devto-article',
+        excerpt: 'A test article for Dev.to syndication.',
+      }),
+      canonicalUrl: 'https://my-zodiac-ai.com/blog/test-devto-article',
+    });
+    ctx.sessionsService.getOrCreateSession.mockResolvedValue(ACTIVE_SESSION);
+    ctx.devtoPoster.postArticle.mockResolvedValue({
+      success: true,
+      url: 'https://dev.to/testuser/test-devto-article-123',
+      canonicalUrl: 'https://my-zodiac-ai.com/blog/test-devto-article',
+    });
+    ctx.devtoPoster.verifyPosted.mockResolvedValue('https://dev.to/testuser/test-devto-article-123');
+
+    const result = await ctx.service.postById('post-devto-1');
+
+    expect(result).toEqual({ success: true, url: 'https://dev.to/testuser/test-devto-article-123' });
+
+    // updateStatus called with VERIFIED + postUrl
+    const verifiedCall = ctx.postsService.updateStatus.mock.calls.find(
+      (c: unknown[]) => c[0] === 'post-devto-1' && c[1]?.status === PostStatus.VERIFIED,
+    );
+    expect(verifiedCall).toBeDefined();
+    expect(verifiedCall[1].postUrl).toBe('https://dev.to/testuser/test-devto-article-123');
+
+    // POST_VERIFIED event emitted with canonical + syndicated URL
+    const verifiedEvent = ctx.eventEmitter.emit.mock.calls.find(
+      (c: unknown[]) => c[0] === PostEvents.VERIFIED && c[1]?.postId === 'post-devto-1',
+    );
+    expect(verifiedEvent).toBeDefined();
+    expect(verifiedEvent[1]).toMatchObject({
+      postId: 'post-devto-1',
+      network: 'DEVTO',
+      postUrl: 'https://dev.to/testuser/test-devto-article-123',
+      canonicalUrl: 'https://my-zodiac-ai.com/blog/test-devto-article',
+      syndicatedUrl: 'https://dev.to/testuser/test-devto-article-123',
+      contentType: 'ARTICLE',
     });
   });
 

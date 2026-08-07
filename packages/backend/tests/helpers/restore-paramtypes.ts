@@ -100,6 +100,9 @@ import { AutoApproveListener } from '../../src/modules/autonomy/auto-approve.lis
 import { SseEventListener } from '../../src/events/listeners/sse-event.listener';
 import { IndexNowListener } from '../../src/events/listeners/indexnow.listener.js';
 import { SocialPromoListener } from '../../src/events/listeners/social-promo.listener.js';
+import { BrowserAgentService } from '../../src/modules/browser-agent/browser-agent.service.js';
+import { CanonicalUrlService } from '../../src/modules/canonical/canonical-url.service.js';
+import { ArticleGenerationCron } from '../../src/modules/syndication/article-generation.cron.js';
 
 // Health
 import { HealthController } from '../../src/modules/health/health.controller';
@@ -371,8 +374,11 @@ export function restoreAllDesignParamtypes(): void {
   defineParamtypes(SseController, [SseService]);
   defineParamtypes(AutoApproveListener, [PrismaService, ModuleRef, ConfigService, Object]); // Object = @Inject(IPostingQueuePort)
   defineParamtypes(SseEventListener, [SseService]);
-  defineParamtypes(IndexNowListener, [ConfigService, PrismaService, IndexNowService]);
+  defineParamtypes(IndexNowListener, [ConfigService, IndexNowService]);
   defineParamtypes(SocialPromoListener, [ConfigService, PrismaService, GenerationService]);
+  defineParamtypes(BrowserAgentService, [Object, ConfigService]); // Object = @Inject(ILlmPort)
+  defineParamtypes(CanonicalUrlService, [PrismaService, ConfigService]);
+  defineParamtypes(ArticleGenerationCron, [GenerationService, ConfigService, SchedulerRegistry]);
 
   // ── Queue ────────────────────────────────────────────────────────────────
   defineParamtypes(QueueService, [QueueFactory]);

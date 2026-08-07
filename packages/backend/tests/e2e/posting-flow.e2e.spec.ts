@@ -27,6 +27,8 @@ import { Test } from '@nestjs/testing';
 import type { TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
+import { ContentType } from '@prisma/client';
+import './env-syndication';
 
 import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/infrastructure/prisma/prisma.service';
@@ -72,6 +74,10 @@ import { DiscordNotificationService } from '../../src/infrastructure/notificatio
 import { SseEventListener } from '../../src/events/listeners/sse-event.listener';
 import { AutoApproveListener } from '../../src/modules/autonomy/auto-approve.listener';
 import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service';
+import { BrowserAgentService } from '../../src/modules/browser-agent/browser-agent.service.js';
+import { DevtoPoster } from '../../src/modules/posting/posters/devto.poster.js';
+import { HashnodePoster } from '../../src/modules/posting/posters/hashnode.poster.js';
+import { LinkedinPoster } from '../../src/modules/posting/posters/linkedin.poster.js';
 import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator';
 import { ThreadDepthService } from '../../src/modules/content-enhancements/thread-depth.service';
 import { ContentPillarTracker } from '../../src/modules/content-enhancements/content-pillar.tracker';
@@ -96,9 +102,14 @@ import { SseController } from '../../src/modules/sse/sse.controller';
 import { restoreAllDesignParamtypes } from '../helpers/restore-paramtypes.js';
 import { clearHookCache } from '../../src/modules/generation/generation.graph';
 
+// In-memory post store for E2E so PostsService.updateStatus transitions work
+const postStore = new Map<string, Record<string, unknown>>();
+
 const mockRedis = {
   get: vi.fn().mockResolvedValue(null),
   set: vi.fn().mockResolvedValue('OK'),
+  eval: vi.fn().mockResolvedValue(1),
+  defineCommand: vi.fn(),
   del: vi.fn().mockResolvedValue(1),
   exists: vi.fn().mockResolvedValue(0),
   expire: vi.fn().mockResolvedValue(1),
@@ -138,6 +149,8 @@ describe('E2E: Posting flow with mocked browser', () => {
   let browserPort: ReturnType<typeof createMockBrowserPort>;
 
   beforeAll(async () => {
+    // P1-10: enable all networks for the Dev.to E2E flow
+    process.env.ENABLED_NETWORKS = 'X,THREADS,FACEBOOK,DEVTO,HASHNODE,LINKEDIN,BLUESKY,MASTODON,TELEGRAM';
     await restoreAllDesignParamtypes();
     prisma = createMockPrismaService();
     browserPort = createMockBrowserPort();
@@ -152,6 +165,35 @@ describe('E2E: Posting flow with mocked browser', () => {
       warmupEnabled: false,
       warmupStartedAt: null,
       warmupDaysTotal: 0,
+    });
+
+    prisma.socialAccount.findUnique.mockImplementation((args: { where: { id: string } }) => {
+      const id = args.where.id;
+      if (id === 'acc-x') {
+        return Promise.resolve({
+          id: 'acc-x',
+          network: SocialNetwork.X,
+          handle: 'testuser',
+          credentialsRef: 'SOCIAL_X_USERNAME',
+          active: true,
+          warmupEnabled: false,
+          warmupStartedAt: null,
+          warmupDaysTotal: 0,
+        });
+      }
+      if (id === 'acc-devto') {
+        return Promise.resolve({
+          id: 'acc-devto',
+          network: SocialNetwork.DEVTO,
+          handle: 'testuser',
+          credentialsRef: 'SOCIAL_DEVTO_USERNAME',
+          active: true,
+          warmupEnabled: false,
+          warmupStartedAt: null,
+          warmupDaysTotal: 0,
+        });
+      }
+      return Promise.resolve(null);
     });
 
     prisma.session.findFirst.mockResolvedValue({
@@ -171,6 +213,8 @@ describe('E2E: Posting flow with mocked browser', () => {
     });
 
     prisma.post.findUnique.mockImplementation((args: { where: { id: string } }) => {
+      const stored = postStore.get(args.where.id);
+      if (stored) return Promise.resolve(stored);
       const id = args.where.id;
       if (id === 'post-x-1') {
         return Promise.resolve({
@@ -237,17 +281,39 @@ describe('E2E: Posting flow with mocked browser', () => {
           retryCount: 0,
         });
       }
+      if (id === 'post-devto-1') {
+        return Promise.resolve({
+          id: 'post-devto-1',
+          network: SocialNetwork.DEVTO,
+          contentType: ContentType.ARTICLE,
+          content: JSON.stringify({
+            title: 'Test Dev.to Article',
+            bodyMarkdown: '# Hello\n\nThis is a test article.',
+            tags: ['test', 'spa'],
+            slug: 'test-devto-article',
+            excerpt: 'A test article for Dev.to syndication.',
+          }),
+          canonicalUrl: 'https://my-zodiac-ai.com/blog/test-devto-article',
+          status: PostStatus.APPROVED,
+          threadId: null,
+          threadPosition: 0,
+          postUrl: null,
+          accountId: 'acc-devto',
+          retryCount: 0,
+        });
+      }
       return Promise.resolve(null);
     });
 
-    prisma.post.update.mockImplementation((args: { where: { id: string }; data: Record<string, unknown> }) => {
-      return Promise.resolve({
-        id: args.where.id,
+    prisma.post.update.mockImplementation(async (args: { where: { id: string }; data: Record<string, unknown> }) => {
+      const existing = postStore.get(args.where.id) ?? (await prisma.post.findUnique({ where: { id: args.where.id } }));
+      const updated = {
+        ...(existing || {}),
         ...args.data,
-        network: SocialNetwork.X,
-        content: 'updated',
-        accountId: 'acc-x',
-      } as any);
+        id: args.where.id,
+      };
+      postStore.set(args.where.id, updated);
+      return Promise.resolve(updated as any);
     });
 
     prisma.post.findMany.mockResolvedValue([]);
@@ -281,6 +347,32 @@ describe('E2E: Posting flow with mocked browser', () => {
       .useValue({ getTopics: vi.fn().mockResolvedValue([]), readBriefs: vi.fn().mockResolvedValue([]) })
       .overrideProvider(RedisCheckpointSaver)
       .useValue({ put: vi.fn(), getTuple: vi.fn().mockResolvedValue(null) })
+      .overrideProvider(BrowserAgentService)
+      .useValue({
+        act: vi.fn().mockResolvedValue({ success: true }),
+        extract: vi.fn().mockResolvedValue({ url: 'https://dev.to/testuser/test-devto-article-123' }),
+        observe: vi.fn().mockResolvedValue([]),
+        verify: vi.fn().mockResolvedValue(true),
+      })
+      .overrideProvider(DevtoPoster)
+      .useValue({
+        postArticle: vi.fn().mockResolvedValue({
+          success: true,
+          url: 'https://dev.to/testuser/test-devto-article-123',
+          canonicalUrl: 'https://my-zodiac-ai.com/blog/test-devto-article',
+        }),
+        verifyPosted: vi.fn().mockResolvedValue('https://dev.to/testuser/test-devto-article-123'),
+      })
+      .overrideProvider(HashnodePoster)
+      .useValue({
+        postArticle: vi.fn().mockResolvedValue({ success: true, url: 'https://example.hashnode.dev/test-article' }),
+        verifyPosted: vi.fn().mockResolvedValue('https://example.hashnode.dev/test-article'),
+      })
+      .overrideProvider(LinkedinPoster)
+      .useValue({
+        postArticle: vi.fn().mockResolvedValue({ success: true, url: 'https://www.linkedin.com/pulse/test-article-123' }),
+        verifyPosted: vi.fn().mockResolvedValue('https://www.linkedin.com/pulse/test-article-123'),
+      })
       .overrideProvider(HealthController)
       .useValue({ check: vi.fn() })
       .overrideProvider(GenerationService)
@@ -322,6 +414,21 @@ describe('E2E: Posting flow with mocked browser', () => {
 
   beforeEach(() => {
     clearHookCache();
+    postStore.clear();
+    // Reset the default mock context so tests that don't override it get a working page.
+    // The Dev.to article flow in P1-10 relies on this default.
+    browserPort.acquireContext.mockResolvedValue({
+      newPage: vi.fn().mockResolvedValue({
+        goto: vi.fn().mockResolvedValue(undefined),
+        waitForTimeout: vi.fn().mockResolvedValue(undefined),
+        url: vi.fn().mockReturnValue('https://dev.to/testuser/test-devto-article-123'),
+        screenshot: vi.fn(),
+        close: vi.fn().mockResolvedValue(undefined),
+      }),
+      close: vi.fn().mockResolvedValue(undefined),
+      storageState: vi.fn().mockResolvedValue({}),
+    });
+    browserPort.saveStorageState.mockResolvedValue('{"cookies":[]}');
   });
 
   it('E2E-POST-001: approve → post to X → verify POSTED + postUrl', async () => {
@@ -386,5 +493,16 @@ describe('E2E: Posting flow with mocked browser', () => {
     const res = await request(app.getHttpServer())
       .post('/api/v1/analytics/scrape');
     expect([200, 500]).toContain(res.status);
+  });
+
+  it('P1-10: approve → post to Dev.to article → verify POSTED + postUrl', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/posting/post-devto-1');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      success: true,
+      url: 'https://dev.to/testuser/test-devto-article-123',
+    });
   });
 });

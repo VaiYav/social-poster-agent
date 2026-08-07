@@ -34,6 +34,9 @@ export const PostVerifiedEventSchema = z.object({
   postId: z.string(),
   network: z.string(),
   postUrl: z.string().optional(),
+  canonicalUrl: z.string().optional(),
+  syndicatedUrl: z.string().optional(),
+  contentType: z.string().optional(),
 });
 
 export const PostFailedEventSchema = z.object({

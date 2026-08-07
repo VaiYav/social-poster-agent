@@ -172,6 +172,46 @@ export abstract class ArticleBasePoster {
       }
     }
   }
+
+  /**
+   * P1-04a: Verify that a published article is actually live at the given URL.
+   *
+   * Opens the syndicated URL, asks the LLM-in-the-loop engine whether the article
+   * is visible, and returns the URL on success. Returns null if verification fails
+   * (e.g. 404, login wall, or LLM cannot confirm publication).
+   */
+  async verifyPosted(context: BrowserContext, url: string): Promise<string | null> {
+    let page: Page | null = null;
+    try {
+      page = await context.newPage();
+      await this.browserPort.suppressPageErrors(page);
+      await this.browserPort.applyResourceBlocking(page, { blockImages: true });
+
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForTimeout(2000);
+
+      const confirmed = await this.deps.browserAgent.verify(
+        page as never,
+        'Is the article published and visible on this page?',
+      );
+
+      if (!confirmed) {
+        this.logger.warn(`${this.getPlatformName()} verify failed: article not confirmed at ${url}`);
+        return null;
+      }
+
+      this.logger.log(`${this.getPlatformName()} verified at ${url}`);
+      return url;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`${this.getPlatformName()} verify threw: ${msg}`);
+      return null;
+    } finally {
+      if (page) {
+        await page.close().catch(() => void 0);
+      }
+    }
+  }
 }
 
 // Inline z import to avoid circular dependency issues
