@@ -543,7 +543,7 @@
 1. ✅ **F2: Multi-Stage Posting** — root post gets `multiStage=true` in `llmMetadata`; root posts immediately; each continuation posts as a reply with a `THREAD_CONTINUATION_DELAY_MS` (default 30 min) delay; X/Threads supported; UI badge in `PostCard.vue`
 2. ✅ **F13: Content Recycling** — Backend done (recycleTopPosts, POST /recycle endpoint, UI button "F13: Recycle Old Top Posts"); evergreen revival from POSTED posts older than N days
 3. ✅ **F10: Content Repurposing** — `ContentReader` extracts facts from frontmatter + article body (lists, headings, bold, first-sentence paragraphs); `ArticleFrontmatterSchema` now accepts comma-separated `tags`/`keyPoints` and string `answerCapsule`; `repurposeFromArticles` produces up to 10 facts/article
-4. ✅ **F22: Trending Topic Detection** — Backend done (TrendingModule, astro events calendar, UI display); TODO: Google Trends / X trending API
+4. ✅ **F22: Trending Topic Detection** — Google Trends RSS + programmatic API proxy with RSS fallback; X Trends browser scrape with multi-selector fallback and niche LLM filter; `Dashboard.vue` shows live merged trend snapshot; `Trending.vue` displays source badges and priority.
 
 ### Sprint G: Production Deployment (2-3 дня, P1) — PARTIALLY DONE
 1. ❌ **Manual E2E test** с real credentials — первый end-to-end posting test (requires real social credentials)

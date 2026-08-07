@@ -179,10 +179,11 @@ WHILE remaining_sprints > 0:
 - `ArticleFrontmatterSchema` accepts comma-separated `tags` / `keyPoints` and a plain string `answerCapsule`.
 - Added `extract-facts.ts` helper and `extract-facts.spec.ts` / updated `content-reader.spec.ts` (F10-001..F10-012, UTC-484).
 
-#### Sprint 1.4: F22 Trending API Integration
-- Google Trends RSS (уже есть) + X Trends browser scrape (уже есть) — стабилизировать и покрыть тестами.
-- Добавить env-гейт `TRENDING_GOOGLE_API_KEY` для программного API (fallback на RSS).
-- UI: индикатор трендов в `Dashboard.vue`.
+#### Sprint 1.4: F22 Trending API Integration ✅
+- `TrendingScraperService` supports Google Trends RSS + programmatic API proxy with RSS fallback; `TRENDING_GOOGLE_API_URL` + `TRENDING_GOOGLE_API_KEY` env gate.
+- X Trends browser scrape has multi-URL/multi-selector fallback and niche relevance LLM filter.
+- UI: `Dashboard.vue` Trending Snapshot renders merged (Google/X/Astro) trends with source labels and priority; `Trending.vue` correctly displays `sources` and `priority`.
+- Unit tests: `trending-scraper.spec.ts` (24), `google-trends-rss.spec.ts` (7).
 
 **GATE 1:** 4 спринта в main, `ROADMAP.md` Phase 1.5 = 100%.
 

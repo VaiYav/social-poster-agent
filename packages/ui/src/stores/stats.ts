@@ -27,12 +27,20 @@ interface LlmModel {
   free: boolean;
 }
 
-interface TrendingTopic {
+export interface TrendingTopic {
   event: string;
   topic: string;
   daysUntil: number;
   trending: boolean;
   networks: string[];
+}
+
+export interface MergedTrendingTopic {
+  topic: string;
+  sources: ('astro' | 'google_trends' | 'x_trends')[];
+  networks: string[];
+  priority: number;
+  scrapedAt?: string;
 }
 
 /**
@@ -44,6 +52,7 @@ export const useStatsStore = defineStore('stats', () => {
   const runs = ref<GenerationRun[]>([]);
   const models = ref<LlmModel[]>([]);
   const trending = ref<TrendingTopic[]>([]);
+  const mergedTrending = ref<MergedTrendingTopic[]>([]);
   const loading = ref(false);
   const error = ref<string | null>(null);
 
@@ -112,5 +121,14 @@ export const useStatsStore = defineStore('stats', () => {
     }
   }
 
-  return { stats, runs, models, trending, loading, error, fetchStats, fetchRuns, triggerGeneration, fetchModels, repurposeArticles, fetchTrending };
+  async function fetchMergedTrends() {
+    try {
+      const res = await api.get('/trending/merged');
+      mergedTrending.value = res.data;
+    } catch {
+      mergedTrending.value = [];
+    }
+  }
+
+  return { stats, runs, models, trending, mergedTrending, loading, error, fetchStats, fetchRuns, triggerGeneration, fetchModels, repurposeArticles, fetchTrending, fetchMergedTrends };
 });

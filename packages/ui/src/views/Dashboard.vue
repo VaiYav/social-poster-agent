@@ -15,6 +15,7 @@ import {
   Bot,
   TrendingUp,
   Flame,
+  RefreshCw,
 } from '@lucide/vue';
 import { usePostsStore } from '../stores/posts';
 import { useStatsStore } from '../stores/stats';
@@ -53,6 +54,7 @@ onMounted(async () => {
   await Promise.all([
     statsStore.fetchStats(),
     statsStore.fetchTrending(),
+    statsStore.fetchMergedTrends(),
     postsStore.fetchPosts({ limit: 5 }),
     fetchFlowControl(),
     fetchQualityMetrics(),
@@ -100,7 +102,36 @@ const allPaused = computed(() => {
     (flowState.value.generationPaused && flowState.value.postingPaused);
 });
 
-const activeTrends = computed(() => statsStore.trending.filter((t) => t.trending).slice(0, 5));
+const sourceLabels: Record<string, string> = {
+  astro: 'Astro',
+  google_trends: 'Google',
+  x_trends: 'X',
+};
+
+function formatSources(sources: string[]) {
+  return sources.map((s) => sourceLabels[s] ?? s).join(' · ');
+}
+
+// F22: show merged real-time trends when available, fall back to astro-only active trends.
+const activeTrends = computed(() => {
+  if (statsStore.mergedTrending.length > 0) {
+    return statsStore.mergedTrending.slice(0, 5).map((t) => ({
+      type: 'merged' as const,
+      title: t.topic,
+      subtitle: formatSources(t.sources),
+      priority: t.priority,
+      networks: t.networks,
+    }));
+  }
+  return statsStore.trending.filter((t) => t.trending).slice(0, 5).map((t) => ({
+    type: 'astro' as const,
+    title: t.event,
+    subtitle: t.topic,
+    daysUntil: t.daysUntil,
+    networks: t.networks,
+  }));
+});
+
 const upcomingTrends = computed(() =>
   statsStore.trending.filter((t) => !t.trending && t.daysUntil > 0 && t.daysUntil <= 14).slice(0, 5),
 );
@@ -297,14 +328,17 @@ const statItems = [
             <p class="text-xs font-medium uppercase tracking-wide text-text-muted">Now trending</p>
             <div
               v-for="t in activeTrends"
-              :key="t.event"
+              :key="t.title"
               class="flex items-center gap-2 rounded-lg bg-primary-subtle p-2"
             >
               <Flame class="h-4 w-4 text-primary" />
               <div class="min-w-0 flex-1">
-                <p class="truncate text-sm font-medium text-text-primary">{{ t.event }}</p>
-                <p class="truncate text-xs text-text-secondary">{{ t.topic }}</p>
+                <p class="truncate text-sm font-medium text-text-primary">{{ t.title }}</p>
+                <p class="truncate text-xs text-text-secondary">{{ t.subtitle }}</p>
               </div>
+              <Badge v-if="t.type === 'merged' && t.priority" variant="secondary" class="text-xs">
+                {{ t.priority }}
+              </Badge>
             </div>
           </div>
 

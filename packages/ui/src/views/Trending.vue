@@ -1,39 +1,25 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { TrendingUp, RefreshCw, Flame, Calendar, AlertTriangle } from '@lucide/vue';
-import { useApi } from '../composables/useApi';
+import { useStatsStore, type TrendingTopic, type MergedTrendingTopic } from '../stores/stats';
 import { Card, Button, Badge, SectionHeader } from '../components/ui';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import ErrorState from '../components/ErrorState.vue';
 import EmptyState from '../components/EmptyState.vue';
 import NetworkIcon from '../components/NetworkIcon.vue';
 
-const api = useApi();
+const statsStore = useStatsStore();
 const loading = ref(true);
 const error = ref<string | null>(null);
 const scraping = ref(false);
 
-interface TrendingTopic {
-  event: string;
-  topic: string;
-  daysUntil: number;
-  trending: boolean;
-  networks: string[];
-}
-
-interface MergedTopic {
-  topic: string;
-  source: string;
-  score?: number;
-}
-
 const astroTopics = ref<TrendingTopic[]>([]);
-const mergedTopics = ref<MergedTopic[]>([]);
+const mergedTopics = ref<MergedTrendingTopic[]>([]);
 
 async function loadAstro() {
   try {
-    const res = await api.get<TrendingTopic[]>('/trending');
-    astroTopics.value = res.data;
+    await statsStore.fetchTrending();
+    astroTopics.value = statsStore.trending;
   } catch (err) {
     error.value = (err as Error).message ?? 'Failed to load trending topics';
   }
@@ -43,8 +29,8 @@ async function loadMerged() {
   scraping.value = true;
   error.value = null;
   try {
-    const res = await api.get<MergedTopic[]>('/trending/merged');
-    mergedTopics.value = res.data;
+    await statsStore.fetchMergedTrends();
+    mergedTopics.value = statsStore.mergedTrending;
   } catch (err) {
     error.value = (err as Error).message ?? 'Failed to load merged trends (requires localhost access)';
   } finally {
@@ -57,6 +43,16 @@ onMounted(async () => {
   await loadAstro();
   loading.value = false;
 });
+
+const sourceLabels: Record<string, string> = {
+  astro: 'Astro',
+  google_trends: 'Google',
+  x_trends: 'X',
+};
+
+function formatSources(sources: string[]) {
+  return sources.map((s) => sourceLabels[s] ?? s).join(' · ');
+}
 
 function formatDays(days: number): string {
   if (days === 0) return 'Today';
@@ -144,14 +140,14 @@ function formatDays(days: number): string {
           <div class="space-y-3">
             <div
               v-for="(topic, i) in mergedTopics"
-              :key="i"
+              :key="topic.topic + i"
               class="flex items-center justify-between border-b border-border pb-3 last:border-0"
             >
               <div>
                 <span class="text-sm text-text-primary">{{ topic.topic }}</span>
-                <span class="ml-2 text-xs text-text-muted">({{ topic.source }})</span>
+                <span class="ml-2 text-xs text-text-muted">({{ formatSources(topic.sources) }})</span>
               </div>
-              <Badge v-if="topic.score" variant="secondary">{{ topic.score }}</Badge>
+              <Badge v-if="topic.priority" variant="secondary">{{ topic.priority }}</Badge>
             </div>
           </div>
         </Card>
