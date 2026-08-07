@@ -275,6 +275,8 @@ interface LlmContext {
   budgetScope?: 'orchestrator' | 'generation';
   /** P0: generation run ID for per-run budget tracking. */
   budgetRunId?: string;
+  /** F3: ambient provider/model override for all LLM calls in the context. */
+  model?: string;
 }
 
 const llmContextStorage = new AsyncLocalStorage<LlmContext>();
@@ -583,6 +585,43 @@ export class LlmService implements ILlmPort, OnModuleInit {
     return this.providers;
   }
 
+  /**
+   * F3: Build the provider chain for a call.
+   * If options.model is set to "provider/model", clone the provider with the
+   * requested model and place it at the front of the chain. The rest of the
+   * configured chain (minus the forced provider) follows as fallback.
+   */
+  private buildOrderedProviders(options?: GenerateOptions): LlmProviderConfig[] {
+    const ordered = this.orderedProviders(options?.role);
+    if (!options?.model) return ordered;
+
+    const [providerName, ...modelParts] = options.model.split('/');
+    const requestedModel = modelParts.join('/');
+    if (!providerName || !requestedModel) {
+      this.logger.warn(`Invalid model override format: ${options.model} — expected provider/model`);
+      return ordered;
+    }
+
+    const baseProvider = this.providers.find((p) => p.name === providerName);
+    if (!baseProvider) {
+      this.logger.warn(`Requested provider ${providerName} not in configured chain — using default chain`);
+      return ordered;
+    }
+
+    const forcedProvider: LlmProviderConfig = { ...baseProvider, model: requestedModel };
+
+    // Re-evaluate provider-specific settings (temperature support, timeout) for the requested model
+    const spec = PROVIDER_DEFINITIONS.find((d) => d.name === providerName);
+    if (spec?.customize) {
+      const custom = spec.customize(this.configService, requestedModel, baseProvider.timeout);
+      forcedProvider.supportsTemperature = custom.supportsTemperature ?? forcedProvider.supportsTemperature;
+      forcedProvider.timeout = custom.timeout ?? forcedProvider.timeout;
+    }
+
+    this.logger.debug(`F3: forcing model ${options.model}`);
+    return [forcedProvider, ...ordered.filter((p) => p.name !== providerName)];
+  }
+
   /** Q2: Detect a rate-limit (429) error — worth a retry on the SAME provider. */
   private isRateLimitError(err: unknown): boolean {
     const status = LlmProviderRateLimit.extractStatusCode(err);
@@ -808,7 +847,8 @@ export class LlmService implements ILlmPort, OnModuleInit {
       options?.role !== 'vision';
 
     // Q1: role-aware provider ordering (falls back to sticky default)
-    const ordered = this.orderedProviders(options?.role);
+    // F3: if options.model is set, try that provider/model first, then the rest of the chain
+    const ordered = this.buildOrderedProviders(options);
 
     const errors: string[] = [];
 
@@ -1079,8 +1119,16 @@ export class LlmService implements ILlmPort, OnModuleInit {
     const effectiveSignal = combineSignals(options?.signal, alsContext?.signal);
     const budgetScope = options?.budgetScope ?? alsContext?.budgetScope;
     const budgetRunId = options?.budgetRunId ?? alsContext?.budgetRunId;
-    if (budgetScope) {
-      options = { ...options, budgetScope, budgetRunId };
+    const modelOverride = options?.model ?? alsContext?.model;
+
+    options = {
+      ...options,
+      ...(budgetScope ? { budgetScope, budgetRunId } : {}),
+      ...(modelOverride ? { model: modelOverride } : {}),
+    };
+
+    if (modelOverride) {
+      this.logger.debug(`LLM model override: ${modelOverride}`);
     }
 
     if (effectiveSignal?.aborted) {

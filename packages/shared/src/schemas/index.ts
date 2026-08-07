@@ -72,6 +72,7 @@ export const GeneratePostsDtoSchema = z.object({
   networks: z.array(z.enum(['X', 'THREADS', 'FACEBOOK'])).optional(),
   sourceType: z.enum(['brief', 'article', 'topic', 'create_run']).optional(),
   multiStage: z.boolean().optional().default(false), // F2: hook + continuation thread
+  model: z.string().optional(), // F3: explicit provider/model override (e.g. "openai/gpt-5-nano")
 });
 export type GeneratePostsDto = z.infer<typeof GeneratePostsDtoSchema>;
 

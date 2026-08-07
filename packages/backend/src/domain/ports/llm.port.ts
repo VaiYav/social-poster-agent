@@ -41,6 +41,8 @@ export interface GenerateOptions {
   budgetScope?: 'orchestrator' | 'generation';
   /** P0: generation run ID for per-run budget tracking. */
   budgetRunId?: string;
+  /** F3: explicit provider/model override, e.g. "openai/gpt-5-nano". */
+  model?: string;
 }
 
 export interface LlmResponse {

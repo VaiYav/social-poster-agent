@@ -22,6 +22,7 @@ export class GenerationController {
       GenerationTrigger.MANUAL,
       dto.multiStage,
       body.humanReview ?? false,
+      dto.model,
     );
     return { runId, status: 'started' };
   }

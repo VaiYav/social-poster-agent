@@ -90,7 +90,7 @@ async function generate() {
   resultError.value = null;
   progressEvents.value = [];
   try {
-    const data = await statsStore.triggerGeneration(count.value, networks.value, sourceType.value, multiStage.value);
+    const data = await statsStore.triggerGeneration(count.value, networks.value, sourceType.value, multiStage.value, selectedModel.value || undefined);
     result.value = `Generation started: ${data.runId ?? 'ok'}`;
     activeRunId.value = data.runId ?? null;
     toast.success(`Generation started (run ${data.runId?.slice(0, 8) ?? 'ok'})`);
@@ -259,7 +259,7 @@ const statusBadge: Record<string, 'success' | 'warning' | 'error' | 'info' | 'ne
                 label: `${m.provider} / ${m.model}${m.free ? ' (FREE)' : ''}`,
               })),
             ]" />
-            <p class="mt-1.5 text-xs text-text-muted">Selected model is informational — backend uses fallback chain automatically.</p>
+            <p class="mt-1.5 text-xs text-text-muted">Auto uses the configured fallback chain. A selected model is tried first and falls back on failure.</p>
           </div>
 
           <div>

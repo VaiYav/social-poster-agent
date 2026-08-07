@@ -122,9 +122,44 @@ describe('MOD-06 / stats store', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // F3-003: triggerGeneration() passes selected model to the generation API
+  // ---------------------------------------------------------------------------
+  it('F3-003: triggerGeneration() sends model override to the backend', async () => {
+    (api.post as ReturnType<typeof vi.fn>).mockResolvedValue({ data: { runId: 'r-model', status: 'started' } });
+    (api.get as ReturnType<typeof vi.fn>).mockResolvedValue({ data: [] });
+
+    const store = useStatsStore();
+    await store.triggerGeneration(3, ['X'], 'brief', false, 'openai/gpt-5-nano');
+
+    expect(api.post).toHaveBeenCalledWith('/generation/run', {
+      count: 3,
+      networks: ['X'],
+      sourceType: 'brief',
+      multiStage: false,
+      model: 'openai/gpt-5-nano',
+    });
+    expect(api.get).toHaveBeenCalledWith('/generation/runs', { params: { limit: 20 } });
+  });
+
+  it('F3-004: triggerGeneration() omits model when not provided', async () => {
+    (api.post as ReturnType<typeof vi.fn>).mockResolvedValue({ data: { runId: 'r-auto', status: 'started' } });
+    (api.get as ReturnType<typeof vi.fn>).mockResolvedValue({ data: [] });
+
+    const store = useStatsStore();
+    await store.triggerGeneration(3, ['X', 'THREADS'], 'brief', false);
+
+    expect(api.post).toHaveBeenCalledWith('/generation/run', {
+      count: 3,
+      networks: ['X', 'THREADS'],
+      sourceType: 'brief',
+      multiStage: false,
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // UTC-112 — triggerGeneration() calls API and refreshes runs list
   //
-  // The store's signature is triggerGeneration(count, networks, sourceType).
+  // The store's signature is triggerGeneration(count, networks, sourceType, multiStage, model).
   // After a successful POST it calls fetchRuns() to refresh the runs list.
   // ---------------------------------------------------------------------------
   it('UTC-112: triggerGeneration() calls API post and refreshes runs via fetchRuns', async () => {

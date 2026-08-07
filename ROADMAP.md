@@ -580,7 +580,7 @@
 | F20 (Warm-up) | MVP | [x] | ✅ Done — warmup.service.ts, Prisma fields, canPost() check, WarmupModule, seedFromEnv() wires SOCIAL_*_WARMUP env vars |
 | F21 (Health Monitor) | MVP | [x] | ✅ Done — hourly cron, ban detection, DLQ alerting, SSE alerts, reconcile |
 | F2 (Multi-Stage Posting) | Phase 1.5 | [~] | Partial — backend done: multiStage param in GeneratePostsDto, GenerationService creates PostThread + continuation (position=1), PostingService loads thread items + passes to X/Threads posters, UI checkbox in Generate.vue. TODO: test with real threads |
-| F3 (On-Demand Launch) | Phase 1.5 | [~] | Partial — Generate.vue has count/network/source; no model picker, no F1/F2 control panel |
+| F3 (Model Picker) | Phase 1.5 | [x] | Done — Generate.vue model dropdown, `model` in `GeneratePostsDto`, `GenerationService` passes override through `withLlmContext`, `LlmService` forces requested provider/model first with fallback to the default chain |
 | F5 (Pause/Resume) | Phase 1.5 | [~] | Partial — LangGraph checkpoint wired; Queue.vue has pause/resume UI + BullMQ stats per network |
 | F10 (Content Repurposing) | Phase 1.5 | [~] | Partial — backend done: repurposeFromArticles() in GenerationService extracts facts from articles + generates posts, /repurpose endpoint, UI button in Generate.vue. TODO: deeper fact extraction, source variety |
 | F13 (Content Recycling) | Phase 1.5 | [x] | Done — RecyclingService, RecyclingController (POST /recycling/run, POST /recycling/:id/recycle), Recycling.vue UI, gated cron via RECYCLING_CRON_ENABLED |

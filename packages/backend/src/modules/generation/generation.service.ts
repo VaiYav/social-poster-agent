@@ -274,6 +274,7 @@ export class GenerationService {
     handlerOpts: LangfuseHandlerOptions,
     input: Parameters<ReturnType<ReturnType<typeof buildGenerationGraph>['compile']>['invoke']>[0],
     runId: string,
+    model?: string,
   ): Promise<{ finalState: Record<string, unknown>; promptLabels: Record<string, { label: string; isFallback?: boolean }> }> {
     const handler = this.langfuse?.createHandler(handlerOpts);
     const callbacks = handler ? [handler] : [];
@@ -281,7 +282,7 @@ export class GenerationService {
       config.callbacks = callbacks;
     }
     return withPromptLabelContext(() =>
-      withLlmContext({ callbacks, signal: config.signal, budgetScope: 'generation', budgetRunId: runId }, async () => {
+      withLlmContext({ callbacks, signal: config.signal, budgetScope: 'generation', budgetRunId: runId, model }, async () => {
         const finalState = await this.getGraph().invoke(input, config);
         const promptLabels = getRecordedPromptLabels();
         return { finalState, promptLabels };
@@ -442,6 +443,8 @@ export class GenerationService {
    * @param networks Optional subset of networks (default: all enabled)
    * @param triggeredBy Trigger source (manual/cron)
    * @param multiStage F2: if true, generate hook + continuation posts linked as a thread
+   * @param humanReview Whether to pause for human review before saving drafts
+   * @param model F3: optional explicit provider/model override (e.g. "openai/gpt-5-nano")
    * @returns generation run ID
    */
   async generate(
@@ -450,6 +453,7 @@ export class GenerationService {
     triggeredBy: GenerationTrigger = GenerationTrigger.MANUAL,
     multiStage = false,
     humanReview = false,
+    model?: string,
     signal?: AbortSignal,
   ): Promise<string> {
     const run = await this.prisma.generationRun.create({
@@ -595,6 +599,7 @@ export class GenerationService {
               multiStage,
               humanReview,
               language,
+              model,
               stopSignal,
             );
           }),
@@ -1176,6 +1181,7 @@ export class GenerationService {
     multiStage = false,
     humanReview = false,
     language = 'en',
+    model?: string,
     signal?: AbortSignal,
   ): Promise<{ id: string; network: SocialNetwork; llmMetadata: Prisma.JsonValue }[]> {
     // Only generate for networks that are enabled in configuration.
@@ -1248,6 +1254,7 @@ export class GenerationService {
       },
       initialState,
       runId,
+      model,
     );
     const generatedPosts = (finalState as { posts?: GeneratedPost[] }).posts ?? [];
     // P4: Extract facts from final state for thread depth planning

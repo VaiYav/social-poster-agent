@@ -81,8 +81,8 @@ export const useStatsStore = defineStore('stats', () => {
     }
   }
 
-  async function triggerGeneration(count: number, networks: string[], sourceType: string, multiStage = false) {
-    const res = await api.post('/generation/run', { count, networks, sourceType, multiStage });
+  async function triggerGeneration(count: number, networks: string[], sourceType: string, multiStage = false, model?: string) {
+    const res = await api.post('/generation/run', { count, networks, sourceType, multiStage, model });
     await fetchRuns();
     return res.data;
   }

@@ -183,4 +183,23 @@ describe('LlmService — quality pass', () => {
     const res = await service.generateChat('sys', 'prompt', { role: 'draft' });
     expect(res.tokens).toBe(42);
   });
+
+  it('LS-008: F3 model override invokes the requested provider/model first and falls back on failure', async () => {
+    const service = makeService({ GROQ_API_KEY: 'key', SAMBANOVA_API_KEY: 'key' });
+
+    // First call: force the SambaNova model (which is second in the default chain)
+    await service.generateChat('sys', 'prompt one', { model: 'sambanova/Meta-Llama-3.3-8B-Instruct' });
+    const firstModel = mocks.instances[0]?.ctorArgs.model;
+    const firstBase = mocks.instances[0]?.ctorArgs.configuration?.baseURL;
+    expect(firstModel).toBe('Meta-Llama-3.3-8B-Instruct');
+    expect(firstBase).toBe('https://api.sambanova.ai/v1');
+
+    mocks.reset();
+
+    // Second call: force an unknown provider on a Groq-only service → falls back to default chain (Groq first)
+    const groqOnly = makeService({ GROQ_API_KEY: 'key' });
+    await groqOnly.generateChat('sys', 'prompt two', { model: 'unknown/model' });
+    const fallbackModel = mocks.instances[0]?.ctorArgs.model;
+    expect(fallbackModel).toBe('llama-3.3-70b-versatile');
+  });
 });

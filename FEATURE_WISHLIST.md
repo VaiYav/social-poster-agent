@@ -118,6 +118,8 @@ LLM-управляемый браузерный агент, который им�
 
 ## F3. On-Demand Feature Launch + Model Selection
 
+**Status: model picker MVP done** — `Generate.vue` has a model dropdown, the selected `provider/model` is sent to `POST /generation/run`, `GenerationService` propagates it through `withLlmContext`, and `LlmService` forces the requested provider/model first with fallback to the default chain. The broader "feature control panel" (F1/F2/F4 on-demand launch UI) remains future work.
+
 ### Описание
 UI-управляемый запуск фичей по клику. Например, кликаю "Start F1" →
 открываются 3 параллельных браузера (по одному на сеть) → начинается

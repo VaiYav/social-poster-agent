@@ -157,7 +157,7 @@ export class GeneratePostsHandler implements IActionHandler {
       };
     }
 
-    const runId = await service.generate(effectivePostsPerRun, networks, GenerationTrigger.AUTONOMOUS, false, false, options?.signal);
+    const runId = await service.generate(effectivePostsPerRun, networks, GenerationTrigger.AUTONOMOUS, false, false, undefined, options?.signal);
 
     let postsApproved = 0;
     if (parseBool(this.configService.get<string>('AUTO_APPROVE_ENABLED', 'false'))) {
