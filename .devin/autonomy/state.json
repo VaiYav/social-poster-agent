@@ -2,8 +2,8 @@
   "current_phase": "phase-2",
   "current_sprint": "f1-targeting-and-browsing",
   "base_branch": "f4-adaptive-replies",
-  "active_branches": ["feat/phase-2-f1-decision-engine"],
+  "active_branches": ["f4-adaptive-replies"],
   "completed_sprints": ["f4-ui-swagger", "f22-trending", "f3-model-picker", "f2-multi-stage-posting", "f10-content-repurposing", "f22-trending-api-integration", "f1-decision-engine"],
   "blockers": ["test:coverage global threshold 66% < 80% (pre-existing, project-wide)"],
-  "last_green_commit": "f6edfd7"
+  "last_green_commit": "27d4af8"
 }
