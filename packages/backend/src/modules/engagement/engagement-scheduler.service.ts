@@ -113,11 +113,24 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
     }
   }
 
-  onModuleDestroy(): void {
+  async onModuleDestroy(): Promise<void> {
     for (const timeout of this.scheduledTimeouts) {
       clearTimeout(timeout);
     }
     this.scheduledTimeouts = [];
+
+    // Also remove pending BullMQ delayed/waiting browsing-session jobs so
+    // scheduled sessions don't outlive the service on shutdown/restart.
+    for (const network of this.networks) {
+      try {
+        const removed = await this.queueFactory.clearPendingEngagementBrowsingJobs(network as string);
+        if (removed > 0) {
+          this.logger.log(`Cleared ${removed} pending browsing session job(s) for ${network}`);
+        }
+      } catch (err) {
+        this.logger.warn(`Failed to clear pending browsing jobs for ${network}: ${(err as Error).message}`);
+      }
+    }
   }
 
   /**

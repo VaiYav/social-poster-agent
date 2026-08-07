@@ -57,11 +57,11 @@ export class TargetingService {
       this.configService.get<string>('ENGAGEMENT_COMPETITORS', 'costarastrology,thepatternapp,sanctuaryworldco'),
     );
     this.sourceWeights = {
-      'home-feed': this.configService.get<number>('ENGAGEMENT_WEIGHT_HOME_FEED', 40),
-      'hashtag': this.configService.get<number>('ENGAGEMENT_WEIGHT_HASHTAG', 25),
-      'competitor': this.configService.get<number>('ENGAGEMENT_WEIGHT_COMPETITOR', 15),
-      'explore': this.configService.get<number>('ENGAGEMENT_WEIGHT_EXPLORE', 10),
-      'notifications': this.configService.get<number>('ENGAGEMENT_WEIGHT_NOTIFICATIONS', 10),
+      'home-feed': this.parseNumber(this.configService.get<string>('ENGAGEMENT_WEIGHT_HOME_FEED', '40'), 40),
+      'hashtag': this.parseNumber(this.configService.get<string>('ENGAGEMENT_WEIGHT_HASHTAG', '25'), 25),
+      'competitor': this.parseNumber(this.configService.get<string>('ENGAGEMENT_WEIGHT_COMPETITOR', '15'), 15),
+      'explore': this.parseNumber(this.configService.get<string>('ENGAGEMENT_WEIGHT_EXPLORE', '10'), 10),
+      'notifications': this.parseNumber(this.configService.get<string>('ENGAGEMENT_WEIGHT_NOTIFICATIONS', '10'), 10),
     };
   }
 
@@ -216,5 +216,11 @@ export class TargetingService {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
+  }
+
+  private parseNumber(value: string | undefined, fallback: number): number {
+    if (value === undefined || value === '') return fallback;
+    const parsed = Number(value);
+    return Number.isNaN(parsed) ? fallback : parsed;
   }
 }

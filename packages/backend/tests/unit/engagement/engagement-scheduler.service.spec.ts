@@ -122,9 +122,10 @@ describe('EngagementSchedulerService', () => {
     await service.onModuleInit();
     // Scheduler now uses BullMQ — verify enqueueEngagement was called
     expect(mockQueueFactory.enqueueEngagement).toHaveBeenCalled();
-    service.onModuleDestroy();
+    await service.onModuleDestroy();
     // After destroy, pendingSessions (scheduledTimeouts) should be 0
     expect(service.getStatus().pendingSessions).toBe(0);
+    expect(mockQueueFactory.clearPendingEngagementBrowsingJobs).toHaveBeenCalled();
   });
 
   it('SC-006: getStatus returns correct config', () => {

@@ -145,7 +145,7 @@ export class EngagementService implements IEngagementPort {
     type: InteractionType,
     targetUrl: string | undefined,
     content: string | undefined,
-    action: (engager: BaseEngager, page: import('playwright-core').Page) => Promise<EngagementResult>,
+    performAction: (engager: BaseEngager, page: import('playwright-core').Page) => Promise<EngagementResult>,
     targetHandle?: string,
   ): Promise<EngagementResult & { interactionId: string }> {
     if (!isNetworkEnabled(network)) {
@@ -164,11 +164,19 @@ export class EngagementService implements IEngagementPort {
       };
     }
 
-    // Rate limit check
-    const rateKey = `${network as string}-${type.toLowerCase()}`;
-    const rateCheck = await this.rateLimitService.checkRateLimit(rateKey);
+    // Get or create session for an account on this network
+    let accountId: string | undefined;
+    if (this.accountsService) {
+      const account = await this.accountsService.getNextAccountForNetwork(network);
+      accountId = account?.id;
+    }
+
+    // Rate limit check — per network, account, and action so multi-account
+    // setups don't share a single counter.
+    const action = type.toLowerCase();
+    const rateCheck = await this.rateLimitService.checkRateLimit(network as string, accountId, action);
     if (!rateCheck.allowed) {
-      this.logger.warn(`Rate limited for ${rateKey}: ${rateCheck.reason}`);
+      this.logger.warn(`Rate limited for ${network} ${action}: ${rateCheck.reason}`);
       return {
         success: false,
         error: `Rate limited: ${rateCheck.reason}`,
@@ -176,12 +184,6 @@ export class EngagementService implements IEngagementPort {
       };
     }
 
-    // Get or create session for an account on this network
-    let accountId: string | undefined;
-    if (this.accountsService) {
-      const account = await this.accountsService.getNextAccountForNetwork(network);
-      accountId = account?.id;
-    }
     const session = accountId
       ? await this.sessionsService.getOrCreateSession(accountId, network)
       : await this.sessionsService.getOrCreateSession(network);
@@ -240,7 +242,7 @@ export class EngagementService implements IEngagementPort {
       page = await context.newPage();
 
       // Perform the engagement action
-      result = await action(engager, page);
+      result = await performAction(engager, page);
 
       // Save updated session state
       const updatedState = await this.browser.saveStorageState(context);
@@ -274,7 +276,7 @@ export class EngagementService implements IEngagementPort {
       // Only count rate limit when we actually performed the action, not when we
       // skipped because it was already done (e.g., already liked).
       if (result.success && !result.alreadyLiked && !result.alreadyReposted) {
-        await this.rateLimitService.recordPost(rateKey);
+        await this.rateLimitService.recordPost(network as string, accountId, action);
       }
 
       // SSE event

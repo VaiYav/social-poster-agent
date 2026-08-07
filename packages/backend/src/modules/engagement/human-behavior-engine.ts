@@ -122,6 +122,18 @@ export class HumanBehaviorEngine {
     // instead of 1 per post). Falls back to individual calls otherwise.
     const supportsBatch = typeof this.decisionPort.decideActionsBatch === 'function';
 
+    // Step 2 helper: ensure the decision array has exactly one entry per context.
+    // LLM batch responses can return the wrong length and would otherwise crash at decisions[i].
+    const normalizeDecisions = (ctxs: PostContext[], raw: unknown): ActionDecision[] => {
+      if (Array.isArray(raw) && raw.length === ctxs.length) {
+        return raw as ActionDecision[];
+      }
+      this.logger.warn(
+        `Decision length mismatch: expected ${ctxs.length}, got ${Array.isArray(raw) ? raw.length : typeof raw} — using fallbacks`,
+      );
+      return ctxs.map((c) => this.fallbackDecision(c));
+    };
+
     // Process posts in batches
     const batchSize = supportsBatch ? HumanBehaviorEngine.BATCH_SIZE : 1;
     let urlIndex = 0;
@@ -192,28 +204,31 @@ export class HumanBehaviorEngine {
       let decisions: ActionDecision[];
       try {
         if (supportsBatch && contexts.length > 1) {
-          decisions = await withTimeout(
+          const raw = await withTimeout(
             this.decisionPort.decideActionsBatch!(contexts),
             HumanBehaviorEngine.DECISION_TIMEOUT_MS,
             'Batch LLM decision',
           );
+          decisions = normalizeDecisions(contexts, raw);
         } else {
-          decisions = await withTimeout(
+          const raw = await withTimeout(
             Promise.all(contexts.map((ctx) => this.decisionPort.decideAction(ctx))),
             HumanBehaviorEngine.DECISION_TIMEOUT_MS,
             'Individual LLM decisions',
           );
+          decisions = normalizeDecisions(contexts, raw);
         }
       } catch (err) {
         const errorMessage = (err as Error).message.slice(0, 80);
         if (supportsBatch && contexts.length > 1) {
           this.logger.warn(`Batch decision failed/timed out, falling back to individual: ${errorMessage}`);
           try {
-            decisions = await withTimeout(
+            const raw = await withTimeout(
               Promise.all(contexts.map((ctx) => this.decisionPort.decideAction(ctx))),
               HumanBehaviorEngine.DECISION_TIMEOUT_MS,
               'Individual LLM decisions',
             );
+            decisions = normalizeDecisions(contexts, raw);
           } catch (err2) {
             this.logger.warn(
               `Individual decision also failed/timed out, using fallback decisions: ${(err2 as Error).message.slice(0, 80)}`,
@@ -433,9 +448,12 @@ export class HumanBehaviorEngine {
     context: PostContext,
     config: BehaviorEngineConfig,
   ): Promise<PostInteractionResult> {
-    // Rate limit check
-    const rateKey = `${context.network as string}-like`;
-    const rateCheck = await this.rateLimitService.checkRateLimit(rateKey);
+    // Rate limit check — per network, account, and action
+    const rateCheck = await this.rateLimitService.checkRateLimit(
+      context.network as string,
+      config.accountId,
+      'like',
+    );
     if (!rateCheck.allowed) {
       return {
         postUrl: context.postUrl,
@@ -470,7 +488,7 @@ export class HumanBehaviorEngine {
       });
 
       if (result.success && !result.alreadyLiked) {
-        await this.rateLimitService.recordPost(rateKey);
+        await this.rateLimitService.recordPost(context.network as string, config.accountId, 'like');
         await this.publishInteractionEvent('interaction_completed', interaction.id, context, 'like');
       } else if (result.success) {
         await this.publishInteractionEvent('interaction_completed', interaction.id, context, 'like');
@@ -538,9 +556,12 @@ export class HumanBehaviorEngine {
       };
     }
 
-    // Rate limit check
-    const rateKey = `${context.network as string}-comment`;
-    const rateCheck = await this.rateLimitService.checkRateLimit(rateKey);
+    // Rate limit check — per network, account, and action
+    const rateCheck = await this.rateLimitService.checkRateLimit(
+      context.network as string,
+      config.accountId,
+      'comment',
+    );
     if (!rateCheck.allowed) {
       return {
         postUrl: context.postUrl,
@@ -576,7 +597,7 @@ export class HumanBehaviorEngine {
       });
 
       if (result.success) {
-        await this.rateLimitService.recordPost(rateKey);
+        await this.rateLimitService.recordPost(context.network as string, config.accountId, 'comment');
         await this.publishInteractionEvent('interaction_completed', interaction.id, context, 'comment');
       }
 
@@ -608,9 +629,12 @@ export class HumanBehaviorEngine {
     context: PostContext,
     config: BehaviorEngineConfig,
   ): Promise<PostInteractionResult> {
-    // Rate limit check
-    const rateKey = `${context.network as string}-repost`;
-    const rateCheck = await this.rateLimitService.checkRateLimit(rateKey);
+    // Rate limit check — per network, account, and action
+    const rateCheck = await this.rateLimitService.checkRateLimit(
+      context.network as string,
+      config.accountId,
+      'repost',
+    );
     if (!rateCheck.allowed) {
       return {
         postUrl: context.postUrl,
@@ -644,7 +668,7 @@ export class HumanBehaviorEngine {
       });
 
       if (result.success && !result.alreadyReposted) {
-        await this.rateLimitService.recordPost(rateKey);
+        await this.rateLimitService.recordPost(context.network as string, config.accountId, 'repost');
         await this.publishInteractionEvent('interaction_completed', interaction.id, context, 'repost');
       } else if (result.success) {
         await this.publishInteractionEvent('interaction_completed', interaction.id, context, 'repost');
@@ -691,8 +715,11 @@ export class HumanBehaviorEngine {
       };
     }
 
-    const rateKey = `${context.network as string}-quote`;
-    const rateCheck = await this.rateLimitService.checkRateLimit(rateKey);
+    const rateCheck = await this.rateLimitService.checkRateLimit(
+      context.network as string,
+      config.accountId,
+      'quote',
+    );
     if (!rateCheck.allowed) {
       return {
         postUrl: context.postUrl,
@@ -727,7 +754,7 @@ export class HumanBehaviorEngine {
       });
 
       if (result.success) {
-        await this.rateLimitService.recordPost(rateKey);
+        await this.rateLimitService.recordPost(context.network as string, config.accountId, 'quote');
         await this.publishInteractionEvent('interaction_completed', interaction.id, context, 'quote');
       }
 

@@ -10,7 +10,7 @@
 - `EngagementSchedulerService` — schedules browsing sessions via BullMQ delayed jobs.
 - `HumanBehaviorEngine` — LLM-driven per-post decision loop (scroll/read/like/comment/repost/quote).
 - `EngagementDecisionService` — calls LLM to decide actions and generate comments/quotes.
-- `TargetingService` — rotates sources (home feed, hashtag, competitor, explore, own posts, notifications).
+- `TargetingService` — rotates sources (home feed, hashtag, competitor, explore, notifications).
 - `EngagementGraph` — LangGraph state graph for browsing sessions.
 - `BaseEngager` / `XEngager` / `ThreadsEngager` / `FacebookEngager` — network-specific browser automation.
 
@@ -36,19 +36,20 @@
 
 - Each action (`like`, `comment`, `follow`, `reply`, `repost`, `quote`):
   1. Checks `flowControl.isPaused('engagement')`.
-  2. Builds `rateKey` `${network}-${action}` and calls `rateLimitService.checkRateLimit(rateKey)`.
-  3. Gets session via `sessionsService.getOrCreateSession(network)`.
-  4. Creates `Interaction` record in `IN_PROGRESS`.
-  5. Creates browser context with decrypted storage state.
-  6. Calls the appropriate `BaseEngager` method.
-  7. Saves updated storage state.
-  8. Updates `Interaction` to `COMPLETED`/`FAILED`.
-  9. Calls `rateLimitService.recordPost(rateKey)` if successful and not already liked/reposted.
-  10. Emits SSE events.
+  2. Resolves the target account via `accountsService.getNextAccountForNetwork(network)`.
+  3. Calls `rateLimitService.checkRateLimit(network, accountId, actionType)` with the resolved `accountId` so each account has its own interaction counters.
+  4. Gets session via `sessionsService.getOrCreateSession(accountId, network)` (or network-only fallback if no account is resolved).
+  5. Creates `Interaction` record in `IN_PROGRESS`.
+  6. Creates browser context with decrypted storage state.
+  7. Calls the appropriate `BaseEngager` method.
+  8. Saves updated storage state.
+  9. Updates `Interaction` to `COMPLETED`/`FAILED`.
+  10. Calls `rateLimitService.recordPost(network, accountId, actionType)` if successful and not already liked/reposted.
+  11. Emits SSE events.
 
 ### 3.2 `BrowsingSessionService.runBrowsingSession()`
 
-- Acquires a static `sessionMutex` (only one browsing session across all networks at a time, due to memory concerns).
+- Acquires a per-network distributed Redis lock (`${ENGAGEMENT_LOCK_KEY}:${network}`) so different networks can browse concurrently while a single network stays serialized.
 - Gets session with `deferFormLogin: true`.
 - Creates `BrowsingSession` record `ACTIVE`.
 - Acquires browser context from pool, creates page, applies resource blocking, suppresses page errors, pre-session health check.
@@ -77,7 +78,7 @@
 - Processes `postUrls` in batches (size 5 if batch LLM supported).
 - For each batch:
   1. Extract post text via `engager.extractPostText()` (with timeout, fatal error handling).
-  2. Get LLM decisions via `decisionPort.decideActionsBatch()` or `decideAction()` (fallback to individual, then fallback to `read`).
+  2. Get LLM decisions via `decisionPort.decideActionsBatch()` or `decideAction()` (fallback to individual, then fallback to `read`). Validates the decision array length and falls back to `read` if it doesn't match the number of contexts.
   3. Execute decisions sequentially: scroll, read, skip, like, comment, repost, quote.
   4. Enforces per-session budgets (downgrades to `read` if budget exhausted).
   5. If no interactions after 5 posts, converts a `read`/`scroll`/`skip` to a `like` for "first-interaction quota".
@@ -193,7 +194,8 @@
 
 **B12. `HumanBehaviorEngine.processPosts` `first-interaction quota` converts `read`/`scroll`/`skip` to `like` if `postsProcessed > 5` and `totalInteractions === 0`. This is a hack. It may force a like on a post that the LLM didn't want to like. But it's to avoid zero interactions. Acceptable.**
 
-**B13. `HumanBehaviorEngine.processPosts` `decisions` array from `decideActionsBatch` may have different length than `contexts` if parsing fails. `parseBatchDecisionResponse` may pad/truncate. It then iterates with `contexts[i]!` and `decisions[i]!`. If lengths mismatch, `decisions[i]` may be undefined. This would throw `TypeError`. Need length check.**
+**B13. ~~`HumanBehaviorEngine.processPosts` `decisions` array from `decideActionsBatch` may have different length than `contexts`~~ — RESOLVED**
+- `processPosts` now normalizes every decision result with a `normalizeDecisions` helper. If the returned array length does not match the number of contexts, it logs a warning and falls back to a `read` decision for each context.
 
 **B14. `HumanBehaviorEngine.processPosts` `executeDecision` catches timeout and returns `{ success: false, error: ... }`. It does not check fatal error. Then after `executeDecision`, it checks `if (!result.success && this.isFatalBrowserError(result.error)) throw new Error(result.error);`. Good. But if `executeDecision` itself throws (e.g., from `engager.like`), it is caught by the `withTimeout` `.catch` and returns error. Good.**
 
@@ -219,7 +221,8 @@
 - Temperatures are now read via `ConfigService` in the constructor (`engagement-decision.service.ts:49-50`).
 - `generateComment` uses `this.commentTemperature` (`:247`); `generateQuoteText` uses `this.quoteTemperature` (`:293`).
 
-**B25. `TargetingService` source weights are `configService.get<number>` and may be strings. `this.sourceWeights` is `Record<EngagementSource, number>` but may be strings. `pickSource` uses `this.sourceWeights[s.source]` in arithmetic. If string, JS coercion works. But type is wrong. Should `Number()`.** Also `get<number>` from `ConfigService` may not parse. This is a recurring issue.
+**B25. ~~`TargetingService` source weights are `configService.get<number>` and may be strings~~ — RESOLVED**
+- Weights are now parsed with `Number()` via a private `parseNumber()` helper, so `this.sourceWeights` always contains numeric values.
 
 **B26. ~~`TargetingService` `getAvailableSources` for `own-post` uses `url: ''`~~ — RESOLVED (removed)**
 - The `own-post` source was unimplemented (empty URL fell back to home feed). Rather than ship a broken source, it has been removed from `EngagementSource`, `TargetingService`, and `.env.example`. Conversation-ready targeting now boosts `notifications` only; replying to comments on own posts can be re-introduced later as a dedicated graph path with profile-URL resolution.
@@ -262,7 +265,8 @@
 
 **A5. `EngagementDecisionService` uses `process.env` for temperatures. Should use `ConfigService`.** 
 
-**A6. `EngagementSchedulerService` `onModuleDestroy` clears `scheduledTimeouts` but doesn't stop BullMQ delayed jobs. Misleading. Should remove or document.** 
+**A6. ~~`EngagementSchedulerService` `onModuleDestroy` clears `scheduledTimeouts` but doesn't stop BullMQ delayed jobs~~ — RESOLVED**
+- `onModuleDestroy` is now async and calls `queueFactory.clearPendingEngagementBrowsingJobs(network)` for each configured network, so scheduled sessions are cancelled on shutdown/restart. 
 
 **A7. ~~`TargetingService` `own-post` source is not implemented (empty URL)~~ — RESOLVED (removed)** 
 
@@ -322,14 +326,14 @@
 **F7. Add `IEngagerStrategy` Map injection**
 - Remove `getEngager` switch in both `EngagementService` and `BrowsingSessionService`.
 
-**F8. Add per-account rate limit keys**
-- Currently `EngagementService` uses `${network}-${action}`; if multi-account, they share limits.
+**F8. ~~Add per-account rate limit keys~~ — RESOLVED**
+- `RateLimitService.checkRateLimit()` and `recordPost()` now accept an optional `action` argument. `EngagementService` and `HumanBehaviorEngine` pass `network`, `accountId`, and `actionType` so each account and action gets its own Redis counter (e.g., `spa:ratelimit:X:acc-001:like:daily:...`).
 
 **F9. ~~Add `BrowsingSessionService` `runBrowsingSession` concurrency per network instead of global mutex~~ — RESOLVED**
 - Implemented as a per-network distributed Redis lock (`${ENGAGEMENT_LOCK_KEY}:${network}`).
 
-**F10. Add `HumanBehaviorEngine` `decisions` length validation**
-- Avoid crashes if batch response has wrong length.
+**F10. ~~Add `HumanBehaviorEngine` `decisions` length validation~~ — RESOLVED**
+- A `normalizeDecisions` helper ensures the decision array has exactly one entry per context; mismatched lengths fall back to a safe `read` decision for each context.
 
 **F11. Add `EngagementSchedulerService` `scheduleDailySessions` idempotency key with window not exact time**
 - The `jobId` includes exact jittered time, so re-running `scheduleDailySessions` creates new jobs for different times. Could be intentional. But if daily cron runs at midnight and `scheduleDailySessions` runs again, it creates new jobs because `applyJitter` returns random times. It does not clear old jobs. So old delayed jobs remain. This can lead to multiple browsing sessions per day. BullMQ dedup by jobId only prevents duplicates for the same time. So the same window can be scheduled multiple times with different jitter. **Bug or design?** Each midnight, `scheduleDailySessions` runs and adds new jobs for random times within windows. It does not remove old un-run delayed jobs. So if a session is delayed and then next midnight, a new session is added, both may run. This could exceed `sessionsPerDay`. If the scheduler is restarted, it also adds new jobs. It should clear existing delayed browsing jobs before scheduling, or use a deterministic jobId per window. Currently `jobId = browsing-${network}-${ISO}` where ISO includes the jittered time. So deterministic only if time is same. Use `browsing-${network}-${windowIndex}-${date}`? But then jitter is lost. Better to clear existing delayed browsing jobs before scheduling.

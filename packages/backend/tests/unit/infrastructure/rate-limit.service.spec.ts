@@ -346,4 +346,29 @@ describe('RateLimitService (MOD-05 — Infrastructure Adapters)', () => {
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain('failed closed');
   });
+
+  it('UTC-095: per-account interaction keys are separate per action and account', async () => {
+    configService = createMockConfigService({
+      RATE_LIMIT_INTERACTION_LIKE_MAX_PER_DAY: '1',
+    });
+    service = new RateLimitService(configService, mockRedis as never);
+
+    // First like for acc-001 is allowed and recorded
+    await service.recordPost('X', 'acc-001', 'like');
+    const first = await service.checkRateLimit('X', 'acc-001', 'like');
+    expect(first.allowed).toBe(false);
+    expect(first.reason).toContain('Daily limit reached for X like (1/1)');
+
+    // A different action on the same account is still allowed
+    const comment = await service.checkRateLimit('X', 'acc-001', 'comment');
+    expect(comment.allowed).toBe(true);
+
+    // The same action on a different account is allowed
+    const otherAccount = await service.checkRateLimit('X', 'acc-002', 'like');
+    expect(otherAccount.allowed).toBe(true);
+
+    // The Redis keys include account and action
+    const today = new Date().toISOString().slice(0, 10);
+    expect(mockRedis._store.has(`spa:ratelimit:X:acc-001:like:daily:${today}`)).toBe(true);
+  });
 });

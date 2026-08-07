@@ -171,17 +171,19 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Resolve effective limits for a key. Composite keys "{NETWORK}-{action}"
-   * (engagement) use interaction limits; bare network keys use post limits.
+   * Resolve effective limits. Engagement actions (like/comment/follow/reply/repost/quote)
+   * use interaction limits; bare network keys use post limits.
    */
-  private resolveLimits(network: string): { daily: number; weekly: number; intervalMs: number } {
-    const dashIdx = network.indexOf('-');
-    if (dashIdx > 0) {
-      const action = network.slice(dashIdx + 1).toLowerCase();
-      if (action in this.interactionDailyLimits) {
+  private resolveLimits(
+    network: string,
+    action?: string,
+  ): { daily: number; weekly: number; intervalMs: number } {
+    if (action) {
+      const key = action.toLowerCase();
+      if (key in this.interactionDailyLimits) {
         return {
-          daily: this.interactionDailyLimits[action]!,
-          weekly: this.interactionWeeklyLimits[action]!,
+          daily: this.interactionDailyLimits[key]!,
+          weekly: this.interactionWeeklyLimits[key]!,
           intervalMs: this.interactionMinIntervalMs,
         };
       }
@@ -228,14 +230,18 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Check if a post is allowed under the rate limit for this network.
+   * Check if a post/interaction is allowed under the rate limit for this network.
    * Returns { allowed, reason, retryAfterMs } — if not allowed, caller should defer.
    * retryAfterMs tells BullMQ / callers how long to wait before retrying.
    *
    * Checks in order: daily limit → weekly limit → min interval.
-   * Does NOT increment counters — call recordPost() after successful post.
+   * Does NOT increment counters — call recordPost() after successful post/interaction.
    */
-  async checkRateLimit(network: string, accountId?: string): Promise<{ allowed: boolean; reason?: string; retryAfterMs?: number }> {
+  async checkRateLimit(
+    network: string,
+    accountId?: string,
+    action?: string,
+  ): Promise<{ allowed: boolean; reason?: string; retryAfterMs?: number }> {
     if (!this.redis) {
       // 2.7.3: optionally fail-closed when Redis is unavailable
       if (this.failClosed) {
@@ -252,13 +258,13 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     const today = new Date().toISOString().slice(0, 10);
     const weekStartDate = this.getWeekStart();
     const weekStart = weekStartDate.toISOString().slice(0, 10);
-    const keySuffix = accountId ? `${network}:${accountId}` : network;
+    const keySuffix = this.buildKeySuffix(network, accountId, action);
     const dailyKey = `${this.prefix}:${keySuffix}:daily:${today}`;
     const weeklyKey = `${this.prefix}:${keySuffix}:weekly:${weekStart}`;
     const intervalKey = `${this.prefix}:${keySuffix}:interval`;
     const lastPostAtKey = `${this.prefix}:${keySuffix}:lastPostAt`;
 
-    const { daily: dailyLimit, weekly: weeklyLimit, intervalMs } = this.resolveLimits(network);
+    const { daily: dailyLimit, weekly: weeklyLimit, intervalMs } = this.resolveLimits(network, action);
 
     // 2.7.1: use a single MGET so daily/weekly/interval are read atomically.
     // Fall back to individual GETs for older test mocks that don't expose mget.
@@ -273,9 +279,10 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     const dailyCount = parseInt(dailyStr ?? '0', 10);
     if (dailyLimit > 0 && dailyCount >= dailyLimit) {
       const nextDayStart = new Date(`${today}T00:00:00.000Z`).getTime() + 86_400_000;
+      const label = action ? `${network} ${action}` : network;
       return {
         allowed: false,
-        reason: `Daily limit reached for ${network} (${dailyCount}/${dailyLimit})`,
+        reason: `Daily limit reached for ${label} (${dailyCount}/${dailyLimit})`,
         retryAfterMs: Math.max(0, nextDayStart - now),
       };
     }
@@ -284,9 +291,10 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     const weeklyCount = parseInt(weeklyStr ?? '0', 10);
     if (weeklyLimit > 0 && weeklyCount >= weeklyLimit) {
       const nextWeekStart = weekStartDate.getTime() + 7 * 86_400_000;
+      const label = action ? `${network} ${action}` : network;
       return {
         allowed: false,
-        reason: `Weekly limit reached for ${network} (${weeklyCount}/${weeklyLimit})`,
+        reason: `Weekly limit reached for ${label} (${weeklyCount}/${weeklyLimit})`,
         retryAfterMs: Math.max(0, nextWeekStart - now),
       };
     }
@@ -296,9 +304,10 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
       const elapsed = now - parseInt(intervalStr, 10);
       if (elapsed < intervalMs) {
         const waitMs = intervalMs - elapsed;
+        const label = action ? `${network} ${action}` : `${network} post`;
         return {
           allowed: false,
-          reason: `Rate limit: wait ${Math.ceil(waitMs / 1000)}s before next ${network} post`,
+          reason: `Rate limit: wait ${Math.ceil(waitMs / 1000)}s before next ${label}`,
           retryAfterMs: waitMs,
         };
       }
@@ -315,18 +324,22 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
    * 2.7: Uses a single Lua script to avoid the TOCTOU race between the read in
    * checkRateLimit and the increments in recordPost.
    */
-  async recordPost(network: string, accountId?: string): Promise<{ allowed: boolean; dailyCount: number; weeklyCount: number }> {
+  async recordPost(
+    network: string,
+    accountId?: string,
+    action?: string,
+  ): Promise<{ allowed: boolean; dailyCount: number; weeklyCount: number }> {
     const empty = { allowed: true, dailyCount: 0, weeklyCount: 0 };
     if (!this.redis) return empty;
 
     const today = new Date().toISOString().slice(0, 10);
     const weekStart = this.getWeekStart().toISOString().slice(0, 10);
-    const keySuffix = accountId ? `${network}:${accountId}` : network;
+    const keySuffix = this.buildKeySuffix(network, accountId, action);
     const dailyKey = `${this.prefix}:${keySuffix}:daily:${today}`;
     const weeklyKey = `${this.prefix}:${keySuffix}:weekly:${weekStart}`;
     const intervalKey = `${this.prefix}:${keySuffix}:interval`;
     const lastPostAtKey = `${this.prefix}:${keySuffix}:lastPostAt`;
-    const { daily: dailyLimit, weekly: weeklyLimit, intervalMs } = this.resolveLimits(network);
+    const { daily: dailyLimit, weekly: weeklyLimit, intervalMs } = this.resolveLimits(network, action);
     const now = Date.now();
 
     const result = (await this.redis.eval(
@@ -351,8 +364,9 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
 
     const [allowed, dailyCount, weeklyCount] = result;
     if (!allowed) {
+      const label = action ? `${network} ${action}` : network;
       this.logger.warn(
-        `recordPost raced past rate limit for ${network} (` +
+        `recordPost raced past rate limit for ${label} (` +
           `daily=${dailyCount}/${dailyLimit}, weekly=${weeklyCount}/${weeklyLimit}` +
           `) — not incrementing counter`,
       );
@@ -362,28 +376,33 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Reset rate limit counters for a network (and optional action suffix).
+   * Reset rate limit counters for a network, account, and/or action.
    * Useful for operational recovery when a limit was reached unintentionally.
    */
-  async resetRateLimit(network: string, accountId?: string): Promise<void> {
+  async resetRateLimit(network: string, accountId?: string, action?: string): Promise<void> {
     if (!this.redis) return;
 
     const today = new Date().toISOString().slice(0, 10);
     const weekStart = this.getWeekStart().toISOString().slice(0, 10);
-    const keySuffix = accountId ? `${network}:${accountId}` : network;
+    const keySuffix = this.buildKeySuffix(network, accountId, action);
     const dailyKey = `${this.prefix}:${keySuffix}:daily:${today}`;
     const weeklyKey = `${this.prefix}:${keySuffix}:weekly:${weekStart}`;
     const intervalKey = `${this.prefix}:${keySuffix}:interval`;
     const lastPostAtKey = `${this.prefix}:${keySuffix}:lastPostAt`;
 
     await this.redis.del(dailyKey, weeklyKey, intervalKey, lastPostAtKey);
-    this.logger.warn(`Rate limit counters reset for ${network}`);
+    const label = action ? `${network} ${action}` : network;
+    this.logger.warn(`Rate limit counters reset for ${label}`);
   }
 
   /**
    * Get current rate limit status for a network.
    */
-  async getStatus(network: string, accountId?: string): Promise<{
+  async getStatus(
+    network: string,
+    accountId?: string,
+    action?: string,
+  ): Promise<{
     dailyCount: number;
     dailyLimit: number;
     weeklyCount: number;
@@ -391,7 +410,7 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     lastPostAt: number | null;
     minIntervalMs: number;
   }> {
-    const { daily: dailyLimit, weekly: weeklyLimit, intervalMs } = this.resolveLimits(network);
+    const { daily: dailyLimit, weekly: weeklyLimit, intervalMs } = this.resolveLimits(network, action);
 
     if (!this.redis) {
       return {
@@ -406,7 +425,7 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
 
     const today = new Date().toISOString().slice(0, 10);
     const weekStart = this.getWeekStart().toISOString().slice(0, 10);
-    const keySuffix = accountId ? `${network}:${accountId}` : network;
+    const keySuffix = this.buildKeySuffix(network, accountId, action);
     const dailyKey = `${this.prefix}:${keySuffix}:daily:${today}`;
     const weeklyKey = `${this.prefix}:${keySuffix}:weekly:${weekStart}`;
     const intervalKey = `${this.prefix}:${keySuffix}:interval`;
@@ -431,6 +450,17 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
       lastPostAt: effectiveLastPostAt ? parseInt(effectiveLastPostAt, 10) : null,
       minIntervalMs: intervalMs,
     };
+  }
+
+  /**
+   * Build the key suffix used for Redis rate-limit counters.
+   * Order: network:accountId:action so composite keys stay readable and scoped.
+   */
+  private buildKeySuffix(network: string, accountId?: string, action?: string): string {
+    const parts = [network];
+    if (accountId) parts.push(accountId);
+    if (action) parts.push(action);
+    return parts.join(':');
   }
 
   /**

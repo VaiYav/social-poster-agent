@@ -506,4 +506,32 @@ describe('HumanBehaviorEngine', () => {
     expect(results[0]!.decision.action).toBe('repost');
     expect(results[1]!.decision.action).toBe('read');
   });
+
+  it('HB-025: falls back to read decisions when batch returns the wrong length', async () => {
+    const batchDecisionPort: IEngagementDecisionPort = {
+      decideAction: vi.fn().mockResolvedValue({ action: 'like', reason: 'test', confidence: 0.9 } as ActionDecision),
+      decideActionsBatch: vi.fn().mockResolvedValue([
+        { action: 'like', reason: 'test', confidence: 0.9 },
+      ] as ActionDecision[]), // only 1 decision for 2 contexts
+      generateComment: vi.fn().mockResolvedValue('Test comment in brand voice.'),
+      generateQuoteText: vi.fn().mockResolvedValue('Test quote text in brand voice.'),
+    };
+
+    engine = new HumanBehaviorEngine(
+      mockPrisma as never, browser, createMockSseService() as never,
+      createMockRateLimitService() as never, batchDecisionPort,
+    );
+
+    const page = createMockPage();
+    const results = await engine.processPosts(page, ['url1', 'url2'], engager, {
+      ...config,
+      maxPosts: 2,
+      likesMaxPerSession: 2,
+    });
+
+    // Batch was called, but due to length mismatch it should fall back to read decisions
+    expect(batchDecisionPort.decideActionsBatch).toHaveBeenCalled();
+    expect(results.length).toBe(2);
+    expect(results.every((r) => r.decision.action === 'read')).toBe(true);
+  });
 });
