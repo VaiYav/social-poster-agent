@@ -10,6 +10,7 @@ import { IBrowserPort } from '../../domain/ports/browser.port.js';
 import { SseService } from '../../infrastructure/sse/sse.service.js';
 import { RateLimitService } from '../rate-limit/rate-limit.service.js';
 import { FlowControlService } from '../flow-control/flow-control.service.js';
+import { EngagementSafetyService } from './engagement-safety.service.js';
 import {
   InteractionStatus,
   InteractionType,
@@ -41,6 +42,7 @@ export class EngagementService implements IEngagementPort {
     private readonly facebookEngager: FacebookEngager,
     @Optional() private readonly accountsService?: AccountsService,
     @Optional() private readonly warmupService?: WarmupService,
+    private readonly engagementSafetyService: EngagementSafetyService = new EngagementSafetyService(),
   ) {}
 
   /**
@@ -162,6 +164,31 @@ export class EngagementService implements IEngagementPort {
         error: 'Engagement flow paused',
         interactionId: '',
       };
+    }
+
+    // F1 safety: only allow target URLs that belong to the selected network.
+    if (targetUrl) {
+      const urlCheck = this.engagementSafetyService.validateUrl(network, targetUrl);
+      if (!urlCheck.allowed) {
+        this.logger.warn(`Engagement safety: ${urlCheck.reason}`);
+        return { success: false, error: urlCheck.reason, interactionId: '' };
+      }
+    }
+    if (targetHandle && targetHandle.startsWith('http')) {
+      const urlCheck = this.engagementSafetyService.validateUrl(network, targetHandle);
+      if (!urlCheck.allowed) {
+        this.logger.warn(`Engagement safety: ${urlCheck.reason}`);
+        return { success: false, error: urlCheck.reason, interactionId: '' };
+      }
+    }
+
+    // F1 safety: block unsafe user-supplied or LLM-generated text.
+    if (content) {
+      const contentCheck = this.engagementSafetyService.checkContentSafety(content);
+      if (!contentCheck.safe) {
+        this.logger.warn(`Engagement safety: ${contentCheck.reason}`);
+        return { success: false, error: contentCheck.reason, interactionId: '' };
+      }
     }
 
     // Get or create session for an account on this network

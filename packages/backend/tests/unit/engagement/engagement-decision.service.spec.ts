@@ -625,4 +625,31 @@ describe('EngagementDecisionService', () => {
     expect(decision.action).toBe('read');
     expect(decision.reason).toContain('Discussion');
   });
+
+  it('ED-SAFE-001: rejects generated comment with troll/spam keywords', async () => {
+    mockLlm = createMockLlm([
+      { content: '{"action":"comment","reason":"relevant","confidence":0.8,"commentText":"This is a fake scam bot."}', model: 'mock' },
+      { content: 'This is a fake scam bot.', model: 'mock' },
+    ]);
+    service = new EngagementDecisionService(mockLlm, configService);
+
+    const decision = await service.decideAction(createPostContext());
+    // Safety rejects the comment text, then it downgrades to like if budget allows.
+    expect(['like', 'read']).toContain(decision.action);
+  });
+
+  it('ED-SAFE-002: rejects generated quote with self-promo bait', async () => {
+    mockLlm = createMockLlm([
+      { content: '{"action":"quote","reason":"relevant","confidence":0.8,"quoteText":"Follow me for more astrology!"}', model: 'mock' },
+      { content: 'Follow me for more astrology!', model: 'mock' },
+    ]);
+    service = new EngagementDecisionService(mockLlm, configService);
+
+    const decision = await service.decideAction(createPostContext({
+      repostsMaxPerSession: 0,
+      quotesMaxPerSession: 1,
+    }));
+    expect(decision.action).toBe('read');
+    expect(decision.reason).toContain('Quote generation failed');
+  });
 });

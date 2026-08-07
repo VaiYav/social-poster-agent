@@ -295,15 +295,19 @@
 
 ### 6.5 Security / reliability
 
-**S1. `EngagementController` endpoints are not admin-only. If `AUTH_ENABLED=false`, anyone can trigger likes/comments/follows. If `AUTH_ENABLED=true`, any authenticated user can. These should be admin-only.**
+**S1. ~~`EngagementController` endpoints are not admin-only. If `AUTH_ENABLED=false`, anyone can trigger likes/comments/follows. If `AUTH_ENABLED=true`, any authenticated user can. These should be admin-only.~~ — RESOLVED**
+- `EngagementController` is now decorated with `@UseGuards(AdminGuard)`. When `AUTH_ENABLED=false` the guard is a pass-through; when `AUTH_ENABLED=true` only users with `role=admin` can invoke engagement actions.
 
-**S2. `EngagementService.performInteraction` does not validate `postUrl` beyond Zod url. It can be any URL. If the engager navigates to a malicious URL, it could be a security issue. But `postUrl` is provided by operator. Trust boundary.**
+**S2. ~~`EngagementService.performInteraction` does not validate `postUrl` beyond Zod url. It can be any URL. If the engager navigates to a malicious URL, it could be a security issue. But `postUrl` is provided by operator. Trust boundary.~~ — RESOLVED**
+- `EngagementSafetyService.validateUrl()` enforces a per-network hostname allow-list (X, Threads, Facebook) on every `postUrl` and on `handleOrUrl` values that start with `http`. Non-platform or invalid URLs are rejected before the browser navigates.
 
-**S3. `EngagementService.performInteraction` does not check `WarmupService.canPost` before allowing actions. New accounts in warm-up could be forced to perform actions via API.** 
+**S3. ~~`EngagementService.performInteraction` does not check `WarmupService.canPost` before allowing actions. New accounts in warm-up could be forced to perform actions via API.~~ — RESOLVED**
+- `performInteraction` now calls `warmupService.canInteract()` and rejects actions when the account is in browse-only warmup. Browsing sessions already gate via the `check_warmup` graph node. 
 
 **S4. `BrowsingSessionService` `runBrowsingSession` `getFeedUrl` for Facebook uses `facebookEngager.getPageUrl()`. If this makes a network call or reads from env, it may fail before DB record. Good.** 
 
-**S5. `HumanBehaviorEngine` `executeDecision` for `comment`/`quote` passes user-generated text to `engager.comment`/`engager.quote`. The text is validated by Zod (max 500). It may be posted to social network. Good. But if LLM generates comment, it may be brand voice. Good. However, `generateComment` is not rate-limited per call, only `processPosts` rate limit. Good.**
+**S5. ~~`HumanBehaviorEngine` `executeDecision` for `comment`/`quote` passes user-generated text to `engager.comment`/`engager.quote`. The text is validated by Zod (max 500). It may be posted to social network. Good. But if LLM generates comment, it may be brand voice. Good. However, `generateComment` is not rate-limited per call, only `processPosts` rate limit. Good.~~ — RESOLVED**
+- `EngagementSafetyService.checkContentSafety()` now runs on user-supplied content in `EngagementService.performInteraction` and on LLM-generated comments/quotes in `EngagementDecisionService.validateGeneratedText`. It blocks self-promo, troll/spam keywords, and sensitive topics.
 
 **S6. `EngagementService.performInteraction` `context.close()` may not be called on error. Memory leak. Mentioned in B7.**
 

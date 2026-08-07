@@ -9,6 +9,8 @@ import { EngagementController } from '../../../src/modules/engagement/engagement
 import type { EngagementService } from '../../../src/modules/engagement/engagement.service';
 import type { BrowsingSessionService } from '../../../src/modules/engagement/browsing-session.service';
 import type { EngagementSchedulerService } from '../../../src/modules/engagement/engagement-scheduler.service';
+import { EngagementSafetyService } from '../../../src/modules/engagement/engagement-safety.service';
+import { AdminGuard } from '../../../src/modules/auth/admin.guard';
 import { SocialNetwork } from '@prisma/client';
 
 describe('F1: EngagementController', () => {
@@ -57,10 +59,15 @@ describe('F1: EngagementController', () => {
       }),
     };
 
+    const engagementSafetyService = new EngagementSafetyService();
+    const adminGuard = new AdminGuard({ get: vi.fn().mockReturnValue('false') } as never);
+
     controller = new EngagementController(
       engagementService as unknown as EngagementService,
       browsingSessionService as unknown as BrowsingSessionService,
       engagementSchedulerService as unknown as EngagementSchedulerService,
+      engagementSafetyService,
+      adminGuard,
     );
   });
 

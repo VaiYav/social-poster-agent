@@ -33,6 +33,7 @@ import { interpolate } from '../../domain/prompt-interpolation.js';
 import { sanitizeUntrustedInput } from '../../infrastructure/llm/sanitize-untrusted-input.js';
 import { matchesScript, normalizeLanguage } from '../../infrastructure/util/script-check.js';
 import { detectLanguage, isLanguageDetectable } from '../../infrastructure/util/language-detector.js';
+import { EngagementSafetyService } from './engagement-safety.service.js';
 
 @Injectable()
 export class EngagementDecisionService implements IEngagementDecisionPort {
@@ -45,6 +46,7 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
     @Inject(ILlmPort) @Optional() private readonly llm: ILlmPort,
     private readonly configService: ConfigService,
     @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
+    private readonly engagementSafetyService: EngagementSafetyService = new EngagementSafetyService(),
   ) {
     this.commentTemperature = Number(this.configService.get('ENGAGEMENT_COMMENT_TEMPERATURE', 0.8));
     this.quoteTemperature = Number(this.configService.get('ENGAGEMENT_QUOTE_TEMPERATURE', 0.8));
@@ -450,6 +452,13 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
     }
 
     if (!this.validateScriptMatch(text, outputLanguage, kind)) {
+      return null;
+    }
+
+    // F1 safety: block self-promo, troll/spam, sensitive, or low-value generated text.
+    const safety = this.engagementSafetyService.checkContentSafety(text);
+    if (!safety.safe) {
+      this.logger.warn(`LLM generated unsafe ${kind}, returning null: ${safety.reason}`);
       return null;
     }
 

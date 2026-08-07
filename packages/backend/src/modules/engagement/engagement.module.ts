@@ -14,7 +14,9 @@ import { PrismaModule } from '../../infrastructure/prisma/prisma.module.js';
 import { FlowControlModule } from '../flow-control/flow-control.module.js';
 import { EngagementService } from './engagement.service.js';
 import { BrowsingSessionService } from './browsing-session.service.js';
+import { EngagementSafetyService } from './engagement-safety.service.js';
 import { EngagementController } from './engagement.controller.js';
+import { AdminGuard } from '../auth/admin.guard.js';
 import { XEngager } from './engagers/x.engager.js';
 import { ThreadsEngager } from './engagers/threads.engager.js';
 import { FacebookEngager } from './engagers/facebook.engager.js';
@@ -41,6 +43,8 @@ import { IBrowsingSessionPort, IEngagementPort } from '../orchestrator/ports.js'
   providers: [
     EngagementService,
     BrowsingSessionService,
+    EngagementSafetyService,
+    AdminGuard,
     XEngager,
     ThreadsEngager,
     FacebookEngager,
@@ -61,6 +65,6 @@ import { IBrowsingSessionPort, IEngagementPort } from '../orchestrator/ports.js'
     },
   ],
   controllers: [EngagementController],
-  exports: [EngagementService, BrowsingSessionService, EngagementSchedulerService, IBrowsingSessionPort, IEngagementPort],
+  exports: [EngagementService, BrowsingSessionService, EngagementSafetyService, EngagementSchedulerService, IBrowsingSessionPort, IEngagementPort],
 })
 export class EngagementModule {}

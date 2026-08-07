@@ -126,4 +126,30 @@ describe('EngagementService — performInteraction cleanup', () => {
     expect(browser.acquireContext).not.toHaveBeenCalled();
     expect((prisma as any).interaction.create).not.toHaveBeenCalled();
   });
+
+  it('SF-001: blocks engagement with a non-platform URL', async () => {
+    const result = await service.like(SocialNetwork.X, 'https://evil.example.com/phishing');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('not allowed');
+    expect(browser.acquireContext).not.toHaveBeenCalled();
+    expect((prisma as any).interaction.create).not.toHaveBeenCalled();
+  });
+
+  it('SF-002: blocks engagement with unsafe user-supplied comment text', async () => {
+    const result = await service.comment(SocialNetwork.X, 'https://x.com/post/1', 'Follow me for more astrology!');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Follow/subscribe bait');
+    expect(browser.acquireContext).not.toHaveBeenCalled();
+    expect((prisma as any).interaction.create).not.toHaveBeenCalled();
+  });
+
+  it('SF-003: blocks engagement with a URL from the wrong network', async () => {
+    const result = await service.like(SocialNetwork.THREADS, 'https://x.com/post/1');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('not allowed');
+    expect(browser.acquireContext).not.toHaveBeenCalled();
+  });
 });

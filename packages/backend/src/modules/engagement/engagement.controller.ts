@@ -1,12 +1,14 @@
 // Engagement controller — REST API endpoints for engagement actions.
 // All endpoints trigger browser automation to perform the action.
 
-import { Body, Controller, Get, Post, Query, BadRequestException } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, BadRequestException, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { z } from 'zod';
 import { EngagementService } from './engagement.service.js';
 import { BrowsingSessionService } from './browsing-session.service.js';
 import { EngagementSchedulerService } from './engagement-scheduler.service.js';
+import { EngagementSafetyService } from './engagement-safety.service.js';
+import { AdminGuard } from '../auth/admin.guard.js';
 import { SocialNetwork, InteractionType, InteractionStatus, BrowsingSessionStatus } from '@prisma/client';
 
 const likeSchema = z.object({
@@ -55,11 +57,13 @@ const limitQuerySchema = z.coerce.number().int().min(1).max(1000).optional();
 
 @ApiTags('engagement')
 @Controller('engagement')
+@UseGuards(AdminGuard)
 export class EngagementController {
   constructor(
     private readonly engagementService: EngagementService,
     private readonly browsingSessionService: BrowsingSessionService,
     private readonly engagementSchedulerService: EngagementSchedulerService,
+    private readonly engagementSafetyService: EngagementSafetyService,
   ) {}
 
   @Post('like')
