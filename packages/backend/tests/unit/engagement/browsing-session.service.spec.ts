@@ -33,6 +33,7 @@ describe('BrowsingSessionService — page lifecycle', () => {
   let service: BrowsingSessionService;
   let prisma: ReturnType<typeof createMockPrismaService>;
   let sseService: ReturnType<typeof createMockSseService>;
+  let lockService: ReturnType<typeof createMockDistributedLockService>;
   let mockPage: { close: ReturnType<typeof vi.fn> };
   let mockContext: { newPage: ReturnType<typeof vi.fn> };
   let browser: {
@@ -69,6 +70,7 @@ describe('BrowsingSessionService — page lifecycle', () => {
     prisma.browsingSession.create.mockResolvedValue({ id: 'bs-1' });
     prisma.browsingSession.update.mockResolvedValue({ id: 'bs-1' });
     sseService = createMockSseService();
+    lockService = createMockDistributedLockService();
 
     const configService = { get: vi.fn((_key: string, def?: unknown) => def) };
     const rateLimitService = {};
@@ -90,7 +92,7 @@ describe('BrowsingSessionService — page lifecycle', () => {
       facebookEngager as never,
       humanBehaviorEngine as never,
       targetingService as never,
-      createMockDistributedLockService() as never,
+      lockService as never,
       undefined,
     );
   });
@@ -120,5 +122,25 @@ describe('BrowsingSessionService — page lifecycle', () => {
     await service.runBrowsingSession(SocialNetwork.X, 60);
 
     expect(browser.releaseContext).toHaveBeenCalledWith(SocialNetwork.X, mockContext, undefined);
+  });
+
+  it('BSS-004: acquires a per-network distributed lock', async () => {
+    mockInvoke.mockResolvedValue({ postsProcessed: 0, results: [] });
+
+    await service.runBrowsingSession(SocialNetwork.X, 60);
+    await service.runBrowsingSession(SocialNetwork.THREADS, 60);
+
+    expect(lockService.acquire).toHaveBeenCalledWith(
+      expect.stringContaining('X'),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+    );
+    expect(lockService.acquire).toHaveBeenCalledWith(
+      expect.stringContaining('THREADS'),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+    );
   });
 });

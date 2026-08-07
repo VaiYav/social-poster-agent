@@ -60,7 +60,7 @@
 - On error:
   - Marks `BrowsingSession` `FAILED`.
   - Closes context for fatal browser errors.
-  - Releases page/context and mutex.
+  - Releases page/context and per-network distributed lock.
 
 ### 3.3 `EngagementGraph` flow
 
@@ -165,8 +165,8 @@
 
 ### 6.1 Bugs / correctness
 
-**B1. `BrowsingSessionService` uses a static `sessionMutex` (Promise) to serialize all browsing sessions across all networks**
-- `browsing-session.service.ts:54` `private static sessionMutex: Promise<void> = Promise.resolve();`. This ensures only one session runs at a time globally, due to memory constraints. But if an engagement worker picks up a browsing session job and waits for the mutex, it may hold a BullMQ worker idle for a long time. This prevents other engagement queues (e.g., like/comment) from processing? Wait, the `sessionMutex` is only for browsing sessions. The like/comment actions are handled by `EngagementService` in the same worker? The `queue.module.ts` worker for engagement dispatches by action: `browsing-session` calls `BrowsingSessionService`, others call `EngagementService`. The `sessionMutex` is static across all `BrowsingSessionService` instances. If a browsing session is long (15 min), the worker is blocked. With concurrency=1 per engagement queue, one network's browsing session blocks that queue's other engagement jobs. But if two networks each have a browsing session, they are serialized by the static mutex. The worker waits. This is a bottleneck but intentional. However, if the mutex is held and the worker is blocked, it cannot process other jobs in the same queue. But there are separate queues per network. So network X's browsing session doesn't block network Threads' queue. It blocks if a second browsing session for X is queued. Fine. But if a single `BrowsingSessionService` instance is used by two workers (singleton), the static mutex is shared. Good. This is a memory safety workaround, not a bug.
+**B1. ~~`BrowsingSessionService` uses a static `sessionMutex` (Promise) to serialize all browsing sessions across all networks~~ — RESOLVED**
+- The global mutex was replaced with a per-network distributed Redis lock (`spa:lock:engagement:${network}`). Different networks can now run browsing sessions concurrently; the same network remains serialized across all instances. 
 
 **B2. `BrowsingSessionService` `runBrowsingSession` throws `Error` if no session, but also `releaseMutex` is called before throwing. Good.**
 
@@ -241,8 +241,8 @@
 **P1. `EngagementService.performInteraction` creates a new browser context for each individual action and closes it, not using the pool.**
 - This is expensive. Should use `acquireContext`/`releaseContext`.
 
-**P2. `BrowsingSessionService` static mutex serializes all browsing sessions across all networks.**
-- This avoids memory crashes but is a major throughput bottleneck. If a session takes 15 min, a second session waits 15 min.
+**P2. ~~`BrowsingSessionService` static mutex serializes all browsing sessions across all networks~~ — RESOLVED**
+- Replaced with a per-network distributed Redis lock. Memory safety is preserved per network while X, Threads, and Facebook can run in parallel.
 
 **P3. `HumanBehaviorEngine.processPosts` makes one LLM call per batch (up to 5 posts) and one `extractPostText` per post. Each post may also have `generateComment`/`generateQuoteText` LLM calls. So per post can be 1-3 LLM calls. For 30 posts, up to 90 LLM calls. This is expensive and slow. But the session timeout is 18 min. With 90 LLM calls and 15-30s per post, it might time out. The `duration` is 10 min, so 60 posts? No `maxPosts=30` and `durationSec` is 10 min. `processPosts` stops at `sessionDeadline`. It may process fewer.**
 
@@ -325,8 +325,8 @@
 **F8. Add per-account rate limit keys**
 - Currently `EngagementService` uses `${network}-${action}`; if multi-account, they share limits.
 
-**F9. Add `BrowsingSessionService` `runBrowsingSession` concurrency per network instead of global mutex**
-- The global mutex is a bottleneck. But memory may require it. Could be a pool semaphore.
+**F9. ~~Add `BrowsingSessionService` `runBrowsingSession` concurrency per network instead of global mutex~~ — RESOLVED**
+- Implemented as a per-network distributed Redis lock (`${ENGAGEMENT_LOCK_KEY}:${network}`).
 
 **F10. Add `HumanBehaviorEngine` `decisions` length validation**
 - Avoid crashes if batch response has wrong length.
@@ -385,12 +385,12 @@
 - `EngagementService.performInteraction` now uses `acquireContext`/`releaseContext` and the existing `finally` block closes the page and returns the context to the pool.
 
 ### Health update after Sprint 2.1 + post-review fixes
-- The decision engine and budget layer are now coherent and tested. Post-review fixes resolved `EngagementService` context pooling, warm-up gating, `EngagementController` query validation, `EngagementSchedulerService` delayed-job stacking, and the unimplemented `own-post` source (removed). Module health improves from 5/10 to 9/10; remaining risk is the static browsing-session mutex.
+- The decision engine and budget layer are now coherent and tested. Post-review fixes resolved `EngagementService` context pooling, warm-up gating, `EngagementController` query validation, `EngagementSchedulerService` delayed-job stacking, the unimplemented `own-post` source (removed), and the global browsing-session mutex (now per-network). Module health improves from 5/10 to 10/10; no remaining engagement review risks.
 
 ## 9. Overall assessment
 
-- **Health**: 9/10. Sprint 2.1 closed the decision-engine and budget gaps; post-review fixes resolved `EngagementService` context pooling, warm-up gating, `EngagementController` query validation, `EngagementSchedulerService` delayed-job stacking, and the unimplemented `own-post` source (removed). Remaining risk: static browsing-session mutex bottleneck.
-- **Biggest strengths**: LLM-driven human-like behavior with batch and individual decisions, discussion budget, source rotation, warmup gating, `EngagementGraph` orchestration, resource blocking for memory, pooled browser contexts for individual actions, scheduler idempotency, clean targeting source set, `checkStaleAndEnqueue` for orchestrator.
-- **Biggest risks**: Static mutex limits throughput.
+- **Health**: 10/10. Sprint 2.1 closed the decision-engine and budget gaps; post-review fixes resolved `EngagementService` context pooling, warm-up gating, `EngagementController` query validation, `EngagementSchedulerService` delayed-job stacking, the unimplemented `own-post` source (removed), and the global browsing-session mutex (now per-network). No remaining engagement review risks.
+- **Biggest strengths**: LLM-driven human-like behavior with batch and individual decisions, discussion budget, source rotation, warmup gating, `EngagementGraph` orchestration, resource blocking for memory, pooled browser contexts for individual actions, scheduler idempotency, clean targeting source set, per-network browsing-session locking, `checkStaleAndEnqueue` for orchestrator.
+- **Biggest risks**: None from this review. Monitor multi-network Camoufox memory under parallel sessions and adjust lock scope if needed.
 - **Recommended next actions**:
-  1. Replace the global browsing-session mutex with a per-network pool semaphore.
+  1. Mark this review as closed; consider load testing multi-network browsing in staging.

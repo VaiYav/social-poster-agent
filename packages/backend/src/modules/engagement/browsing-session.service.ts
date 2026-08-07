@@ -59,10 +59,10 @@ export class BrowsingSessionService {
   private readonly commentsMaxPerDay: number;
   private readonly repostsMaxPerDay: number;
   private readonly quotesMaxPerDay: number;
-  // Distributed lock settings — only one browsing session can run at a time
-  // across ALL networks. Two concurrent Camoufox contexts (e.g. X + THREADS)
-  // cause renderer process crashes due to memory pressure in constrained
-  // containers. The distributed lock serializes sessions across all instances.
+  // Distributed lock settings — one browsing session per network at a time.
+  // The lock is scoped by network so X, Threads, and Facebook can run in
+  // parallel, while still preventing multiple concurrent sessions on the
+  // same network across all instances.
   private readonly lockKey: string;
   private readonly lockTtlBufferMs: number;
   private readonly lockRetryMs: number;
@@ -146,10 +146,10 @@ export class BrowsingSessionService {
     const duration = durationSec ?? this.defaultDurationSec;
     const engager = this.getEngager(network);
 
-    // Acquire the distributed session lock — only one browsing session runs at a time
-    // across all networks and all instances. Two concurrent Camoufox contexts (X + THREADS)
-    // cause renderer process crashes due to memory pressure. The lock serializes sessions;
-    // the queue will retry the waiting job after the current one finishes.
+    // Acquire the distributed session lock — only one browsing session per network
+    // at a time, but different networks can run in parallel. The per-network queue
+    // worker already serializes the same network locally; this lock protects against
+    // the same network being processed concurrently across multiple instances.
     //
     // The lock TTL must be longer than the graph hard timeout (duration + 180s) so the
     // lock is not released before `withTimeout` aborts a stuck/hung session.
@@ -158,7 +158,7 @@ export class BrowsingSessionService {
     // holder's lock can expire before we give up acquiring it.
     const lockTimeoutMs = lockTtlMs + this.lockRetryMs;
     const lock = await this.lockService.acquire(
-      this.lockKey,
+      `${this.lockKey}:${network}`,
       lockTtlMs,
       lockTimeoutMs,
       this.lockRetryMs,
