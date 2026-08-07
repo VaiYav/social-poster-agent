@@ -48,6 +48,7 @@ import { GenerationService } from '../../src/modules/generation/generation.servi
 import { XPoster } from '../../src/modules/posting/posters/x.poster';
 import { ThreadsPoster } from '../../src/modules/posting/posters/threads.poster';
 import { FacebookPoster } from '../../src/modules/posting/posters/facebook.poster';
+import { BlueskyPoster } from '../../src/modules/posting/posters/bluesky.poster.js';
 import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { RateLimitService } from '../../src/modules/rate-limit/rate-limit.service';
@@ -169,6 +170,18 @@ describe('E2E: Posting flow with mocked browser', () => {
 
     prisma.socialAccount.findUnique.mockImplementation((args: { where: { id: string } }) => {
       const id = args.where.id;
+      if (id === 'acc-bluesky') {
+        return Promise.resolve({
+          id: 'acc-bluesky',
+          network: SocialNetwork.BLUESKY,
+          handle: 'handle.bsky.social',
+          credentialsRef: 'BLUESKY_HANDLE',
+          active: true,
+          warmupEnabled: false,
+          warmupStartedAt: null,
+          warmupDaysTotal: 0,
+        });
+      }
       if (id === 'acc-x') {
         return Promise.resolve({
           id: 'acc-x',
@@ -302,6 +315,19 @@ describe('E2E: Posting flow with mocked browser', () => {
           retryCount: 0,
         });
       }
+      if (id === 'post-bluesky-1') {
+        return Promise.resolve({
+          id: 'post-bluesky-1',
+          network: SocialNetwork.BLUESKY,
+          content: 'Hello from Bluesky!',
+          status: PostStatus.APPROVED,
+          threadId: null,
+          threadPosition: 0,
+          postUrl: null,
+          accountId: 'acc-bluesky',
+          retryCount: 0,
+        });
+      }
       return Promise.resolve(null);
     });
 
@@ -353,6 +379,11 @@ describe('E2E: Posting flow with mocked browser', () => {
         extract: vi.fn().mockResolvedValue({ url: 'https://dev.to/testuser/test-devto-article-123' }),
         observe: vi.fn().mockResolvedValue([]),
         verify: vi.fn().mockResolvedValue(true),
+      })
+      .overrideProvider(BlueskyPoster)
+      .useValue({
+        post: vi.fn().mockResolvedValue({ url: 'https://bsky.app/profile/handle.bsky.social/post/3k2jexample' }),
+        verifyPosted: vi.fn().mockResolvedValue(null),
       })
       .overrideProvider(DevtoPoster)
       .useValue({
@@ -503,6 +534,17 @@ describe('E2E: Posting flow with mocked browser', () => {
     expect(res.body).toMatchObject({
       success: true,
       url: 'https://dev.to/testuser/test-devto-article-123',
+    });
+  });
+
+  it('P2-01: approve → post to Bluesky → verify POSTED + postUrl', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/posting/post-bluesky-1');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      success: true,
+      url: 'https://bsky.app/profile/handle.bsky.social/post/3k2jexample',
     });
   });
 });
