@@ -174,9 +174,10 @@ WHILE remaining_sprints > 0:
 - Протащить model choice в `GenerationService` → `LlmService`.
 - Feature flag `MODEL_PICKER_ENABLED`.
 
-#### Sprint 1.3: F10 Content Repurposing (deep fact extraction)
-- Улучшить `ContentReader` / article frontmatter parsing.
-- Добавить unit tests на extract facts.
+#### Sprint 1.3: F10 Content Repurposing (deep fact extraction) ✅
+- `ContentReader` extracts facts from frontmatter (`answerCapsule.keyPoints`, `answer`) and article body (bullet/numbered lists, H2/H3 headings, `**bold**` phrases, first sentence of each paragraph).
+- `ArticleFrontmatterSchema` accepts comma-separated `tags` / `keyPoints` and a plain string `answerCapsule`.
+- Added `extract-facts.ts` helper and `extract-facts.spec.ts` / updated `content-reader.spec.ts` (F10-001..F10-012, UTC-484).
 
 #### Sprint 1.4: F22 Trending API Integration
 - Google Trends RSS (уже есть) + X Trends browser scrape (уже есть) — стабилизировать и покрыть тестами.

@@ -73,14 +73,43 @@ export const ArticleFrontmatterSchema = z.object({
   description: z.string().default(''),
   date: z.string().optional(),
   category: z.string().optional(),
-  tags: z.array(z.string()).default([]),
+  // F10: tags may be written as a comma-separated YAML string (common in Jekyll/Hugo).
+  tags: z
+    .preprocess(
+      (val) => {
+        if (Array.isArray(val)) return val;
+        if (typeof val === 'string') return val.split(',').map((s) => s.trim()).filter(Boolean);
+        return [];
+      },
+      z.array(z.string()).default([]),
+    ),
+  // F10: answerCapsule may be a plain string (legacy CAP output) or the full object.
   answerCapsule: z
-    .object({
-      question: z.string().optional(),
-      answer: z.string().optional(),
-      keyPoints: z.array(z.string()).default([]),
-    })
-    .optional(),
+    .preprocess(
+      (val) => {
+        if (typeof val === 'string') return { answer: val };
+        return val;
+      },
+      z
+        .object({
+          question: z.string().optional(),
+          answer: z.string().optional(),
+          // F10: keyPoints may also be a comma/semicolon-separated string.
+          keyPoints: z
+            .preprocess(
+              (val) => {
+                if (Array.isArray(val)) return val;
+                if (typeof val === 'string') return val.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+                return [];
+              },
+              z.array(z.string()).default([]),
+            ),
+        })
+        .optional()
+        .nullable(),
+    )
+    .optional()
+    .nullable(),
   seo: z
     .object({
       title: z.string().optional(),

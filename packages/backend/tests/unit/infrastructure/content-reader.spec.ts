@@ -100,7 +100,7 @@ seo:
 
 # Full Moon in Capricorn
 
-Body text here.
+The full moon in Capricorn highlights discipline, ambition and long-term goal setting.
 `;
 
 /** Simulate readdir returning Dirent-like objects. */
@@ -222,8 +222,13 @@ describe('ContentReader (UTC-480 — CAP content reading)', () => {
     expect(topics[0]!.topic).toBe('Full Moon in Capricorn');
     // keywords from seo.keywords
     expect(topics[0]!.keywords).toEqual(['full moon capricorn', 'capricorn full moon']);
-    // facts from answerCapsule.keyPoints
-    expect(topics[0]!.facts).toEqual(['Goal-setting', 'Discipline']);
+    // F10: facts include answerCapsule.keyPoints + answer; body adds more when present.
+    expect(topics[0]!.facts).toEqual([
+      'Goal-setting',
+      'Discipline',
+      'Focus on goals and structure.',
+      'The full moon in Capricorn highlights discipline, ambition and long-term goal setting.',
+    ]);
     // category from first tag
     expect(topics[0]!.category).toBe('astrology');
     // publishedAt from date

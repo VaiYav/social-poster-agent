@@ -10,6 +10,7 @@ import {
   CreateRunReportSchema,
   type ContentTopic,
 } from '@spa/shared';
+import { extractFactsFromMarkdown } from './extract-facts.js';
 import type { IContentAdapter } from './adapters/content-adapter.interface.js';
 
 // Re-export for backward compatibility (other modules may import from here)
@@ -113,16 +114,31 @@ export class ContentReader implements IContentAdapter {
       try {
         const filePath = join(this.blogPath, file);
         const raw = await readFile(filePath, 'utf-8');
-        const { data: frontmatter } = matter(raw);
+        const { data: frontmatter, content } = matter(raw);
         const parsed = ArticleFrontmatterSchema.parse(frontmatter);
+
+        // F10: deep fact extraction from frontmatter + article body.
+        const facts = extractFactsFromMarkdown(
+          content,
+          {
+            answerCapsule: parsed.answerCapsule,
+            description: parsed.description,
+          },
+          parsed.title,
+          { maxFacts: 10 },
+        );
+
+        this.logger.debug(`F10: Extracted ${facts.length} facts from ${file}`);
+
         topics.push({
           sourceType: 'article',
           path: filePath,
           topic: parsed.title,
           keywords: parsed.seo?.keywords ?? parsed.tags.slice(0, 5),
-          facts: parsed.answerCapsule?.keyPoints ?? [],
-          // B5: category + freshness for topic prioritization
-          category: parsed.tags[0] ?? 'general',
+          facts,
+          // B5: category + freshness for topic prioritization.
+          // F10: prefer explicit `category` frontmatter, then first tag.
+          category: parsed.category ?? parsed.tags[0] ?? 'general',
           publishedAt: parsed.date ? new Date(parsed.date) : undefined,
           language: 'en',
         });
@@ -321,15 +337,24 @@ export class ContentReader implements IContentAdapter {
     try {
       if (path.endsWith('.md')) {
         const raw = await readFile(path, 'utf-8');
-        const { data: frontmatter } = matter(raw);
+        const { data: frontmatter, content } = matter(raw);
         const parsed = ArticleFrontmatterSchema.parse(frontmatter);
+        const facts = extractFactsFromMarkdown(
+          content,
+          {
+            answerCapsule: parsed.answerCapsule,
+            description: parsed.description,
+          },
+          parsed.title,
+          { maxFacts: 10 },
+        );
         return {
           sourceType: 'article',
           path,
           topic: parsed.title,
           keywords: parsed.seo?.keywords ?? parsed.tags.slice(0, 5),
-          facts: parsed.answerCapsule?.keyPoints ?? [],
-          category: parsed.tags[0] ?? 'general',
+          facts,
+          category: parsed.category ?? parsed.tags[0] ?? 'general',
           publishedAt: parsed.date ? new Date(parsed.date) : undefined,
           language: 'en',
         };
