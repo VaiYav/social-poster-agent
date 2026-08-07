@@ -5,5 +5,5 @@
   "active_branches": ["feat/phase-1-f22-trending-api-integration"],
   "completed_sprints": ["f4-ui-swagger", "f22-trending", "f3-model-picker", "f2-multi-stage-posting", "f10-content-repurposing", "f22-trending-api-integration"],
   "blockers": ["test:coverage global threshold 66% < 80% (pre-existing, project-wide)"],
-  "last_green_commit": "cce0e3f"
+  "last_green_commit": "1a4c553"
 }
