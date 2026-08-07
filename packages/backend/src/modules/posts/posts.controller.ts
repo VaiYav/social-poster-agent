@@ -14,7 +14,7 @@ import {
   Logger,
   Inject,
 } from '@nestjs/common';
-import { type SocialNetwork, PostStatus } from '@prisma/client';
+import { type SocialNetwork, PostStatus, type Prisma } from '@prisma/client';
 import { IPostingQueuePort } from '../../domain/ports/posting-queue.port.js';
 import { PostingWindowService } from '../orchestrator/posting-window.service.js';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiParam } from '@nestjs/swagger';
@@ -58,9 +58,11 @@ export class PostsController {
     id: string;
     network: SocialNetwork;
     approvedAt: Date | null;
+    threadPosition?: number;
+    llmMetadata?: Prisma.JsonValue | null;
   }): Promise<void> {
     try {
-      const { id: postId, network, approvedAt } = post;
+      const { id: postId, network, approvedAt, threadPosition = 0 } = post;
 
       // F7: respect a future scheduled time before applying posting-window logic.
       if (approvedAt && approvedAt.getTime() > Date.now()) {
@@ -69,6 +71,20 @@ export class PostsController {
           `Post ${postId} scheduled for ${approvedAt.toISOString()} — delaying ${Math.round(delay / 60000)}min`,
         );
         await this.postingQueue.enqueuePosting(postId, network, { delay });
+        return;
+      }
+
+      // F2: multi-stage continuations (position > 0) are queued with a delay so
+      // the root has time to post before the worker tries to reply.
+      const llmMetadata = (post.llmMetadata as { multiStage?: boolean } | null) ?? {};
+      const isMultiStage = llmMetadata.multiStage === true;
+      if (isMultiStage && threadPosition > 0) {
+        const delayMs = parseInt(process.env['THREAD_CONTINUATION_DELAY_MS'] ?? '1800000', 10);
+        const delay = delayMs * threadPosition;
+        this.logger.log(
+          `F2: continuation ${postId} (position ${threadPosition}) queued with ${Math.round(delay / 60000)}min delay`,
+        );
+        await this.postingQueue.enqueuePosting(postId, network, { delay, priority: 5 });
         return;
       }
 

@@ -63,7 +63,7 @@ export class AutoApproveListener {
     try {
       const post = await this.prisma.post.findUnique({
         where: { id: payload.postId },
-        select: { content: true, network: true, status: true, llmMetadata: true },
+        select: { content: true, network: true, status: true, llmMetadata: true, threadPosition: true, threadId: true },
       });
       if (!post) {
         this.logger.warn(`Auto-approve: post ${payload.postId} not found`);
@@ -90,9 +90,21 @@ export class AutoApproveListener {
       const result = await autoApprove.evaluate(payload.postId, post.content, post.network, score, judgeScores);
 
       if (result.decision === 'AUTO_APPROVE') {
-        // Enqueue to BullMQ posting queue — same lazy resolution as PostsController
-        await this.enqueueForPosting(payload.postId, post.network as string);
-        this.logger.log(`Auto-approved post ${payload.postId} (${post.network}) — enqueued`);
+        const llmMetadata = (post.llmMetadata as { multiStage?: boolean } | null) ?? {};
+        const isMultiStage = llmMetadata.multiStage === true;
+
+        // F2: for multi-stage threads, only the root post starts the chain.
+        // Continuations are scheduled by postById() once the previous stage is live,
+        // preserving the 30-minute delay and sequential order.
+        if (isMultiStage && post.threadPosition > 0) {
+          this.logger.log(
+            `Auto-approved continuation ${payload.postId} (position ${post.threadPosition}) — root will schedule`,
+          );
+        } else {
+          // Enqueue to BullMQ posting queue — same lazy resolution as PostsController
+          await this.enqueueForPosting(payload.postId, post.network as string);
+          this.logger.log(`Auto-approved post ${payload.postId} (${post.network}) — enqueued`);
+        }
       } else {
         this.logger.log(`Auto-approve [${result.decision}] post ${payload.postId}: ${result.reason}`);
       }

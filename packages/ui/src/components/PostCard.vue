@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Post } from '@spa/shared';
-import { Check, X, Pencil, ExternalLink } from '@lucide/vue';
+import { Check, X, Pencil, ExternalLink, Layers } from '@lucide/vue';
 import { Card, Button } from './ui';
 import StatusBadge from './StatusBadge.vue';
 import NetworkIcon from './NetworkIcon.vue';
@@ -25,6 +25,13 @@ const displayContent = props.truncate > 0
     ? props.post.content.slice(0, props.truncate) + '…'
     : props.post.content
   : props.post.content;
+
+const isMultiStage = props.post.llmMetadata?.multiStage === true;
+const threadLabel = isMultiStage
+  ? `Multi-stage · ${(props.post.threadPosition ?? 0) + 1}/${props.post.llmMetadata?.threadDepth ?? '?'}`
+  : props.post.threadId
+    ? 'Thread'
+    : null;
 </script>
 
 <template>
@@ -36,7 +43,17 @@ const displayContent = props.truncate > 0
           {{ post.id.slice(0, 8) }}…
         </span>
       </div>
-      <StatusBadge :status="post.status" />
+      <div class="flex items-center gap-2">
+        <span
+          v-if="threadLabel"
+          class="inline-flex items-center gap-1 rounded-full bg-surface-highlight px-2 py-0.5 text-xs text-text-secondary"
+          :class="isMultiStage ? 'text-primary' : ''"
+        >
+          <Layers class="h-3 w-3" />
+          {{ threadLabel }}
+        </span>
+        <StatusBadge :status="post.status" />
+      </div>
     </div>
 
     <p class="mt-4 text-sm leading-relaxed text-text-primary">

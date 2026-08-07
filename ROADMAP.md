@@ -540,7 +540,7 @@
 3. ✅ **Fact extraction** — research_extract node усилен: LLM-вызов для извлечения 5-8 фактов из topic + keywords + outline (fallback на pre-extracted facts если есть)
 
 ### Sprint F: Phase 1.5 Features ✅ COMPLETE
-1. ✅ **F2: Multi-Stage Posting** — Backend done (multiStage param, PostThread, PostingService thread items); TODO: test with real threads
+1. ✅ **F2: Multi-Stage Posting** — root post gets `multiStage=true` in `llmMetadata`; root posts immediately; each continuation posts as a reply with a `THREAD_CONTINUATION_DELAY_MS` (default 30 min) delay; X/Threads supported; UI badge in `PostCard.vue`
 2. ✅ **F13: Content Recycling** — Backend done (recycleTopPosts, POST /recycle endpoint, UI button "F13: Recycle Old Top Posts"); evergreen revival from POSTED posts older than N days
 3. ✅ **F10: Content Repurposing** — Backend done (repurposeFromArticles, /repurpose endpoint, UI button); TODO: deeper fact extraction
 4. ✅ **F22: Trending Topic Detection** — Backend done (TrendingModule, astro events calendar, UI display); TODO: Google Trends / X trending API

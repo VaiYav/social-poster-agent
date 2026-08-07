@@ -378,4 +378,24 @@ export class PostsService {
       orderBy: { threadPosition: 'asc' },
     });
   }
+
+  /**
+   * F2: Find the root post of a thread (threadPosition=0).
+   */
+  async findThreadRoot(threadId: string): Promise<Post | null> {
+    return this.prisma.post.findFirst({
+      where: { threadId, threadPosition: 0 },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  /**
+   * F2: Find a post in a thread by its exact threadPosition.
+   */
+  async findByThreadPosition(threadId: string, position: number): Promise<Post | null> {
+    return this.prisma.post.findFirst({
+      where: { threadId, threadPosition: position },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
 }

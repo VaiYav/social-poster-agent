@@ -41,6 +41,8 @@ function createMockPostsService() {
     create: vi.fn(),
     findBySourceAndNetwork: vi.fn().mockResolvedValue([]),
     findThreadContinuations: vi.fn().mockResolvedValue([]),
+    findThreadRoot: vi.fn().mockResolvedValue(null),
+    findByThreadPosition: vi.fn().mockResolvedValue(null),
   };
 }
 
@@ -81,12 +83,20 @@ function createMockAccountsService() {
 function createMockPoster() {
   return {
     post: vi.fn(),
+    postThreadReply: vi.fn(),
   };
 }
 
 function createMockTelegramAdapter() {
   return {
     postMessage: vi.fn(),
+  };
+}
+
+function createMockQueueFactory() {
+  return {
+    enqueuePosting: vi.fn().mockResolvedValue(undefined),
+    getQueue: vi.fn(),
   };
 }
 
@@ -144,9 +154,10 @@ interface TestContext {
   linkedinSocialPoster: ReturnType<typeof createMockPoster>;
   telegramAdapter: ReturnType<typeof createMockTelegramAdapter>;
   configService: ReturnType<typeof createMockConfigService>;
+  queueFactory?: ReturnType<typeof createMockQueueFactory>;
 }
 
-function buildContext(): TestContext {
+function buildContext(queueFactory: ReturnType<typeof createMockQueueFactory> | null = createMockQueueFactory()): TestContext {
   const browser = createMockBrowserPort();
   const postsService = createMockPostsService();
   const sessionsService = createMockSessionsService();
@@ -182,7 +193,7 @@ function buildContext(): TestContext {
     facebookPoster as unknown,
     configService as unknown,
     undefined as unknown,
-    undefined as unknown,
+    queueFactory as unknown,
     undefined as unknown,
     undefined as unknown,
     undefined as unknown,
@@ -210,6 +221,7 @@ function buildContext(): TestContext {
     linkedinSocialPoster,
     telegramAdapter,
     configService,
+    queueFactory,
   };
 }
 
@@ -907,6 +919,7 @@ describe('MOD-03: PostingService', () => {
   });
 
   it('F2-002: scheduleMultiStagePosting() falls back to immediate postById when no QueueFactory', async () => {
+    ctx = buildContext(null);
     const mockContext = createMockContext();
     ctx.browser.acquireContext.mockResolvedValue(mockContext);
     ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
@@ -923,6 +936,127 @@ describe('MOD-03: PostingService', () => {
     const result = await ctx.service.scheduleMultiStagePosting('post-root');
     expect(result.immediate).toBe(true);
     expect(result.scheduled).toBe(0);
+  });
+
+  it('F2-003: postById() multi-stage root posts only root (not continuations)', async () => {
+    const mockContext = createMockContext();
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
+    ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
+    ctx.postsService.findById.mockResolvedValue({
+      ...APPROVED_POST_X,
+      id: 'post-ms-root',
+      threadId: 'thread-ms',
+      threadPosition: 0,
+      llmMetadata: { multiStage: true, threadDepth: 2, model: 'gpt-5-nano' },
+    });
+    ctx.sessionsService.getOrCreateSession.mockResolvedValue(ACTIVE_SESSION);
+    ctx.xPoster.post.mockResolvedValue({ url: 'https://x.com/user/status/123' });
+    ctx.postsService.findThreadContinuations.mockResolvedValue([
+      { id: 'post-ms-cont', content: 'Continuation', threadPosition: 1, status: PostStatus.APPROVED },
+    ]);
+
+    const result = await ctx.service.postById('post-ms-root');
+
+    expect(result.success).toBe(true);
+    expect(result.url).toBe('https://x.com/user/status/123');
+    // Root was posted with empty thread items — continuation is NOT in the same browser session
+    expect(ctx.xPoster.post).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.any(String),
+      undefined,
+    );
+  });
+
+  it('F2-004: postById() multi-stage root schedules the next continuation after success', async () => {
+    const mockContext = createMockContext();
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
+    ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
+    ctx.postsService.findById.mockResolvedValue({
+      ...APPROVED_POST_X,
+      id: 'post-ms-root-2',
+      threadId: 'thread-ms-2',
+      threadPosition: 0,
+      llmMetadata: { multiStage: true, threadDepth: 2, model: 'gpt-5-nano' },
+    });
+    ctx.sessionsService.getOrCreateSession.mockResolvedValue(ACTIVE_SESSION);
+    ctx.xPoster.post.mockResolvedValue({ url: 'https://x.com/user/status/456' });
+    ctx.postsService.findThreadContinuations.mockResolvedValue([
+      { id: 'post-ms-cont-2', content: 'Continuation', threadPosition: 1, status: PostStatus.APPROVED },
+    ]);
+    ctx.configService.get.mockImplementation((key: string) => (key === 'THREAD_CONTINUATION_DELAY_MS' ? '1800000' : undefined));
+
+    await ctx.service.postById('post-ms-root-2');
+
+    expect(ctx.queueFactory.enqueuePosting).toHaveBeenCalledWith(
+      'post-ms-cont-2',
+      'X',
+      expect.objectContaining({ delay: 1800000, priority: 5 }),
+    );
+  });
+
+  it('F2-005: postById() multi-stage continuation posts as a reply to the root', async () => {
+    const mockContext = createMockContext();
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
+    ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
+    const continuation = {
+      ...APPROVED_POST_X,
+      id: 'post-ms-cont-3',
+      threadId: 'thread-ms-3',
+      threadPosition: 1,
+      content: 'Reply text',
+      llmMetadata: { multiStage: true, threadDepth: 2, model: 'gpt-5-nano' },
+    };
+    ctx.postsService.findById.mockResolvedValue(continuation);
+    ctx.sessionsService.getOrCreateSession.mockResolvedValue(ACTIVE_SESSION);
+    ctx.postsService.findThreadRoot.mockResolvedValue({
+      id: 'post-ms-root-3',
+      postUrl: 'https://x.com/user/status/789',
+      status: PostStatus.POSTED,
+    });
+    ctx.xPoster.postThreadReply.mockResolvedValue({ url: 'https://x.com/user/status/789' });
+
+    const result = await ctx.service.postById('post-ms-cont-3');
+
+    expect(result.success).toBe(true);
+    expect(ctx.xPoster.postThreadReply).toHaveBeenCalledWith(
+      expect.anything(),
+      'https://x.com/user/status/789',
+      'Reply text',
+    );
+  });
+
+  it('F2-006: postById() multi-stage continuation defers when root is not yet posted', async () => {
+    const mockContext = createMockContext();
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
+    ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
+    ctx.postsService.findById.mockResolvedValue({
+      ...APPROVED_POST_X,
+      id: 'post-ms-cont-4',
+      threadId: 'thread-ms-4',
+      threadPosition: 1,
+      llmMetadata: { multiStage: true, threadDepth: 2, model: 'gpt-5-nano' },
+    });
+    ctx.sessionsService.getOrCreateSession.mockResolvedValue(ACTIVE_SESSION);
+    ctx.postsService.findThreadRoot.mockResolvedValue({
+      id: 'post-ms-root-4',
+      postUrl: null,
+      status: PostStatus.POSTING,
+    });
+
+    vi.useFakeTimers();
+    try {
+      const promise = ctx.service.postById('post-ms-cont-4');
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(result.success).toBe(false);
+      expect(result.retryable).toBe(true);
+      expect(result.error).toContain('Root post not yet published');
+      expect(ctx.xPoster.postThreadReply).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   // ── P0-H2: Thread with continuations ───────────────────────────────────────

@@ -316,6 +316,31 @@ export class ThreadsPoster extends BasePoster {
   }
 
   /**
+   * F2: post a single continuation reply to an existing root thread.
+   * Used by the delayed multi-stage posting worker, which schedules each
+   * continuation 30 minutes apart via BullMQ.
+   */
+  async postThreadReply(
+    context: BrowserContext,
+    rootPostUrl: string,
+    content: string,
+  ): Promise<PostResult> {
+    const page = await context.newPage();
+    await this.browser.suppressPageErrors(page);
+    this.registerCrashHandler(page, context);
+    try {
+      await this.postReply(page, rootPostUrl, content);
+      return { url: rootPostUrl };
+    } catch (err) {
+      const message = (err as Error).message;
+      this.logger.error(`Threads thread continuation failed: ${message}`);
+      return { error: message, retryable: false };
+    } finally {
+      await page.close().catch(() => {});
+    }
+  }
+
+  /**
    * Extract the user's profile URL from the current page.
    * Threads profile links are in the nav bar.
    */

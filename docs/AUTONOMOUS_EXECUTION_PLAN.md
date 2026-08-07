@@ -162,12 +162,14 @@ WHILE remaining_sprints > 0:
 ### PHASE 1 — F2 / F3 / F10 / F22 (Phase 1.5)
 > Цель: дореализовать частично готовые фичи; всё фича-флагами.
 
-#### Sprint 1.1: F2 Multi-Stage Posting
-- Допилить LangGraph thread scheduling (hook → content/link, 30m delay).
-- UI: `ThreadSchedule.vue` или расширить `Queue.vue`/`PostEditor.vue`.
-- System tests: thread continuation, delayed second stage.
+#### Sprint 1.1: F2 Multi-Stage Posting ✅
+- Root post is marked `multiStage=true` + `threadDepth` in `llmMetadata`; continuation posts are scheduled 30 min apart via `THREAD_CONTINUATION_DELAY_MS`.
+- `PostingService.postById()` posts only the root for multi-stage threads, then schedules the next approved continuation; continuations reply to the root thread.
+- `XPoster.postThreadReply()` and `ThreadsPoster.postThreadReply()` handle single continuation replies.
+- UI badge added to `PostCard.vue` for multi-stage threads.
+- Unit tests: F2-001..F2-006 in `posting.service.spec.ts`.
 
-#### Sprint 1.2: F3 On-Demand Model Picker
+#### Sprint 1.2: F3 On-Demand Model Picker ✅
 - UI dropdown в `Generate.vue` (cloud vs Ollama models).
 - Протащить model choice в `GenerationService` → `LlmService`.
 - Feature flag `MODEL_PICKER_ENABLED`.

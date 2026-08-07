@@ -220,6 +220,11 @@ export class PostingService {
     // goes live. Updates the post content if the post is still the original base text.
     post.content = await this.resolveVariant(postId, post.network, post.content);
 
+    // F2: detect multi-stage threads (root + delayed continuations). Root posts
+    // created by GenerationService now carry multiStage=true in llmMetadata.
+    const llmMetadata = (post.llmMetadata as { multiStage?: boolean; threadDepth?: number } | null) ?? {};
+    const isMultiStage = llmMetadata.multiStage === true;
+
     // G-3: Rate limit check — if not allowed, return a rate-limit result so the
     // queue worker can use BullMQ's RateLimitError (queue-wide delay) instead of
     // burning the retry budget on backoff loops.
@@ -281,18 +286,26 @@ export class PostingService {
       // P0-H2: Load full post objects (not just content) for per-reply tracking.
       // P0-H2: Persist per-reply progress to ThreadProgress table so a crash
       // mid-thread leaves a recoverable record of which replies were posted.
+      //
+      // F2: For multi-stage threads the continuations are NOT posted in the same
+      // browser session; they are enqueued 30 minutes apart. We therefore only
+      // load thread items for legacy (immediate) threads.
       const threadItems: string[] = [];
       let threadPosts: Post[] = [];
       if (post.threadId && post.threadPosition === 0) {
-        threadPosts = await this.postsService.findThreadContinuations(post.threadId);
-        threadItems.push(...threadPosts.map((p) => p.content));
-        if (threadItems.length > 0) {
-          this.logger.log(`P0-2: Post ${postId} is root of thread ${post.threadId} with ${threadItems.length} continuation(s)`);
-          // P0-H2: Initialize persistent per-reply tracking (idempotent — safe to call on resume)
-          await this.threadProgressService.initThread(
-            postId,
-            threadPosts.map((p) => ({ id: p.id, threadPosition: p.threadPosition })),
-          );
+        if (isMultiStage) {
+          this.logger.log(`F2: Post ${postId} is root of multi-stage thread ${post.threadId} — continuations will be scheduled`);
+        } else {
+          threadPosts = await this.postsService.findThreadContinuations(post.threadId);
+          threadItems.push(...threadPosts.map((p) => p.content));
+          if (threadItems.length > 0) {
+            this.logger.log(`P0-2: Post ${postId} is root of thread ${post.threadId} with ${threadItems.length} continuation(s)`);
+            // P0-H2: Initialize persistent per-reply tracking (idempotent — safe to call on resume)
+            await this.threadProgressService.initThread(
+              postId,
+              threadPosts.map((p) => ({ id: p.id, threadPosition: p.threadPosition })),
+            );
+          }
         }
       }
 
@@ -300,6 +313,14 @@ export class PostingService {
       // Only retry for NetworkError (transient). SelectorNotFoundError, ValidationError,
       // AccountRestrictedError, etc. are NOT retried (need code fix or manual intervention).
       // Reference: twscrape retries network errors infinitely, locks on unknown errors.
+      // F2: For a continuation (position > 0) we need the root post URL to reply to.
+      let rootPostForThread: { id: string; postUrl: string | null } | null = null;
+      const threadId = post.threadId;
+      if (isMultiStage && post.threadPosition > 0 && threadId) {
+        rootPostForThread = await this.postsService.findThreadRoot(threadId)
+          .then((p) => (p ? { id: p.id, postUrl: p.postUrl } : null));
+      }
+
       let postAttempt = 0;
       const postFn = async (): Promise<PostResult> => {
         postAttempt++;
@@ -318,6 +339,32 @@ export class PostingService {
             return { url: live };
           }
         }
+
+        // F2: multi-stage continuation posts as a reply to the root thread.
+        if (isMultiStage && post.threadPosition > 0 && (post.network === SocialNetwork.X || post.network === SocialNetwork.THREADS)) {
+          if (!rootPostForThread?.postUrl) {
+            throw new RetryableError(post.network, `Root post not yet published for continuation ${postId} — will retry`);
+          }
+          if (!threadId) {
+            throw new RetryableError(post.network, `Thread not available for continuation ${postId} — will retry`);
+          }
+
+          // Ensure the immediately previous stage has been posted before we reply,
+          // otherwise the thread order will be out of sequence on the platform.
+          if (post.threadPosition > 1) {
+            const previous = await this.postsService.findByThreadPosition(threadId, post.threadPosition - 1);
+            if (!previous || previous.status !== PostStatus.POSTED) {
+              throw new RetryableError(
+                post.network,
+                `Previous continuation (position ${post.threadPosition - 1}) not yet posted for ${postId} — will retry`,
+              );
+            }
+          }
+
+          const poster = post.network === SocialNetwork.X ? this.xPoster : this.threadsPoster;
+          return poster.postThreadReply(context!, rootPostForThread.postUrl, post.content);
+        }
+
         switch (post.network) {
           case SocialNetwork.X:
             return this.xPoster.post(context!, this.browser, post.content, threadItems.length > 0 ? threadItems : undefined);
@@ -726,6 +773,14 @@ export class PostingService {
         } satisfies PostVerifiedEvent);
       }
 
+      // F2: For multi-stage threads, schedule the next continuation after success.
+      // The delay is configured via THREAD_CONTINUATION_DELAY_MS (default 30 minutes).
+      if (isMultiStage && post.threadId) {
+        await this.scheduleNextContinuation(post, result.url ?? null).catch((e) => {
+          this.logger.warn(`F2: Failed to schedule next continuation after ${postId}: ${(e as Error).message}`);
+        });
+      }
+
       this.logger.log(`Post ${postId} posted successfully to ${post.network as string}`);
       return { success: true, url: result.url };
     } catch (err) {
@@ -1014,5 +1069,40 @@ export class PostingService {
       `F2: Multi-stage thread scheduled — root ${rootPostId} + ${scheduled} continuations (delay: ${delayMs / 60000}min apart)`,
     );
     return { scheduled, immediate: false };
+  }
+
+  /**
+   * F2: schedule the next APPROVED continuation in a multi-stage thread.
+   * Called by postById() after the root or a continuation has been posted.
+   * If a queue is not available (e.g. dry-run) the next continuation will not
+   * be scheduled — use scheduleMultiStagePosting() or the /posting/multi-stage
+   * endpoint for manual dry-run threads.
+   */
+  private async scheduleNextContinuation(post: Post, rootPostUrl: string | null): Promise<void> {
+    if (!post.threadId || !this.queueFactory) return;
+
+    const delayMs = parseInt(this.configService.get<string>('THREAD_CONTINUATION_DELAY_MS', '1800000'), 10); // default 30 min
+    const nextPosition = post.threadPosition + 1;
+    const continuations = await this.postsService.findThreadContinuations(post.threadId);
+    const next = continuations.find((p) => p.threadPosition === nextPosition);
+    if (!next) return;
+
+    // F2: a continuation must not run until its root has been posted and has a URL.
+    if (post.threadPosition === 0 && !rootPostUrl) {
+      this.logger.warn(`F2: Root ${post.id} has no postUrl — cannot schedule continuation ${next.id}`);
+      return;
+    }
+
+    await this.queueFactory.enqueuePosting(next.id, post.network, {
+      priority: 5,
+      delay: delayMs,
+    });
+    this.logger.log(
+      `F2: Scheduled continuation ${next.id} (position ${nextPosition}) → ${post.network} (delay: ${Math.round(delayMs / 60000)}min)`,
+    );
+  }
+
+  private delayBetweenStages(): number {
+    return parseInt(this.configService.get<string>('THREAD_CONTINUATION_DELAY_MS', '1800000'), 10);
   }
 }

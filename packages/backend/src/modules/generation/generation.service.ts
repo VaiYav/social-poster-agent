@@ -1315,10 +1315,21 @@ export class GenerationService {
                 const thread = await tx.postThread.create({
                   data: { accountId: account.id, status: PostStatus.DRAFT },
                 });
-                // Link root post to thread
+                // Link root post to thread and mark it as multi-stage.
+                // F2: root must carry the multiStage flag so the posting worker
+                // can decide whether to post all replies at once (legacy) or
+                // schedule them with a 30-minute delay.
                 await tx.post.update({
                   where: { id: post.id },
-                  data: { threadId: thread.id, threadPosition: 0 },
+                  data: {
+                    threadId: thread.id,
+                    threadPosition: 0,
+                    llmMetadata: {
+                      ...(typeof post.llmMetadata === 'object' && post.llmMetadata !== null ? post.llmMetadata : {}),
+                      multiStage: true,
+                      threadDepth: plan.depth,
+                    } as Prisma.InputJsonValue,
+                  },
                 });
                 // Create continuation posts (same tx client → all-or-nothing)
                 const created: { id: string; network: SocialNetwork; llmMetadata: Prisma.JsonValue }[] = [];
@@ -1399,7 +1410,7 @@ export class GenerationService {
    */
   private async fallbackF2Continuation(
     genPost: GeneratedPost,
-    post: { id: string },
+    post: { id: string; llmMetadata?: Prisma.JsonValue | null },
     account: { id: string },
     topic: ContentTopic,
     runId: string,
@@ -1413,7 +1424,20 @@ export class GenerationService {
       const thread = await tx.postThread.create({
         data: { accountId: account.id, status: PostStatus.DRAFT },
       });
-      await tx.post.update({ where: { id: post.id }, data: { threadId: thread.id, threadPosition: 0 } });
+      // F2: mark root as multi-stage so the posting worker schedules
+      // the continuation with a 30-minute delay instead of posting both now.
+      await tx.post.update({
+        where: { id: post.id },
+        data: {
+          threadId: thread.id,
+          threadPosition: 0,
+          llmMetadata: {
+            ...(typeof post.llmMetadata === 'object' && post.llmMetadata !== null ? post.llmMetadata : {}),
+            multiStage: true,
+            threadDepth: 2,
+          } as Prisma.InputJsonValue,
+        },
+      });
       const created = await this.postsService.create(
         {
           accountId: account.id,

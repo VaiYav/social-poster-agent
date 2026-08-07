@@ -92,6 +92,10 @@ export interface LlmMetadata {
   cost?: number;
   promptVersion?: string;
   angleType?: string;
+  /** F2: multi-stage thread marker (root post) */
+  multiStage?: boolean;
+  /** F2: total number of stages in a multi-stage thread */
+  threadDepth?: number;
 }
 
 export interface PostThread {

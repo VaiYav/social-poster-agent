@@ -1289,4 +1289,29 @@ export class XPoster extends BasePoster {
 
     this.logger.debug(`Posted thread reply: ${content.slice(0, 30)}...`);
   }
+
+  /**
+   * F2: post a single continuation reply to an existing root tweet.
+   * Used by the delayed multi-stage posting worker, which schedules each
+   * continuation 30 minutes apart via BullMQ.
+   */
+  async postThreadReply(
+    context: BrowserContext,
+    rootTweetUrl: string,
+    content: string,
+  ): Promise<PostResult> {
+    const page = await context.newPage();
+    await this.browser.suppressPageErrors(page);
+    this.registerCrashHandler(page, context);
+    try {
+      await this.postReply(page, rootTweetUrl, content);
+      return { url: rootTweetUrl };
+    } catch (err) {
+      const message = (err as Error).message;
+      this.logger.error(`X thread continuation failed: ${message}`);
+      return { error: message, retryable: false };
+    } finally {
+      await page.close().catch(() => {});
+    }
+  }
 }
