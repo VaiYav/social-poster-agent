@@ -174,7 +174,7 @@ export class EngagementService implements IEngagementPort {
         return { success: false, error: urlCheck.reason, interactionId: '' };
       }
     }
-    if (targetHandle && targetHandle.startsWith('http')) {
+    if (targetHandle && targetHandle.toLowerCase().startsWith('http')) {
       const urlCheck = this.engagementSafetyService.validateUrl(network, targetHandle);
       if (!urlCheck.allowed) {
         this.logger.warn(`Engagement safety: ${urlCheck.reason}`);

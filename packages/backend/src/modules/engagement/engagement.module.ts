@@ -16,7 +16,6 @@ import { EngagementService } from './engagement.service.js';
 import { BrowsingSessionService } from './browsing-session.service.js';
 import { EngagementSafetyService } from './engagement-safety.service.js';
 import { EngagementController } from './engagement.controller.js';
-import { AdminGuard } from '../auth/admin.guard.js';
 import { XEngager } from './engagers/x.engager.js';
 import { ThreadsEngager } from './engagers/threads.engager.js';
 import { FacebookEngager } from './engagers/facebook.engager.js';
@@ -44,7 +43,6 @@ import { IBrowsingSessionPort, IEngagementPort } from '../orchestrator/ports.js'
     EngagementService,
     BrowsingSessionService,
     EngagementSafetyService,
-    AdminGuard,
     XEngager,
     ThreadsEngager,
     FacebookEngager,

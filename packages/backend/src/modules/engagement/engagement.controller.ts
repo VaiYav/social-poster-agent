@@ -7,7 +7,6 @@ import { z } from 'zod';
 import { EngagementService } from './engagement.service.js';
 import { BrowsingSessionService } from './browsing-session.service.js';
 import { EngagementSchedulerService } from './engagement-scheduler.service.js';
-import { EngagementSafetyService } from './engagement-safety.service.js';
 import { AdminGuard } from '../auth/admin.guard.js';
 import { SocialNetwork, InteractionType, InteractionStatus, BrowsingSessionStatus } from '@prisma/client';
 
@@ -63,7 +62,6 @@ export class EngagementController {
     private readonly engagementService: EngagementService,
     private readonly browsingSessionService: BrowsingSessionService,
     private readonly engagementSchedulerService: EngagementSchedulerService,
-    private readonly engagementSafetyService: EngagementSafetyService,
   ) {}
 
   @Post('like')

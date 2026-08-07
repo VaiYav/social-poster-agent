@@ -78,6 +78,7 @@ import { RateLimitService } from '../../src/modules/rate-limit/rate-limit.servic
 import { EngagementService } from '../../src/modules/engagement/engagement.service';
 import { EngagementController } from '../../src/modules/engagement/engagement.controller';
 import { EngagementDecisionService } from '../../src/modules/engagement/engagement-decision.service';
+import { EngagementSafetyService } from '../../src/modules/engagement/engagement-safety.service';
 import { BrowsingSessionService } from '../../src/modules/engagement/browsing-session.service';
 import { XEngager } from '../../src/modules/engagement/engagers/x.engager';
 import { ThreadsEngager } from '../../src/modules/engagement/engagers/threads.engager';
@@ -338,10 +339,15 @@ export function restoreAllDesignParamtypes(): void {
     XEngager,
     ThreadsEngager,
     FacebookEngager,
+    EngagementSafetyService,
   ]);
-  defineParamtypes(EngagementController, [EngagementService]);
+  defineParamtypes(EngagementController, [
+    EngagementService,
+    BrowsingSessionService,
+    EngagementSchedulerService,
+  ]);
   defineParamtypes(HumanBehaviorEngine, [PrismaService, Object, SseService, RateLimitService, Object]); // Object = IBrowserPort, IEngagementDecisionPort
-  defineParamtypes(EngagementDecisionService, [Object, ConfigService, Object]); // Object = @Inject(ILlmPort), Object = @Optional() @Inject(IPromptPort)
+  defineParamtypes(EngagementDecisionService, [Object, ConfigService, Object, EngagementSafetyService]); // Object = @Inject(ILlmPort), Object = @Optional() @Inject(IPromptPort)
   defineParamtypes(TargetingService, [ConfigService]);
   defineParamtypes(EngagementSchedulerService, [ConfigService, QueueFactory, SchedulerRegistry]);
 
