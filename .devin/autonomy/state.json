@@ -5,5 +5,5 @@
   "active_branches": ["f4-adaptive-replies"],
   "completed_sprints": ["f4-ui-swagger", "f22-trending", "f3-model-picker", "f2-multi-stage-posting", "f10-content-repurposing", "f22-trending-api-integration", "f1-decision-engine"],
   "blockers": ["test:coverage global threshold 66% < 80% (pre-existing, project-wide)"],
-  "last_green_commit": "854f8da"
+  "last_green_commit": "38760ab"
 }
