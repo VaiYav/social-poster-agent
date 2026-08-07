@@ -1,9 +1,9 @@
 {
-  "current_phase": "phase-1",
-  "current_sprint": "p1-mvp-syndication",
+  "current_phase": "phase-2",
+  "current_sprint": "p2-01-bluesky",
   "base_branch": "main",
-  "active_branches": ["feat/phase-1-mvp-syndication"],
-  "completed_sprints": ["f4-ui-swagger", "f22-trending", "f3-model-picker", "f2-multi-stage-posting", "f10-content-repurposing", "f22-trending-api-integration", "f1-decision-engine", "f1-targeting-and-browsing", "f1-ui-control-panel", "f1-safety-and-tests"],
+  "active_branches": ["feat/phase-2-p2-01-bluesky"],
+  "completed_sprints": ["p1-mvp-syndication", "f4-ui-swagger", "f22-trending", "f3-model-picker", "f2-multi-stage-posting", "f10-content-repurposing", "f22-trending-api-integration", "f1-decision-engine", "f1-targeting-and-browsing", "f1-ui-control-panel", "f1-safety-and-tests"],
   "blockers": ["test:coverage global threshold 66% < 80% (pre-existing, project-wide)"],
-  "last_green_commit": "e6ead5d"
+  "last_green_commit": "5f151f6"
 }
