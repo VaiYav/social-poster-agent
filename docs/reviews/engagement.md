@@ -144,17 +144,22 @@
 | `ENGAGEMENT_JITTER_MINUTES` | `30` | Jitter (not validated) |
 | `ENGAGEMENT_NETWORKS` | `getEnabledNetworks()` | Networks (not validated) |
 | `ENGAGEMENT_SCHEDULE_CRON` | `0 0 * * *` | Daily re-schedule cron (not validated) |
-| `F1_BROWSING_SESSION_MINUTES` | `10` | Duration (not validated) |
-| `F1_LIKES_MAX_PER_DAY` | `15` | Likes per session (not validated) |
-| `F1_COMMENTS_MAX_PER_DAY` | `4` | Comments per session (not validated) |
-| `F1_REPOSTS_MAX_PER_DAY` | `5` | Reposts per session (not validated) |
-| `F1_QUOTES_MAX_PER_DAY` | `2` | Quotes per session (not validated) |
-| `F1_MAX_POSTS_PER_SESSION` | `30` | Max posts evaluated (not validated) |
+| `F1_BROWSING_SESSION_MINUTES` | `15` | Duration (not validated) |
+| `F1_LIKES_MAX_PER_DAY` | `4` | Likes per-session soft target (not validated) |
+| `F1_COMMENTS_MAX_PER_DAY` | `1` | Comments per-session soft target (not validated) |
+| `F1_REPOSTS_MAX_PER_DAY` | `1` | Reposts per-session soft target (not validated) |
+| `F1_QUOTES_MAX_PER_DAY` | `1` | Quotes per-session soft target (not validated) |
+| `F1_DISCUSSIONS_MAX_PER_DAY` | `2` | Discussions (repost + quote) per-session soft target (not validated) |
+| `F1_MAX_LIKES_PER_DAY_GLOBAL` | `20` | Global daily hard cap for likes |
+| `F1_MAX_COMMENTS_PER_DAY_GLOBAL` | `5` | Global daily hard cap for comments |
+| `F1_MAX_REPOSTS_PER_DAY_GLOBAL` | `1` | Global daily hard cap for reposts |
+| `F1_MAX_QUOTES_PER_DAY_GLOBAL` | `1` | Global daily hard cap for quotes |
+| `F1_MAX_POSTS_PER_SESSION` | `40` | Max posts evaluated per session (not validated) |
 | `ENGAGEMENT_HASHTAGS` | multi-language defaults | Hashtag pool (not validated) |
 | `ENGAGEMENT_COMPETITORS` | `costarastrology,...` | Competitor pool (not validated) |
 | `ENGAGEMENT_WEIGHT_*` | 40/25/15/10/5/5 | Source weights (not validated) |
-| `ENGAGEMENT_COMMENT_TEMPERATURE` | `0.8` | Comment LLM temp (read directly from `process.env` in `engagement-decision.service.ts:34`) |
-| `ENGAGEMENT_QUOTE_TEMPERATURE` | `0.8` | Quote LLM temp (read directly from `process.env` in `engagement-decision.service.ts:35`, but currently ignored at `:261`) |
+| `ENGAGEMENT_COMMENT_TEMPERATURE` | `0.8` | Comment LLM temp (read via `ConfigService` in `engagement-decision.service.ts:49`) |
+| `ENGAGEMENT_QUOTE_TEMPERATURE` | `0.8` | Quote LLM temp (used by `generateQuoteText` at `:293`) |
 
 ## 6. Findings
 
@@ -208,10 +213,9 @@
 
 **B23. `EngagementGraph` `decide_per_post` node delegates to `HumanBehaviorEngine.processPosts`. The `processPosts` loop uses `Date.now() < sessionDeadline` and `postsProcessed < config.maxPosts`. Good. It also has `EXTRACT_TIMEOUT_MS=15s`, `DECISION_TIMEOUT_MS=30s`, `EXECUTE_TIMEOUT_MS=60s`. Good.**
 
-**B24. `EngagementDecisionService` `process.env` reads for `ENGAGEMENT_COMMENT_TEMPERATURE` and `ENGAGEMENT_QUOTE_TEMPERATURE` instead of `ConfigService`, and quote generation uses the wrong temperature constant**
-- `engagement-decision.service.ts:34-35` reads both constants from `process.env` at module load. `ConfigService` is not injected into the constructor (it only injects `ILlmPort`), so the variables are not centralized.
-- Line 207 passes `ENGAGEMENT_COMMENT_TEMPERATURE` for comment generation (correct).
-- Line 261 passes `ENGAGEMENT_COMMENT_TEMPERATURE` for **quote** generation — it should pass `ENGAGEMENT_QUOTE_TEMPERATURE`. This is a real bug: quote and comment prompts will use the same temperature regardless of the `ENGAGEMENT_QUOTE_TEMPERATURE` env var.
+**B24. ~~`EngagementDecisionService` `process.env` reads for `ENGAGEMENT_COMMENT_TEMPERATURE` and `ENGAGEMENT_QUOTE_TEMPERATURE` instead of `ConfigService`, and quote generation uses the wrong temperature constant~~ — RESOLVED (Sprint 2.1)**
+- Temperatures are now read via `ConfigService` in the constructor (`engagement-decision.service.ts:49-50`).
+- `generateComment` uses `this.commentTemperature` (`:247`); `generateQuoteText` uses `this.quoteTemperature` (`:293`).
 
 **B25. `TargetingService` source weights are `configService.get<number>` and may be strings. `this.sourceWeights` is `Record<EngagementSource, number>` but may be strings. `pickSource` uses `this.sourceWeights[s.source]` in arithmetic. If string, JS coercion works. But type is wrong. Should `Number()`.** Also `get<number>` from `ConfigService` may not parse. This is a recurring issue.
 
@@ -303,8 +307,8 @@
 **F4. Implement `own-post` targeting source**
 - Build account profile URL and use it to reply to comments on own posts.
 
-**F5. Use `ConfigService` for `ENGAGEMENT_COMMENT_TEMPERATURE` and `ENGAGEMENT_QUOTE_TEMPERATURE`**
-- Remove `process.env` read.
+**F5. ~~Use `ConfigService` for `ENGAGEMENT_COMMENT_TEMPERATURE` and `ENGAGEMENT_QUOTE_TEMPERATURE`~~ — RESOLVED (Sprint 2.1)**
+- `ConfigService` now reads both in `EngagementDecisionService` constructor.
 
 **F6. Validate `network`, `type`, `status` in `EngagementController` query params**
 - Use `ParseEnumPipe` or Zod.
@@ -350,16 +354,42 @@
 - `infrastructure/prisma` — `Interaction`, `BrowsingSession`.
 - `infrastructure/sse` — `SseService`.
 
+## 10. F1 Sprint 2.1 review (2026-08-07)
+
+### What changed
+- Added `discussionsThisSession`/`discussionsMaxPerSession` to `PostContext`, `BehaviorEngineConfig`, `EngagementState`, and `HumanBehaviorEngine`.
+- `EngagementDecisionService.enforceBudget` now downgrades `repost`/`quote` to `read` when the combined discussion budget (repost + quote) is exhausted.
+- Prompts (individual + batch) expose `discussionsThisSession`/`discussionsMaxPerSession` to the LLM.
+- Daily limits re-tuned to conservative Phase 2 values: 20 likes / 5 comments / 2 discussions globally, split as 4/1/1/1 per-session soft targets with `discussionsMaxPerSession=2`.
+- Added Swagger decorators to all `EngagementController` endpoints.
+- Added `ED-DISC-001..004` unit tests.
+
+### New findings from this review
+
+**B33. `EngagementDecisionService` discussion-budget enforcement could double-count in batched mode**
+- `decideActionsBatch` builds `PostContext` for the whole batch before calling the LLM. All contexts share the same `discussionsThisSession` value. The LLM may decide `repost` or `quote` for multiple posts in the same batch. The service-level `enforceBudget` will not reduce `discussionsThisSession` between posts in the batch; the downgrading happens later in `HumanBehaviorEngine.processPosts`. This is acceptable because `HumanBehaviorEngine` has the canonical counters and re-evaluates after each action. But the LLM is being told the same budget for all posts, which can lead to overconfident repost/quote suggestions. **Minor; mitigated by mid-batch enforcement.**
+
+**B34. No global `F1_MAX_DISCUSSIONS_PER_DAY_GLOBAL` hard cap**
+- Discussion daily total is constrained only by `F1_MAX_REPOSTS_PER_DAY_GLOBAL=1` + `F1_MAX_QUOTES_PER_DAY_GLOBAL=1`. If those global caps are raised independently, discussions could exceed the intended 1-2 per day. Consider adding `F1_MAX_DISCUSSIONS_PER_DAY_GLOBAL` and clamping in `BrowsingSessionService`.
+
+**B35. `EngagementController` query params still not validated (unchanged from B30/B31/F6)**
+- `GET /engagement/interactions` and `/engagement/browsing-sessions` still cast `status`/`type` to `never` and `network` to `SocialNetwork` without validation. Invalid values reach Prisma.
+
+**B36. `EngagementService` memory leak and context-pool issues remain (B7, P1, A3)**
+- Sprint 2.1 did not touch `EngagementService.performInteraction`; the `finally` close and `acquireContext` issues are still present. These are the biggest pre-existing risks.
+
+### Health update after Sprint 2.1
+- The decision engine and budget layer are now coherent and tested. The module health improves from 5/10 to 6/10, but the pre-existing `EngagementService` context/memory risks and `own-post`/scheduler issues remain.
+
 ## 9. Overall assessment
 
-- **Health**: 5/10. The engagement module is ambitious and feature-rich but has significant issues: memory leaks in `EngagementService`, `own-post` not implemented, `process.env` for temperatures, `EngagementService` not using context pool, static mutex bottleneck, `scheduleDailySessions` not clearing old delayed jobs, controller not validating query enums.
-- **Biggest strengths**: LLM-driven human-like behavior, source rotation, warmup gating, batch decisions, `EngagementGraph` orchestration, resource blocking for memory, `checkStaleAndEnqueue` for orchestrator.
-- **Biggest risks**: `EngagementService` memory leak (no `finally` close context), `own-post` source not implemented, `scheduleDailySessions` can stack delayed jobs, static mutex limits throughput, `process.env` read, controller validation gaps, no warm-up check for API actions.
+- **Health**: 6/10. Sprint 2.1 closed the decision-engine and budget gaps and fixed the temperature/ConfigService issue. Pre-existing risks remain: memory leaks in `EngagementService`, `own-post` not implemented, `scheduleDailySessions` can stack delayed jobs, static mutex bottleneck, controller not validating query enums.
+- **Biggest strengths**: LLM-driven human-like behavior with batch and individual decisions, discussion budget, source rotation, warmup gating, `EngagementGraph` orchestration, resource blocking for memory, `checkStaleAndEnqueue` for orchestrator.
+- **Biggest risks**: `EngagementService` memory leak (no `finally` close context), `own-post` source not implemented, `scheduleDailySessions` can stack delayed jobs, static mutex limits throughput, controller validation gaps, no warm-up check for API actions.
 - **Recommended next actions**:
   1. Add `finally` to `EngagementService.performInteraction` to close context/page.
   2. Switch `EngagementService` to `acquireContext`/`releaseContext`.
   3. Implement `own-post` source or remove it.
   4. Fix `EngagementSchedulerService` to clear old delayed browsing jobs before re-scheduling.
-  5. Use `ConfigService` for comment/quote temperature.
-  6. Validate `network`/`type`/`status` in `EngagementController`.
-  7. Add `WarmupService.canPost` check for API actions.
+  5. Validate `network`/`type`/`status` in `EngagementController`.
+  6. Add `WarmupService.canPost` check for API actions.
