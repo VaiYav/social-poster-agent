@@ -21,6 +21,7 @@ const mockQueueFactory = {
   enqueuePosting: vi.fn().mockResolvedValue(undefined),
   enqueueEngagement: vi.fn().mockResolvedValue(undefined),
   clearCompletedAndFailedJobs: vi.fn().mockResolvedValue(0),
+  clearPendingEngagementBrowsingJobs: vi.fn().mockResolvedValue(0),
 } as unknown as QueueFactory;
 
 const mockBrowsingSessionService = {
@@ -44,19 +45,19 @@ describe('EngagementSchedulerService', () => {
     vi.useRealTimers();
   });
 
-  it('SC-001: disabled by default (ENGAGEMENT_SCHEDULER_ENABLED=false)', () => {
+  it('SC-001: disabled by default (ENGAGEMENT_SCHEDULER_ENABLED=false)', async () => {
     service = new EngagementSchedulerService(
       createMockConfigService(),
       mockQueueFactory,
       mockSchedulerRegistry,
     );
-    service.onModuleInit();
+    await service.onModuleInit();
     const status = service.getStatus();
     expect(status.enabled).toBe(false);
     expect(status.pendingSessions).toBe(0);
   });
 
-  it('SC-002: enabled when ENGAGEMENT_SCHEDULER_ENABLED=true', () => {
+  it('SC-002: enabled when ENGAGEMENT_SCHEDULER_ENABLED=true', async () => {
     vi.setSystemTime(new Date('2026-06-27T00:00:00Z'));
     service = new EngagementSchedulerService(
       createMockConfigService({
@@ -67,14 +68,14 @@ describe('EngagementSchedulerService', () => {
       mockQueueFactory,
       mockSchedulerRegistry,
     );
-    service.onModuleInit();
+    await service.onModuleInit();
     const status = service.getStatus();
     expect(status.enabled).toBe(true);
     // Scheduler now uses BullMQ delayed jobs instead of timeouts
     expect(mockQueueFactory.enqueueEngagement).toHaveBeenCalled();
   });
 
-  it('SC-003: schedules sessions for all configured networks', () => {
+  it('SC-003: schedules sessions for all configured networks', async () => {
     vi.setSystemTime(new Date('2026-06-27T00:00:00Z'));
     service = new EngagementSchedulerService(
       createMockConfigService({
@@ -86,12 +87,12 @@ describe('EngagementSchedulerService', () => {
       mockQueueFactory,
       mockSchedulerRegistry,
     );
-    service.onModuleInit();
+    await service.onModuleInit();
     // 3 networks * 1 session = 3 enqueueEngagement calls
     expect(mockQueueFactory.enqueueEngagement).toHaveBeenCalledTimes(3);
   });
 
-  it('SC-004: does not schedule past times', () => {
+  it('SC-004: does not schedule past times', async () => {
     vi.setSystemTime(new Date('2026-06-27T23:58:00Z'));
     service = new EngagementSchedulerService(
       createMockConfigService({
@@ -103,11 +104,11 @@ describe('EngagementSchedulerService', () => {
       mockQueueFactory,
       mockSchedulerRegistry,
     );
-    service.onModuleInit();
+    await service.onModuleInit();
     expect(service.getStatus().pendingSessions).toBe(0);
   });
 
-  it('SC-005: clears timeouts on destroy', () => {
+  it('SC-005: clears timeouts on destroy', async () => {
     vi.setSystemTime(new Date('2026-06-27T00:00:00Z'));
     service = new EngagementSchedulerService(
       createMockConfigService({
@@ -118,7 +119,7 @@ describe('EngagementSchedulerService', () => {
       mockQueueFactory,
       mockSchedulerRegistry,
     );
-    service.onModuleInit();
+    await service.onModuleInit();
     // Scheduler now uses BullMQ — verify enqueueEngagement was called
     expect(mockQueueFactory.enqueueEngagement).toHaveBeenCalled();
     service.onModuleDestroy();
@@ -145,7 +146,7 @@ describe('EngagementSchedulerService', () => {
     expect(status.networks).toEqual(['X', 'THREADS']);
   });
 
-  it('SC-007: handles no networks configured', () => {
+  it('SC-007: handles no networks configured', async () => {
     service = new EngagementSchedulerService(
       createMockConfigService({
         ENGAGEMENT_SCHEDULER_ENABLED: 'true',
@@ -154,7 +155,7 @@ describe('EngagementSchedulerService', () => {
       mockQueueFactory,
       mockSchedulerRegistry,
     );
-    service.onModuleInit();
+    await service.onModuleInit();
     expect(service.getStatus().networks).toEqual([]);
     expect(service.getStatus().pendingSessions).toBe(0);
   });
@@ -172,7 +173,7 @@ describe('EngagementSchedulerService', () => {
     expect(status.networks).toEqual(['X', 'THREADS']);
   });
 
-  it('BUG-2: scheduleDailySessions re-schedules sessions (engagement does not die after day 1)', () => {
+  it('BUG-2: scheduleDailySessions re-schedules sessions (engagement does not die after day 1)', async () => {
     vi.setSystemTime(new Date('2026-06-27T00:00:00Z'));
     service = new EngagementSchedulerService(
       createMockConfigService({
@@ -184,20 +185,20 @@ describe('EngagementSchedulerService', () => {
       mockQueueFactory,
       mockSchedulerRegistry,
     );
-    service.onModuleInit();
+    await service.onModuleInit();
     expect(mockQueueFactory.enqueueEngagement).toHaveBeenCalledTimes(1); // start day
     // Simulate the next midnight cron firing — must re-populate the queue.
-    (service as unknown as { scheduleDailySessions: () => void }).scheduleDailySessions();
+    await (service as unknown as { scheduleDailySessions: () => Promise<void> }).scheduleDailySessions();
     expect(mockQueueFactory.enqueueEngagement).toHaveBeenCalledTimes(2);
   });
 
-  it('BUG-2: scheduleDailySessions is a no-op when disabled', () => {
+  it('BUG-2: scheduleDailySessions is a no-op when disabled', async () => {
     service = new EngagementSchedulerService(createMockConfigService(), mockQueueFactory, mockSchedulerRegistry);
-    (service as unknown as { scheduleDailySessions: () => void }).scheduleDailySessions();
+    await (service as unknown as { scheduleDailySessions: () => Promise<void> }).scheduleDailySessions();
     expect(mockQueueFactory.enqueueEngagement).not.toHaveBeenCalled();
   });
 
-  it('BUG-10: a malformed session window is dropped at parse time and never crashes the tick', () => {
+  it('BUG-10: a malformed session window is dropped at parse time and never crashes the tick', async () => {
     vi.setSystemTime(new Date('2026-06-27T00:00:00Z'));
     service = new EngagementSchedulerService(
       createMockConfigService({
@@ -212,7 +213,7 @@ describe('EngagementSchedulerService', () => {
     );
     expect(service.getStatus().windows).toEqual(['09:00', '23:59']);
     // The old NaN path threw on .toISOString() and killed the whole tick.
-    expect(() => service.onModuleInit()).not.toThrow();
+    await service.onModuleInit();
     expect(mockQueueFactory.enqueueEngagement).toHaveBeenCalled();
   });
 

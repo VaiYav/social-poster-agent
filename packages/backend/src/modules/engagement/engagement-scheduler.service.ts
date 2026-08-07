@@ -52,7 +52,7 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
     ).filter((n) => isNetworkEnabled(n));
   }
 
-  onModuleInit(): void {
+  async onModuleInit(): Promise<void> {
     if (!this.enabled) {
       this.logger.log('Engagement scheduler disabled (ENGAGEMENT_SCHEDULER_ENABLED=false)');
       return;
@@ -74,7 +74,13 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
     }
 
     // Legacy mode: schedule today's sessions + register daily midnight cron
-    this.scheduleDailySessions();
+    try {
+      await this.scheduleDailySessions();
+    } catch (err) {
+      this.logger.error(
+        `Failed to schedule daily engagement sessions: ${(err as Error).message}`,
+      );
+    }
     this.registerDailyCron();
     this.logger.log(
       `Engagement scheduler started: ${this.sessionsPerDay} sessions/day across ${this.networks.length} networks (via BullMQ)`,
@@ -91,7 +97,13 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
    */
   private registerDailyCron(): void {
     const cronExpr = this.configService.get<string>('ENGAGEMENT_SCHEDULE_CRON', '0 0 * * *');
-    const job = new CronJob(cronExpr, () => this.scheduleDailySessions());
+    const job = new CronJob(cronExpr, () => {
+      this.scheduleDailySessions().catch((err) => {
+        this.logger.error(
+          `Daily engagement session scheduling failed: ${(err as Error).message}`,
+        );
+      });
+    });
     try {
       this.schedulerRegistry.addCronJob('engagement-daily', job);
       job.start();
@@ -116,12 +128,28 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
    * No-op when disabled or no networks configured (guards that used to live in
    * the old scheduleDailySessionsCron wrapper).
    */
-  scheduleDailySessions(): void {
+  async scheduleDailySessions(): Promise<void> {
     if (!this.enabled || this.networks.length === 0) return;
 
     const today = new Date();
 
     for (const network of this.networks) {
+      // Remove stale pending browsing-session jobs from previous days before re-scheduling.
+      // Without this, delayed jobs accumulate and a single day can end up with far more
+      // sessions than sessionsPerDay.
+      try {
+        const removed = await this.queueFactory.clearPendingEngagementBrowsingJobs(network as string);
+        if (removed > 0) {
+          this.logger.debug(
+            `Cleared ${removed} stale pending browsing session(s) for ${network}`,
+          );
+        }
+      } catch (err) {
+        this.logger.warn(
+          `Failed to clear pending browsing sessions for ${network}: ${(err as Error).message}`,
+        );
+      }
+
       const windows = this.pickWindowsForToday();
 
       for (const windowTime of windows) {
@@ -138,8 +166,8 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
 
         // Enqueue as BullMQ delayed job — runs in engagement queue for this network
         const jobId = `browsing-${network}-${scheduledTime.toISOString()}`;
-        this.queueFactory
-          .enqueueEngagement(
+        try {
+          await this.queueFactory.enqueueEngagement(
             jobId,
             network,
             'browsing-session',
@@ -149,17 +177,15 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
               durationSec: this.configService.get<number>('F1_BROWSING_SESSION_MINUTES', 15) * 60,
             },
             { delay: delayMs },
-          )
-          .then(() => {
-            this.logger.debug(
-              `Enqueued browsing session for ${network} at ${scheduledTime.toISOString()} (in ${Math.round(delayMs / 1000 / 60)}min)`,
-            );
-          })
-          .catch((err: Error) => {
-            this.logger.error(
-              `Failed to enqueue browsing session for ${network}: ${err.message}`,
-            );
-          });
+          );
+          this.logger.debug(
+            `Enqueued browsing session for ${network} at ${scheduledTime.toISOString()} (in ${Math.round(delayMs / 1000 / 60)}min)`,
+          );
+        } catch (err) {
+          this.logger.error(
+            `Failed to enqueue browsing session for ${network}: ${(err as Error).message}`,
+          );
+        }
       }
     }
   }

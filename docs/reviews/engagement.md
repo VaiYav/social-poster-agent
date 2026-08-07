@@ -295,6 +295,9 @@
 
 **S8. `EngagementSchedulerService` `checkStaleAndEnqueue` clears all completed/failed engagement jobs. This removes audit trail. Should be more targeted.**
 
+**S9. `EngagementSchedulerService.scheduleDailySessions` can stack delayed browsing-session jobs across days** — RESOLVED
+- Added `QueueFactory.clearPendingEngagementBrowsingJobs()` and call it before enqueuing each network's daily sessions. Today's re-schedule now removes stale pending/waiting `browsing-session` jobs first, so the queue never contains more than `sessionsPerDay × networks` delayed browsing jobs.
+
 ## 7. New feature / improvement ideas
 
 **F1. ~~Use `acquireContext`/`releaseContext` in `EngagementService` for individual actions~~ — RESOLVED**
@@ -381,14 +384,13 @@
 - `EngagementService.performInteraction` now uses `acquireContext`/`releaseContext` and the existing `finally` block closes the page and returns the context to the pool.
 
 ### Health update after Sprint 2.1 + post-review fixes
-- The decision engine and budget layer are now coherent and tested. Post-review fixes resolved `EngagementService` context pooling, warm-up gating, and `EngagementController` query validation. Module health improves from 5/10 to 7/10; remaining risks are `own-post` source, scheduler delayed-job stacking, and the static browsing-session mutex.
+- The decision engine and budget layer are now coherent and tested. Post-review fixes resolved `EngagementService` context pooling, warm-up gating, `EngagementController` query validation, and `EngagementSchedulerService` delayed-job stacking. Module health improves from 5/10 to 8/10; remaining risks are `own-post` source and the static browsing-session mutex.
 
 ## 9. Overall assessment
 
-- **Health**: 7/10. Sprint 2.1 closed the decision-engine and budget gaps; post-review fixes resolved `EngagementService` context pooling, warm-up gating for API actions, and `EngagementController` query validation. Remaining risks: `own-post` source not implemented, `scheduleDailySessions` can stack delayed jobs, static mutex bottleneck.
-- **Biggest strengths**: LLM-driven human-like behavior with batch and individual decisions, discussion budget, source rotation, warmup gating, `EngagementGraph` orchestration, resource blocking for memory, pooled browser contexts for individual actions, `checkStaleAndEnqueue` for orchestrator.
-- **Biggest risks**: `own-post` source not implemented, `scheduleDailySessions` can stack delayed jobs, static mutex limits throughput.
+- **Health**: 8/10. Sprint 2.1 closed the decision-engine and budget gaps; post-review fixes resolved `EngagementService` context pooling, warm-up gating, `EngagementController` query validation, and `EngagementSchedulerService` delayed-job stacking. Remaining risk: `own-post` source not implemented and static mutex bottleneck.
+- **Biggest strengths**: LLM-driven human-like behavior with batch and individual decisions, discussion budget, source rotation, warmup gating, `EngagementGraph` orchestration, resource blocking for memory, pooled browser contexts for individual actions, scheduler idempotency, `checkStaleAndEnqueue` for orchestrator.
+- **Biggest risks**: `own-post` source not implemented, static mutex limits throughput.
 - **Recommended next actions**:
   1. Implement `own-post` source or remove it.
-  2. Fix `EngagementSchedulerService` to clear old delayed browsing jobs before re-scheduling.
-  3. Replace the global browsing-session mutex with a per-network pool semaphore.
+  2. Replace the global browsing-session mutex with a per-network pool semaphore.

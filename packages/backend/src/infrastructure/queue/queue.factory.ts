@@ -499,4 +499,20 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
     ]);
     return completedCount.length + failedCount.length;
   }
+
+  /**
+   * Remove pending (delayed/waiting) `browsing-session` jobs for a network.
+   * Used by the engagement scheduler before re-scheduling today's sessions so
+   * old delayed jobs from previous days do not accumulate and exceed sessionsPerDay.
+   */
+  async clearPendingEngagementBrowsingJobs(network: string): Promise<number> {
+    const queue = this.getQueue(network, 'engagement');
+    const states: Array<'delayed' | 'waiting' | 'paused'> = ['delayed', 'waiting'];
+    const jobs = await queue.getJobs(states);
+    const toRemove = jobs.filter(
+      (job) => job.name === 'browsing-session' || (job.id as string)?.startsWith('browsing-'),
+    );
+    await Promise.all(toRemove.map((job) => job.remove()));
+    return toRemove.length;
+  }
 }
