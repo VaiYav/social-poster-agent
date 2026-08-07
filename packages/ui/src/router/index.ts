@@ -80,6 +80,11 @@ const router = createRouter({
       name: 'replies',
       component: () => import('../views/Replies.vue'),
     },
+    {
+      path: '/autonomous-agent',
+      name: 'autonomous-agent',
+      component: () => import('../views/AutonomousAgent.vue'),
+    },
     // Sprint N: 404 catch-all route
     {
       path: '/:pathMatch(.*)*',

@@ -1,9 +1,9 @@
 {
   "current_phase": "phase-2",
-  "current_sprint": "f1-targeting-and-browsing",
+  "current_sprint": "f1-ui-control-panel",
   "base_branch": "f4-adaptive-replies",
-  "active_branches": ["f4-adaptive-replies", "feat/phase-2-f1-targeting-and-browsing"],
-  "completed_sprints": ["f4-ui-swagger", "f22-trending", "f3-model-picker", "f2-multi-stage-posting", "f10-content-repurposing", "f22-trending-api-integration", "f1-decision-engine"],
+  "active_branches": ["f4-adaptive-replies", "feat/phase-2-f1-targeting-and-browsing", "feat/phase-2-f1-ui-control-panel"],
+  "completed_sprints": ["f4-ui-swagger", "f22-trending", "f3-model-picker", "f2-multi-stage-posting", "f10-content-repurposing", "f22-trending-api-integration", "f1-decision-engine", "f1-targeting-and-browsing", "f1-ui-control-panel"],
   "blockers": ["test:coverage global threshold 66% < 80% (pre-existing, project-wide)"],
   "last_green_commit": "e5fc565"
 }

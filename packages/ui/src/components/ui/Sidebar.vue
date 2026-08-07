@@ -15,6 +15,7 @@ import {
   Recycle,
   Calendar,
   MessageSquare,
+  Bot,
   X,
   type LucideIcon,
 } from '@lucide/vue';
@@ -43,6 +44,7 @@ const navItems: NavItem[] = [
   { label: 'Flow Control', to: '/flow-control', icon: AlertTriangle },
   { label: 'Reports', to: '/reports', icon: FileBarChart },
   { label: 'Replies', to: '/replies', icon: MessageSquare },
+  { label: 'Autonomous Agent', to: '/autonomous-agent', icon: Bot },
 ];
 
 const props = defineProps<{

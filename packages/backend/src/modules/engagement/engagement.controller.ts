@@ -6,6 +6,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { z } from 'zod';
 import { EngagementService } from './engagement.service.js';
 import { BrowsingSessionService } from './browsing-session.service.js';
+import { EngagementSchedulerService } from './engagement-scheduler.service.js';
 import { SocialNetwork, InteractionType, InteractionStatus, BrowsingSessionStatus } from '@prisma/client';
 
 const likeSchema = z.object({
@@ -58,6 +59,7 @@ export class EngagementController {
   constructor(
     private readonly engagementService: EngagementService,
     private readonly browsingSessionService: BrowsingSessionService,
+    private readonly engagementSchedulerService: EngagementSchedulerService,
   ) {}
 
   @Post('like')
@@ -244,5 +246,12 @@ export class EngagementController {
       status: parsedStatus.data as BrowsingSessionStatus | undefined,
       limit: parsedLimit.data,
     });
+  }
+
+  @Get('scheduler/status')
+  @ApiOperation({ summary: 'F1: Get engagement scheduler status' })
+  @ApiResponse({ status: 200, description: 'Scheduler configuration and pending sessions' })
+  async getSchedulerStatus() {
+    return this.engagementSchedulerService.getStatus();
   }
 }

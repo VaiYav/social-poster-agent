@@ -7,6 +7,7 @@ import { useMonitoringStore } from './stores/monitoring';
 import { useAgentsStore } from './stores/agents';
 import { useFlowControlStore } from './stores/flowControl';
 import { useRepliesStore } from './stores/replies';
+import { useEngagementStore } from './stores/engagement';
 import { useAuthStore } from './stores/auth';
 import { useToast } from './composables/useToast';
 import { useSSE } from './composables/useSSE';
@@ -27,6 +28,7 @@ const monitoringStore = useMonitoringStore();
 const agentsStore = useAgentsStore();
 const flowControlStore = useFlowControlStore();
 const repliesStore = useRepliesStore();
+const engagementStore = useEngagementStore();
 const authStore = useAuthStore();
 const toast = useToast();
 const route = useRoute();
@@ -65,6 +67,7 @@ watch(sseData, (data: SSEvent | null) => {
   agentsStore.handleSseEvent(data);
   flowControlStore.handleSseEvent(data);
   repliesStore.handleSseEvent(data);
+  engagementStore.handleSseEvent(data);
 
   if (data.type === 'post_status') {
     if (data.status === 'POSTED') {

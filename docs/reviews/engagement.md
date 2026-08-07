@@ -114,6 +114,17 @@
 - Budget enforcement and fallback to `read`/`like`.
 - Generates comments/quotes in brand voice.
 
+### 3.8 F1 UI Control Panel
+
+- View: `packages/ui/src/views/AutonomousAgent.vue`.
+- Store: `packages/ui/src/stores/engagement.ts` (Pinia) with `fetchAll`, `startBrowsingSession`, and `handleSseEvent`.
+- SSE: global `App.vue` dispatches `browsing_session_*` and `interaction_*` events to the engagement store, which refetches stats and sessions.
+- REST: new `GET /engagement/scheduler/status` exposes `EngagementSchedulerService.getStatus()`.
+- Controls:
+  - Pause/resume engagement flow via Flow Control store (`POST /flow-control/pause/engagement` and `/resume/engagement`).
+  - Network selector + "Start Browsing Session" button (`POST /engagement/browsing-session`).
+  - Scheduler status, interaction stats, and recent browsing sessions.
+
 ## 4. Dependencies
 
 **Downstream:**

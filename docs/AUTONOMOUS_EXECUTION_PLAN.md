@@ -199,13 +199,15 @@ WHILE remaining_sprints > 0:
 - Swagger decorators добавлены в `EngagementController`.
 - Unit tests: 161+ тестов в `tests/unit/engagement/`.
 
-#### Sprint 2.2: F1 Targeting
+#### Sprint 2.2: F1 Targeting ✅
 - Хэштеги/конкуренты/algorithmic feed selectors.
 - Rate-limit safety (strict, below radar).
+- Implemented per-account rate-limit keys, `TargetingService` source-weight parsing, `HumanBehaviorEngine` decision length validation.
 
-#### Sprint 2.3: F1 UI Control Panel
+#### Sprint 2.3: F1 UI Control Panel ✅
 - `AutonomousAgent.vue` view: start/pause/status/network selector.
 - Real-time status через SSE.
+- Added `GET /engagement/scheduler/status`, `useEngagementStore` with SSE dispatch, and `/autonomous-agent` route.
 
 #### Sprint 2.4: F1 Safety & Tests
 - Ban-risk guardrails.
