@@ -40,7 +40,7 @@ export interface PostContext {
   authorHandle?: string;
   /** Whether the post has media (image/video). */
   hasMedia: boolean;
-  /** Source where the post was discovered (hashtag, competitor, feed, own-post). */
+  /** Source where the post was discovered (hashtag, competitor, feed, notifications). */
   source: EngagementSource;
   /** How many likes already performed this session. */
   likesThisSession: number;
@@ -72,7 +72,6 @@ export type EngagementSource =
   | 'hashtag'
   | 'competitor'
   | 'explore'
-  | 'own-post'
   | 'notifications';
 
 /**

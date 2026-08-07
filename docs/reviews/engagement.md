@@ -101,7 +101,7 @@
 
 ### 3.6 `TargetingService`
 
-- Sources: `home-feed`, `hashtag`, `competitor`, `explore`, `own-post`, `notifications`.
+- Sources: `home-feed`, `hashtag`, `competitor`, `explore`, `notifications`.
 - Weights configurable via `ENGAGEMENT_WEIGHT_*`.
 - URL builders for X, Threads, Facebook.
 
@@ -221,7 +221,8 @@
 
 **B25. `TargetingService` source weights are `configService.get<number>` and may be strings. `this.sourceWeights` is `Record<EngagementSource, number>` but may be strings. `pickSource` uses `this.sourceWeights[s.source]` in arithmetic. If string, JS coercion works. But type is wrong. Should `Number()`.** Also `get<number>` from `ConfigService` may not parse. This is a recurring issue.
 
-**B26. `TargetingService` `getAvailableSources` for `own-post` uses `url: ''` and `label: 'Own Posts (replies to comments)'`. The URL is resolved by engager. But `engagement.graph.ts` `scroll_feed` uses `sourceUrl` from `pickSource`. If `url` is empty, `sourceUrl` becomes empty and falls back to home feed. Then `scroll_feed` checks `if (sourceUrl) { ... } else { scrollFeed }`. So `own-post` always falls back to home feed, never actually goes to own posts. The `engager` may need to handle `own-post` specially. But `scrollUrl` receives a URL. If URL is empty, it scrolls home feed. So `own-post` source is not implemented. This is a bug. The `own-post` source should build the account profile URL using the account handle. It does not. It might be a known limitation. `TargetingService` has `getHomeFeedUrl` but no own-post URL. This is a bug or incomplete feature.**
+**B26. ~~`TargetingService` `getAvailableSources` for `own-post` uses `url: ''`~~ — RESOLVED (removed)**
+- The `own-post` source was unimplemented (empty URL fell back to home feed). Rather than ship a broken source, it has been removed from `EngagementSource`, `TargetingService`, and `.env.example`. Conversation-ready targeting now boosts `notifications` only; replying to comments on own posts can be re-introduced later as a dedicated graph path with profile-URL resolution.
 
 **B27. `TargetingService` `getNotificationsUrl` for Facebook returns `'https://www.facebook.com/notifications'`. For mbasic Facebook, the URL may be different. Not a bug.**
 
@@ -263,7 +264,7 @@
 
 **A6. `EngagementSchedulerService` `onModuleDestroy` clears `scheduledTimeouts` but doesn't stop BullMQ delayed jobs. Misleading. Should remove or document.** 
 
-**A7. `TargetingService` `own-post` source is not implemented (empty URL).** 
+**A7. ~~`TargetingService` `own-post` source is not implemented (empty URL)~~ — RESOLVED (removed)** 
 
 ### 6.4 TypeScript / type safety
 
@@ -309,8 +310,8 @@
 **F3. ~~Add `WarmupService.canPost` check to `EngagementService` and `BrowsingSessionService`~~ — RESOLVED**
 - Added `WarmupService.canInteract()` and gating in `EngagementService.performInteraction`. `BrowsingSessionService` already gates via the `check_warmup` graph node.
 
-**F4. Implement `own-post` targeting source**
-- Build account profile URL and use it to reply to comments on own posts.
+**F4. ~~Implement `own-post` targeting source~~ — DEFERRED (removed)**
+- The unimplemented source has been removed to avoid falling back to home feed. A proper `own-post` flow needs a dedicated graph path and profile-URL resolution; can be added back when F4 replies-on-own-posts is built.
 
 **F5. ~~Use `ConfigService` for `ENGAGEMENT_COMMENT_TEMPERATURE` and `ENGAGEMENT_QUOTE_TEMPERATURE`~~ — RESOLVED (Sprint 2.1)**
 - `ConfigService` now reads both in `EngagementDecisionService` constructor.
@@ -384,13 +385,12 @@
 - `EngagementService.performInteraction` now uses `acquireContext`/`releaseContext` and the existing `finally` block closes the page and returns the context to the pool.
 
 ### Health update after Sprint 2.1 + post-review fixes
-- The decision engine and budget layer are now coherent and tested. Post-review fixes resolved `EngagementService` context pooling, warm-up gating, `EngagementController` query validation, and `EngagementSchedulerService` delayed-job stacking. Module health improves from 5/10 to 8/10; remaining risks are `own-post` source and the static browsing-session mutex.
+- The decision engine and budget layer are now coherent and tested. Post-review fixes resolved `EngagementService` context pooling, warm-up gating, `EngagementController` query validation, `EngagementSchedulerService` delayed-job stacking, and the unimplemented `own-post` source (removed). Module health improves from 5/10 to 9/10; remaining risk is the static browsing-session mutex.
 
 ## 9. Overall assessment
 
-- **Health**: 8/10. Sprint 2.1 closed the decision-engine and budget gaps; post-review fixes resolved `EngagementService` context pooling, warm-up gating, `EngagementController` query validation, and `EngagementSchedulerService` delayed-job stacking. Remaining risk: `own-post` source not implemented and static mutex bottleneck.
-- **Biggest strengths**: LLM-driven human-like behavior with batch and individual decisions, discussion budget, source rotation, warmup gating, `EngagementGraph` orchestration, resource blocking for memory, pooled browser contexts for individual actions, scheduler idempotency, `checkStaleAndEnqueue` for orchestrator.
-- **Biggest risks**: `own-post` source not implemented, static mutex limits throughput.
+- **Health**: 9/10. Sprint 2.1 closed the decision-engine and budget gaps; post-review fixes resolved `EngagementService` context pooling, warm-up gating, `EngagementController` query validation, `EngagementSchedulerService` delayed-job stacking, and the unimplemented `own-post` source (removed). Remaining risk: static browsing-session mutex bottleneck.
+- **Biggest strengths**: LLM-driven human-like behavior with batch and individual decisions, discussion budget, source rotation, warmup gating, `EngagementGraph` orchestration, resource blocking for memory, pooled browser contexts for individual actions, scheduler idempotency, clean targeting source set, `checkStaleAndEnqueue` for orchestrator.
+- **Biggest risks**: Static mutex limits throughput.
 - **Recommended next actions**:
-  1. Implement `own-post` source or remove it.
-  2. Replace the global browsing-session mutex with a per-network pool semaphore.
+  1. Replace the global browsing-session mutex with a per-network pool semaphore.

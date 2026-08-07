@@ -10,8 +10,7 @@
 //   2. hashtag — #astrology #horoscope #zodiac (configurable list)
 //   3. competitor — Co-Star, The Pattern, Sanctuary profiles
 //   4. explore — Explore / For You page
-//   5. own-post — reply to comments under our own posts (F4 overlap)
-//   6. notifications — check who interacted with us
+//   5. notifications — check who interacted with us
 
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -62,8 +61,7 @@ export class TargetingService {
       'hashtag': this.configService.get<number>('ENGAGEMENT_WEIGHT_HASHTAG', 25),
       'competitor': this.configService.get<number>('ENGAGEMENT_WEIGHT_COMPETITOR', 15),
       'explore': this.configService.get<number>('ENGAGEMENT_WEIGHT_EXPLORE', 10),
-      'own-post': this.configService.get<number>('ENGAGEMENT_WEIGHT_OWN_POST', 5),
-      'notifications': this.configService.get<number>('ENGAGEMENT_WEIGHT_NOTIFICATIONS', 5),
+      'notifications': this.configService.get<number>('ENGAGEMENT_WEIGHT_NOTIFICATIONS', 10),
     };
   }
 
@@ -71,9 +69,8 @@ export class TargetingService {
    * Pick a target source for a browsing session using weighted random.
    * Different sessions will start from different entry points.
    *
-   * P0: when `conversationReady` is true, boost conversation-oriented sources
-   * ('own-post' for replying to comments, 'notifications') so the agent engages
-   * in existing threads instead of only the algorithmic feed.
+   * P0: when `conversationReady` is true, boost the 'notifications' source so the
+   * agent checks existing interactions instead of only the algorithmic feed.
    */
   pickSource(network: SocialNetwork, opts: { conversationReady?: boolean } = {}): TargetSource {
     const sources = this.getAvailableSources(network);
@@ -82,13 +79,13 @@ export class TargetingService {
 
     const totalWeight = sources.reduce((sum, s) => {
       const base = this.sourceWeights[s.source];
-      const boost = (s.source === 'own-post' || s.source === 'notifications') ? conversationBoost : 1;
+      const boost = s.source === 'notifications' ? conversationBoost : 1;
       return sum + base * boost;
     }, 0);
     let random = Math.random() * totalWeight;
 
     for (const source of sources) {
-      const boost = (source.source === 'own-post' || source.source === 'notifications') ? conversationBoost : 1;
+      const boost = source.source === 'notifications' ? conversationBoost : 1;
       random -= this.sourceWeights[source.source] * boost;
       if (random <= 0) {
         this.logger.debug(`Picked source: ${source.label} for ${network} (conversationReady=${conversationReady})`);
@@ -150,13 +147,6 @@ export class TargetingService {
         label: 'Threads Search',
       });
     }
-
-    // Own posts — uses the account's profile (URL built by engager)
-    sources.push({
-      source: 'own-post',
-      url: '', // engager resolves this from session account handle
-      label: 'Own Posts (replies to comments)',
-    });
 
     // Notifications
     sources.push({

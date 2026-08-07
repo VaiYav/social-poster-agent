@@ -43,14 +43,13 @@ describe('TargetingService', () => {
 
   // ── getAvailableSources ──
 
-  it('TG-003: getAvailableSources() returns all 6 source types for X', () => {
+  it('TG-003: getAvailableSources() returns all 5 source types for X', () => {
     const sources = service.getAvailableSources('X');
     const sourceTypes = sources.map((s) => s.source);
     expect(sourceTypes).toContain('home-feed');
     expect(sourceTypes).toContain('hashtag');
     expect(sourceTypes).toContain('competitor');
     expect(sourceTypes).toContain('explore');
-    expect(sourceTypes).toContain('own-post');
     expect(sourceTypes).toContain('notifications');
   });
 

@@ -319,25 +319,25 @@ Large-scale architectural refactors and new feature development. These are long-
 
 ### 7.4 — `own-post` source — implement or remove
 
-**Status:** `[ ]` | **Effort:** S | **Ref:** engagement.md B26
+**Status:** `[x]` | **Effort:** S | **Ref:** engagement.md B26
 
 **Files:** `packages/backend/src/modules/engagement/`
 
-**Description:** The engagement module has an `own-post` source type that is declared but not implemented. Engagement actions targeting the bot's own posts (e.g., pinning, quoting) don't work because the post URL is never resolved. Either implement URL resolution from the account handle, or remove the source type to avoid confusion.
+**Description:** The engagement module had an `own-post` source type that was declared but not implemented. The empty URL silently fell back to the home feed. The source was removed from `EngagementSource`, `TargetingService`, `.env.example`, and tests. A proper `own-post` flow can be re-introduced later as a dedicated graph path.
 
 ### Checklist
 
-- [ ] Read the engagement source configuration to find `own-post`
-- [ ] Decide: implement or remove
-- [ ] If implementing: resolve the bot's own post URLs from the account handle + post ID
-- [ ] If removing: delete the source type and update config
-- [ ] Add/update unit tests
-- [ ] Run `npx vitest run tests/unit/engagement/`
+- [x] Read the engagement source configuration to find `own-post`
+- [x] Decide: implement or remove → removed
+- [x] Remove `own-post` from `EngagementSource` and `TargetingService`
+- [x] Remove `ENGAGEMENT_WEIGHT_OWN_POST` from `.env.example`
+- [x] Add/update unit tests
+- [x] Run `npx vitest run tests/unit/engagement/`
 
 ### Acceptance criteria
 
-- `own-post` source either works or is removed
-- No dead configuration options
+- `own-post` source either works or is removed ✓
+- No dead configuration options ✓
 
 ---
 

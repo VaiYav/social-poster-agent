@@ -284,7 +284,7 @@ Affected modules (does NOT include intentional reads from AGENTS.md: `getEnabled
 | 7.1 | Dynamic ephemeris data for trending (replace hardcoded 2026-27 calendar) | M | `ASTRO_EVENTS_2026` will go stale |
 | 7.2 | Performance-based recycling — `findRecyclablePosts` sort by engagement metrics, not recency | S | recycling.md |
 | 7.3 | Language rotation in `repurposeFromArticles` and `recycleTopPosts`/`recycleById` | S | Currently hardcoded `en` |
-| 7.4 | `own-post` source — implement URL resolution from account handle or remove source | S | engagement.md B26 |
+| 7.4 | `own-post` source — implement URL resolution from account handle or remove source | S | ~~engagement.md B26~~ — RESOLVED (removed) |
 | 7.5 | Per-account rate limit keys — currently per-network, not per-account | S | rate-limit.md |
 | 7.6 | `SOCIAL_{NETWORK}_ACTIVE` env — env-driven active flag for accounts | XS | accounts.md |
 | 7.7 | `bannedAt` field on `Session` model — for correct ban recovery | S | health-monitor.md A5/F2 |
