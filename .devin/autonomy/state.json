@@ -1,8 +1,8 @@
 {
   "current_phase": "phase-1",
-  "current_sprint": "f3-model-picker",
+  "current_sprint": "f2-multi-stage-posting",
   "base_branch": "f4-adaptive-replies",
-  "active_branches": [],
+  "active_branches": ["feat/phase-1-f2-multi-stage-posting"],
   "completed_sprints": ["f4-ui-swagger", "f22-trending", "f3-model-picker"],
   "blockers": ["test:coverage global threshold 66% < 80% (pre-existing, project-wide)"],
   "last_green_commit": "785f9ec"
