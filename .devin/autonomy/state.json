@@ -5,5 +5,5 @@
   "active_branches": ["f4-adaptive-replies", "feat/phase-2-f1-targeting-and-browsing", "feat/phase-2-f1-ui-control-panel", "feat/phase-2-f1-safety-and-tests"],
   "completed_sprints": ["f4-ui-swagger", "f22-trending", "f3-model-picker", "f2-multi-stage-posting", "f10-content-repurposing", "f22-trending-api-integration", "f1-decision-engine", "f1-targeting-and-browsing", "f1-ui-control-panel", "f1-safety-and-tests"],
   "blockers": ["test:coverage global threshold 66% < 80% (pre-existing, project-wide)"],
-  "last_green_commit": "e589a8a"
+  "last_green_commit": "4ae7ea4"
 }
