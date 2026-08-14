@@ -2,7 +2,7 @@
 # Railway builds from repo root, so this Dockerfile is at the top level.
 # Multi-stage build: build TypeScript → slim production image
 
-FROM node:22-slim AS builder
+FROM node:26-slim AS builder
 
 WORKDIR /app
 
@@ -50,7 +50,7 @@ RUN SQLITE3_BUILD=$(find /app/node_modules/.pnpm -maxdepth 4 -path '*/better-sql
     cp -r "$SQLITE3_BUILD" /tmp/better-sqlite3-build
 
 # ── Production stage ──
-FROM node:22-slim AS production
+FROM node:26-slim AS production
 
 WORKDIR /app
 
