@@ -41,9 +41,10 @@
   },
   "engines": {
     "node": ">=22.0.0",
-    "pnpm": ">=10.0.0"
+    "pnpm": ">=11.0.0"
   },
   "dependencies": {
     "@sentry/cli": "^2.58.6"
-  }
+  },
+  "packageManager": "pnpm@11.20.0"
 }
