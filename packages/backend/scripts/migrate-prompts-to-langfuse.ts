@@ -27,6 +27,7 @@ import {
   ENGAGEMENT_BATCH_DECISION_PROMPT,
   ENGAGEMENT_COMMENT_PROMPT,
   ENGAGEMENT_QUOTE_PROMPT,
+  COMMENT_JUDGE_PROMPT,
 } from '../src/infrastructure/llm/prompts/v0.4.0/engagement-decision.js';
 import { QUESTION_CLASSIFIER_PROMPT } from '../src/modules/replies/prompts/question-classifier.prompt.js';
 import { COMMENT_SAFETY_PROMPT } from '../src/modules/replies/prompts/comment-safety.prompt.js';
@@ -160,6 +161,12 @@ const PROMPTS: PromptDef[] = [
     type: 'chat' as const,
     labels: ['production'],
     prompt: chatMessages(ENGAGEMENT_QUOTE_PROMPT),
+  },
+  {
+    name: 'comment-judge',
+    type: 'chat' as const,
+    labels: ['production'],
+    prompt: chatMessages(COMMENT_JUDGE_PROMPT),
   },
   {
     name: 'question-classifier',

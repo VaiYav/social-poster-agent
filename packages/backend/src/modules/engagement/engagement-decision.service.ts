@@ -98,6 +98,11 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
 
       const decision = parseDecisionResponse(response.content);
 
+      if (decision.action === 'comment' && !this.isEnglishPost(context)) {
+        this.logger.debug('Skipping comment: source post is not English');
+        return { action: 'read', reason: 'Comments are restricted to English posts', confidence: 1 };
+      }
+
       const preferredComment = await this.preferCommentWhenConfigured(decision, context);
       if (preferredComment) return preferredComment;
 
@@ -192,6 +197,9 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       return await Promise.all(
         decisions.map(async (decision, i) => {
           const ctx = contexts[i]!;
+          if (decision.action === 'comment' && !this.isEnglishPost(ctx)) {
+            return { action: 'read' as const, reason: 'Comments are restricted to English posts', confidence: 1 };
+          }
           const preferredComment = await this.preferCommentWhenConfigured(decision, ctx);
           if (preferredComment) return preferredComment;
           const budgetOverride = this.enforceBudget(decision, ctx);
@@ -407,6 +415,7 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
   ): Promise<ActionDecision | null> {
     if (
       !this.commentFirst ||
+      !this.isEnglishPost(context) ||
       context.commentsThisSession >= context.commentsMaxPerSession ||
       decision.action === 'comment' ||
       decision.action === 'repost' ||
@@ -425,6 +434,10 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       reason: 'Comment-first policy',
       confidence: Math.max(decision.confidence, 0.6),
     };
+  }
+
+  private isEnglishPost(context: PostContext): boolean {
+    return detectLanguage(context.postText) === 'en';
   }
 
   /**
