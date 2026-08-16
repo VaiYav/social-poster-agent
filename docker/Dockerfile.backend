@@ -5,8 +5,8 @@ FROM node:26-slim AS builder
 
 WORKDIR /app
 
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# Node 26 slim no longer ships Corepack.
+RUN npm install --global pnpm@11.21.0
 
 # Copy workspace config
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
@@ -38,7 +38,7 @@ FROM node:26-slim AS production
 
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN npm install --global pnpm@11.21.0
 
 # Install Chromium dependencies for Camoufox/Playwright
 # unzip + curl: needed if Camoufox needs to be downloaded at runtime (AdmZip fallback)

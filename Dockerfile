@@ -11,8 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# Node 26 slim no longer ships Corepack. Install the workspace-pinned pnpm
+# directly so Railway builds remain reproducible.
+RUN npm install --global pnpm@11.21.0
 
 # Copy workspace config
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml tsconfig.base.json ./
@@ -22,7 +23,7 @@ COPY packages/backend/package.json ./packages/backend/
 COPY packages/backend/prisma ./packages/backend/prisma
 
 # Install dependencies (prisma generate runs as postinstall)
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --filter @spa/backend...
 
 # Copy source
 COPY packages/shared/ ./packages/shared/
@@ -54,7 +55,7 @@ FROM node:26-slim AS production
 
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN npm install --global pnpm@11.21.0
 
 # Install Chromium/Firefox dependencies for Camoufox/Playwright
 # unzip: needed to reliably extract the Camoufox binary from the 557MB zip
@@ -71,7 +72,7 @@ COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/backend/package.json ./packages/backend/
 
-RUN pnpm install --frozen-lockfile --prod --ignore-scripts
+RUN pnpm install --frozen-lockfile --prod --ignore-scripts --filter @spa/backend...
 
 # Copy the Playwright patch script (needed before patching coreBundle.js)
 COPY packages/backend/scripts/patch-playwright.js ./packages/backend/scripts/patch-playwright.js

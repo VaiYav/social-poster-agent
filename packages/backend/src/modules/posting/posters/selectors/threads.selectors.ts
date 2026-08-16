@@ -177,7 +177,15 @@ export const THREADS_SELECTORS = {
     } satisfies SelectorStrategy,
     // Post link (for extracting post URL)
     postLink: {
-      css: ['a[href*="/post/"]', 'a[href^="/@"][href*="/post/"]'],
+      // Threads currently emits both canonical /@handle/post/... links and
+      // short /t/... permalinks. Keep broad fallbacks because the feed is a
+      // React surface whose link markup changes between desktop variants.
+      css: [
+        'a[href*="/post/"]',
+        'a[href*="/t/"]',
+        'a[href^="/@"][href*="/post"]',
+        'a[href^="/t/"]',
+      ],
     } satisfies SelectorStrategy,
   },
 

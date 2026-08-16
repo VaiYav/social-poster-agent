@@ -41,6 +41,7 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
   private readonly commentTemperature: number;
   private readonly quoteTemperature: number;
   private readonly commentJudgeMinScore: number;
+  private readonly commentFirst: boolean;
 
   constructor(
     @Inject(ILlmPort) @Optional() private readonly llm: ILlmPort,
@@ -52,6 +53,7 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
     this.quoteTemperature = Number(this.configService.get('ENGAGEMENT_QUOTE_TEMPERATURE', 0.8));
     const rawMin = Number(this.configService.get('COMMENT_JUDGE_MIN_SCORE', '0.6'));
     this.commentJudgeMinScore = Number.isFinite(rawMin) && rawMin >= 0 && rawMin <= 1 ? rawMin : 0.6;
+    this.commentFirst = this.configService.get<string>('ENGAGEMENT_COMMENT_FIRST', 'false') === 'true';
   }
 
   /**
@@ -95,6 +97,9 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       );
 
       const decision = parseDecisionResponse(response.content);
+
+      const preferredComment = await this.preferCommentWhenConfigured(decision, context);
+      if (preferredComment) return preferredComment;
 
       // If the LLM is non-committal about a non-engaging action, use the probabilistic
       // fallback so the session doesn't end up with zero interactions. The LLM still
@@ -187,6 +192,8 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       return await Promise.all(
         decisions.map(async (decision, i) => {
           const ctx = contexts[i]!;
+          const preferredComment = await this.preferCommentWhenConfigured(decision, ctx);
+          if (preferredComment) return preferredComment;
           const budgetOverride = this.enforceBudget(decision, ctx);
           if (budgetOverride) return budgetOverride;
 
@@ -392,6 +399,32 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       return { action: 'read', reason: 'Fallback: dwell and read', confidence: 0.4 };
     }
     return { action: 'scroll', reason: 'Fallback: continue scrolling', confidence: 0.4 };
+  }
+
+  private async preferCommentWhenConfigured(
+    decision: ActionDecision,
+    context: PostContext,
+  ): Promise<ActionDecision | null> {
+    if (
+      !this.commentFirst ||
+      context.commentsThisSession >= context.commentsMaxPerSession ||
+      decision.action === 'comment' ||
+      decision.action === 'repost' ||
+      decision.action === 'quote'
+    ) {
+      return null;
+    }
+
+    const comment = await this.validateOrGenerateText(context, decision.commentText, 'comment');
+    if (!comment) return null;
+
+    this.logger.debug('Comment-first policy: converting non-comment action to contextual comment');
+    return {
+      action: 'comment',
+      commentText: comment,
+      reason: 'Comment-first policy',
+      confidence: Math.max(decision.confidence, 0.6),
+    };
   }
 
   /**

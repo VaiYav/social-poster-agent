@@ -119,15 +119,19 @@ export abstract class BaseEngager extends BasePoster {
 
     // Wait for feed content to load before scrolling.
     // X/Threads/Facebook all use async rendering — the feed container loads
-    // before the actual post elements. We wait for any post-like element
-    // (article, [data-testid="tweet"], [data-testid="post"]) to appear.
+    // before the actual post elements. Include permalink shapes in the wait
+    // condition: Threads can render an article shell without exposing an
+    // article role, while the permalink is the reliable actionable signal.
     // If nothing appears within 15s, we proceed anyway (empty feed scenario).
     this.logger.debug(`Waiting for feed content to load...`);
     const feedLoaded = await page
-      .waitForSelector('article, [data-testid="tweet"], [data-testid="post"], [role="article"]', {
+      .waitForSelector(
+        'article, [data-testid="tweet"], [data-testid="post"], [role="article"], a[href*="/status/"], a[href*="/post/"], a[href*="/t/"]',
+        {
         timeout: 15000,
         state: 'attached',
-      })
+        },
+      )
       .then(() => true)
       .catch(() => false);
 
@@ -192,6 +196,7 @@ export abstract class BaseEngager extends BasePoster {
                   ...cssSelectors,
                   'a[href*="/status/"]',
                   'a[href*="/post/"]',
+                  'a[href*="/t/"]',
                   'a[href*="/posts/"]',
                 ];
                 for (const css of allPatterns) {

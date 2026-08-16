@@ -5,7 +5,8 @@ FROM node:26-slim AS builder
 
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# Node 26 slim no longer ships Corepack.
+RUN npm install --global pnpm@11.21.0
 
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY packages/shared/package.json ./packages/shared/
