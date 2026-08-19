@@ -1,0 +1,122 @@
+[
+  {
+    "id": "hot_take",
+    "name": "Hot Take",
+    "description": "A provocative, opinionated post that challenges conventional wisdom in the domain.",
+    "promptGuidance": "Write this as a BOLD HOT TAKE — a provocative opinion that challenges conventional wisdom. The first line should be a strong claim that makes people stop scrolling. The second line should give one specific, concrete reason the claim is true. End with a short question or challenge. No hedging, no 'in my opinion', no 'some people say'.",
+    "example": "Best practices are just survivor bias with better PR. The teams that win aren't following playbooks — they're running experiments the playbooks don't cover yet. What rule are you breaking this week?",
+    "worksForShort": true,
+    "worksForLong": true,
+    "humorCompatible": false
+  },
+  {
+    "id": "myth_buster",
+    "name": "Myth Buster",
+    "description": "Correct a common misconception in the domain.",
+    "promptGuidance": "Write this as a MYTH BUSTER — correct a common misconception. Start with the myth (state it as something people actually believe). Then immediately debunk it with a specific, verifiable fact or counter-example. End with a one-sentence takeaway that reframes the topic.",
+    "example": "Myth: you need a big audience before you can monetize. Truth: a tiny, highly-trusted audience often outperforms a massive, low-trust one. Niche depth beats reach.",
+    "worksForShort": true,
+    "worksForLong": true,
+    "humorCompatible": true
+  },
+  {
+    "id": "specific_observation",
+    "name": "Specific Observation",
+    "description": "A sharp, small observation that reveals a bigger pattern.",
+    "promptGuidance": "Write this as a SPECIFIC OBSERVATION — one concrete, oddly specific detail from the topic that reveals a bigger pattern. The first line should name the specific thing. The next 1-2 lines should explain what it reveals. Avoid generalizations; the power is in the detail.",
+    "example": "The best product teams don't ship features. They ship constraints. A new feature is a bet; a new constraint is a strategy.",
+    "worksForShort": true,
+    "worksForLong": true,
+    "humorCompatible": false
+  },
+  {
+    "id": "meme_energy",
+    "name": "Meme Energy",
+    "description": "A post with meme-culture energy about the domain.",
+    "promptGuidance": "Write this with MEME ENERGY — short, dry, internet-native. Use a relatable, low-stakes observation from the topic. Reference meme culture but keep it focused on the domain. The joke should land without explanation. No hashtags.",
+    "example": "Me reading another '10x engineer' thread: 'tell me you never met a good manager without telling me you never met a good manager.'",
+    "worksForShort": true,
+    "worksForLong": false,
+    "humorCompatible": true
+  },
+  {
+    "id": "question_reveal",
+    "name": "Question Reveal",
+    "description": "A rhetorical or direct question that reveals something about the topic.",
+    "promptGuidance": "Write this as a QUESTION REVEAL — the first line is a question that sounds simple. The second line reveals why the answer is more interesting than it looks. The question should reveal something about the topic, not just ask for engagement.",
+    "example": "Why do the fastest-growing tools always feel underwhelming at first? Because they're solving a problem the old guard doesn't think is a problem.",
+    "worksForShort": true,
+    "worksForLong": true,
+    "humorCompatible": false
+  },
+  {
+    "id": "story_bite",
+    "name": "Story Bite",
+    "description": "A personal or second-hand story that illustrates a point.",
+    "promptGuidance": "Write this as a STORY BITE — a 2-3 sentence mini-story that makes a point. It can be personal, second-hand, or hypothetical, but it must feel specific and real. End with the insight, not the story summary.",
+    "example": "A founder I know killed a feature users loved because the support cost was eating the whole team. The lesson: popularity is not profitability. Metrics without cost context are just vanity.",
+    "worksForShort": true,
+    "worksForLong": true,
+    "humorCompatible": true
+  },
+  {
+    "id": "tool_drop",
+    "name": "Tool Drop",
+    "description": "A practical, useful mini-tip or resource.",
+    "promptGuidance": "Write this as a TOOL DROP — a practical, useful mini-tip or resource. Lead with the concrete action or tool. One line on why it matters. No fluff, no CTA. The value should be obvious.",
+    "example": "If your deployment pipeline takes more than 10 minutes, you're not shipping fast enough. Start by parallelizing tests before you buy more CI minutes.",
+    "worksForShort": true,
+    "worksForLong": true,
+    "humorCompatible": false
+  },
+  {
+    "id": "contrarian_kindness",
+    "name": "Contrarian Kindness",
+    "description": "A take that gently pushes back on a common belief while staying warm.",
+    "promptGuidance": "Write this with CONTRARIAN KINDNESS — push back on a common belief, but stay warm and inviting. The disagreement should be about the idea, not the people who hold it. End with an inclusive thought or question.",
+    "example": "Hustle culture isn't evil. It's just mispriced. Rest, reflection, and slow work are where most of the real gains hide.",
+    "worksForShort": true,
+    "worksForLong": true,
+    "humorCompatible": false
+  },
+  {
+    "id": "one_weird_thing",
+    "name": "One Weird Thing",
+    "description": "A counter-intuitive pattern in the domain.",
+    "promptGuidance": "Write this as ONE WEIRD THING — a counter-intuitive pattern in the domain. Lead with the surprising fact. Then one sentence explaining the mechanism. Then a short reflective question.",
+    "example": "The best customer feedback rarely comes from power users. It comes from people who tried once, got confused, and quietly left. That's why churn surveys miss half the picture.",
+    "worksForShort": true,
+    "worksForLong": true,
+    "humorCompatible": true
+  },
+  {
+    "id": "curiosity_gap",
+    "name": "Curiosity Gap",
+    "description": "A post that opens a gap and resolves it with a satisfying insight.",
+    "promptGuidance": "Write this as a CURIOSITY GAP — first line opens a gap (something the reader wants to know). Second line gives a satisfying, specific answer. The resolution should feel worth the click, not anticlimactic.",
+    "example": "Most teams overestimate how much their users notice new features. On average, 80% of users never discover a feature without in-app guidance. Build the guidance first.",
+    "worksForShort": true,
+    "worksForLong": true,
+    "humorCompatible": false
+  },
+  {
+    "id": "personal_win",
+    "name": "Personal Win",
+    "description": "A small, relatable win or realization.",
+    "promptGuidance": "Write this as a PERSONAL WIN — a small, relatable win or realization. Keep it humble and specific. Avoid humble-bragging. The insight should be transferable to the reader.",
+    "example": "I finally stopped optimizing for inbox zero and started optimizing for fewer decisions. Surprisingly, my output went up.",
+    "worksForShort": true,
+    "worksForLong": true,
+    "humorCompatible": true
+  },
+  {
+    "id": "mini_rant",
+    "name": "Mini Rant",
+    "description": "A short, justified vent that the audience can relate to.",
+    "promptGuidance": "Write this as a MINI RANT — a short, justified vent. The first line names the thing that annoys you. The next 1-2 lines explain why it's worse than people think. End with a sardonic one-liner or a call to do better.",
+    "example": "Can we retire the phrase 'we're data-driven' when the data is just the last meeting's mood? If your chart has no confidence interval, it's a vibe check.",
+    "worksForShort": true,
+    "worksForLong": false,
+    "humorCompatible": true
+  }
+]
