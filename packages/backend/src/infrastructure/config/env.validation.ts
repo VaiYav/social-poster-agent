@@ -429,11 +429,27 @@ const envSchema = Joi.object({
   ENGAGEMENT_LOCK_TTL_BUFFER_MS: Joi.number().integer().min(0).default(300000),
   ENGAGEMENT_LOCK_ACQUIRE_RETRY_MS: Joi.number().integer().min(100).default(1000),
 
+  // ── Brand / domain context (open-source) ──
+  BRAND_NAME: Joi.string().allow('').default(''),
+  BRAND_DESCRIPTION: Joi.string().allow('').default(''),
+  DOMAIN: Joi.string().allow('').default(''),
+  BRAND_VOICE_PATH: Joi.string().allow('').default('brand-voice.md'),
+  DOMAIN_PROMPT_DIR: Joi.string().allow('').default('config/prompts'),
+  TOPIC_CATEGORIES: Joi.string().allow('').default(''),
+  CONTENT_PILLARS_PATH: Joi.string().allow('').default(''),
+  CONTENT_STYLES_PATH: Joi.string().allow('').default(''),
+  HUMOR_MECHANICS_PATH: Joi.string().allow('').default(''),
+  SLOP_LEXICON_PATH: Joi.string().allow('').default(''),
+  TRENDING_NICHES_PATH: Joi.string().allow('').default(''),
+  TRENDING_EVENTS_PATH: Joi.string().allow('').default(''),
+  TRENDING_KEYWORD_OVERRIDES_PATH: Joi.string().allow('').default(''),
+  VISUAL_STYLES_PATH: Joi.string().allow('').default(''),
+
   // ── Syndication (Phase 0+ — cross-platform content syndication) ──
   // Feature flag — when false, SyndicationModule + ParticipationModule are not registered
   SYNDICATION_ENABLED: Joi.string().valid('true', 'false').default('false'),
   // Blog base URL for canonical URLs (POSSE — Publish Own Site, Syndicate Elsewhere)
-  BLOG_BASE_URL: Joi.string().uri().default('https://my-zodiac-ai.com'),
+  BLOG_BASE_URL: Joi.string().uri().allow('').default(''),
   // Article generation cron schedule (default: weekly Monday 9am)
   CRON_ARTICLE_GENERATION_SCHEDULE: Joi.string().default('0 9 * * 1'),
   // Participation cron schedule (default: daily 10am)

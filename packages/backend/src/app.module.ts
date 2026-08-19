@@ -10,6 +10,7 @@ import { PrismaModule } from './infrastructure/prisma/prisma.module';
 import { NotificationsModule } from './infrastructure/notifications/notifications.module';
 import { AppClsModule } from './infrastructure/cls/cls.module';
 import { LoggingModule } from './infrastructure/logging/logging.module';
+import { DomainConfigModule } from './domain/domain-config/domain-config.module.js';
 import { FiltersModule } from './infrastructure/filters/filters.module';
 import { CryptoModule } from './infrastructure/crypto/crypto.module';
 import { HealthModule } from './modules/health/health.module';
@@ -91,6 +92,7 @@ const syndicationImports = parseBool(process.env.SYNDICATION_ENABLED)
       isGlobal: true,
       envFilePath: '.env',
     }),
+    DomainConfigModule, // Brand/domain context — must load before consumers
     ScheduleModule.forRoot(),
     RedisModule, // Sprint L: Shared Redis connection pooling
     SseModule, // SSE fan-out — MetricsPublisher needs SseService in AppModule scope
