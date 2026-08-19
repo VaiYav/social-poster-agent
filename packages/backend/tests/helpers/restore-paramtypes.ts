@@ -102,6 +102,7 @@ import { IndexNowListener } from '../../src/events/listeners/indexnow.listener.j
 import { SocialPromoListener } from '../../src/events/listeners/social-promo.listener.js';
 import { BrowserAgentService } from '../../src/modules/browser-agent/browser-agent.service.js';
 import { CanonicalUrlService } from '../../src/modules/canonical/canonical-url.service.js';
+import { DomainConfigService } from '../../src/domain/domain-config/domain-config.service.js';
 import { ArticleGenerationCron } from '../../src/modules/syndication/article-generation.cron.js';
 
 // Health
@@ -234,7 +235,7 @@ export function restoreAllDesignParamtypes(): void {
   defineParamtypes(ContentSourceController, [ContentSourceService]);
 
   // ── Generation ───────────────────────────────────────────────────────────
-  // 18 params: 8 required + 10 @Optional()
+  // 19 params: 8 required + 11 @Optional()
   defineParamtypes(GenerationService, [
     Object, // @Inject(ILlmPort)
     ContentSourceService,
@@ -254,6 +255,7 @@ export function restoreAllDesignParamtypes(): void {
     Object, // @Optional() ABVariantService
     LangfuseService, // @Optional() langfuse
     Object, // @Optional() @Inject(IPromptPort)
+    Object, // @Optional() DomainConfigService
   ]);
   defineParamtypes(GenerationController, [GenerationService]);
   defineParamtypes(CronService, [GenerationService, AccountsService, ConfigService]);
@@ -377,7 +379,8 @@ export function restoreAllDesignParamtypes(): void {
   defineParamtypes(IndexNowListener, [ConfigService, IndexNowService]);
   defineParamtypes(SocialPromoListener, [ConfigService, PrismaService, GenerationService]);
   defineParamtypes(BrowserAgentService, [Object, ConfigService]); // Object = @Inject(ILlmPort)
-  defineParamtypes(CanonicalUrlService, [PrismaService, ConfigService]);
+  defineParamtypes(CanonicalUrlService, [PrismaService, ConfigService, Object]); // Object = @Optional() DomainConfigService
+  defineParamtypes(DomainConfigService, [ConfigService]);
   defineParamtypes(ArticleGenerationCron, [GenerationService, ConfigService, SchedulerRegistry]);
 
   // ── Queue ────────────────────────────────────────────────────────────────
@@ -406,7 +409,9 @@ export function restoreAllDesignParamtypes(): void {
     Object, // @Optional() LlmService
     Object, // @Optional() @Inject(IBrowserPort)
     SessionsService, // @Optional()
+    Object, // @Optional() AccountsService
     Object, // @Optional() @Inject(IPromptPort)
+    Object, // @Optional() DomainConfigService
   ]);
   defineParamtypes(TrendingController, [TrendingService, TrendingScraperService]);
 
