@@ -103,7 +103,6 @@ export class GenerationService {
     private readonly checkpointSaver: RedisCheckpointSaver,
     private readonly sseService: SseService,
     private readonly configService: ConfigService,
-    private readonly domainConfig: DomainConfigService,
     @Optional() private readonly trendingService?: TrendingService,
     @Optional() private readonly trendingScraper?: TrendingScraperService,
     @Optional() private readonly pillarTracker?: ContentPillarTracker,
@@ -114,6 +113,7 @@ export class GenerationService {
     @Optional() private readonly abVariantService?: ABVariantService,
     @Optional() private readonly langfuse?: LangfuseService,
     @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
+    @Optional() private readonly domainConfig?: DomainConfigService,
   ) {
     // Read POSTING_LANGUAGES from config — comma-separated ISO 639-1 codes.
     // Default: en only (backward compatible). Round-robin rotation across topics.
@@ -197,7 +197,7 @@ export class GenerationService {
       }
 
       // Fallback canonical service if not available
-      const blogBaseUrl = this.domainConfig.blogBaseUrl || 'https://example.com';
+      const blogBaseUrl = this.blogBaseUrl;
       const fallbackCanonical = {
         buildBlogUrl: (slug: string) => `${blogBaseUrl}/blog/${slug}`,
         slugify: (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
@@ -1494,7 +1494,7 @@ export class GenerationService {
   private async generateContinuationContent(hook: string, rootContent: string, topic: string): Promise<string> {
     try {
       const brandVoice = await this.loadBrandVoice();
-      const systemPrompt = `You are a social media writer for ${this.domainConfig.brandName}, ${this.domainConfig.domainDescription}.
+      const systemPrompt = `You are a social media writer for ${this.brandName}, ${this.domainDescription}.
 ${brandVoice}
 Write a short follow-up post (under 280 chars) that continues the conversation from the root post.
 Do NOT use "link in bio" — instead tease more content or ask an engaging question.
@@ -1529,9 +1529,23 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
     return `${rootSentence}.\n\nWhat's your take on ${topic.toLowerCase()}? ✨`;
   }
 
+  private get brandName(): string {
+    return this.domainConfig?.brandName ?? 'Social Poster Agent';
+  }
+
+  private get domainDescription(): string {
+    return this.domainConfig?.domainDescription ?? 'an AI-assisted multi-network social posting system';
+  }
+
+  private get blogBaseUrl(): string {
+    return this.domainConfig?.blogBaseUrl ?? 'https://example.com';
+  }
+
   private async loadBrandVoice(): Promise<string> {
     if (this.brandVoice) return this.brandVoice;
-    this.brandVoice = await this.domainConfig.getBrandVoice();
+    this.brandVoice = this.domainConfig
+      ? await this.domainConfig.getBrandVoice()
+      : 'Be specific, opinionated, and human. No fear-mongering, no absolute predictions, no medical/financial advice, no engagement bait. No hashtags or URLs in posts.';
     return this.brandVoice;
   }
 

@@ -5,7 +5,7 @@
  *   - Google Trends RSS parsing (XML → ScrapedTrendingTopic[])
  *   - Cache behavior (TTL, invalidation)
  *   - X trends scraping (mocked browser port)
- *   - Merged trending (astro + Google + X deduplication and priority)
+ *   - Merged trending (events + Google + X deduplication and priority)
  *   - Graceful degradation (network failures, missing browser)
  *   - Feature flags (TRENDING_SCRAPING_ENABLED, X_TRENDS_SCRAPING_ENABLED)
  */
@@ -380,30 +380,30 @@ describe('TrendingScraperService (Item 38 — F22 Google Trends + X scraping)', 
 
   // ── Merged trending ──
 
-  it('UTC-MT-001: merges astro + Google + X trends with correct priorities', async () => {
+  it('UTC-MT-001: merges events + Google + X trends with correct priorities', async () => {
     const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue({
       ok: true,
       text: async () => SAMPLE_RSS_XML,
     } as Response);
 
-    const astroTopics = [
+    const eventTopics = [
       { topic: 'Mercury Retrograde', networks: ['X', 'THREADS'] },
     ];
 
-    const merged = await service.getMergedTrending(astroTopics);
+    const merged = await service.getMergedTrending(eventTopics);
 
     // Should have topics from all sources
     const sources = merged.flatMap((m) => m.sources);
-    expect(sources).toContain('astro');
+    expect(sources).toContain('events');
     expect(sources).toContain('google_trends');
     expect(sources).toContain('x_trends');
 
-    // "Mercury Retrograde" appears in astro + Google Trends → higher priority
+    // "Mercury Retrograde" appears in events + Google Trends → higher priority
     const mercury = merged.find((m) => m.topic.toLowerCase().includes('mercury'));
     expect(mercury).toBeDefined();
-    expect(mercury!.sources).toContain('astro');
+    expect(mercury!.sources).toContain('events');
     expect(mercury!.sources).toContain('google_trends');
-    expect(mercury!.priority).toBeGreaterThan(3); // 3 (astro) + 2 (google) = 5
+    expect(mercury!.priority).toBeGreaterThan(3); // 3 (events) + 2 (google) = 5
 
     fetchSpy.mockRestore();
   });
@@ -432,11 +432,11 @@ describe('TrendingScraperService (Item 38 — F22 Google Trends + X scraping)', 
       text: async () => SAMPLE_RSS_XML,
     } as Response);
 
-    const astroTopics = [
+    const eventTopics = [
       { topic: 'Mercury Retrograde', networks: ['X', 'THREADS'] }, // in Google Trends too → priority 5
     ];
 
-    const merged = await service.getMergedTrending(astroTopics);
+    const merged = await service.getMergedTrending(eventTopics);
 
     // Verify sorted by priority descending
     for (let i = 1; i < merged.length; i++) {
