@@ -114,7 +114,7 @@ async function bootstrap(): Promise<void> {
   // Swagger/OpenAPI docs
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Social Poster Agent API')
-    .setDescription('Internal API for social media posting agent — My Zodiac AI')
+    .setDescription('API for the Social Poster Agent social media automation system')
     .setVersion('0.5.1')
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);

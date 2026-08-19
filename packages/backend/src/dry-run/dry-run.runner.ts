@@ -470,7 +470,7 @@ export class DryRunRunner {
       case SocialNetwork.THREADS:
         return 'zuck';
       case SocialNetwork.FACEBOOK:
-        return 'https://www.facebook.com/astrology';
+        return 'https://www.facebook.com/example';
       default:
         return 'testuser';
     }

@@ -153,7 +153,7 @@ HOW TO SOUND HUMAN — CONCRETE TECHNIQUES:
 
 8. BE MORE CREATIVE — take a risk. The safe, generic take is the AI take.
    - Start from an unexpected angle: the annoying part, the part nobody admits, the petty detail.
-   - Use a weird metaphor: "A big life transition feels like finally reading the terms and conditions you signed at 21."
+   - Use a weird metaphor: "A big life shift feels like finally reading the terms and conditions you signed at 21."
    - Include one line that makes you slightly nervous to post. If it feels too safe, rewrite it.
    - Don't summarize the topic — react to it. Have a real thought.
 
@@ -220,7 +220,7 @@ Check these things:
    - "Empowering" or "transformative" or "powerful" or "fascinating" or "insights" = AI tell words
    - Ends with a neat summary or conclusion = AI
    - Repetitive sentence starts ("The... / "This..." / "It..." every sentence) = AI
-   - Formal transitions (furthermore, moreover, consequently, etc.) = essay, not a post
+   - Formal connectors (furthermore, moreover, consequently, etc.) = essay, not a post
 3. Does it use any banned AI words/phrases for this language? ({slopList}) Any em dashes (—)?
 4. No fear-mongering or absolute predictions?
 5. Does the first line grab you, or is it generic?
@@ -264,7 +264,7 @@ ANTI-AI RULES:
 - Kill any of these words/phrases if they appear: {slopList}
 - Remove ALL em dashes (—/–) — use periods, commas, or parentheses.
 - Vary sentence openings. Do NOT let every sentence start with "The" / "This" / "It".
-- Remove formal transitions (furthermore, moreover, consequently, etc.). Use "And", "But", or just a period.
+- Remove formal connectors (furthermore, moreover, consequently, etc.). Use "And", "But", or just a period.
 - If it sounds like a Wikipedia entry or generic listicle, rewrite it to sound like a person talking.
 - If it's bland and "informative," add opinion, personality, or a weird detail.
 - If the structure is "hook → explanation → CTA sandwich," break it up.
@@ -329,7 +329,7 @@ export const ARTICLE_DRAFT_PROMPT: CompiledChatPrompt = {
 - WARM and conversational, not academic or encyclopedic
 - SPECIFIC — you use real data and domain-specific detail, not vague generalizations
 - ANTI-AI — you sound like a real person who loves the subject, not a language model regurgitating facts
-- WELL-STRUCTURED — clear sections, smooth transitions, no filler
+- WELL-STRUCTURED — clear sections, smooth flow, no filler
 - SEO-AWARE — natural keyword integration, no stuffing
 
 Write the full article in markdown. Include the H1 title, all sections from the outline, and a conclusion. The article should be 1500-3000 words.`,
@@ -356,7 +356,7 @@ Criteria:
 1. anti_ai_tone (0.0-1.0): Does it sound like a real person who loves the subject, or like ChatGPT? Look for: varied sentence length, personal voice, specific examples vs generic statements, absence of "delve into" / "it's important to note" / "in conclusion" AI clichés.
 2. hook_strength (0.0-1.0): Does the first paragraph make someone want to read the whole article? Is the title genuinely interesting (not clickbait)?
 3. factual_accuracy (0.0-1.0): Are the facts correct? Check: dates, numbers, terminology, historical claims, and domain-specific details against the source facts.
-4. structure_quality (0.0-1.0): Is the article well-organized? Clear sections, logical flow, no repetition, smooth transitions?
+4. structure_quality (0.0-1.0): Is the article well-organized? Clear sections, logical flow, no repetition, smooth flow?
 5. seo_optimization (0.0-1.0): Are keywords integrated naturally? Is the title SEO-friendly? Are headings descriptive?
 
 Return JSON:

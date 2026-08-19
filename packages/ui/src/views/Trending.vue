@@ -65,7 +65,7 @@ function formatDays(days: number): string {
   <div>
     <SectionHeader
       title="Trending Topics"
-      description="Astrological events and merged trends from X + Google."
+      description="Trending events and merged trends from X + Google."
     />
 
     <div class="mb-6 flex items-center justify-between">

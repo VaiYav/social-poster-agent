@@ -34,6 +34,7 @@ const toast = useToast();
 const route = useRoute();
 const router = useRouter();
 const mobileMenuOpen = ref(false);
+const appTitle = import.meta.env.VITE_APP_TITLE ?? 'Social Poster Agent';
 
 // Auth: hide sidebar + header on login page (standalone layout)
 const isLoginPage = computed(() => route.name === 'login');
@@ -154,7 +155,7 @@ onMounted(() => {
             <Menu class="h-5 w-5" />
           </button>
           <h2 class="text-sm font-medium text-text-secondary">
-            Social Poster Agent for My Zodiac AI
+            {{ appTitle }}
           </h2>
         </div>
         <div class="flex items-center gap-4">

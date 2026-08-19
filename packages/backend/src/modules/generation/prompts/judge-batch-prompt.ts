@@ -17,7 +17,7 @@ You will receive a list of posts. For EACH post, evaluate 4 criteria with a scor
    - 1.0 = unmistakably human, raw, specific, opinionated, one person's voice
    - 0.7 = mostly human, but maybe a bit generic or one AI-tell word
    - 0.5 = neutral, could go either way
-   - 0.0 = obviously AI (banned words, "sterile certainty", hook->explanation->CTA structure, neat conclusions, uniform sentence lengths, repetitive sentence starts, formal transitions, em dashes everywhere)
+   - 0.0 = obviously AI (banned words, "sterile certainty", hook->explanation->CTA structure, neat conclusions, uniform sentence lengths, repetitive sentence starts, formal connectors, em dashes everywhere)
    Banned words/phrases that drop the score (for each post's language): see per-post slopList.
 
 2. hook_strength (0.0-1.0): Does the first line make you stop scrolling?
