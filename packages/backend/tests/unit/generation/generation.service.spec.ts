@@ -529,7 +529,7 @@ describe('GenerationService', () => {
       expect(posts.create).toHaveBeenCalled();
     });
 
-    it('UTC-213: trending service provides astro topics to scraper', async () => {
+    it('UTC-213: trending service provides trending topics to scraper', async () => {
       contentSource.getTopics.mockResolvedValue([TOPIC_1]);
       const trendingService = createMockTrendingService();
       const trendingScraper = createMockTrendingScraper();

@@ -25,7 +25,7 @@ import { RedisCheckpointSaver } from '../../../src/infrastructure/checkpoint/red
 
 function createMockConfigService(overrides: Record<string, unknown> = {}): ConfigService {
   const defaults: Record<string, unknown> = {
-    REDIS_URL: 'redis://localhost:6381',
+    REDIS_URL: 'redis://localhost:6382',
     BULLMQ_MAX_RETRIES: '3',
     BULLMQ_RETRY_DELAY_MS: '60000',
     BULLMQ_QUEUE_PREFIX: 'spa',

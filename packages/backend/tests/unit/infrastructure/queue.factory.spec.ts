@@ -66,7 +66,7 @@ import { QueueFactory } from '../../../src/infrastructure/queue/queue.factory';
 
 function createMockConfigService(overrides: Record<string, unknown> = {}): ConfigService {
   const defaults: Record<string, unknown> = {
-    REDIS_URL: 'redis://localhost:6381',
+    REDIS_URL: 'redis://localhost:6382',
     BULLMQ_MAX_RETRIES: 3,
     BULLMQ_RETRY_DELAY_MS: 60000,
     BULLMQ_POSTING_MAX_RETRIES: 8,
@@ -108,7 +108,7 @@ describe('QueueFactory (MOD-05 — Infrastructure Adapters)', () => {
       'spa-posting-x',
       expect.objectContaining({
         connection: expect.objectContaining({
-          url: 'redis://localhost:6381',
+          url: 'redis://localhost:6382',
         }),
       }),
     );
@@ -295,7 +295,7 @@ describe('QueueFactory (MOD-05 — Infrastructure Adapters)', () => {
       expect.objectContaining({
         concurrency: 1,
         connection: expect.objectContaining({
-          url: 'redis://localhost:6381',
+          url: 'redis://localhost:6382',
         }),
       }),
     );

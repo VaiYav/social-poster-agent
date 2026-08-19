@@ -39,8 +39,8 @@ describe('LanguageDetector', () => {
   });
 
   it('LD-013: detects Spanish and Italian with productivity terms', () => {
-    expect(detectLanguage('Un ciclo de producto tarda 29.5 años en dar la vuelta al Sol')).toBe('es');
-    expect(detectLanguage('Un ciclo di prodotto impiega 29.5 anni per fare il giro attorno al Sole')).toBe('it');
+    expect(detectLanguage('Un ciclo de producto tarda 18 meses en dar la vuelta al mercado')).toBe('es');
+    expect(detectLanguage('Un ciclo di prodotto impiega 18 mesi per fare il giro attorno al mercato')).toBe('it');
   });
 
   it('LD-015: falls back to English for unsupported Latin languages', () => {

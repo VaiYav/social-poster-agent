@@ -219,7 +219,7 @@ describe('RssAdapter', () => {
             <link>https://feed.example.com/1</link>
             <description>Summary 1</description>
             <pubDate>Mon, 01 Jan 2026 00:00:00 GMT</pubDate>
-            <category>astro</category>
+            <category>tech</category>
           </item>
         </channel>
       </rss>`;
@@ -237,7 +237,7 @@ describe('RssAdapter', () => {
       topic: 'Item 1',
       path: 'https://feed.example.com/1',
       facts: ['Summary 1'],
-      category: 'astro',
+      category: 'tech',
     });
   });
 

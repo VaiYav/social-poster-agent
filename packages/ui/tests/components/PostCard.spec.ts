@@ -11,7 +11,7 @@ function makePost(overrides: Partial<Post> = {}): Post {
     threadId: null,
     threadPosition: 0,
     network: 'X',
-    content: 'Hello world! This is a test post about Mercury retrograde.',
+    content: 'Hello world! This is a test post about product launches.',
     sourceRef: null,
     status: 'DRAFT',
     postUrl: null,

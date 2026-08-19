@@ -1,6 +1,7 @@
 {
   "name": "social-poster-agent",
   "version": "0.5.2",
+  "license": "Apache-2.0",
   "private": true,
   "description": "AI-assisted multi-network social posting system",
   "type": "module",

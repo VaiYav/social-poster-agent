@@ -89,7 +89,7 @@ restoreAllDesignParamtypes();
 // ── Mock ConfigService ──
 function createMockConfigService(overrides: Record<string, unknown> = {}): ConfigService {
   const defaults: Record<string, unknown> = {
-    REDIS_URL: 'redis://localhost:6381',
+    REDIS_URL: 'redis://localhost:6382',
     SSE_CHANNEL: 'spa:sse',
     RATE_LIMIT_PREFIX: 'spa:ratelimit',
     RATE_LIMIT_X_MAX_PER_DAY: 50,

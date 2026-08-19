@@ -29,7 +29,7 @@ services:
     container_name: spa-redis-test
     restart: 'no'
     ports:
-      - '6381:6379'
+      - '6382:6379'
     command: redis-server --appendonly no  # no persistence for test speed
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']

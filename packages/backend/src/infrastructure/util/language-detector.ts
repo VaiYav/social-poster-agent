@@ -10,7 +10,7 @@
  * code or is called on empty input.
  *
  * Why not a hand-rolled heuristic? TinyLD outperforms simple script + keyword
- * checks on mixed-script short text (e.g. "Меркурий retrograde" → uk) and is
+ * checks on mixed-script short text (e.g. "bonjour productivité" → fr) and is
  * far more maintainable than growing ad-hoc word lists per language.
  */
 

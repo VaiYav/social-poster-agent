@@ -41,7 +41,7 @@ describe('Slop Lexicon', () => {
 
   it('SL-009: clean human text produces zero matches', () => {
     const matches = scanSlop(
-      'A product cycle takes 29.5 years. I checked my plan at 2am and texted my ex. Bad idea.',
+      'A product cycle takes 18 months. I checked my plan at 2am and texted my ex. Bad idea.',
       'en',
     );
     expect(matches).toHaveLength(0);

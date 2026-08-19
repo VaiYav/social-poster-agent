@@ -1482,6 +1482,7 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       ];
 
       // postAllApproved queries findMany with where status APPROVED
+      prisma.post.findMany.mockClear();
       prisma.post.findMany.mockResolvedValue([posts[1]]); // only APPROVED
       prisma.post.count.mockResolvedValue(1);
       postStore.clear();

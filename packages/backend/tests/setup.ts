@@ -17,7 +17,7 @@ process.env.ENABLED_NETWORKS = 'X,THREADS,FACEBOOK';
 // Unit tests use mocks — these are fallbacks for any code that reads env directly
 process.env.DATABASE_URL =
   'postgresql://spa:spa@localhost:5433/social_poster';
-process.env.REDIS_URL = 'redis://localhost:6381';
+process.env.REDIS_URL = 'redis://localhost:6382';
 
 // LLM — mocked in tests, but set placeholder so ConfigService doesn't crash
 process.env.OPENAI_API_KEY = 'test-key-not-real';

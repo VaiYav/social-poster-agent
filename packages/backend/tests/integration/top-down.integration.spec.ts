@@ -452,7 +452,7 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
   beforeAll(() => {
     // Ensure env vars used by ConfigService-dependent services exist.
     process.env.OPENAI_API_KEY = 'test-key';
-    process.env.REDIS_URL = 'redis://localhost:6381';
+    process.env.REDIS_URL = 'redis://localhost:6382';
     process.env.SOCIAL_X_USERNAME = 'test_x_user';
     process.env.SOCIAL_THREADS_USERNAME = 'test_threads_user';
     process.env.SOCIAL_FACEBOOK_EMAIL = 'test_fb@facebook.com';
@@ -737,8 +737,8 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     prisma.post.create.mockImplementation(() => Promise.resolve({ id: `post-${++created}` }));
 
     const topics = [
-      makeTopic('/blog/t1.md', 'Solar eclipse 2026'),
-      makeTopic('/blog/t2.md', 'Lunar eclipse 2026'),
+      makeTopic('/blog/t1.md', 'AI regulation 2026'),
+      makeTopic('/blog/t2.md', 'Remote work trends 2026'),
       makeTopic('/blog/t3.md', 'Workflow period 2026'),
     ];
     const contentReader = {

@@ -14,7 +14,7 @@ describe('isBlocklisted (B11 — word-boundary blocklist)', () => {
     for (const topic of [
       'War in the region escalates',
       'US election results 2026',
-      'New cancer breakthrough',
+      'New pandemic breakthrough',
       'Nazi rally downtown',
       'Celebrity divorce shocker',
       'Mental illness awareness week', // multi-word phrase
@@ -42,11 +42,11 @@ describe('isBlocklisted (B11 — word-boundary blocklist)', () => {
     }
   });
 
-  it('still blocks "cancer" the disease in medical context', () => {
+  it('still blocks "pandemic" the disease in medical context', () => {
     for (const topic of [
-      'New cancer breakthrough',
-      'Cancer treatment options',
-      'Cancer survivor story',
+      'New pandemic breakthrough',
+      'Pandemic treatment options',
+      'Pandemic survivor story',
     ]) {
       expect(isBlocklisted(topic), topic).toBe(true);
     }

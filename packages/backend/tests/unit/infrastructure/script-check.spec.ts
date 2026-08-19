@@ -11,8 +11,8 @@ import { matchesScript, normalizeLanguage } from '../../../src/infrastructure/ut
 describe('script-check — matchesScript', () => {
   it('SC-001: accepts Latin text for en, es, it', () => {
     expect(matchesScript('Product cycle hit me at 28', 'en')).toBe(true);
-    expect(matchesScript('Un ciclo de producto tarda 29.5 años en dar la vuelta', 'es')).toBe(true);
-    expect(matchesScript('Un ciclo di prodotto impiega 29.5 anni per fare il giro', 'it')).toBe(true);
+    expect(matchesScript('Un ciclo de producto tarda 18 meses en dar la vuelta', 'es')).toBe(true);
+    expect(matchesScript('Un ciclo di prodotto impiega 18 mesi per fare il giro', 'it')).toBe(true);
   });
 
   it('SC-002: rejects Cyrillic-dominant text for Latin languages', () => {
@@ -24,8 +24,8 @@ describe('script-check — matchesScript', () => {
   it('SC-003: accepts empty/whitespace/emoji/number text without judgement', () => {
     expect(matchesScript('', 'en')).toBe(true);
     expect(matchesScript('   ', 'es')).toBe(true);
-    expect(matchesScript('🔮✨🌙', 'it')).toBe(true);
-    expect(matchesScript('28 29.5 100', 'en')).toBe(true);
+    expect(matchesScript('🎉✨🚀', 'it')).toBe(true);
+    expect(matchesScript('28 18 100', 'en')).toBe(true);
   });
 
   it('SC-004: handles very short Latin text', () => {

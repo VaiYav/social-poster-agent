@@ -220,12 +220,12 @@ describe('MOD-06 / stats store', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // F22 — fetchTrending() populates trending astro events
+  // F22 — fetchTrending() populates trending events
   // ---------------------------------------------------------------------------
-  it('F22-001: fetchTrending() populates trending astro events', async () => {
+  it('F22-001: fetchTrending() populates trending events', async () => {
     const trendingData = [
-      { event: 'Mercury Retrograde', topic: 'Communication delays', daysUntil: 0, trending: true, networks: ['X', 'THREADS'] },
-      { event: 'Full Moon', topic: 'Release and recharge', daysUntil: 3, trending: false, networks: ['X'] },
+      { event: 'Product Launch', topic: 'New feature release', daysUntil: 0, trending: true, networks: ['X', 'THREADS'] },
+      { event: 'Industry Conference', topic: 'Networking and talks', daysUntil: 3, trending: false, networks: ['X'] },
     ];
     (api.get as ReturnType<typeof vi.fn>).mockResolvedValue({ data: trendingData });
 

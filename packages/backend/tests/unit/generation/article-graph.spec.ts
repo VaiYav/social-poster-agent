@@ -19,11 +19,11 @@ import type { IPromptPort, CompiledChatPrompt } from '../../../src/domain/ports/
 
 function createMockLlm(responses: Partial<Record<string, string>> = {}): ILlmPort {
   const defaults: Record<string, string> = {
-    facts: '1. Workflow takes 687 days to orbit the brand\n2. Workflow in learning happens every 2 years\n3. learning is ruled by Workflow',
+    facts: '1. Workflow takes 18 months to mature in the brand\n2. Workflow in learning happens every 2 years\n3. learning is shaped by Workflow',
     outline: '## Introduction\n- Why Workflow in learning matters\n- Estimated: 300 words\n\n## Workflow in learning: The Energy\n- Restless curiosity\n- Estimated: 400 words\n\n## Conclusion\n- Summary\n- Estimated: 200 words',
-    draft: '# Workflow in learning 2026: What to Expect\n\nMars enters learning on March 2026, bringing restless energy...\n\n## Workflow in learning: The Energy\n\nWhen workflow surges learning, curiosity doubles.\n\n## Conclusion\n\nMars in learning is a time for mental exploration.',
+    draft: '# Workflow in learning 2026: What to Expect\n\nWorkflow demand rises in March 2026, bringing restless energy...\n\n## Workflow in learning: The Energy\n\nWhen workflow surges learning, curiosity doubles.\n\n## Conclusion\n\nWorkflow in learning is a time for focused exploration.',
     judge: '{"anti_ai_tone":0.75,"anti_ai_tone_reason":"good","hook_strength":0.8,"hook_strength_reason":"strong","factual_accuracy":0.85,"factual_accuracy_reason":"correct","structure_quality":0.7,"structure_quality_reason":"ok","seo_optimization":0.72,"seo_optimization_reason":"decent"}',
-    refine: '# Workflow in learning 2026: The Ultimate Guide\n\nWhen Workflow enters learning in March 2026, prepare for a whirlwind of mental energy...\n\n## The Energy of Workflow in learning\n\nMars in learning is restless, curious, and never satisfied with one topic.\n\n## Conclusion\n\nEmbrace the mental chaos.',
+    refine: '# Workflow in learning 2026: The Ultimate Guide\n\nWhen Workflow enters learning in March 2026, prepare for a whirlwind of mental energy...\n\n## The Energy of Workflow in learning\n\nWorkflow in learning is restless, curious, and never satisfied with one topic.\n\n## Conclusion\n\nEmbrace the mental chaos.',
   };
 
   const merged = { ...defaults, ...responses };
@@ -386,7 +386,7 @@ describe('Article Generation Graph', () => {
           }
           const role = opts?.role ?? 'default';
           const defaults: Record<string, string> = {
-            facts: '1. Workflow takes 687 days to orbit',
+            facts: '1. Workflow takes 18 months to mature',
             outline: '## Intro\n- Point\n- Estimated: 300 words',
             draft: '# Workflow in learning\n\nArticle body here.',
             refine: '# Workflow in learning Refined\n\nBetter article body.',

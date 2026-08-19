@@ -278,8 +278,8 @@ describe('Quality pass — generation graph', () => {
 
   it.each([
     ['en', 'Product cycle again. I spent forty minutes staring at my plan last night and the coffee started tasting like regret. Fine.'],
-    ['es', 'Un ciclo de producto tarda 29.5 años en dar la vuelta. Anoche miré mi carta y entendí que todo se desmorona.'],
-    ['it', 'Un ciclo di prodotto impiega 29.5 anni per fare il giro. Ieri sera ho guardato il mio piano e ho capito che tutto crolla.'],
+    ['es', 'Un ciclo de producto tarda 18 meses en dar la vuelta. Anoche miré mi plan y entendí que todo se desmorona.'],
+    ['it', 'Un ciclo di prodotto impiega 18 mesi per fare il giro. Ieri sera ho guardato il mio piano e ho capito che tutto crolla.'],
   ] as [string, string][]) (
     'QP-012: final post content is detected in the requested language (%s)',
     async (lang, draft) => {
@@ -298,9 +298,9 @@ describe('Quality pass — generation graph', () => {
 
   it('QP-013: refine output in wrong language is detected and not blindly persisted', async () => {
     const llm = makeLlm({
-      draft: () => 'Un ciclo de producto tarda 29.5 años. Miré mi plan anoche.',
+      draft: () => 'Un ciclo de producto tarda 18 meses. Miré mi plan anoche.',
       critique: () => 'SCORE: 5\nVERDICT: REVISE',
-      refine: () => 'A product cycle takes 29.5 years. I looked at the chart.',
+      refine: () => 'A product cycle takes 18 months. I looked at the plan.',
     });
     const compiled = buildGenerationGraph(llm).compile();
     const state = await compiled.invoke(
@@ -313,6 +313,6 @@ describe('Quality pass — generation graph', () => {
     // The current implementation does not auto-fix; the regression test documents
     // that the final persisted content is still whatever the LLM returned, so the
     // language mismatch is visible to the operator.
-    expect(content).toContain('A product cycle takes 29.5 years');
+    expect(content).toContain('A product cycle takes 18 months');
   });
 });

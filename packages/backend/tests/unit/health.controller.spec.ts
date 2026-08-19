@@ -51,7 +51,7 @@ describe('HealthController (MOD-07 — UTC-115..119)', () => {
 
     configService = {
       get: vi.fn((key: string, fallback?: string) => {
-        if (key === 'REDIS_URL') return 'redis://localhost:6381';
+        if (key === 'REDIS_URL') return 'redis://localhost:6382';
         return fallback;
       }),
     };

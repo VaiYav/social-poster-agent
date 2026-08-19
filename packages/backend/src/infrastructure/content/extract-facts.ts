@@ -121,7 +121,7 @@ export function extractFactsFromMarkdown(
   };
 
   // Start with frontmatter facts — they are the most trusted (often from CAP).
-  // Allow shorter facts from frontmatter (e.g., "Goal-setting", "Mars").
+  // Allow shorter facts from frontmatter (e.g., "Goal-setting", "Workflow").
   for (const f of buildFrontmatterFacts(frontmatter)) add(f, 8);
 
   // Strip frontmatter if the caller passed full raw markdown.

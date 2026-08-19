@@ -36,7 +36,7 @@ describe('replies store', () => {
         postId: 'p1',
         network: 'X',
         author: 'alice',
-        text: 'When is the next eclipse?',
+        text: 'When is the next product release?',
         humanReviewReason: 'question',
         replyText: null,
         scrapedAt: '2026-08-06T18:00:00.000Z',
