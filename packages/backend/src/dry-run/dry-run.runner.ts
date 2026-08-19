@@ -517,16 +517,16 @@ export class DryRunRunner {
         }
       }
 
-      // 3. Merged trending (astro + google + x) — requires astro topics input
+      // 3. Merged trending (events + google + x) — requires event topics input
       this.reporter.step('ok', 'Fetching merged trending topics...');
       try {
         const { TrendingService } = await import('../modules/trending/trending.service.js');
         const trendingService = this.app.get(TrendingService);
-        const astroTopics = trendingService.getActiveTrending().map((t) => ({
+        const eventTopics = trendingService.getActiveTrending().map((t) => ({
           topic: t.topic,
           networks: t.networks,
         }));
-        const merged = await trendingScraper.getMergedTrending(astroTopics);
+        const merged = await trendingScraper.getMergedTrending(eventTopics);
         this.reporter.step('ok', `Merged trending: ${merged.length} topics`, {
           topics: merged.slice(0, 5).map((t) => ({
             topic: t.topic,

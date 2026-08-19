@@ -103,6 +103,7 @@ export class GenerationService {
     private readonly checkpointSaver: RedisCheckpointSaver,
     private readonly sseService: SseService,
     private readonly configService: ConfigService,
+    private readonly domainConfig: DomainConfigService,
     @Optional() private readonly trendingService?: TrendingService,
     @Optional() private readonly trendingScraper?: TrendingScraperService,
     @Optional() private readonly pillarTracker?: ContentPillarTracker,
@@ -113,7 +114,6 @@ export class GenerationService {
     @Optional() private readonly abVariantService?: ABVariantService,
     @Optional() private readonly langfuse?: LangfuseService,
     @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
-    private readonly domainConfig: DomainConfigService,
   ) {
     // Read POSTING_LANGUAGES from config — comma-separated ISO 639-1 codes.
     // Default: en only (backward compatible). Round-robin rotation across topics.
@@ -478,7 +478,7 @@ export class GenerationService {
     try {
       let topics = await this.contentSourceService.getTopics(count);
 
-      // Sprint P / F22: Enrich topics with trending topics (Google Trends + X + astro)
+      // Sprint P / F22: Enrich topics with trending topics (Google Trends + X + domain calendar)
       // Trending topics are ADDED ON TOP of content-source topics (not replacing them).
       // This way, if the trend guardrail rejects trending topics, we still have
       // the full set of content-source topics to fall back on.
@@ -1544,7 +1544,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
    * Topics without a publishedAt are sorted last (stable).
    */
   /**
-   * Sprint P / F22: Fetch trending topics (Google Trends + X + astro) and
+   * Sprint P / F22: Fetch trending topics (Google Trends + X + domain calendar) and
    * convert them to ContentTopic format so they can be used by the generation
    * graph alongside content-source topics.
    *
@@ -1553,24 +1553,24 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
   private async fetchTrendingAsContentTopics(limit: number): Promise<ContentTopic[]> {
     if (!this.trendingScraper) return [];
 
-    // Get astro trending topics from TrendingService (if available)
-    const astroTopics: Array<{ topic: string; networks: string[] }> = [];
+    // Get domain calendar trending topics from TrendingService (if available)
+    const calendarTopics: Array<{ topic: string; networks: string[] }> = [];
     if (this.trendingService) {
       try {
         const trending = this.trendingService.getTrendingTopics();
         for (const t of trending) {
           if (t.trending) {
-            astroTopics.push({ topic: t.topic, networks: t.networks });
+            calendarTopics.push({ topic: t.topic, networks: t.networks });
           }
         }
       } catch {
-        // Astro trending is optional
+        // Domain calendar trending is optional
       }
     }
 
-    // Get merged trending (astro + Google Trends + X)
+    // Get merged trending (domain calendar + Google Trends + X)
     const skipXInDryRun = parseBool(process.env.SPA_DRY_RUN ?? 'false');
-    const merged = await this.trendingScraper.getMergedTrending(astroTopics, {
+    const merged = await this.trendingScraper.getMergedTrending(calendarTopics, {
       includeX: !skipXInDryRun,
     });
 

@@ -103,7 +103,7 @@ const allPaused = computed(() => {
 });
 
 const sourceLabels: Record<string, string> = {
-  astro: 'Astro',
+  events: 'Events',
   google_trends: 'Google',
   x_trends: 'X',
 };
@@ -112,7 +112,7 @@ function formatSources(sources: string[]) {
   return sources.map((s) => sourceLabels[s] ?? s).join(' · ');
 }
 
-// F22: show merged real-time trends when available, fall back to astro-only active trends.
+// F22: show merged real-time trends when available, fall back to events-only active trends.
 const activeTrends = computed(() => {
   if (statsStore.mergedTrending.length > 0) {
     return statsStore.mergedTrending.slice(0, 5).map((t) => ({
@@ -124,7 +124,7 @@ const activeTrends = computed(() => {
     }));
   }
   return statsStore.trending.filter((t) => t.trending).slice(0, 5).map((t) => ({
-    type: 'astro' as const,
+    type: 'events' as const,
     title: t.event,
     subtitle: t.topic,
     daysUntil: t.daysUntil,

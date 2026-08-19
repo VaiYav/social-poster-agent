@@ -13,13 +13,13 @@ const loading = ref(true);
 const error = ref<string | null>(null);
 const scraping = ref(false);
 
-const astroTopics = ref<TrendingTopic[]>([]);
+const eventTopics = ref<TrendingTopic[]>([]);
 const mergedTopics = ref<MergedTrendingTopic[]>([]);
 
-async function loadAstro() {
+async function loadEvents() {
   try {
     await statsStore.fetchTrending();
-    astroTopics.value = statsStore.trending;
+    eventTopics.value = statsStore.trending;
   } catch (err) {
     error.value = (err as Error).message ?? 'Failed to load trending topics';
   }
@@ -40,12 +40,12 @@ async function loadMerged() {
 
 onMounted(async () => {
   loading.value = true;
-  await loadAstro();
+  await loadEvents();
   loading.value = false;
 });
 
 const sourceLabels: Record<string, string> = {
-  astro: 'Events',
+  events: 'Events',
   google_trends: 'Google',
   x_trends: 'X',
 };
@@ -84,7 +84,7 @@ function formatDays(days: number): string {
     </div>
 
     <LoadingSpinner v-if="loading" />
-    <ErrorState v-else-if="error && astroTopics.length === 0" :message="error" />
+    <ErrorState v-else-if="error && eventTopics.length === 0" :message="error" />
     <div v-else class="grid grid-cols-1 gap-6 lg:grid-cols-2">
       <!-- Trending events -->
       <Card>
@@ -95,10 +95,10 @@ function formatDays(days: number): string {
           </div>
         </template>
 
-        <EmptyState v-if="astroTopics.length === 0" message="No upcoming events." />
+        <EmptyState v-if="eventTopics.length === 0" message="No upcoming events." />
         <div v-else class="space-y-3">
           <div
-            v-for="topic in astroTopics"
+            v-for="topic in eventTopics"
             :key="topic.event"
             class="rounded-lg border p-4"
             :class="topic.trending ? 'border-primary/50 bg-primary-subtle' : 'border-border bg-surface-elevated'"
@@ -133,7 +133,7 @@ function formatDays(days: number): string {
             <div class="flex items-center gap-2">
               <TrendingUp class="h-5 w-5 text-primary" />
               <h2 class="text-lg font-semibold text-text-primary">Merged Trends</h2>
-              <p class="text-sm text-text-secondary">X + Google + Astro</p>
+              <p class="text-sm text-text-secondary">X + Google + Events</p>
             </div>
           </template>
 
@@ -154,7 +154,7 @@ function formatDays(days: number): string {
 
         <!-- Scrape note / error -->
         <div
-          v-if="error && astroTopics.length > 0"
+          v-if="error && eventTopics.length > 0"
           class="rounded-lg border border-warning/30 bg-warning-subtle p-4"
         >
           <div class="flex items-start gap-2">

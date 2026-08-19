@@ -37,7 +37,7 @@ export interface TrendingTopic {
 
 export interface MergedTrendingTopic {
   topic: string;
-  sources: ('astro' | 'google_trends' | 'x_trends')[];
+  sources: ('events' | 'google_trends' | 'x_trends')[];
   networks: string[];
   priority: number;
   scrapedAt?: string;

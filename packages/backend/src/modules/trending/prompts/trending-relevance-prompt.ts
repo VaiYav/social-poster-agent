@@ -3,18 +3,17 @@
  *
  * Variables:
  *   - {topic}: sanitized trending topic text
+ *   - {domain}: configured brand domain
+ *   - {topicCategories}: comma-separated topic categories
+ *   - {trendingNiches}: comma-separated niche labels
+ *   - {nicheKeywords}: comma-separated relevant keywords
  */
 export const TRENDING_RELEVANCE_PROMPT = {
-  systemPrompt: `You are a relevance classifier for a social media content agent. Your brand covers wellness, women's cycles, love & relationships, business & mindset, personal growth, mental health, and spirituality. Respond with ONLY "YES" or "NO" — no explanation.`,
-  userPrompt: `Is the trending topic "{topic}" relevant to any of these niches for a social media audience?
-- Your brand's core domain, lifestyle, and current events
-- Wellness, self-care, meditation, mindfulness
-- Women's cycles, feminine energy, hormones
-- Love, relationships, dating, romance
-- Business, entrepreneurship, mindset, productivity
-- Personal growth, purpose, manifestation
-- Mental health, emotional wellbeing, therapy
-- Spirituality, intuition, soul work
+  systemPrompt: `You are a relevance classifier for a social media content agent focused on {domain}. Respond with ONLY "YES" or "NO" — no explanation.`,
+  userPrompt: `Is the trending topic "{topic}" relevant to any of these topic categories: {topicCategories}?
 
-Answer YES if the topic can be meaningfully connected to any of these niches, NO otherwise.`,
+The brand's niche areas are: {trendingNiches}.
+Relevant keywords include: {nicheKeywords}.
+
+Answer YES if the topic can be meaningfully connected to any of the above, NO otherwise.`,
 };

@@ -213,7 +213,7 @@ const statusBadge: Record<string, 'success' | 'warning' | 'error' | 'info' | 'ne
         <template #header>
           <div class="flex items-center gap-2">
             <Calendar class="h-4 w-4 text-info" />
-            <h2 class="font-semibold text-text-primary">Upcoming Astro Events</h2>
+            <h2 class="font-semibold text-text-primary">Upcoming Calendar Events</h2>
           </div>
         </template>
         <div class="space-y-2">

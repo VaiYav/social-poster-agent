@@ -29,6 +29,7 @@ import { CronJob } from 'cron';
 import { IBrowserPort } from '../../domain/ports/browser.port.js';
 import { ILlmPort } from '../../domain/ports/llm.port.js';
 import { IPromptPort, type CompiledChatPrompt } from '../../domain/ports/prompt.port.js';
+import { DomainConfigService } from '../../domain/domain-config/domain-config.service.js';
 import { SessionsService } from '../sessions/sessions.service.js';
 import { AccountsService } from '../accounts/accounts.service.js';
 import type { BrowserContext, Page } from '../../domain/ports/browser-primitives.js';
@@ -83,13 +84,10 @@ const X_TREND_SELECTORS: readonly string[] = [
   'aside a[href*="/explore/tabs/trending"]',   // Link to trending tab
 ];
 
-/**
- * Niche keyword whitelist — empty by default. Configure for the brand's topic area.
- * Google/X trends must contain at least one keyword (case-insensitive substring match)
- * to pass the fast keyword filter. Topics that don't match go to the LLM relevance
- * filter as a second-chance borderline check.
- */
-const NICHE_KEYWORDS: readonly string[] = [];
+interface TrendingNiche {
+  label: string;
+  keywords: string[];
+}
 
 @Injectable()
 export class TrendingScraperService implements OnModuleInit {
@@ -124,6 +122,10 @@ export class TrendingScraperService implements OnModuleInit {
   private readonly googleApiUrl: string;
   private readonly googleApiKey: string;
 
+  // Niche relevance: loaded from DomainConfig at startup.
+  private nicheKeywords: string[] = [];
+  private trendingNiches: TrendingNiche[] = [];
+
   constructor(
     private readonly configService: ConfigService,
     private readonly schedulerRegistry: SchedulerRegistry,
@@ -132,6 +134,7 @@ export class TrendingScraperService implements OnModuleInit {
     @Optional() private readonly sessionsService?: SessionsService,
     @Optional() private readonly accountsService?: AccountsService,
     @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
+    @Optional() private readonly domainConfig?: DomainConfigService,
   ) {
     this.cacheTtlMs = this.configService.get<number>('TRENDING_CACHE_TTL_MS', DEFAULT_CACHE_TTL_MS);
     this.enabled = parseBool(this.configService.get<string>('TRENDING_SCRAPING_ENABLED', 'true'));
@@ -151,7 +154,9 @@ export class TrendingScraperService implements OnModuleInit {
    * This ensures generation runs always have fresh cached trends without
    * waiting for inline scraping (which blocks generation for ~20-30s).
    */
-  onModuleInit(): void {
+  async onModuleInit(): Promise<void> {
+    await this.loadNicheKeywords();
+
     if (!this.enabled) {
       this.logger.log('Trending scraper disabled (TRENDING_SCRAPING_ENABLED=false)');
       return;
@@ -191,6 +196,28 @@ export class TrendingScraperService implements OnModuleInit {
 
     // Initial cache warm-up on startup (non-blocking)
     void this.refreshCache();
+  }
+
+  /**
+   * Load niche keywords from DomainConfig at startup.
+   * These drive the fast keyword filter and the LLM relevance prompt.
+   */
+  private async loadNicheKeywords(): Promise<void> {
+    if (!this.domainConfig) {
+      this.nicheKeywords = [];
+      this.trendingNiches = [];
+      return;
+    }
+    try {
+      const niches = await this.domainConfig.getTrendingNiches();
+      this.trendingNiches = niches.map((n) => ({ label: n.label, keywords: n.keywords }));
+      this.nicheKeywords = niches.flatMap((n) => n.keywords.map((k) => k.toLowerCase()));
+      this.logger.debug(`Loaded ${this.nicheKeywords.length} niche keywords from DomainConfig`);
+    } catch (err) {
+      this.logger.warn(`Failed to load trending niches: ${(err as Error).message}`);
+      this.nicheKeywords = [];
+      this.trendingNiches = [];
+    }
   }
 
   /**
@@ -547,7 +574,7 @@ export class TrendingScraperService implements OnModuleInit {
    */
   private isRelevantByKeyword(topic: string): boolean {
     const lower = topic.toLowerCase();
-    return NICHE_KEYWORDS.some((kw) => lower.includes(kw));
+    return this.nicheKeywords.some((kw) => lower.includes(kw));
   }
 
   /**
@@ -573,9 +600,19 @@ export class TrendingScraperService implements OnModuleInit {
     }
 
     const safeTopic = sanitizeUntrustedInput(topic, 200);
+    const domain = this.domainConfig?.domain ?? 'your product or topic area';
+    const topicCategories = this.domainConfig?.getTopicCategories().join(', ') ?? 'general';
+    const trendingNiches = this.trendingNiches.map((n) => n.label).join(', ') || 'none configured';
+    const nicheKeywords = this.nicheKeywords.join(', ') || 'none configured';
     const compiled = await this.getCompiledChat(
       'trending-relevance',
-      { topic: safeTopic },
+      {
+        topic: safeTopic,
+        domain,
+        topicCategories,
+        trendingNiches,
+        nicheKeywords,
+      },
       TRENDING_RELEVANCE_PROMPT,
     );
 

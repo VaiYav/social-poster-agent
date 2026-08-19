@@ -221,9 +221,9 @@ async function runTrending(app: INestApplication, args: Args): Promise<void> {
     }
   }
 
-  console.log('  Merging with astro trending...');
-  const astro = trendingService.getActiveTrending().map((t: TrendingTopic) => ({ topic: t.topic, networks: t.networks }));
-  const merged = await scraper.getMergedTrending(astro);
+  console.log('  Merging with event trending...');
+  const eventTopics = trendingService.getActiveTrending().map((t: TrendingTopic) => ({ topic: t.topic, networks: t.networks }));
+  const merged = await scraper.getMergedTrending(eventTopics);
   console.log('  ✓ Merged: ' + merged.length + ' topics');
 }
 

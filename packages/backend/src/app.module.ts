@@ -124,7 +124,7 @@ const syndicationImports = parseBool(process.env.SYNDICATION_ENABLED)
     SseApiModule,
     ...engagementImports, // F1: Phase 2-3 — gated by ENGAGEMENT_ENABLED
     HealthMonitorModule, // F21: Account Health Monitor + B3: Reconciliation cron
-    TrendingModule, // F22: Trending Topic Detection (astro events calendar)
+    TrendingModule, // F22: Trending Topic Detection (domain events calendar)
     EventsEdaModule, // Sprint O: EventEmitter2 for internal domain events
     AnalyticsModule, // Sprint O / F6: Analytics dashboard (read-only, always available)
     RecyclingModule, // Sprint O / F13: Content recycling (manual trigger)

@@ -110,7 +110,7 @@ export class CanonicalUrlService {
 
   /**
    * Generate a slug from a title.
-   * @example slugify('Mars in Gemini 2026: What to Expect') → 'mars-in-gemini-2026-what-to-expect'
+   * @example slugify('Productivity Trends 2026: What to Expect') → 'productivity-trends-2026-what-to-expect'
    */
   slugify(title: string): string {
     return title
