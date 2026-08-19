@@ -54,8 +54,8 @@ jobs:
 
       - name: Check for residual astrology/branding leaks
         run: |
-          if grep -R -i -E 'my.?zodiac|my-zodiac|myzodiac|horoscope' packages/brand-voice.example.md README.md LICENSE CONTRIBUTING.md .env.example 2>/dev/null || \
-             grep -R -i -E 'my.?zodiac|my-zodiac|myzodiac|horoscope' packages/backend/src packages/ui/src 2>/dev/null | grep -v example; then
+          pattern='my.?zodiac|my-zodiac|myzodiac|horoscope|astrolog|zodiac|natal chart|sun sign|moon sign'
+          if grep -R -i -E "$pattern" packages/brand-voice.example.md README.md LICENSE CONTRIBUTING.md .env.example packages/backend/src packages/ui/src packages/shared/src 2>/dev/null | grep -vi 'example'; then
             echo "Residual My Zodiac AI / astrology references found" >&2
             exit 1
           fi
