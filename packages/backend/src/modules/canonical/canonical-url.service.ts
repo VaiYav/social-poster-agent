@@ -1,12 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service.js';
+import { DomainConfigService } from '../../domain/domain-config/domain-config.service.js';
 
 /**
  * CanonicalUrlService — manages POSSE canonical URLs for syndicated articles.
  *
  * POSSE (Publish Own Site, Syndicate Elsewhere): articles are published on
- * my-zodiac-ai.com/blog first, then syndicated to Dev.to, Hashnode, Medium,
+ * the configured BLOG_BASE_URL first, then syndicated to Dev.to, Hashnode, Medium,
  * Substack with a canonical URL pointing back to the blog. This tells search
  * engines that the blog is the original source.
  *
@@ -21,14 +22,15 @@ export class CanonicalUrlService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly domainConfig: DomainConfigService,
   ) {
-    // Blog base URL — e.g. https://my-zodiac-ai.com
-    this.blogBaseUrl = this.configService.get<string>('BLOG_BASE_URL', 'https://my-zodiac-ai.com');
+    // Blog base URL — set BLOG_BASE_URL in your .env
+    this.blogBaseUrl = this.domainConfig.blogBaseUrl || this.configService.get<string>('BLOG_BASE_URL', 'https://example.com');
   }
 
   /**
    * Build the canonical blog URL for an article slug.
-   * @example buildBlogUrl('mars-in-gemini-2026') → 'https://my-zodiac-ai.com/blog/mars-in-gemini-2026'
+   * @example buildBlogUrl('my-article') → 'https://example.com/blog/my-article'
    */
   buildBlogUrl(slug: string): string {
     const cleanSlug = slug

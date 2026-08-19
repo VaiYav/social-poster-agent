@@ -4,7 +4,7 @@
  * LinkedIn articles are published at https://www.linkedin.com/article/new.
  * No OAuth — uses persistent Camoufox context with saved login session.
  *
- * POSSE: sets canonical URL pointing back to my-zodiac-ai.com/blog.
+ * POSSE: sets canonical URL pointing back to the configured BLOG_BASE_URL.
  *
  * Note: LinkedIn requires the user to have "Creator Mode" enabled to publish
  * articles. The LLM-in-the-loop approach handles this gracefully — if the

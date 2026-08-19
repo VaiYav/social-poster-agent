@@ -2,6 +2,7 @@
   "name": "@spa/backend",
   "version": "0.1.0",
   "private": true,
+  "description": "NestJS backend for the Social Poster Agent monorepo",
   "type": "commonjs",
   "scripts": {
     "dev": "nest dev",

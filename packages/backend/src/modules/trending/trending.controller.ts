@@ -14,8 +14,8 @@ export class TrendingController {
 
   @Get()
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'F22: Get all astrological trending topics with status' })
-  @ApiResponse({ status: 200, description: 'List of all known astro events with trending status' })
+  @ApiOperation({ summary: 'F22: Get all configured trending events with status' })
+  @ApiResponse({ status: 200, description: 'List of all known events with trending status' })
   async getAll() {
     return this.trendingService.getTrendingTopics();
   }
@@ -23,7 +23,7 @@ export class TrendingController {
   @Get('active')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'F22: Get currently trending topics (within event window)' })
-  @ApiResponse({ status: 200, description: 'List of currently trending astro topics' })
+  @ApiResponse({ status: 200, description: 'List of currently trending topics' })
   async getActive() {
     return this.trendingService.getActiveTrending();
   }
@@ -58,12 +58,12 @@ export class TrendingController {
   @Get('merged')
   @HttpCode(HttpStatus.OK)
   @UseGuards(LocalhostGuard) // Triggers browser scrape (X trends) — restrict to localhost
-  @ApiOperation({ summary: 'F22/Item 38: Get merged trending topics from all sources (astro + Google + X)' })
+  @ApiOperation({ summary: 'F22/Item 38: Get merged trending topics from all sources (events + Google + X)' })
   @ApiResponse({ status: 200, description: 'Merged and prioritized trending topics from all sources' })
   async getMerged() {
-    const astroActive = this.trendingService.getActiveTrending();
-    const astroTopics = astroActive.map((t) => ({ topic: t.topic, networks: t.networks }));
-    return this.scraperService.getMergedTrending(astroTopics);
+    const active = this.trendingService.getActiveTrending();
+    const eventTopics = active.map((t) => ({ topic: t.topic, networks: t.networks }));
+    return this.scraperService.getMergedTrending(eventTopics);
   }
 
   @Get('cache-status')

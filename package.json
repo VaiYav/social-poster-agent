@@ -2,7 +2,7 @@
   "name": "social-poster-agent",
   "version": "0.5.2",
   "private": true,
-  "description": "Internal social media posting agent for My Zodiac AI — generates and posts content to X.com, Threads, Facebook via browser automation",
+  "description": "AI-assisted multi-network social posting system",
   "type": "module",
   "scripts": {
     "dev": "pnpm --filter @spa/backend dev",
@@ -31,7 +31,7 @@
     "infra:up": "docker compose -f infra/docker-compose.yml up -d",
     "infra:down": "docker compose -f infra/docker-compose.yml down",
     "dry-run": "pnpm --filter @spa/backend dry-run",
-    "sentry:sourcemaps": "sentry-cli sourcemaps inject --org my-zodiac-ai --project social-posting-agent ./packages/backend/dist/ && sentry-cli sourcemaps upload --org my-zodiac-ai --project social-posting-agent ./packages/backend/dist/"
+    "sentry:sourcemaps": "sentry-cli sourcemaps inject ./packages/backend/dist/ && sentry-cli sourcemaps upload ./packages/backend/dist/"
   },
   "devDependencies": {
     "concurrently": "^9.0.0",

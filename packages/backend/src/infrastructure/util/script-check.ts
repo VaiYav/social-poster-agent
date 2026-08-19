@@ -38,7 +38,7 @@ const LATIN_LANGS: ReadonlySet<SupportedLanguage> = new Set(['en', 'es', 'it']);
  * Check whether a text contains enough of the expected script to be plausible.
  *
  * We don't require 100% — social media text often mixes scripts (English
- * astrology terms in a Ukrainian post, emoji, hashtags). We require at least
+ * loanwords in a non-English post, emoji, hashtags). We require at least
  * one alphabetic character of the expected script, and that the "wrong"
  * script doesn't dominate.
  *

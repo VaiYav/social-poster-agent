@@ -946,7 +946,8 @@ export class PostingService {
     }
 
     // Build canonical URL from post's canonicalUrl field or slug
-    const canonicalUrl = post.canonicalUrl ?? `https://my-zodiac-ai.com/blog/${articleContent.slug}`;
+    const blogBaseUrl = this.configService.get<string>('BLOG_BASE_URL', '') || 'https://example.com';
+    const canonicalUrl = post.canonicalUrl ?? `${blogBaseUrl}/blog/${articleContent.slug}`;
 
     const result = await poster.postArticle(context, articleContent, canonicalUrl);
     return {

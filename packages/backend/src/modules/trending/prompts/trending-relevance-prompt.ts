@@ -5,9 +5,9 @@
  *   - {topic}: sanitized trending topic text
  */
 export const TRENDING_RELEVANCE_PROMPT = {
-  systemPrompt: `You are a relevance classifier for a social media content agent focused on astrology, wellness, women's cycles, love & relationships, business & mindset, personal growth, mental health, and spirituality. Respond with ONLY "YES" or "NO" — no explanation.`,
+  systemPrompt: `You are a relevance classifier for a social media content agent. Your brand covers wellness, women's cycles, love & relationships, business & mindset, personal growth, mental health, and spirituality. Respond with ONLY "YES" or "NO" — no explanation.`,
   userPrompt: `Is the trending topic "{topic}" relevant to any of these niches for a social media audience?
-- Astrology, zodiac, horoscopes, cosmic events
+- Your brand's core domain, lifestyle, and current events
 - Wellness, self-care, meditation, mindfulness
 - Women's cycles, feminine energy, hormones
 - Love, relationships, dating, romance

@@ -1,7 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { ILlmPort } from '../../domain/ports/llm.port.js';
 import type { BaseCallbackHandler } from '../../domain/ports/llm-primitives.js';
 import { ContentSourceService } from '../content-source/content-source.service';
@@ -18,6 +16,7 @@ import { withLlmContext } from '../../infrastructure/llm/llm.service.js';
 import { combineSignals } from '../../infrastructure/util/abort-signal.js';
 import { parseBool } from '../../infrastructure/config/parse-bool.js';
 import { IPromptPort } from '../../domain/ports/prompt.port.js';
+import { DomainConfigService } from '../../domain/domain-config/domain-config.service.js';
 import {
   withPromptLabelContext,
   getRecordedPromptLabels,
@@ -114,6 +113,7 @@ export class GenerationService {
     @Optional() private readonly abVariantService?: ABVariantService,
     @Optional() private readonly langfuse?: LangfuseService,
     @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
+    private readonly domainConfig: DomainConfigService,
   ) {
     // Read POSTING_LANGUAGES from config — comma-separated ISO 639-1 codes.
     // Default: en only (backward compatible). Round-robin rotation across topics.
@@ -197,8 +197,9 @@ export class GenerationService {
       }
 
       // Fallback canonical service if not available
+      const blogBaseUrl = this.domainConfig.blogBaseUrl || 'https://example.com';
       const fallbackCanonical = {
-        buildBlogUrl: (slug: string) => `https://my-zodiac-ai.com/blog/${slug}`,
+        buildBlogUrl: (slug: string) => `${blogBaseUrl}/blog/${slug}`,
         slugify: (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
         setCanonical: async () => {},
         addSyndicatedUrl: async () => {},
@@ -1492,10 +1493,11 @@ export class GenerationService {
    */
   private async generateContinuationContent(hook: string, rootContent: string, topic: string): Promise<string> {
     try {
-      const systemPrompt = `You are a social media writer for My Zodiac AI, an astrology platform.
+      const brandVoice = await this.loadBrandVoice();
+      const systemPrompt = `You are a social media writer for ${this.domainConfig.brandName}, ${this.domainConfig.domainDescription}.
+${brandVoice}
 Write a short follow-up post (under 280 chars) that continues the conversation from the root post.
 Do NOT use "link in bio" — instead tease more content or ask an engaging question.
-Keep it mystical-but-grounded, accessible, and gives you agency, not fatalism. No fear-mongering.
 Return ONLY the post text, no preamble.`;
 
       const userPrompt = `Topic: ${topic}
@@ -1529,16 +1531,8 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
 
   private async loadBrandVoice(): Promise<string> {
     if (this.brandVoice) return this.brandVoice;
-    try {
-      // D5 fix: resolve from project root, works in both dev (ts) and prod (compiled)
-      const brandVoicePath = join(process.cwd(), 'brand-voice.md');
-      this.brandVoice = await readFile(brandVoicePath, 'utf-8');
-      return this.brandVoice;
-    } catch {
-      this.logger.warn('brand-voice.md not found — using minimal guidelines');
-      this.brandVoice = 'Mystical-but-grounded, accessible, and gives you agency, not fatalism. No fear-mongering.';
-      return this.brandVoice;
-    }
+    this.brandVoice = await this.domainConfig.getBrandVoice();
+    return this.brandVoice;
   }
 
   /**

@@ -25,7 +25,7 @@ You will receive a list of posts. For EACH post, evaluate 4 criteria with a scor
    - 0.5 = decent but generic
    - 0.0 = boring, vague, starts with "Did you know", or clickbait formula
 
-3. factual_accuracy (0.0-1.0): Are the astrology/astronomy claims consistent with the SOURCE FACTS provided (and basic astronomy)?
+3. factual_accuracy (0.0-1.0): Are the claims consistent with the SOURCE FACTS provided (and basic, verifiable knowledge in the domain)?
    - 1.0 = claims match the source facts / verifiable reality
    - 0.5 = mostly consistent but vague, or no checkable claims
    - 0.0 = contradicts the source facts, fabricated statistics, or invented specifics
@@ -35,7 +35,7 @@ You will receive a list of posts. For EACH post, evaluate 4 criteria with a scor
    - 0.0 = exceeds limit
 
 Calibration:
-- A post can score high on anti_ai_tone and still use astrological terms. That's the subject, not AI slop.
+- A post can score high on anti_ai_tone and still use domain-specific terms. That's the subject, not AI slop.
 - A single banned word lowers anti_ai_tone by ~0.2-0.3. Multiple tells push it toward 0.0.
 - Hook strength is independent of anti_ai_tone.
 - If a post is empty, score all criteria 0.0.

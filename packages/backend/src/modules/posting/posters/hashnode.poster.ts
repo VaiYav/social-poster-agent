@@ -4,7 +4,7 @@
  * Hashnode has a markdown editor at https://hashnode.com/new. No API key needed —
  * uses persistent Camoufox context with saved login session.
  *
- * POSSE: sets canonical URL pointing back to my-zodiac-ai.com/blog.
+ * POSSE: sets canonical URL pointing back to the configured BLOG_BASE_URL.
  */
 import { Injectable } from '@nestjs/common';
 import { SocialNetwork } from '@prisma/client';

@@ -54,7 +54,7 @@ function extractTopLevelJsonArray(text: string): string | null {
  * TopicGenerationService — generates content topics via LLM and stores them in the Topic table.
  *
  * Runs on a cron schedule (default: every 6 hours) and generates a batch of fresh
- * astrology/wellness topics. This replaces the dependency on content-agent-platform
+ * topics for the configured domain. This replaces the dependency on content-agent-platform
  * (CAP) — topics are now LLM-generated and DB-backed, fully self-contained.
  *
  * When the active topic pool drops below a threshold (default: 20), the cron

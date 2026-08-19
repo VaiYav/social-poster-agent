@@ -446,7 +446,7 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
   private isForbiddenComment(comment: string): boolean {
     const lower = comment.toLowerCase();
     const forbidden = [
-      'my-zodiac-ai.com', 'myzodiacai.com', 'myzodiac.ai', 'check out our', 'check out my',
+      'check out our', 'check out my',
       'http://', 'https://', 'bit.ly', 'tinyurl',
       'great post', 'love this', 'love this post', 'thanks for sharing', 'spot on',
       'this resonates', 'very interesting',
