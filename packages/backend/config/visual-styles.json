@@ -2,11 +2,16 @@
   {
     "id": "quote_card",
     "name": "Quote card",
-    "description": "Typography-focused image with the post hook on a gradient background"
+    "description": "Typography-focused image with the post's hook on a cosmic gradient background."
   },
   {
     "id": "aesthetic_photo",
     "name": "Aesthetic photo",
-    "description": "Atmospheric mood image that complements the post without text overlay"
+    "description": "Atmospheric mood image (moon, stars, crystals, nature) that complements the post without text overlay."
+  },
+  {
+    "id": "chart_visualization",
+    "name": "Chart visualization",
+    "description": "Natal wheel or astrological chart diagram, best for educational posts about birth charts, aspects, and houses."
   }
 ]

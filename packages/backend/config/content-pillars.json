@@ -1,8 +1,44 @@
 [
-  { "id": "general", "name": "General", "targetRatio": 0.2, "description": "Default topic bucket" },
-  { "id": "educational", "name": "Educational", "targetRatio": 0.2, "description": "How-to, explainers, and deep dives" },
-  { "id": "product", "name": "Product", "targetRatio": 0.15, "description": "Feature updates, case studies, and product tips" },
-  { "id": "opinion", "name": "Opinion", "targetRatio": 0.15, "description": "Hot takes, contrarian views, and industry commentary" },
-  { "id": "trending", "name": "Trending", "targetRatio": 0.15, "description": "Reactions to current events and trending conversations" },
-  { "id": "behind_the_scenes", "name": "Behind the scenes", "targetRatio": 0.15, "description": "Personal stories, process, and team culture" }
+  {
+    "id": "daily_weather",
+    "name": "Daily/weekly cosmic weather",
+    "targetRatio": 0.2,
+    "description": "Daily or weekly cosmic weather forecasts, current transits, and what the sky is doing right now."
+  },
+  {
+    "id": "educational",
+    "name": "Educational",
+    "targetRatio": 0.2,
+    "description": "Astrology explainers about houses, aspects, lunar nodes, and how the sky works—without 'Did you know' framing."
+  },
+  {
+    "id": "compatibility",
+    "name": "Compatibility / synastry",
+    "targetRatio": 0.1,
+    "description": "Sign pairs, synastry, and relationship astrology."
+  },
+  {
+    "id": "ai_advantage",
+    "name": "AI advantage",
+    "targetRatio": 0.1,
+    "description": "Why AI-powered astrology is more accurate than newspaper horoscopes—without bragging or comparing named competitors."
+  },
+  {
+    "id": "self_discovery",
+    "name": "Self-discovery",
+    "targetRatio": 0.2,
+    "description": "Moon sign, Rising sign, Chiron, retrogrades, birth charts, and personal chart insights."
+  },
+  {
+    "id": "wellness",
+    "name": "Actionable wellness",
+    "targetRatio": 0.1,
+    "description": "Actionable wellness content—meditations by sign, timing by lunar phases, and self-care that fits astrology."
+  },
+  {
+    "id": "blog_promo",
+    "name": "Blog promotion",
+    "targetRatio": 0.1,
+    "description": "Article hooks that tease fresh blog content without URLs, CTAs, or 'read more' in the post."
+  }
 ]

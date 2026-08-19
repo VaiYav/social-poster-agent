@@ -7,7 +7,7 @@
   {
     "id": "understatement",
     "name": "Understatement",
-    "guidance": "Describe something dramatic in deliberately flat, mundane terms. ('The whole system went down. Anyway, I made coffee.')"
+    "guidance": "Describe something cosmic or dramatic in deliberately flat, mundane terms. (\"Saturn return. Anyway, I repotted a plant.\")"
   },
   {
     "id": "hyperbole_deadpan",
@@ -17,17 +17,17 @@
   {
     "id": "self_deprecation",
     "name": "Self-deprecation",
-    "guidance": "The narrator is the punchline. Punch at yourself, never at the reader."
+    "guidance": "The narrator is the punchline. Their chart called them out and they know it. Punch at yourself, never at the reader."
   },
   {
     "id": "absurd_specificity",
     "name": "Absurd specificity",
-    "guidance": "One detail so oddly specific it becomes funny. Not 'busy' but 'replied to three Slacks while holding a cold slice of pizza'. Specificity IS the joke."
+    "guidance": "One detail so oddly specific it becomes funny. Not \"cried\" but \"cried into a reusable grocery bag\". Specificity IS the joke."
   },
   {
     "id": "meta_irony",
     "name": "Meta-irony",
-    "guidance": "Acknowledge you are a brand account doing brand-account things, wink at it, move on. Self-aware but not self-loathing."
+    "guidance": "Acknowledge you are an astrology account doing astrology-account things, wink at it, move on. Self-aware but not self-loathing."
   },
   {
     "id": "irony",
@@ -37,11 +37,11 @@
   {
     "id": "post_irony",
     "name": "Post-irony",
-    "guidance": "Deliver something absurd or oddly vulnerable completely straight — no wink, no twist, no tell. It should be genuinely unclear whether you mean it. The ambiguity is the joke."
+    "guidance": "Deliver something absurd or oddly vulnerable completely straight — no wink, no twist, no tell. It should be genuinely unclear whether you mean it. The ambiguity is the joke, not a reveal at the end."
   },
   {
     "id": "sarcasm",
     "name": "Sarcasm",
-    "guidance": "Say the opposite of what you mean, dripping with obvious insincerity — aimed at the situation or the narrator's own choices, never at the reader."
+    "guidance": "Say the opposite of what you mean, dripping with obvious insincerity — aimed at the cosmic situation or the narrator's own choices, never at the reader. (\"Sure, Saturn, great timing, love this for me.\")"
   }
 ]
