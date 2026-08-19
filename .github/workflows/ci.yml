@@ -27,7 +27,7 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 11
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -51,6 +51,14 @@ jobs:
 
       - name: Lint (oxlint)
         run: pnpm lint
+
+      - name: Check for residual astrology/branding leaks
+        run: |
+          if grep -R -i -E 'my.?zodiac|my-zodiac|myzodiac|horoscope' packages/brand-voice.example.md README.md LICENSE CONTRIBUTING.md .env.example 2>/dev/null || \
+             grep -R -i -E 'my.?zodiac|my-zodiac|myzodiac|horoscope' packages/backend/src packages/ui/src 2>/dev/null | grep -v example; then
+            echo "Residual My Zodiac AI / astrology references found" >&2
+            exit 1
+          fi
 
       - name: Typecheck (nest build)
         # esbuild-based vitest does NOT typecheck, so a type error can pass the

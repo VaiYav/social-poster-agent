@@ -30,7 +30,7 @@ export const HUMOR_MECHANICS: HumorMechanic[] = [
   {
     id: 'understatement',
     name: 'Understatement',
-    guidance: 'Describe something cosmic or dramatic in deliberately flat, mundane terms. ("Saturn return. Anyway, I repotted a plant.")',
+    guidance: 'Describe something dramatic or significant in deliberately flat, mundane terms. ("A major rebrand. Anyway, I fixed a typo.")',
   },
   {
     id: 'hyperbole_deadpan',
@@ -40,7 +40,7 @@ export const HUMOR_MECHANICS: HumorMechanic[] = [
   {
     id: 'self_deprecation',
     name: 'Self-deprecation',
-    guidance: 'The narrator is the punchline. Their chart called them out and they know it. Punch at yourself, never at the reader.',
+    guidance: 'The narrator is the punchline. Their own habits called them out and they know it. Punch at yourself, never at the reader.',
   },
   {
     id: 'absurd_specificity',
@@ -50,7 +50,7 @@ export const HUMOR_MECHANICS: HumorMechanic[] = [
   {
     id: 'meta_irony',
     name: 'Meta-irony',
-    guidance: 'Acknowledge you are an astrology account doing astrology-account things, wink at it, move on. Self-aware but not self-loathing.',
+    guidance: 'Acknowledge you are a brand account doing brand-account things, wink at it, move on. Self-aware but not self-loathing.',
   },
   {
     id: 'irony',
@@ -65,7 +65,7 @@ export const HUMOR_MECHANICS: HumorMechanic[] = [
   {
     id: 'sarcasm',
     name: 'Sarcasm',
-    guidance: 'Say the opposite of what you mean, dripping with obvious insincerity — aimed at the cosmic situation or the narrator\'s own choices, never at the reader. ("Sure, Saturn, great timing, love this for me.")',
+    guidance: 'Say the opposite of what you mean, dripping with obvious insincerity — aimed at the situation or the narrator\'s own choices, never at the reader. ("Sure, deadline, great timing, love this for me.")',
   },
 ];
 
@@ -73,7 +73,7 @@ export const HUMOR_MECHANICS: HumorMechanic[] = [
 export const HUMOR_RULES = [
   'The joke lives in ONE line. If you explain it, delete the explanation.',
   'If the punchline is not the last line, move it there.',
-  'Punch at planets, situations, and the narrator — NEVER at people or groups.',
+  'Punch at situations, systems, and the narrator — NEVER at people or groups.',
   'If the joke does not land naturally, write the post straight instead of forcing it.',
 ].join('\n- ');
 

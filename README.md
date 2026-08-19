@@ -1,25 +1,19 @@
-# Social Poster Agent (SPA)
+# Social Poster Agent
 
-Internal social media posting agent for My Zodiac AI. Generates LLM content
-from content-agent-platform sources and posts to X.com, Threads, and Facebook
-via browser automation (Camoufox — stealth Firefox fork, C++ level anti-detect).
+AI-assisted multi-network social posting system. Generates content with LLMs and posts to X.com, Threads, Facebook and other platforms via browser automation.
 
 **Principle:** cron generates → human reviews → agent posts.
 
-## Architecture (v0.5.0)
+## Architecture
 
-- **API:** NestJS 11 + REST + Swagger/OpenAPI + Zod validation
+- **API:** NestJS 11 + REST + Swagger/OpenAPI
 - **UI:** Vue 3 + Vite SPA + Pinia + Tailwind + Vue Router + SSE real-time
 - **Shared:** Zod schemas + domain types (`@spa/shared`)
-- **Queue:** BullMQ + Redis (auto-retry, dead-letter, rate limiter)
+- **Queue:** BullMQ + Redis
 - **DB:** PostgreSQL + Prisma
-- **Browser:** Camoufox (Firefox fork, C++ level stealth) + camoufox-js + playwright-core
-- **LLM:** OpenAI gpt-4o-mini (cloud) + Ollama gemma4 (local, for F1/F3)
-- **Generation:** LangGraph.js — 7-step parallel per-network graph (§10.3)
-- **Auth:** VPN-only (no auth — internal tool, not exposed publicly)
-- **Real-time:** SSE (Server-Sent Events) — wired to Pinia stores
-- **Monitoring:** F21 Account Health Monitor (hourly cron, ban detection)
-- **Warm-up:** F20 Session Warm-up Mode (browse-only → gradual ramp)
+- **Browser:** Camoufox (Firefox fork) + camoufox-js + playwright-core
+- **LLM:** multi-provider fallback chain (see `.env.example`)
+- **Auth:** JWT cookie (disabled by default)
 
 ## Project Structure
 
@@ -30,14 +24,9 @@ social-poster-agent/
 │   ├── backend/         # @spa/backend — NestJS REST API + Prisma + BullMQ
 │   └── ui/              # @spa/ui — Vue 3 + Vite SPA
 ├── docker/              # Production Dockerfiles + docker-compose.prod.yml
-├── docs/
-│   ├── adr/             # 5 ADRs (Camoufox, BullMQ, LangGraph, Ports, SSE)
-│   └── runbooks/        # 4 Runbooks (login, banned, failed-posts, session-expired)
 ├── infra/
-│   └── docker-compose.yml   # PostgreSQL :5433 + Redis :6381 (AOF)
-├── CONSTITUTION.md      # Architecture decisions, domain model, roadmap
-├── FEATURE_WISHLIST.md  # F1-F22 feature ideas and prioritization
-├── brand-voice.md       # Tone of voice for social posts
+│   └── docker-compose.yml   # PostgreSQL :5433 + Redis :6381
+├── brand-voice.example.md
 └── pnpm-workspace.yaml
 ```
 
@@ -53,10 +42,13 @@ pnpm infra:up
 # 3. Copy .env.example → .env, fill in social credentials + LLM keys
 cp .env.example .env
 
-# 4. Run Prisma migrations
+# 4. Copy brand voice template
+cp brand-voice.example.md brand-voice.md
+
+# 5. Run Prisma migrations
 pnpm prisma:migrate
 
-# 5. Start dev (backend + UI)
+# 6. Start dev (backend + UI)
 pnpm dev:all
 ```
 
@@ -64,11 +56,9 @@ pnpm dev:all
 - Swagger: http://localhost:3100/docs
 - UI: http://localhost:3101
 
-## Key Documents
+## Brand Voice
 
-- [`CONSTITUTION.md`](./CONSTITUTION.md) — Architecture, domain model, roadmap, risks
-- [`FEATURE_WISHLIST.md`](./FEATURE_WISHLIST.md) — F1-F22 feature ideas
-- [`brand-voice.md`](./brand-voice.md) — Tone of voice
+Copy `brand-voice.example.md` to `brand-voice.md` and customize it for your project. The `brand-voice.md` file is gitignored so user-specific brand voice is not committed.
 
 ## Development Commands
 

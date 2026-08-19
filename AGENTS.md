@@ -54,7 +54,7 @@ All production prompts are stored in Langfuse Prompt Management and can be edite
 The `post-quality-judge` prompt evaluates each generated post on 4 criteria (0.0-1.0 each):
 - `anti_ai_tone` — does it sound human or like ChatGPT?
 - `hook_strength` — does the first line stop scrolling?
-- `factual_accuracy` — are the astrology facts correct?
+- `factual_accuracy` — are the stated facts correct?
 - `character_limit` — does it fit the platform's limit?
 
 **Graph integration:** The judge node (`makeJudgeNode`) runs AFTER refine and BEFORE visual_concept in the generation graph. It's non-blocking — if the judge LLM call fails, the post proceeds with `judgeScores: undefined`.

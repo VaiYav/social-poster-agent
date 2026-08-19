@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Social Poster Agent (SPA): an internal tool for My Zodiac AI that generates LLM content from a sibling
+Social Poster Agent (SPA): a social media automation system that generates LLM content from a sibling
 content repo and posts it to X.com, Threads, and Facebook via stealth browser automation. Core operating
 principle: **cron generates → human reviews → agent posts** (HITL by default).
 
@@ -11,20 +11,14 @@ file is the operational + non-obvious layer on top of it. Start with both.
 
 ## ⚠️ The docs lag the code — trust source, not prose
 
-This is the single most important thing to know here. `README.md`, `CONSTITUTION.md` (78KB, mostly Russian),
-`ROADMAP.md`, and the six `docs/adr/*` files are design intent, often written *before* the code and not
-updated after. `docs/ARCHITECTURE_AUDIT_v0.5.1.md` is a gap/proposal list — nearly everything it calls
-"missing" has since been built. Known concrete drifts (verify against source, never inherit a doc claim):
+This is the single most important thing to know here. Design documents are written *before* or alongside the
+code and may not be updated as the code evolves. Known concrete drifts (verify against source, never inherit a
+doc claim):
 
-- README/CONSTITUTION say the LLM is "OpenAI gpt-4o-mini + Ollama". Reality: an 8-provider fallback router,
+- `README.md` says the LLM is "OpenAI gpt-4o-mini + Ollama". Reality: an 8-provider fallback router,
   default model `gpt-5-nano` (see `.env.example`).
-- ADR-003 says a "7-step graph". Reality: a per-network fan-out graph (see Generation below).
-- ADR-004 names a port `IContentSourcePort`; the real token is `IContentPort`, and it omits `IEngagementDecisionPort`.
-- ADR-006 quotes auto-approve threshold ≥8; `env.validation.ts` defaults `AUTO_APPROVE_MIN_SCORE=7`.
-- Test-count figures in ROADMAP (458, 375, 368…) all drift. Run the suite to get the real number.
-- `CONSTITUTION.md` frontmatter still says "status: concept / pre-implementation" though the MVP is fully built.
 
-When a subsystem detail matters, `grep` the source. The `*_audit`/proposal docs are "what to build", not "what is".
+When a subsystem detail matters, `grep` the source. Design docs are "what to build", not "what is".
 
 ## Commands
 
@@ -166,5 +160,4 @@ poll to pause without a restart. Note there is also an internal EventEmitter2 do
 The four `tests/integration/*` files are named after ISO/IEC/IEEE 29119 techniques deliberately: **top-down**
 (high-level modules, stub external ports), **bottom-up** (low-level modules + infra first), **sandwich** (both,
 around Posting↔Sessions↔Browser), **big-bang** (full AppModule wired at once). Layers above: `system` (slice
-across modules), `acceptance` (BDD scenarios + ATP cases), `e2e` (full flows). Test-case IDs (ITC-/STC-/ATP-)
-trace back to `CONSTITUTION.md §14`.
+across modules), `acceptance` (BDD scenarios + ATP cases), `e2e` (full flows).

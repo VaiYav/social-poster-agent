@@ -7,8 +7,8 @@
 //
 // Sources:
 //   1. home-feed — the default algorithmic feed
-//   2. hashtag — #astrology #horoscope #zodiac (configurable list)
-//   3. competitor — Co-Star, The Pattern, Sanctuary profiles
+//   2. hashtag — configured hashtag list
+//   3. competitor — configured competitor handles
 //   4. explore — Explore / For You page
 //   5. notifications — check who interacted with us
 
@@ -37,25 +37,17 @@ export class TargetingService {
   private readonly logger = new Logger(TargetingService.name);
   private readonly hashtags: string[];
   private readonly competitors: string[];
+  private readonly defaultSearchTerm: string;
   private readonly sourceWeights: Record<EngagementSource, number>;
 
   constructor(private readonly configService: ConfigService) {
     this.hashtags = this.parseList(
-      // Multilingual hashtags — covers English, Russian, Ukrainian, Spanish, Italian markets.
-      // Mixed feed: each browsing session picks a random hashtag, so the agent engages
-      // with posts in different languages and replies in the same language as the post.
-      this.configService.get<string>(
-        'ENGAGEMENT_HASHTAGS',
-        '#astrology,#horoscope,#zodiac,#astrologytips,#moonsign,' + // English
-        '#астрология,#гороскоп,#зодиак,#лунавзнаке,' +             // Russian
-        '#астрологія,#гороскоп,#зодіак,#місяцьвзнаку,' +           // Ukrainian
-        '#astrologia,#horoscopo,#zodiaco,#lunaensigno,' +          // Spanish
-        '#astrologia,#oroscopo,#zodiaco,#lunanelsegno',            // Italian
-      ),
+      this.configService.get<string>('ENGAGEMENT_HASHTAGS', ''),
     );
     this.competitors = this.parseList(
-      this.configService.get<string>('ENGAGEMENT_COMPETITORS', 'costarastrology,thepatternapp,sanctuaryworldco'),
+      this.configService.get<string>('ENGAGEMENT_COMPETITORS', ''),
     );
+    this.defaultSearchTerm = this.configService.get<string>('ENGAGEMENT_DEFAULT_SEARCH_TERM', '');
     this.sourceWeights = {
       'home-feed': this.parseNumber(this.configService.get<string>('ENGAGEMENT_WEIGHT_HOME_FEED', '40'), 40),
       'hashtag': this.parseNumber(this.configService.get<string>('ENGAGEMENT_WEIGHT_HASHTAG', '25'), 25),
@@ -143,7 +135,7 @@ export class TargetingService {
     } else if (network === 'THREADS') {
       sources.push({
         source: 'explore',
-        url: 'https://www.threads.com/search?q=astrology',
+        url: this.getThreadsExploreUrl(),
         label: 'Threads Search',
       });
     }
@@ -209,6 +201,12 @@ export class TargetingService {
       case 'FACEBOOK': return 'https://www.facebook.com/notifications';
       default: return '';
     }
+  }
+
+  private getThreadsExploreUrl(): string {
+    const firstTag = this.hashtags[0];
+    const term = firstTag ? firstTag.replace('#', '') : this.defaultSearchTerm;
+    return `https://www.threads.com/search?q=${encodeURIComponent(term)}`;
   }
 
   private parseList(value: string): string[] {

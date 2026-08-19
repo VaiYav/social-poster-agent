@@ -45,7 +45,7 @@ onMounted(async () => {
 });
 
 const sourceLabels: Record<string, string> = {
-  astro: 'Astro',
+  astro: 'Events',
   google_trends: 'Google',
   x_trends: 'X',
 };
@@ -86,16 +86,16 @@ function formatDays(days: number): string {
     <LoadingSpinner v-if="loading" />
     <ErrorState v-else-if="error && astroTopics.length === 0" :message="error" />
     <div v-else class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-      <!-- Astro events -->
+      <!-- Trending events -->
       <Card>
         <template #header>
           <div class="flex items-center gap-2">
             <Calendar class="h-5 w-5 text-info" />
-            <h2 class="text-lg font-semibold text-text-primary">Astrological Events Calendar</h2>
+            <h2 class="text-lg font-semibold text-text-primary">Trending Events Calendar</h2>
           </div>
         </template>
 
-        <EmptyState v-if="astroTopics.length === 0" message="No upcoming astrological events." />
+        <EmptyState v-if="astroTopics.length === 0" message="No upcoming events." />
         <div v-else class="space-y-3">
           <div
             v-for="topic in astroTopics"

@@ -9,8 +9,7 @@ import * as Sentry from '@sentry/nestjs';
 import { nodeProfilingIntegration } from '@sentry/profiling-node';
 import { ClsServiceManager } from 'nestjs-cls';
 
-const DEFAULT_DSN =
-  'https://99422db193e11c4c1d8b6e6c2e41cb41@o4510136386387968.ingest.de.sentry.io/4511648401915984';
+const DEFAULT_DSN = '';
 
 // SENTRY_DSN='' → disabled; SENTRY_DSN set → override; unset → default DSN
 const dsn = process.env.SENTRY_DSN !== undefined ? process.env.SENTRY_DSN : DEFAULT_DSN;

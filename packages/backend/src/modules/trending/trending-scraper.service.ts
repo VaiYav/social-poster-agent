@@ -1,7 +1,7 @@
 /**
  * F22 / Item 38: TrendingScraperService — Google Trends + X trending scraping.
  *
- * Extends the astrological trending detection with real-time trend sources:
+ * Adds real-time trend sources on top of the configured event calendar:
  *   1. Google Trends RSS feed (no API key required, public data)
  *   2. X (Twitter) trending topics tab (scraped via browser port)
  *
@@ -10,7 +10,7 @@
  *     (https://trends.google.com/trending/rss). No auth, no API key.
  *   - X Trends: uses IBrowserPort to navigate to the Explore/Trending tab
  *     and extract trending topic text. Reuses existing Camoufox session pool.
- *   - Results are merged with astrological trending (TrendingService) and
+ *   - Results are merged with configured events (TrendingService) and
  *     deduplicated.
  *   - Cached for 15 minutes (TRENDING_CACHE_TTL_MS) to avoid scraping on
  *     every generation run.
@@ -54,7 +54,7 @@ export interface ScrapedTrendingTopic {
 
 export interface MergedTrendingTopic {
   topic: string;
-  sources: ('astro' | 'google_trends' | 'x_trends')[];
+  sources: ('events' | 'google_trends' | 'x_trends')[];
   networks: string[]; // recommended networks
   priority: number; // 1 = highest (multiple sources agree)
   scrapedAt?: Date;
@@ -84,46 +84,12 @@ const X_TREND_SELECTORS: readonly string[] = [
 ];
 
 /**
- * Niche keyword whitelist — Google/X trends must contain at least one of these
- * (case-insensitive substring match) to pass the fast keyword filter.
- * Topics that don't match any keyword go to the LLM relevance filter as a
- * second-chance borderline check.
- *
- * Covers: astrology, wellness, women's cycles, love/relationships, business/mindset,
- * personal growth, mental health, spirituality, self-care, human wellbeing.
+ * Niche keyword whitelist — empty by default. Configure for the brand's topic area.
+ * Google/X trends must contain at least one keyword (case-insensitive substring match)
+ * to pass the fast keyword filter. Topics that don't match go to the LLM relevance
+ * filter as a second-chance borderline check.
  */
-const NICHE_KEYWORDS: readonly string[] = [
-  // Astrology / cosmic
-  'astro', 'zodiac', 'horoscope', 'moon', 'sun sign', 'star sign', 'mercury',
-  'retrograde', 'eclipse', 'planet', 'natal', 'birth chart', 'cosmic', 'celestial',
-  'solstice', 'equinox', 'full moon', 'new moon', 'lunar', 'solar', 'jupiter',
-  'saturn', 'venus', 'mars', 'pluto', 'neptune', 'uranus', 'chiron', 'midheaven',
-  'rising sign', 'moon sign', 'venus retrograde', 'mercury retrograde',
-  // Wellness / self-care
-  'wellness', 'self-care', 'self care', 'meditation', 'mindfulness', 'yoga',
-  'breathwork', 'journaling', 'gratitude', 'manifest', 'manifestation',
-  'crystal', 'tarot', 'oracle', 'ritual', 'affirmation', 'healing', 'energy',
-  'chakra', 'aura', 'cleanse', 'detox', 'wellbeing', 'well-being',
-  // Women's cycles / feminine
-  'cycle', 'menstrual', 'period', 'feminine', 'divine feminine', 'womb',
-  'luteal', 'follicular', 'ovulation', 'menopause', 'hormone', 'cycle syncing',
-  // Love / relationships
-  'love', 'relationship', 'dating', 'partner', 'romance', 'soulmate',
-  'twin flame', 'breakup', 'heartbreak', 'attachment', 'intimacy', 'marriage',
-  'couple', 'compatibility', 'synastry', 'venus in',
-  // Business / mindset / growth
-  'business', 'entrepreneur', 'mindset', 'productivity', 'goal', 'success',
-  'leadership', 'career', 'purpose', 'abundance', 'wealth', 'money mindset',
-  'discipline', 'habit', 'routine', 'focus', 'manifest money', 'side hustle',
-  // Mental health / emotional
-  'anxiety', 'stress', 'burnout', 'depression', 'mental health', 'therapy',
-  'emotional', 'trauma', 'self-love', 'self love', 'confidence', 'boundaries',
-  'overthinking', 'people pleaser', 'inner child', 'shadow work',
-  // Spirituality
-  'spiritual', 'spirituality', 'soul', 'purpose', 'awakening', 'intuition',
-  'universe', 'synchronicity', 'sign from the universe', 'higher self',
-  'manifestation', 'law of attraction', 'vibration', 'frequency',
-];
+const NICHE_KEYWORDS: readonly string[] = [];
 
 @Injectable()
 export class TrendingScraperService implements OnModuleInit {
@@ -137,7 +103,7 @@ export class TrendingScraperService implements OnModuleInit {
   private googleTrendsCache: { topics: ScrapedTrendingTopic[]; expiresAt: number } | null = null;
   private xTrendsCache: { topics: ScrapedTrendingTopic[]; expiresAt: number } | null = null;
 
-  // 2.9.5: Cache for the merged result (astro + Google Trends + X) to avoid
+  // 2.9.5: Cache for the merged result (events + Google Trends + X) to avoid
   // repeated niche filtering and merging within the TTL window.
   private mergedCache: {
     key: string;
@@ -586,9 +552,7 @@ export class TrendingScraperService implements OnModuleInit {
 
   /**
    * LLM relevance filter for borderline topics that didn't match any keyword.
-   * Asks the LLM whether the topic is relevant to our niche
-   * (astrology / wellness / women's cycles / love / relationships / business /
-   * personal growth / mental health / spirituality).
+   * Asks the LLM whether the topic is relevant to the brand's topic area.
    *
    * Results are cached per-topic (lowercased) to avoid repeated LLM calls.
    * If LLM is unavailable or the call fails, the topic is rejected (fail-closed).
@@ -644,10 +608,10 @@ export class TrendingScraperService implements OnModuleInit {
 
   /**
    * Two-layer niche filter: keyword whitelist (fast) → LLM (borderline).
-   * Astro topics bypass filtering (they are always relevant by definition).
+   * Configured event topics bypass filtering (they are always relevant by definition).
    *
    * @param topics Scraped topics from Google/X
-   * @returns Topics relevant to our niche
+   * @returns Topics relevant to the brand's topic area
    */
   private async filterByNicheRelevance(
     topics: ScrapedTrendingTopic[],
@@ -697,24 +661,24 @@ export class TrendingScraperService implements OnModuleInit {
   // ── Merged trending (all sources) ──
 
   /**
-   * Get merged trending topics from all sources (Google Trends + X + astro).
+   * Get merged trending topics from all sources (configured events + Google Trends + X).
    * Topics that appear in multiple sources get higher priority.
    *
    * Niche filtering: Google/X trends are filtered by keyword whitelist + LLM
-   * to ensure only topics relevant to our niche (astro/wellness/love/business/etc.)
-   * are included. Astro calendar topics bypass filtering (always relevant).
+   * to ensure only topics relevant to the brand's topic area are included.
+   * Configured event topics bypass filtering (always relevant).
    *
-   * @param astroTopics - Topics from TrendingService (astrological events)
+   * @param eventTopics - Topics from TrendingService (configured events)
    * @returns Merged and prioritized trending topics
    */
   async getMergedTrending(
-    astroTopics: Array<{ topic: string; networks: string[] }>,
+    eventTopics: Array<{ topic: string; networks: string[] }>,
     options?: { includeX?: boolean },
   ): Promise<MergedTrendingTopic[]> {
     const includeX = options?.includeX ?? true;
 
-    // 2.9.5: Cache the merged result by a stable key of astro topics.
-    const cacheKey = `${this.buildMergedCacheKey(astroTopics)}:x=${includeX}`;
+    // 2.9.5: Cache the merged result by a stable key of event topics.
+    const cacheKey = `${this.buildMergedCacheKey(eventTopics)}:x=${includeX}`;
     if (this.mergedCache && this.mergedCache.key === cacheKey && Date.now() < this.mergedCache.expiresAt) {
       this.logger.debug(`Merged trends cache hit (${this.mergedCache.topics.length} topics)`);
       return this.mergedCache.topics.slice(0, 20);
@@ -747,14 +711,14 @@ export class TrendingScraperService implements OnModuleInit {
 
     const merged = new Map<string, MergedTrendingTopic>();
 
-    // Add astro topics (priority base — always relevant, bypass filter)
-    for (const astro of astroTopics) {
-      const key = astro.topic.toLowerCase().trim();
+    // Add configured event topics (priority base — always relevant, bypass filter)
+    for (const event of eventTopics) {
+      const key = event.topic.toLowerCase().trim();
       merged.set(key, {
-        topic: astro.topic,
-        sources: ['astro'],
-        networks: astro.networks,
-        priority: 3, // astro = high priority (predictable, high-value)
+        topic: event.topic,
+        sources: ['events'],
+        networks: event.networks,
+        priority: 3, // event = high priority (predictable, high-value)
       });
     }
 
@@ -810,10 +774,10 @@ export class TrendingScraperService implements OnModuleInit {
   }
 
   /**
-   * 2.9.5: Build a stable cache key from the astro topic list.
+   * 2.9.5: Build a stable cache key from the event topic list.
    */
-  private buildMergedCacheKey(astroTopics: Array<{ topic: string; networks: string[] }>): string {
-    const normalized = astroTopics
+  private buildMergedCacheKey(eventTopics: Array<{ topic: string; networks: string[] }>): string {
+    const normalized = eventTopics
       .map((t) => ({ topic: t.topic.toLowerCase().trim(), networks: [...t.networks].sort() }))
       .sort((a, b) => a.topic.localeCompare(b.topic));
     return JSON.stringify(normalized);
