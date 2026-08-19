@@ -30,32 +30,19 @@ describe('isBlocklisted (B11 — word-boundary blocklist)', () => {
 
   it('no longer false-positives on brand-relevant words containing a keyword substring', () => {
     for (const topic of [
-      'Forward momentum this Mercury retrograde',
-      'Warm Leo energy this week',
-      'Rewarding career moves for Capricorn',
-      'Beat the deadline with Virgo focus',
-      'A couples retreat under the full moon',
-      'Awards season and your rising sign',
+      'Forward momentum this Workflow Trends',
+      'Warm Q2 energy this week',
+      'Rewarding career moves for q4',
+      'Beat the deadline with Q3 focus',
+      'A couples retreat under the product launch',
+      'Awards season and your rising brand',
       'Current affairs digest', // "affair" no longer matches "affairs"
     ]) {
       expect(isBlocklisted(topic), topic).toBe(false);
     }
   });
 
-  it('allows "Cancer" the zodiac sign when in astrological context (override)', () => {
-    for (const topic of [
-      'Jupiter in Cancer — growth through emotional security and home',
-      'Full Moon in Cancer brings emotional clarity',
-      'Cancer season: nurturing your inner world',
-      'New Moon in Cancer 0°02′',
-      'Saturn square Cancer ascendant',
-      'Cancer zodiac sign personality traits',
-    ]) {
-      expect(isBlocklisted(topic), topic).toBe(false);
-    }
-  });
-
-  it('still blocks "cancer" the disease when no astrological context', () => {
+  it('still blocks "cancer" the disease in medical context', () => {
     for (const topic of [
       'New cancer breakthrough',
       'Cancer treatment options',
@@ -87,7 +74,7 @@ describe('checkTrendSafety (B9 — fail closed on LLM error)', () => {
 
   it('FAILS CLOSED when the LLM layer throws (B9) — topic rejected, not allowed', async () => {
     const llm = { generateChat: vi.fn().mockRejectedValue(new Error('provider down')) };
-    const res = await checkTrendSafety('Mercury retrograde survival tips', 'topic', trendingPath, llm as never);
+    const res = await checkTrendSafety('Workflow Trends survival tips', 'topic', trendingPath, llm as never);
     expect(res.safe).toBe(false);
     expect(res.opportunityScore).toBe(0);
     expect(res.decidedBy).toBe('llm');
@@ -99,12 +86,12 @@ describe('checkTrendSafety (B9 — fail closed on LLM error)', () => {
         content: JSON.stringify({
           safe: true,
           opportunityScore: 8,
-          suggestedAngle: 'Mercury retrograde and mindful communication',
+          suggestedAngle: 'Workflow Trends and mindful communication',
           reason: 'Strong wellness angle',
         }),
       }),
     };
-    const res = await checkTrendSafety('Mercury retrograde', 'topic', trendingPath, llm as never);
+    const res = await checkTrendSafety('Workflow Trends', 'topic', trendingPath, llm as never);
     expect(res.safe).toBe(true);
     expect(res.opportunityScore).toBeGreaterThanOrEqual(4);
     expect(res.decidedBy).toBe('llm');

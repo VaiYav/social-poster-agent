@@ -17,7 +17,7 @@ const RSS = `<?xml version="1.0"?>
     <link>https://trends.google.com/a</link>
   </item>
   <item>
-    <title type="text">Mercury retrograde</title>
+    <title type="text">Workflow Trends</title>
     <link>https://trends.google.com/b</link>
   </item>
   <item>
@@ -43,7 +43,7 @@ describe('parseGoogleTrendsRss (TR1)', () => {
 
   it('parses plain titles with tag attributes and missing traffic', () => {
     const trends = parseGoogleTrendsRss(RSS, 10);
-    const merc = trends.find((t) => t.topic === 'Mercury retrograde');
+    const merc = trends.find((t) => t.topic === 'Workflow Trends');
     expect(merc).toBeDefined();
     expect(merc!.traffic).toBeUndefined();
     expect(merc!.url).toBe('https://trends.google.com/b');

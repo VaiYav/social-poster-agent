@@ -23,7 +23,7 @@ function createPostContext(overrides: Partial<PostContext> = {}): PostContext {
   return {
     network: 'X',
     postUrl: 'https://x.com/user/status/123',
-    postText: 'Mars in Aries brings energy.',
+    postText: 'Remote Work in Q1 brings energy.',
     hasMedia: true,
     source: 'hashtag',
     likesThisSession: 3,
@@ -106,8 +106,8 @@ describe('Engagement Prompts', () => {
   });
 
   it('PR-017: comment system prompt contains brand voice guidelines', () => {
-    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('astrology');
-    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('dispositing planet');
+    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('topic area');
+    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('NO generic phrases');
   });
 
   it('PR-018: comment system prompt forbids self-promo', () => {
@@ -124,22 +124,10 @@ describe('Engagement Prompts', () => {
 
   it('PR-018b: comment system prompt instructs to match post language', () => {
     expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('EXACTLY this language');
-    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('Ukrainian');
-    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('Russian');
   });
 
   it('PR-018c: comment system prompt forbids language mismatch', () => {
     expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('English on a non-English');
-  });
-
-  it('PR-018d: comment system prompt includes Ukrainian example comments', () => {
-    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('GOOD comments (Ukrainian)');
-    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('Сатурн повернувся');
-  });
-
-  it('PR-018e: comment system prompt includes Russian example comments', () => {
-    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('GOOD comments (Russian)');
-    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('Сатурн вернулся');
   });
 
   it('PR-018f: comment system prompt includes JSON language schema', () => {
@@ -167,15 +155,15 @@ describe('Engagement Prompts', () => {
   // ── parseCommentResponse ──
 
   it('PR-COM-001: parses JSON comment response with language', () => {
-    const result = parseCommentResponse('{"language":"uk","comment":"Дякую за пост!"}');
-    expect(result.language).toBe('uk');
-    expect(result.comment).toBe('Дякую за пост!');
+    const result = parseCommentResponse('{"language":"es","comment":"¡Gracias por el post!"}');
+    expect(result.language).toBe('es');
+    expect(result.comment).toBe('¡Gracias por el post!');
   });
 
   it('PR-COM-002: parses JSON wrapped in markdown', () => {
-    const result = parseCommentResponse('```json\n{"language":"ru","comment":"Спасибо"}\n```');
-    expect(result.language).toBe('ru');
-    expect(result.comment).toBe('Спасибо');
+    const result = parseCommentResponse('```json\n{"language":"it","comment":"Grazie"}\n```');
+    expect(result.language).toBe('it');
+    expect(result.comment).toBe('Grazie');
   });
 
   it('PR-COM-003: falls back to raw text when JSON parse fails', () => {

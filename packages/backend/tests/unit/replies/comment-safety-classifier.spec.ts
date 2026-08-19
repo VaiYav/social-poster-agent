@@ -16,11 +16,11 @@ function mockConfig(values: Record<string, string | number> = {}): ConfigService
 }
 
 describe('CommentSafetyClassifierService', () => {
-  it('F4-A1: returns risk=none for a genuine astrology question', async () => {
+  it('F4-A1: returns risk=none for a genuine productivity question', async () => {
     const llm = mockLlm('{"risk": "none", "confidence": 0.95, "reason": "genuine question"}');
     const svc = new CommentSafetyClassifierService(llm as any, mockConfig());
 
-    const result = await svc.classify('What does Venus in Scorpio mean for relationships?', 'en');
+    const result = await svc.classify('What does Customer Feedback in Crisis mean for relationships?', 'en');
 
     expect(result.risk).toBe('none');
     expect(result.confidence).toBe(0.95);
@@ -49,7 +49,7 @@ describe('CommentSafetyClassifierService', () => {
     const llm = mockLlm('{"risk": "toxic", "confidence": 0.9, "reason": "insult"}');
     const svc = new CommentSafetyClassifierService(llm as any, mockConfig());
 
-    const result = await svc.classify('You idiots, this is fake astrology garbage', 'en');
+    const result = await svc.classify('You idiots, this is fake productivity garbage', 'en');
 
     expect(result.risk).toBe('toxic');
   });

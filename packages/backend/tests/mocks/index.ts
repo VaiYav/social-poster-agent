@@ -33,19 +33,19 @@ export function createMockLlmPort(): ILlmPort {
   return {
     generate: vi.fn().mockResolvedValue({
       content: 'Mock LLM generated content',
-      model: 'gpt-4o-mini',
+      model: 'gpt-5-nano',
       tokens: 100,
       cost: 0.001,
     } satisfies LlmResponse),
     generateChat: vi.fn().mockResolvedValue({
       content: 'Mock LLM chat content',
-      model: 'gpt-4o-mini',
+      model: 'gpt-5-nano',
       tokens: 150,
       cost: 0.001,
     } satisfies LlmResponse),
     generateVision: vi.fn().mockResolvedValue({
       content: 'true',
-      model: 'gpt-4o-mini',
+      model: 'gpt-5-nano',
       tokens: 10,
       cost: 0.001,
     } satisfies LlmResponse),
@@ -58,17 +58,17 @@ export function createMockContentPort(topics?: ContentTopic[]): IContentPort {
   const defaultTopics: ContentTopic[] = [
     {
       id: 'topic-1',
-      title: 'Mercury Retrograde 2026',
+      title: 'Workflow Trends 2026',
       type: 'brief',
-      facts: ['Mercury retrograde starts July 14', 'Ends August 7'],
-      sourceRef: { type: 'brief', path: 'briefs/mercury-retro-2026.json' },
+      facts: ['Workflow Trends starts July 14', 'Ends August 7'],
+      sourceRef: { type: 'brief', path: 'briefs/workflow-retro-2026.json' },
     },
     {
       id: 'topic-2',
-      title: 'Full Moon in Capricorn',
+      title: 'Product Launch in Q4',
       type: 'article',
-      facts: ['Full moon on July 21', 'Capricorn energy: discipline'],
-      sourceRef: { type: 'article', path: 'blog/en/full-moon-capricorn.md' },
+      facts: ['Product launch on July 21', 'Q4 energy: Discipline'],
+      sourceRef: { type: 'article', path: 'blog/en/product-launch-q4.md' },
     },
   ];
   const data = topics ?? defaultTopics;
@@ -597,23 +597,23 @@ export function createMockCheckpointSaver() {
 export const fixtureTopics: ContentTopic[] = [
   {
     id: 'topic-1',
-    title: 'Mercury Retrograde July 2026',
+    title: 'Workflow Trends July 2026',
     type: 'brief',
-    facts: ['Mercury retrograde: July 14 – August 7, 2026', 'Zodiac signs affected: Leo, Virgo'],
-    sourceRef: { type: 'brief', path: 'briefs/mercury-retro-2026.json' },
+    facts: ['Workflow Trends: July 14 – August 7, 2026', 'workflow signs affected: Q2, Q3'],
+    sourceRef: { type: 'brief', path: 'briefs/workflow-retro-2026.json' },
   },
   {
     id: 'topic-2',
-    title: 'Full Moon in Capricorn',
+    title: 'Product Launch in Q4',
     type: 'article',
-    facts: ['Full moon on July 21, 2026', 'Capricorn energy: discipline, ambition'],
-    sourceRef: { type: 'article', path: 'blog/en/full-moon-capricorn.md' },
+    facts: ['Product launch on July 21, 2026', 'Q4 energy: Discipline, ambition'],
+    sourceRef: { type: 'article', path: 'blog/en/product-launch-q4.md' },
   },
   {
     id: 'topic-3',
-    title: 'Cosmic Weather Weekly',
+    title: 'weekly roundup Weekly',
     type: 'topic',
-    facts: ['Week of July 15: Venus trine Jupiter', 'Favorable for relationships'],
+    facts: ['Week of July 15: Team Milestone', 'Favorable for relationships'],
     sourceRef: { type: 'topic', path: 'topics/cosmic-weather-w28.json' },
   },
 ];
@@ -621,11 +621,11 @@ export const fixtureTopics: ContentTopic[] = [
 export const fixturePost = {
   id: 'post-001',
   network: 'X' as const,
-  content: 'Mercury retrograde is coming! Time to reflect, not react. ♋',
+  content: 'Workflow trends are coming! Time to focus, not react. 🎯',
   status: 'DRAFT' as const,
   generationRunId: 'run-001',
-  sourceRef: { type: 'brief', path: 'briefs/mercury-retro-2026.json' },
-  llmMetadata: { model: 'gpt-4o-mini', tokens: 120, cost: 0.001 },
+  sourceRef: { type: 'brief', path: 'briefs/workflow-retro-2026.json' },
+  llmMetadata: { model: 'gpt-5-nano', tokens: 120, cost: 0.001 },
   createdAt: new Date('2026-07-15T10:00:00Z'),
   updatedAt: new Date('2026-07-15T10:00:00Z'),
   approvedAt: null,

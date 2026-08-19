@@ -379,31 +379,31 @@ const NOW = new Date('2026-07-15T10:00:00Z');
 const FIXTURE_TOPICS: ContentTopic[] = [
   {
     sourceType: 'brief',
-    path: 'briefs/mercury-retro-2026.json',
-    topic: 'Mercury Retrograde 2026',
-    keywords: ['mercury retrograde', 'astrology 2026'],
-    facts: ['Mercury retrograde: July 14 – August 7, 2026', 'Zodiac signs affected: Leo, Virgo'],
+    path: 'briefs/workflow-retro-2026.json',
+    topic: 'Workflow Trends 2026',
+    keywords: ['workflow trends', 'productivity 2026'],
+    facts: ['Workflow Trends: July 14 – August 7, 2026', 'workflow signs affected: Q2, Q3'],
   },
   {
     sourceType: 'brief',
-    path: 'briefs/full-moon-capricorn.json',
-    topic: 'Full Moon in Capricorn',
-    keywords: ['full moon', 'capricorn', 'astrology'],
-    facts: ['Full moon on July 21, 2026', 'Capricorn energy: discipline, ambition'],
+    path: 'briefs/product-launch-q4.json',
+    topic: 'Product Launch in Q4',
+    keywords: ['product launch', 'q4', 'productivity'],
+    facts: ['Product launch on July 21, 2026', 'Q4 energy: Discipline, ambition'],
   },
   {
     sourceType: 'article',
     path: 'blog/en/cosmic-weather-w28.md',
-    topic: 'Cosmic Weather Weekly',
-    keywords: ['cosmic weather', 'weekly horoscope'],
-    facts: ['Week of July 15: Venus trine Jupiter', 'Favorable for relationships'],
+    topic: 'weekly roundup Weekly',
+    keywords: ['weekly roundup', 'weekly newsletter'],
+    facts: ['Week of July 15: Team Milestone', 'Favorable for relationships'],
   },
 ];
 
 const ACCOUNT_X = {
   id: 'acc-001',
   network: SocialNetwork.X,
-  handle: 'myzodiacai',
+  handle: 'exampleco',
   credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD',
   active: true,
   createdAt: NOW,
@@ -412,7 +412,7 @@ const ACCOUNT_X = {
 const ACCOUNT_THREADS = {
   id: 'acc-002',
   network: SocialNetwork.THREADS,
-  handle: 'myzodiacai',
+  handle: 'exampleco',
   credentialsRef: 'SOCIAL_THREADS_USERNAME,SOCIAL_THREADS_PASSWORD',
   active: true,
   createdAt: NOW,
@@ -421,7 +421,7 @@ const ACCOUNT_THREADS = {
 const ACCOUNT_FB = {
   id: 'acc-003',
   network: SocialNetwork.FACEBOOK,
-  handle: 'myzodiacai@facebook.com',
+  handle: 'exampleco@facebook.com',
   credentialsRef: 'SOCIAL_FACEBOOK_EMAIL,SOCIAL_FACEBOOK_PASSWORD',
   active: true,
   createdAt: NOW,
@@ -465,7 +465,7 @@ function makePost(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     id: 'post-000',
     network: SocialNetwork.X,
-    content: 'Mercury retrograde is coming! Time to reflect, not react.',
+    content: 'Workflow trends are coming! Time to focus, not react.',
     status: PostStatus.DRAFT,
     postUrl: null,
     errorMessage: null,
@@ -535,7 +535,7 @@ async function buildAndStartApp(): Promise<void> {
 
   mockXPoster = { post: vi.fn().mockResolvedValue({ url: 'https://x.com/test_x_user/status/123' }) };
   mockThreadsPoster = { post: vi.fn().mockResolvedValue({ url: 'https://www.threads.com/@user/post/abc123' }) };
-  mockFacebookPoster = { post: vi.fn().mockResolvedValue({ url: 'https://www.facebook.com/myzodiacai/posts/789' }) };
+  mockFacebookPoster = { post: vi.fn().mockResolvedValue({ url: 'https://www.facebook.com/exampleco/posts/789' }) };
 
   // Default prisma mocks so onModuleInit hooks don't crash.
   prisma.socialAccount.findFirst.mockResolvedValue(null);
@@ -581,7 +581,7 @@ async function buildAndStartApp(): Promise<void> {
   // Swagger/OpenAPI — set up exactly as in main.ts
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Social Poster Agent API')
-    .setDescription('Internal API for social media posting agent — My Zodiac AI')
+    .setDescription('Internal API for social media posting agent — Social Poster Agent')
     .setVersion('0.4.2')
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
@@ -624,15 +624,15 @@ function setupDefaultMocks(): void {
   llmPort.generateChat.mockImplementation((_sys: string, _userPrompt: string) => {
     llmCallCounter++;
     return Promise.resolve({
-      content: `Mercury retrograde insight variant ${llmCallCounter}: Reflect, not react. #astrology #v${llmCallCounter}`,
-      model: 'gpt-4o-mini',
+      content: `Workflow Trends insight variant ${llmCallCounter}: Reflect, not react. #productivity #v${llmCallCounter}`,
+      model: 'gpt-5-nano',
       tokens: 100,
       cost: 0.001,
     });
   });
   llmPort.generate.mockResolvedValue({
     content: 'Mock LLM generated content',
-    model: 'gpt-4o-mini',
+    model: 'gpt-5-nano',
     tokens: 100,
     cost: 0.001,
   });
@@ -651,7 +651,7 @@ function setupDefaultMocks(): void {
     id: 'run-test-001',
     status: GenerationRunStatus.COMPLETED,
     completedAt: new Date('2026-07-15T10:05:00Z'),
-    sourceTopics: ['Mercury Retrograde 2026'],
+    sourceTopics: ['Workflow Trends 2026'],
     errorMessage: null,
   });
   prisma.generationRun.findMany.mockResolvedValue([]);
@@ -770,7 +770,7 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
     // Restore default poster implementations after clearAllMocks
     mockXPoster.post.mockResolvedValue({ url: 'https://x.com/test_x_user/status/123' });
     mockThreadsPoster.post.mockResolvedValue({ url: 'https://www.threads.com/@user/post/abc123' });
-    mockFacebookPoster.post.mockResolvedValue({ url: 'https://www.facebook.com/myzodiacai/posts/789' });
+    mockFacebookPoster.post.mockResolvedValue({ url: 'https://www.facebook.com/exampleco/posts/789' });
   });
 
   afterEach(() => {
@@ -830,7 +830,7 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
 
       // Verify llmMetadata is populated with model + promptVersion
       expect(postData.llmMetadata).toBeDefined();
-      expect(postData.llmMetadata.model).toBe('gpt-4o-mini');
+      expect(postData.llmMetadata.model).toBe('gpt-5-nano');
       expect(postData.llmMetadata.promptVersion).toBeDefined();
     });
 
@@ -898,8 +898,8 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
           return Promise.reject(new Error('Simulated crash — LLM unavailable'));
         }
         return Promise.resolve({
-          content: 'Mercury retrograde is coming! Time to reflect.',
-          model: 'gpt-4o-mini',
+          content: 'Workflow Trends is coming! Time to reflect.',
+          model: 'gpt-5-nano',
           tokens: 100,
           cost: 0.001,
         });
@@ -925,8 +925,8 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
 
       // Phase 2: Resume — LLM works again
       llmPort.generateChat.mockResolvedValue({
-        content: 'Mercury retrograde is coming! Time to reflect, not react. #astrology',
-        model: 'gpt-4o-mini',
+        content: 'Workflow trends are coming! Time to focus, not react. #productivity',
+        model: 'gpt-5-nano',
         tokens: 100,
         cost: 0.001,
       });
@@ -986,13 +986,13 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
         status: GenerationRunStatus.COMPLETED,
         startedAt: new Date('2026-07-15T10:00:00Z'),
         completedAt: new Date('2026-07-15T10:05:00Z'),
-        sourceTopics: ['Mercury Retrograde 2026'],
+        sourceTopics: ['Workflow Trends 2026'],
         errorMessage: null,
         posts: [
           {
             id: 'post-001',
             network: SocialNetwork.X,
-            content: 'Mercury retrograde is coming!',
+            content: 'Workflow Trends is coming!',
             status: PostStatus.DRAFT,
             createdAt: new Date('2026-07-15T10:01:00Z'),
           },
@@ -1857,7 +1857,7 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
     it('ATP-017-2: storageState persisted to Session.storageState JSONB after login', async () => {
       setupPostingFlow(APPROVED_POST_X);
 
-      const postPage = createMockPage({ url: 'https://x.com/myzodiacai/status/999' });
+      const postPage = createMockPage({ url: 'https://x.com/exampleco/status/999' });
       const postContext = createMockContext(postPage);
       browserPort.acquireContext.mockResolvedValue(postContext);
       const savedState = JSON.stringify({
@@ -1866,7 +1866,7 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
       });
       browserPort.saveStorageState.mockResolvedValue(savedState);
       browserPort.randomDelay.mockResolvedValue(undefined);
-      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/myzodiacai/status/999' });
+      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/exampleco/status/999' });
 
       const res = await request(app.getHttpServer())
         .post('/api/v1/posting/post-appr-x');
@@ -1943,8 +1943,8 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
           return Promise.reject(new Error('Simulated crash — LLM unavailable'));
         }
         return Promise.resolve({
-          content: 'Mercury retrograde is coming! Time to reflect.',
-          model: 'gpt-4o-mini',
+          content: 'Workflow Trends is coming! Time to reflect.',
+          model: 'gpt-5-nano',
           tokens: 100,
           cost: 0.001,
         });
@@ -1960,8 +1960,8 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
 
       // Phase 2: Resume — LLM works again
       llmPort.generateChat.mockResolvedValue({
-        content: 'Mercury retrograde is coming! Time to reflect, not react. #astrology',
-        model: 'gpt-4o-mini',
+        content: 'Workflow trends are coming! Time to focus, not react. #productivity',
+        model: 'gpt-5-nano',
         tokens: 100,
         cost: 0.001,
       });
@@ -2393,7 +2393,7 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
       expect(mockXPoster.post).not.toHaveBeenCalled();
     });
 
-    it('ATP-020-11: System interfaces with OpenAI API via ILlmPort using gpt-4o-mini model', async () => {
+    it('ATP-020-11: System interfaces with OpenAI API via ILlmPort using gpt-5-nano model', async () => {
       // Trigger generation to verify ILlmPort is invoked
       const res = await request(app.getHttpServer())
         .post('/api/v1/generation/run')
@@ -2404,15 +2404,15 @@ describe('Acceptance Test Cases — Social Poster Agent (48 ATPs)', () => {
       // Verify ILlmPort.generateChat was called (the LLM port interface)
       expect(llmPort.generateChat).toHaveBeenCalled();
 
-      // Verify the model used is gpt-4o-mini (from the mock response)
+      // Verify the model used is gpt-5-nano (from the mock response)
       const llmResponse = await llmPort.generateChat.mock.results[0].value;
-      expect(llmResponse.model).toBe('gpt-4o-mini');
+      expect(llmResponse.model).toBe('gpt-5-nano');
 
-      // Verify the generated post has llmMetadata with model gpt-4o-mini
+      // Verify the generated post has llmMetadata with model gpt-5-nano
       expect(prisma.post.create).toHaveBeenCalledTimes(1);
       const postData = prisma.post.create.mock.calls[0][0].data;
       expect(postData.llmMetadata).toBeDefined();
-      expect(postData.llmMetadata.model).toBe('gpt-4o-mini');
+      expect(postData.llmMetadata.model).toBe('gpt-5-nano');
     });
 
     it('ATP-020-12: Unique correlationId generated per HTTP request via nestjs-cls with format spa-{timestamp}-{random}', async () => {

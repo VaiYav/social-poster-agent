@@ -15,8 +15,7 @@ This is the single most important thing to know here. Design documents are writt
 code and may not be updated as the code evolves. Known concrete drifts (verify against source, never inherit a
 doc claim):
 
-- `README.md` says the LLM is "OpenAI gpt-4o-mini + Ollama". Reality: an 8-provider fallback router,
-  default model `gpt-5-nano` (see `.env.example`).
+- Default LLM models move quickly. Verify current defaults in `packages/backend/src/infrastructure/llm/llm.service.ts` and `.env.example` (e.g., `gpt-5-nano`, `llama-4-scout`, `llama-4-maverick:free`) rather than relying on prose.
 
 When a subsystem detail matters, `grep` the source. Design docs are "what to build", not "what is".
 

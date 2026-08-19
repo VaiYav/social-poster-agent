@@ -191,7 +191,7 @@ describe('E2E Sprint D: Full Flow — generate → approve → post', () => {
     prisma.account.findFirst.mockResolvedValue({
       id: accountId,
       network: 'X',
-      handle: 'myzodiacai',
+      handle: 'exampleco',
       credentialsRef: 'SOCIAL_X_USERNAME/PASSWORD',
       active: true,
       warmupEnabled: false,
@@ -201,11 +201,11 @@ describe('E2E Sprint D: Full Flow — generate → approve → post', () => {
       updatedAt: new Date(),
     });
     prisma.account.findMany.mockResolvedValue([
-      { id: accountId, network: 'X', handle: 'myzodiacai', sessions: [] },
+      { id: accountId, network: 'X', handle: 'exampleco', sessions: [] },
     ]);
     // SocialAccount mocks (for WarmupService — Prisma model is SocialAccount, not Account)
     prisma.socialAccount.findUnique.mockResolvedValue({
-      id: accountId, network: 'X', handle: 'myzodiacai',
+      id: accountId, network: 'X', handle: 'exampleco',
       credentialsRef: 'SOCIAL_X_USERNAME/PASSWORD', active: true,
       warmupEnabled: false, warmupStartedAt: null, warmupDaysTotal: 7,
       createdAt: new Date(), updatedAt: new Date(),
@@ -262,13 +262,13 @@ describe('E2E Sprint D: Full Flow — generate → approve → post', () => {
           threadId: null,
           threadPosition: 0,
           network: 'X',
-          content: 'Generated post about Mercury Retrograde',
-          sourceRef: { type: 'brief', path: '/brief.json', topic: 'Mercury Retrograde' },
+          content: 'Generated post about Workflow Trends',
+          sourceRef: { type: 'brief', path: '/brief.json', topic: 'Workflow Trends' },
           status: 'DRAFT',
           postUrl: null,
           errorMessage: null,
           retryCount: 0,
-          llmMetadata: { model: 'gpt-4o-mini', promptVersion: '0.3.0' },
+          llmMetadata: { model: 'gpt-5-nano', promptVersion: '0.3.0' },
           createdAt: new Date(),
           approvedAt: null,
           postedAt: null,
@@ -291,13 +291,13 @@ describe('E2E Sprint D: Full Flow — generate → approve → post', () => {
           threadId: null,
           threadPosition: 0,
           network: 'X',
-          content: 'Generated post about Mercury Retrograde',
-          sourceRef: { type: 'brief', path: '/brief.json', topic: 'Mercury Retrograde' },
+          content: 'Generated post about Workflow Trends',
+          sourceRef: { type: 'brief', path: '/brief.json', topic: 'Workflow Trends' },
           status: 'DRAFT',
           postUrl: null,
           errorMessage: null,
           retryCount: 0,
-          llmMetadata: { model: 'gpt-4o-mini', promptVersion: '0.3.0' },
+          llmMetadata: { model: 'gpt-5-nano', promptVersion: '0.3.0' },
           createdAt: new Date(),
           approvedAt: null,
           postedAt: null,
@@ -348,9 +348,9 @@ describe('E2E Sprint D: Full Flow — generate → approve → post', () => {
     } as unknown as QueueFactory;
 
     // Mock posters — return valid post URLs
-    const xPoster = { post: vi.fn().mockResolvedValue({ url: 'https://x.com/myzodiacai/status/1234567890' }) } as unknown as XPoster;
-    const threadsPoster = { post: vi.fn().mockResolvedValue({ url: 'https://www.threads.com/@myzodiacai/post/abc123' }) } as unknown as ThreadsPoster;
-    const facebookPoster = { post: vi.fn().mockResolvedValue({ url: 'https://www.facebook.com/myzodiacai/posts/789' }) } as unknown as FacebookPoster;
+    const xPoster = { post: vi.fn().mockResolvedValue({ url: 'https://x.com/exampleco/status/1234567890' }) } as unknown as XPoster;
+    const threadsPoster = { post: vi.fn().mockResolvedValue({ url: 'https://www.threads.com/@exampleco/post/abc123' }) } as unknown as ThreadsPoster;
+    const facebookPoster = { post: vi.fn().mockResolvedValue({ url: 'https://www.facebook.com/exampleco/posts/789' }) } as unknown as FacebookPoster;
 
     const mockSharedRedis = {
       get: vi.fn().mockResolvedValue(null),

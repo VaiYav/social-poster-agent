@@ -331,31 +331,31 @@ const NOW = new Date('2026-07-15T10:00:00Z');
 const CAP_TOPICS: ContentTopic[] = [
   {
     sourceType: 'brief',
-    path: 'briefs/mercury-retro-2026.json',
-    topic: 'Mercury Retrograde July 2026',
-    keywords: ['mercury retrograde', 'july 2026', 'astrology'],
-    facts: ['Mercury retrograde: July 14 – August 7, 2026', 'Zodiac signs affected: Leo, Virgo'],
+    path: 'briefs/workflow-retro-2026.json',
+    topic: 'Workflow Trends July 2026',
+    keywords: ['workflow trends', 'july 2026', 'productivity'],
+    facts: ['Workflow Trends: July 14 – August 7, 2026', 'workflow signs affected: Q2, Q3'],
   },
   {
     sourceType: 'brief',
-    path: 'briefs/full-moon-capricorn.json',
-    topic: 'Full Moon in Capricorn',
-    keywords: ['full moon', 'capricorn', 'astrology'],
-    facts: ['Full moon on July 21, 2026', 'Capricorn energy: discipline, ambition'],
+    path: 'briefs/product-launch-q4.json',
+    topic: 'Product Launch in Q4',
+    keywords: ['product launch', 'q4', 'productivity'],
+    facts: ['Product launch on July 21, 2026', 'Q4 energy: Discipline, ambition'],
   },
   {
     sourceType: 'brief',
     path: 'briefs/cosmic-weather-w28.json',
-    topic: 'Cosmic Weather Weekly',
-    keywords: ['cosmic weather', 'weekly horoscope', 'venus trine jupiter'],
-    facts: ['Week of July 15: Venus trine Jupiter', 'Favorable for relationships and abundance'],
+    topic: 'weekly roundup Weekly',
+    keywords: ['weekly roundup', 'weekly newsletter', 'Team Milestone'],
+    facts: ['Week of July 15: Team Milestone', 'Favorable for relationships and abundance'],
   },
 ];
 
 const ACCOUNT_X = {
   id: 'acc-001',
   network: SocialNetwork.X,
-  handle: 'myzodiacai',
+  handle: 'exampleco',
   credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD',
   active: true,
   createdAt: NOW,
@@ -364,7 +364,7 @@ const ACCOUNT_X = {
 const ACCOUNT_THREADS = {
   id: 'acc-002',
   network: SocialNetwork.THREADS,
-  handle: 'myzodiacai',
+  handle: 'exampleco',
   credentialsRef: 'SOCIAL_THREADS_USERNAME,SOCIAL_THREADS_PASSWORD',
   active: true,
   createdAt: NOW,
@@ -373,7 +373,7 @@ const ACCOUNT_THREADS = {
 const ACCOUNT_FB = {
   id: 'acc-003',
   network: SocialNetwork.FACEBOOK,
-  handle: 'myzodiacai@facebook.com',
+  handle: 'exampleco@facebook.com',
   credentialsRef: 'SOCIAL_FACEBOOK_EMAIL,SOCIAL_FACEBOOK_PASSWORD',
   active: true,
   createdAt: NOW,
@@ -405,7 +405,7 @@ function makePost(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     id: 'post-000',
     network: SocialNetwork.X,
-    content: 'Mercury retrograde is coming! Time to reflect, not react.',
+    content: 'Workflow trends are coming! Time to focus, not react.',
     status: PostStatus.DRAFT,
     postUrl: null,
     errorMessage: null,
@@ -432,7 +432,7 @@ const APPROVED_POST_X = makePost({ id: 'post-appr-x', status: PostStatus.APPROVE
 const POSTED_POST = makePost({
   id: 'post-posted',
   status: PostStatus.POSTED,
-  postUrl: 'https://x.com/myzodiacai/status/999',
+  postUrl: 'https://x.com/exampleco/status/999',
   postedAt: NOW,
 });
 const POSTING_POST = makePost({ id: 'post-posting', status: PostStatus.POSTING });
@@ -513,9 +513,9 @@ async function buildAndStartApp(): Promise<void> {
   queueFactory = createMockQueueFactory();
   contentReader = createMockContentReader(CAP_TOPICS);
 
-  mockXPoster = { post: vi.fn().mockResolvedValue({ url: 'https://x.com/myzodiacai/status/123' }) };
-  mockThreadsPoster = { post: vi.fn().mockResolvedValue({ url: 'https://threads.net/@myzodiacai/post/456' }) };
-  mockFacebookPoster = { post: vi.fn().mockResolvedValue({ url: 'https://facebook.com/myzodiacai/posts/789' }) };
+  mockXPoster = { post: vi.fn().mockResolvedValue({ url: 'https://x.com/exampleco/status/123' }) };
+  mockThreadsPoster = { post: vi.fn().mockResolvedValue({ url: 'https://threads.net/@exampleco/post/456' }) };
+  mockFacebookPoster = { post: vi.fn().mockResolvedValue({ url: 'https://facebook.com/exampleco/posts/789' }) };
 
   // Default prisma mocks so onModuleInit hooks (CronService.seedFromEnv) don't crash.
   prisma.socialAccount.findFirst.mockResolvedValue(null);
@@ -592,15 +592,15 @@ function setupDefaultMocks(): void {
   llmPort.generateChat.mockImplementation((_sys: string, _userPrompt: string) => {
     bddLlmCounter++;
     return Promise.resolve({
-      content: `Mercury retrograde insight variant ${bddLlmCounter}: Reflect, not react. #astrology #v${bddLlmCounter}`,
-      model: 'gpt-4o-mini',
+      content: `Workflow Trends insight variant ${bddLlmCounter}: Reflect, not react. #productivity #v${bddLlmCounter}`,
+      model: 'gpt-5-nano',
       tokens: 100,
       cost: 0.001,
     });
   });
   llmPort.generate.mockResolvedValue({
     content: 'Mock LLM generated content',
-    model: 'gpt-4o-mini',
+    model: 'gpt-5-nano',
     tokens: 100,
     cost: 0.001,
   });
@@ -619,7 +619,7 @@ function setupDefaultMocks(): void {
     id: 'run-bdd-001',
     status: GenerationRunStatus.COMPLETED,
     completedAt: new Date(),
-    sourceTopics: ['Mercury Retrograde July 2026'],
+    sourceTopics: ['Workflow Trends July 2026'],
     errorMessage: null,
   });
   prisma.generationRun.findMany.mockResolvedValue([]);
@@ -683,9 +683,9 @@ function setupDefaultMocks(): void {
   browserPort.randomDelay.mockResolvedValue(undefined);
 
   // Posters — restore default success implementations
-  mockXPoster.post.mockResolvedValue({ url: 'https://x.com/myzodiacai/status/123' });
-  mockThreadsPoster.post.mockResolvedValue({ url: 'https://threads.net/@myzodiacai/post/456' });
-  mockFacebookPoster.post.mockResolvedValue({ url: 'https://facebook.com/myzodiacai/posts/789' });
+  mockXPoster.post.mockResolvedValue({ url: 'https://x.com/exampleco/status/123' });
+  mockThreadsPoster.post.mockResolvedValue({ url: 'https://threads.net/@exampleco/post/456' });
+  mockFacebookPoster.post.mockResolvedValue({ url: 'https://facebook.com/exampleco/posts/789' });
 
   // Stateful post store: clear and wire findUnique/update from the store.
   postStore.clear();
@@ -808,7 +808,7 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
         expect(data.content.length).toBeGreaterThan(0);
         expect(data.sourceRef).toBeDefined();
         expect(data.llmMetadata).toBeDefined();
-        expect(data.llmMetadata.model).toBe('gpt-4o-mini');
+        expect(data.llmMetadata.model).toBe('gpt-5-nano');
       }
 
       // When the operator reviews each draft and clicks "Approve" on drafts
@@ -855,7 +855,7 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       });
       browserPort.saveStorageState.mockResolvedValue(JSON.stringify({ cookies: [], origins: [] }));
       browserPort.randomDelay.mockResolvedValue(undefined);
-      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/myzodiacai/status/s1' });
+      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/exampleco/status/s1' });
 
       const postRes = await request(app.getHttpServer())
         .post(`/api/v1/posting/${approvedPost.id}`);
@@ -913,8 +913,8 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
           return Promise.reject(new Error('Simulated crash — LLM unavailable'));
         }
         return Promise.resolve({
-          content: 'Mercury retrograde is coming! Time to reflect.',
-          model: 'gpt-4o-mini',
+          content: 'Workflow Trends is coming! Time to reflect.',
+          model: 'gpt-5-nano',
           tokens: 100,
           cost: 0.001,
         });
@@ -943,8 +943,8 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       // When the operator restarts the backend and triggers the same generation run
       // (LLM works again — simulate resume)
       llmPort.generateChat.mockResolvedValue({
-        content: 'Mercury retrograde is coming! Time to reflect, not react. #astrology',
-        model: 'gpt-4o-mini',
+        content: 'Workflow trends are coming! Time to focus, not react. #productivity',
+        model: 'gpt-5-nano',
         tokens: 100,
         cost: 0.001,
       });
@@ -992,7 +992,7 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       for (let i = 0; i < 3; i++) {
         sharedRedisStore.clear();
         setupPostingFlow(APPROVED_POST_X);
-        mockXPoster.post.mockResolvedValue({ url: `https://x.com/myzodiacai/status/${100 + i}` });
+        mockXPoster.post.mockResolvedValue({ url: `https://x.com/exampleco/status/${100 + i}` });
         const result = await postingService.postById('post-appr-x');
         expect(result.success).toBe(true);
       }
@@ -1006,7 +1006,7 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       // When the 4th post is attempted before 120 seconds have elapsed
       // (the interval key was just set by the 3rd post)
       setupPostingFlow(APPROVED_POST_X);
-      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/myzodiacai/status/104' });
+      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/exampleco/status/104' });
 
       // Then RateLimitService.checkRateLimit returns a rate-limit result
       //   And the post status remains unchanged
@@ -1043,7 +1043,7 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       //   And RateLimitService.recordPost is called
       //   And an SSE event "post_status" with status POSTED is published
       setupPostingFlow(APPROVED_POST_X);
-      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/myzodiacai/status/104-retry' });
+      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/exampleco/status/104-retry' });
 
       const retryRes = await request(app.getHttpServer())
         .post('/api/v1/posting/post-appr-x');
@@ -1102,7 +1102,7 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       // Trigger posting → getOrCreateSession → autoLogin
       postStore.set(APPROVED_POST_X.id, { ...APPROVED_POST_X });
       applyStatefulPostMocks();
-      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/myzodiacai/status/s4' });
+      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/exampleco/status/s4' });
 
       const postRes = await request(app.getHttpServer())
         .post('/api/v1/posting/post-appr-x');
@@ -1392,7 +1392,7 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       // Given the X.com rate limit is configured with 120s minimum interval
       //   And a post to X.com was just completed successfully
       setupPostingFlow(APPROVED_POST_X);
-      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/myzodiacai/status/us019-1' });
+      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/exampleco/status/us019-1' });
       const successRes = await request(app.getHttpServer())
         .post('/api/v1/posting/post-appr-x');
       expect(successRes.status).toBe(200);
@@ -1401,7 +1401,7 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       // When another post to X.com is attempted immediately
       // (interval key was just set by the successful post)
       setupPostingFlow(APPROVED_POST_X);
-      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/myzodiacai/status/us019-2' });
+      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/exampleco/status/us019-2' });
       const res = await request(app.getHttpServer())
         .post('/api/v1/posting/post-appr-x');
 
@@ -1427,7 +1427,7 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
 
       // When another post to X.com is attempted
       setupPostingFlow(APPROVED_POST_X);
-      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/myzodiacai/status/us019-daily' });
+      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/exampleco/status/us019-daily' });
       const res = await request(app.getHttpServer())
         .post('/api/v1/posting/post-appr-x');
 
@@ -1497,7 +1497,7 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       });
       browserPort.saveStorageState.mockResolvedValue(JSON.stringify({ cookies: [], origins: [] }));
       browserPort.randomDelay.mockResolvedValue(undefined);
-      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/myzodiacai/status/hitl' });
+      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/exampleco/status/hitl' });
 
       // When the operator sends POST /api/v1/posting/batch/all-approved
       const res = await request(app.getHttpServer())
@@ -1568,7 +1568,7 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
 
       postStore.set(APPROVED_POST_X.id, { ...APPROVED_POST_X });
       applyStatefulPostMocks();
-      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/myzodiacai/status/cred' });
+      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/exampleco/status/cred' });
 
       const res = await request(app.getHttpServer())
         .post('/api/v1/posting/post-appr-x');
@@ -1825,7 +1825,7 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       // Then the response indicates the post is already posted
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.url).toBe('https://x.com/myzodiacai/status/999');
+      expect(res.body.url).toBe('https://x.com/exampleco/status/999');
       // And no duplicate post is published to the social network
       expect(browserPort.acquireContext).not.toHaveBeenCalled();
       expect(mockXPoster.post).not.toHaveBeenCalled();

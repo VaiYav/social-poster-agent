@@ -23,7 +23,7 @@ import { detectLanguage } from '../../../src/infrastructure/util/language-detect
 
 // Passes the humanizer gate: varied sentence lengths, no slop, no em dashes.
 const CLEAN_DRAFT =
-  'Saturn again. I spent forty minutes staring at my chart last night and the coffee started tasting like regret. Fine.';
+  'Product cycle again. I spent forty minutes staring at my plan last night and the coffee started tasting like regret. Fine.';
 
 const JUDGE_HIGH_SCORE = {
   anti_ai_tone: 0.9, anti_ai_tone_reason: 'sounds human',
@@ -57,7 +57,7 @@ function makeLlm(handlers: Partial<Record<RoleName, (idx: number) => string>> = 
   const maxTokens: Record<RoleName, number | undefined> = { facts: undefined, hook: undefined, draft: undefined, refine: undefined, critique: undefined, judge: undefined };
   const lastPrompt: Record<RoleName, { system: string; user: string } | undefined> = { facts: undefined, hook: undefined, draft: undefined, refine: undefined, critique: undefined, judge: undefined };
   const defaults: Record<RoleName, string> = {
-    facts: '1. Mercury retrograde happens 3-4 times a year',
+    facts: '1. Workflow Trends happens 3-4 times a year',
     hook: '1. hook alpha\n2. hook beta\n3. hook gamma',
     draft: CLEAN_DRAFT,
     refine: 'refined text v1',
@@ -97,12 +97,12 @@ function makeLlm(handlers: Partial<Record<RoleName, (idx: number) => string>> = 
 
 function createTopic(overrides: Partial<ContentTopic> = {}): ContentTopic {
   return {
-    topic: `Mercury Retrograde ${Math.random().toString(36).slice(2, 8)}`,
-    keywords: ['mercury', 'retrograde'],
-    category: 'astrology',
-    facts: ['Mercury retrograde happens 3-4 times a year'],
+    topic: `Workflow Trends ${Math.random().toString(36).slice(2, 8)}`,
+    keywords: ['workflow', 'slowdown'],
+    category: 'productivity',
+    facts: ['Workflow Trends happens 3-4 times a year'],
     outline: [],
-    path: '/blog/mercury-retrograde',
+    path: '/blog/workflow-slowdown',
     sourceType: 'article',
   } as unknown as ContentTopic;
 }
@@ -169,7 +169,7 @@ describe('Quality pass — generation graph', () => {
       expect(hook).not.toMatch(/discover/i);
     }
     // Padded from the topic facts
-    expect(hooks).toContain('Mercury retrograde happens 3-4 times a year');
+    expect(hooks).toContain('Workflow Trends happens 3-4 times a year');
   });
 
   it('QP-005: judge below threshold routes back through refine exactly ONCE', async () => {
@@ -276,49 +276,11 @@ describe('Quality pass — generation graph', () => {
     expect(postsOf(state)[0]?.qualityScore).toBe(9);
   });
 
-  it('QP-010: refine prompt instructs the model to keep the target language (Russian)', async () => {
-    const llm = makeLlm({
-      draft: () => 'Сатурн делает круг за 29.5 лет. И он всё равно тебя разносит.',
-      critique: () => 'Good content, but a bit flat.\nSCORE: 6\nVERDICT: REVISE',
-      refine: () => 'Полтора часа смотрю на свою натальную карту. Сатурн близко.',
-    });
-    const compiled = buildGenerationGraph(llm).compile();
-    await compiled.invoke(
-      createInitialState(createTopic(), [SocialNetwork.X], 'brand voice', false, 'ru'),
-      { configurable: { thread_id: 'qp-010' } },
-    );
-
-    const refinePrompt = llm.lastPrompt.refine?.user ?? '';
-    expect(refinePrompt).toMatch(/LANGUAGE/);
-    expect(refinePrompt).toMatch(/Russian \(русский\)|Русский/);
-    expect(refinePrompt).toMatch(/Do NOT translate/i);
-    expect(refinePrompt).toMatch(/Preserve the original language/i);
-  });
-
-  it('QP-011: refine prompt includes native-voice examples for non-English languages', async () => {
-    const llm = makeLlm({
-      draft: () => 'Сатурн делает круг за 29.5 лет.',
-      critique: () => 'SCORE: 5\nVERDICT: REVISE',
-      refine: () => 'Полтора часа смотрю на свою натальную карту.',
-    });
-    const compiled = buildGenerationGraph(llm).compile();
-    await compiled.invoke(
-      createInitialState(createTopic(), [SocialNetwork.X], 'brand voice', false, 'ru'),
-      { configurable: { thread_id: 'qp-011' } },
-    );
-
-    const refinePrompt = llm.lastPrompt.refine?.user ?? '';
-    expect(refinePrompt).toMatch(/NATIVE VOICE EXAMPLES/);
-    expect(refinePrompt).toMatch(/Сатурн делает круг за 29\.5 лет/);
-  });
-
   it.each([
-    ['en', 'Saturn again. I spent forty minutes staring at my chart last night and the coffee started tasting like regret. Fine.'],
-    ['ru', 'Сатурн делает круг за 29.5 лет. Я смотрела на карту и поняла, что всё развалится.'],
-    ['uk', 'Сатурн робить коло за 29.5 років. Я дивилася на карту і зрозуміла, що все розвалиться.'],
-    ['es', 'Saturno tarda 29.5 años en dar la vuelta. Anoche miré mi carta y entendí que todo se desmorona.'],
-    ['it', 'Saturno impiega 29.5 anni per fare il giro. Ieri sera ho guardato la mia carta e ho capito che tutto crolla.'],
-  ] as [string, string][])(
+    ['en', 'Product cycle again. I spent forty minutes staring at my plan last night and the coffee started tasting like regret. Fine.'],
+    ['es', 'Un ciclo de producto tarda 29.5 años en dar la vuelta. Anoche miré mi carta y entendí que todo se desmorona.'],
+    ['it', 'Un ciclo di prodotto impiega 29.5 anni per fare il giro. Ieri sera ho guardato il mio piano e ho capito che tutto crolla.'],
+  ] as [string, string][]) (
     'QP-012: final post content is detected in the requested language (%s)',
     async (lang, draft) => {
       const llm = makeLlm({ draft: () => draft });
@@ -336,21 +298,21 @@ describe('Quality pass — generation graph', () => {
 
   it('QP-013: refine output in wrong language is detected and not blindly persisted', async () => {
     const llm = makeLlm({
-      draft: () => 'Сатурн делает круг за 29.5 лет. Я смотрела на карту.',
+      draft: () => 'Un ciclo de producto tarda 29.5 años. Miré mi plan anoche.',
       critique: () => 'SCORE: 5\nVERDICT: REVISE',
-      refine: () => 'Saturn takes 29.5 years. I looked at the chart.',
+      refine: () => 'A product cycle takes 29.5 years. I looked at the chart.',
     });
     const compiled = buildGenerationGraph(llm).compile();
     const state = await compiled.invoke(
-      createInitialState(createTopic(), [SocialNetwork.X], 'brand voice', false, 'ru'),
+      createInitialState(createTopic(), [SocialNetwork.X], 'brand voice', false, 'es'),
       { configurable: { thread_id: 'qp-013' } },
     );
 
     const content = postsOf(state)[0]?.content;
-    expect(detectLanguage(content!)).not.toBe('ru');
+    expect(detectLanguage(content!)).not.toBe('es');
     // The current implementation does not auto-fix; the regression test documents
     // that the final persisted content is still whatever the LLM returned, so the
     // language mismatch is visible to the operator.
-    expect(content).toContain('Saturn takes 29.5 years');
+    expect(content).toContain('A product cycle takes 29.5 years');
   });
 });

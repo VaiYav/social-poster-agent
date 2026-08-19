@@ -160,7 +160,7 @@ describe('RedactInterceptor (MOD-07 — UTC-120..125)', () => {
 
   it('SEC9 — leaves legitimate content untouched (no false positives)', async () => {
     const input = {
-      content: 'Mercury retrograde brings reflection — revisit what stalled.',
+      content: 'Workflow Trends brings reflection — revisit what stalled.',
       id: '7b1f9c2a-3d4e-4f5a-8b6c-1a2b3c4d5e6f',
       simhash: 'a1b2c3d4e5f60718',
     };

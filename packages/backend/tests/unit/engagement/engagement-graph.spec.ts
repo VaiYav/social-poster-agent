@@ -37,8 +37,8 @@ function createMockTargetingService(): TargetingService {
       label: 'Home Feed',
     }),
     getAvailableSources: vi.fn().mockReturnValue([]),
-    getHashtags: vi.fn().mockReturnValue(['#astrology']),
-    getCompetitors: vi.fn().mockReturnValue(['costarastrology']),
+    getHashtags: vi.fn().mockReturnValue(['#productivity']),
+    getCompetitors: vi.fn().mockReturnValue(['competitorco']),
   } as unknown as TargetingService;
 }
 
@@ -344,8 +344,8 @@ describe('EngagementGraph', () => {
     targetingService = createMockTargetingService();
     (targetingService.pickSource as ReturnType<typeof vi.fn>).mockReturnValue({
       source: 'hashtag' as const,
-      url: 'https://x.com/search?q=%23astrology',
-      label: 'Hashtag #astrology',
+      url: 'https://x.com/search?q=%23productivity',
+      label: 'Hashtag #productivity',
     });
 
     const graph = buildEngagementGraph(engager, {
@@ -367,11 +367,11 @@ describe('EngagementGraph', () => {
 
     const finalState = await compiled.invoke(initialState);
 
-    expect(finalState.sourceLabel).toBe('Hashtag #astrology');
-    expect(finalState.sourceUrl).toBe('https://x.com/search?q=%23astrology');
+    expect(finalState.sourceLabel).toBe('Hashtag #productivity');
+    expect(finalState.sourceUrl).toBe('https://x.com/search?q=%23productivity');
     expect(engager.scrollUrl).toHaveBeenCalledWith(
       expect.anything(),
-      'https://x.com/search?q=%23astrology',
+      'https://x.com/search?q=%23productivity',
       expect.any(Number),
     );
   });
@@ -405,8 +405,8 @@ describe('EngagementGraph', () => {
     targetingService = createMockTargetingService();
     (targetingService.pickSource as ReturnType<typeof vi.fn>).mockReturnValue({
       source: 'hashtag' as const,
-      url: 'https://x.com/search?q=%23astrology',
-      label: 'Hashtag #astrology',
+      url: 'https://x.com/search?q=%23productivity',
+      label: 'Hashtag #productivity',
     });
     engager = createMockEngager();
     (engager.scrollUrl as ReturnType<typeof vi.fn>).mockResolvedValue([]);
@@ -432,7 +432,7 @@ describe('EngagementGraph', () => {
 
     expect(engager.scrollUrl).toHaveBeenCalledWith(
       expect.anything(),
-      'https://x.com/search?q=%23astrology',
+      'https://x.com/search?q=%23productivity',
       expect.any(Number),
     );
     expect(engager.scrollFeed).toHaveBeenCalled();

@@ -58,26 +58,26 @@ describe('PromptRegistry', () => {
   describe('getCompiledChat (no Langfuse — inline fallback)', () => {
     it('interpolates {var} placeholders in the inline fallback', async () => {
       const result = await registry.getCompiledChat('test-prompt', {
-        topic: 'Mercury retrograde',
+        topic: 'Workflow Trends',
         network: 'X',
       }, {
         systemPrompt: 'You are an expert on {topic}.',
         userPrompt: 'Write a {network} post about {topic}.',
       })
 
-      expect(result.systemPrompt).toBe('You are an expert on Mercury retrograde.')
-      expect(result.userPrompt).toBe('Write a X post about Mercury retrograde.')
+      expect(result.systemPrompt).toBe('You are an expert on Workflow Trends.')
+      expect(result.userPrompt).toBe('Write a X post about Workflow Trends.')
     })
 
     it('leaves unmatched placeholders intact', async () => {
       const result = await registry.getCompiledChat('test-prompt', {
-        topic: 'Saturn return',
+        topic: 'Product cycle',
       }, {
         systemPrompt: 'You are an expert on {topic}.',
         userPrompt: 'Write about {missingVar}.',
       })
 
-      expect(result.systemPrompt).toBe('You are an expert on Saturn return.')
+      expect(result.systemPrompt).toBe('You are an expert on Product cycle.')
       expect(result.userPrompt).toBe('Write about {missingVar}.')
     })
 
@@ -110,7 +110,7 @@ describe('PromptRegistry', () => {
       const langfuse = createMockLangfuse({ label: '0.4.0' })
       registry = new PromptRegistry(configService, langfuse as unknown as LangfuseService, [])
 
-      const result = await registry.getCompiledChat('test-prompt', { topic: 'Saturn' }, undefined)
+      const result = await registry.getCompiledChat('test-prompt', { topic: 'Product Cycle' }, undefined)
 
       expect(result.label).toBe('0.4.0')
       expect(result.isFallback).toBe(false)
@@ -125,7 +125,7 @@ describe('PromptRegistry', () => {
       })
       registry = new PromptRegistry(configService, langfuse as unknown as LangfuseService, [])
 
-      await registry.getCompiledChat('test-prompt', { topic: 'Saturn' }, undefined)
+      await registry.getCompiledChat('test-prompt', { topic: 'Product Cycle' }, undefined)
 
       expect(langfuse.getChatPrompt).toHaveBeenCalledWith('test-prompt', undefined, 'experimental')
     })
@@ -135,7 +135,7 @@ describe('PromptRegistry', () => {
       configService = createMockConfigService({ PROMPT_VERSION: '0.4.0' })
       registry = new PromptRegistry(configService, langfuse as unknown as LangfuseService, [])
 
-      await registry.getCompiledChat('test-prompt', { topic: 'Saturn' }, undefined, 'v2')
+      await registry.getCompiledChat('test-prompt', { topic: 'Product Cycle' }, undefined, 'v2')
 
       expect(langfuse.getChatPrompt).toHaveBeenCalledWith('test-prompt', undefined, 'v2')
     })
@@ -152,7 +152,7 @@ describe('PromptRegistry', () => {
       configService = createMockConfigService({ PROMPT_VERSION: '0.4.0' })
       registry = new PromptRegistry(configService, langfuse as unknown as LangfuseService, [])
 
-      const result = await registry.getCompiledChat('test-prompt', { topic: 'Saturn' }, undefined)
+      const result = await registry.getCompiledChat('test-prompt', { topic: 'Product Cycle' }, undefined)
 
       expect(result.label).toBe('production')
       expect(result.isFallback).toBe(false)
@@ -165,13 +165,13 @@ describe('PromptRegistry', () => {
       const langfuse = createMockLangfuse({ responses: [] })
       registry = new PromptRegistry(configService, langfuse as unknown as LangfuseService, [])
 
-      const result = await registry.getCompiledChat('test-prompt', { topic: 'Saturn' }, {
+      const result = await registry.getCompiledChat('test-prompt', { topic: 'Product Cycle' }, {
         systemPrompt: 'System {topic}',
         userPrompt: 'User {topic}',
       })
 
-      expect(result.systemPrompt).toBe('System Saturn')
-      expect(result.userPrompt).toBe('User Saturn')
+      expect(result.systemPrompt).toBe('System Product Cycle')
+      expect(result.userPrompt).toBe('User Product Cycle')
       expect(result.label).toBe('0.4.0')
       expect(result.isFallback).toBe(true)
     })

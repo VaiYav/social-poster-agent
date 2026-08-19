@@ -121,7 +121,7 @@ const APPROVED_POST_X = {
   id: 'post-1',
   accountId: 'acc-001',
   network: SocialNetwork.X,
-  content: 'Mercury retrograde is coming! ♋',
+  content: 'Workflow trends are here! 🎯',
   contentType: ContentType.SOCIAL_POST,
   status: PostStatus.APPROVED,
   postUrl: null,
@@ -681,13 +681,13 @@ describe('MOD-03: PostingService', () => {
         slug: 'test-devto-article',
         excerpt: 'A test article for Dev.to syndication.',
       }),
-      canonicalUrl: 'https://my-zodiac-ai.com/blog/test-devto-article',
+      canonicalUrl: 'https://example.com/blog/test-devto-article',
     });
     ctx.sessionsService.getOrCreateSession.mockResolvedValue(ACTIVE_SESSION);
     ctx.devtoPoster.postArticle.mockResolvedValue({
       success: true,
       url: 'https://dev.to/testuser/test-devto-article-123',
-      canonicalUrl: 'https://my-zodiac-ai.com/blog/test-devto-article',
+      canonicalUrl: 'https://example.com/blog/test-devto-article',
     });
     ctx.devtoPoster.verifyPosted.mockResolvedValue('https://dev.to/testuser/test-devto-article-123');
 
@@ -711,7 +711,7 @@ describe('MOD-03: PostingService', () => {
       postId: 'post-devto-1',
       network: 'DEVTO',
       postUrl: 'https://dev.to/testuser/test-devto-article-123',
-      canonicalUrl: 'https://my-zodiac-ai.com/blog/test-devto-article',
+      canonicalUrl: 'https://example.com/blog/test-devto-article',
       syndicatedUrl: 'https://dev.to/testuser/test-devto-article-123',
       contentType: 'ARTICLE',
     });
@@ -1489,7 +1489,7 @@ describe('MOD-03: PostingService', () => {
     const result = await ctx.service.postById('post-bluesky');
 
     expect(result.success).toBe(true);
-    expect(ctx.blueskyPoster.post).toHaveBeenCalledWith(mockContext, ctx.browser, 'Mercury retrograde is coming! ♋');
+    expect(ctx.blueskyPoster.post).toHaveBeenCalledWith(mockContext, ctx.browser, 'Workflow trends are here! 🎯');
     expect(ctx.postsService.updateStatus).toHaveBeenCalledWith('post-bluesky', { status: PostStatus.VERIFIED, postUrl: 'https://bsky.app/profile/handle.bsky.social/post/3k2' });
   });
 
@@ -1509,7 +1509,7 @@ describe('MOD-03: PostingService', () => {
     const result = await ctx.service.postById('post-mastodon');
 
     expect(result.success).toBe(true);
-    expect(ctx.mastodonPoster.post).toHaveBeenCalledWith(mockContext, ctx.browser, 'Mercury retrograde is coming! ♋');
+    expect(ctx.mastodonPoster.post).toHaveBeenCalledWith(mockContext, ctx.browser, 'Workflow trends are here! 🎯');
     expect(ctx.postsService.updateStatus).toHaveBeenCalledWith('post-mastodon', { status: PostStatus.VERIFIED, postUrl: 'https://mastodon.social/@user/123456' });
   });
 
@@ -1529,7 +1529,7 @@ describe('MOD-03: PostingService', () => {
     const result = await ctx.service.postById('post-telegram');
 
     expect(result.success).toBe(true);
-    expect(ctx.telegramAdapter.postMessage).toHaveBeenCalledWith('Mercury retrograde is coming! ♋');
+    expect(ctx.telegramAdapter.postMessage).toHaveBeenCalledWith('Workflow trends are here! 🎯');
     expect(ctx.postsService.updateStatus).toHaveBeenCalledWith('post-telegram', { status: PostStatus.VERIFIED, postUrl: 'https://t.me/channel/123' });
   });
 
@@ -1555,7 +1555,7 @@ describe('MOD-03: PostingService', () => {
     expect(ctx.linkedinSocialPoster.post).toHaveBeenCalledWith(
       mockContext,
       ctx.browser,
-      'Mercury retrograde is coming! ♋',
+      'Workflow trends are here! 🎯',
     );
     expect(ctx.postsService.updateStatus).toHaveBeenCalledWith('post-linkedin-social', {
       status: PostStatus.VERIFIED,

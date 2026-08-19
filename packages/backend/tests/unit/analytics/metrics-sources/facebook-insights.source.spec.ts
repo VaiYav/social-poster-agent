@@ -14,7 +14,7 @@ import {
 
 const POST = {
   id: 'p1',
-  postUrl: 'https://www.facebook.com/myzodiacai/posts/1234567890',
+  postUrl: 'https://www.facebook.com/exampleco/posts/1234567890',
   network: 'FACEBOOK' as const,
   accountId: 'a1',
 };
@@ -72,7 +72,7 @@ describe('FacebookInsightsSource (AN1)', () => {
     const fetchFn = vi.fn();
     const source = new FacebookInsightsSource('t', fetchFn as never);
 
-    expect(await source.fetchMetrics({ ...POST, postUrl: 'https://www.facebook.com/myzodiacai' })).toBeNull();
+    expect(await source.fetchMetrics({ ...POST, postUrl: 'https://www.facebook.com/exampleco' })).toBeNull();
     expect(fetchFn).not.toHaveBeenCalled();
   });
 });

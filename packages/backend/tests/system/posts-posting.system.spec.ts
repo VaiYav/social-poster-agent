@@ -183,17 +183,17 @@ function createMockQueueFactory() {
 const NOW = new Date('2026-07-15T10:00:00Z');
 
 const ACCOUNT_X = {
-  id: 'acc-001', network: SocialNetwork.X, handle: 'myzodiacai',
+  id: 'acc-001', network: SocialNetwork.X, handle: 'exampleco',
   credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD', active: true,
   createdAt: NOW, updatedAt: NOW,
 };
 const ACCOUNT_THREADS = {
-  id: 'acc-002', network: SocialNetwork.THREADS, handle: 'myzodiacai',
+  id: 'acc-002', network: SocialNetwork.THREADS, handle: 'exampleco',
   credentialsRef: 'SOCIAL_THREADS_USERNAME,SOCIAL_THREADS_PASSWORD', active: true,
   createdAt: NOW, updatedAt: NOW,
 };
 const ACCOUNT_FB = {
-  id: 'acc-003', network: SocialNetwork.FACEBOOK, handle: 'myzodiacai@facebook.com',
+  id: 'acc-003', network: SocialNetwork.FACEBOOK, handle: 'exampleco@facebook.com',
   credentialsRef: 'SOCIAL_FACEBOOK_EMAIL,SOCIAL_FACEBOOK_PASSWORD', active: true,
   createdAt: NOW, updatedAt: NOW,
 };
@@ -209,7 +209,7 @@ function makePost(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     id: 'post-000',
     network: SocialNetwork.X,
-    content: 'Mercury retrograde is coming! Time to reflect, not react.',
+    content: 'Workflow trends are coming! Time to focus, not react.',
     status: PostStatus.DRAFT,
     postUrl: null,
     errorMessage: null,
@@ -281,7 +281,7 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
 
     xPoster = { post: vi.fn().mockResolvedValue({ url: 'https://x.com/test_x_user/status/123' }) };
     threadsPoster = { post: vi.fn().mockResolvedValue({ url: 'https://www.threads.com/@user/post/abc123' }) };
-    facebookPoster = { post: vi.fn().mockResolvedValue({ url: 'https://www.facebook.com/myzodiacai/posts/789' }) };
+    facebookPoster = { post: vi.fn().mockResolvedValue({ url: 'https://www.facebook.com/exampleco/posts/789' }) };
 
     moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(PrismaService).useValue(prisma)
@@ -338,7 +338,7 @@ describe('System Tests: Posts & Posting (STC-010..025)', () => {
     // Restore default poster implementations after clearAllMocks
     xPoster.post.mockResolvedValue({ url: 'https://x.com/test_x_user/status/123' });
     threadsPoster.post.mockResolvedValue({ url: 'https://www.threads.com/@user/post/abc123' });
-    facebookPoster.post.mockResolvedValue({ url: 'https://www.facebook.com/myzodiacai/posts/789' });
+    facebookPoster.post.mockResolvedValue({ url: 'https://www.facebook.com/exampleco/posts/789' });
 
     // Multi-account: postById uses SessionsService.getOrCreateSession(accountId, network)
     // which calls AccountsService.findById -> prisma.socialAccount.findUnique.

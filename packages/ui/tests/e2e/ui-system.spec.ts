@@ -73,7 +73,7 @@ function makePost(overrides: Partial<MockPost> & { id: string }): MockPost {
     postUrl: null,
     errorMessage: null,
     retryCount: 0,
-    llmMetadata: { model: 'gpt-4o-mini', tokens: 120 },
+    llmMetadata: { model: 'gpt-5-nano', tokens: 120 },
     createdAt: '2026-06-26T10:00:00.000Z',
     approvedAt: null,
     postedAt: null,

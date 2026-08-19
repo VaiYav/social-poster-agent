@@ -18,7 +18,7 @@ function createMockPrisma() {
 
 function createMockLlm(response: string) {
   return {
-    generateChat: vi.fn().mockResolvedValue({ content: response, model: 'gpt-4o-mini' }),
+    generateChat: vi.fn().mockResolvedValue({ content: response, model: 'gpt-5-nano' }),
   };
 }
 
@@ -30,9 +30,9 @@ describe('TopicGenerationService', () => {
   beforeEach(() => {
     prisma = createMockPrisma();
     const response = JSON.stringify([
-      { topic: 'Mercury Retrograde July 2026', keywords: ['mercury', 'retrograde'], facts: ['Starts July 14'], category: 'retrograde' },
-      { topic: 'Full Moon in Capricorn', keywords: ['moon', 'capricorn'], facts: ['July 21'], category: 'lunar' },
-      { topic: 'Mercury Retrograde July 2026', keywords: ['dup'], facts: ['dup'], category: 'retrograde' },
+      { topic: 'Workflow Trends July 2026', keywords: ['workflow', 'slowdown'], facts: ['Starts July 14'], category: 'slowdown' },
+      { topic: 'Product Launch in Q4', keywords: ['workflow', 'q4'], facts: ['July 21'], category: 'lunar' },
+      { topic: 'Workflow Trends July 2026', keywords: ['dup'], facts: ['dup'], category: 'slowdown' },
     ]);
     llm = createMockLlm(response);
     service = new TopicGenerationService(
@@ -54,8 +54,8 @@ describe('TopicGenerationService', () => {
     expect(callArg.skipDuplicates).toBe(true);
     expect(callArg.data).toHaveLength(2);
     const topics = callArg.data.map((d: any) => d.topic);
-    expect(topics).toContain('Mercury Retrograde July 2026');
-    expect(topics).toContain('Full Moon in Capricorn');
+    expect(topics).toContain('Workflow Trends July 2026');
+    expect(topics).toContain('Product Launch in Q4');
     // The duplicate topic string was removed in-memory.
     expect(new Set(topics).size).toBe(2);
   });

@@ -203,21 +203,21 @@ describe('MOD-03: BasePoster', () => {
   it('UTC-307: validatePostOnProfile() returns postUrl when content found on profile page', async () => {
     const content = 'Hello from X!';
     const page = createMockPage({
-      url: 'https://x.com/myzodiacai',
+      url: 'https://x.com/exampleco',
       bodyText: `Some text before ${content} and after`,
     });
 
     const result = await poster.validatePostOnProfilePublic(
       page,
-      'https://x.com/myzodiacai',
+      'https://x.com/exampleco',
       content,
       /\/status\/[A-Za-z0-9]+/,
     );
 
     // Content found on page → returns page.url() (no link matched the pattern)
-    expect(result).toBe('https://x.com/myzodiacai');
+    expect(result).toBe('https://x.com/exampleco');
     // Navigated to profile
-    expect(page.goto).toHaveBeenCalledWith('https://x.com/myzodiacai', { waitUntil: 'domcontentloaded' });
+    expect(page.goto).toHaveBeenCalledWith('https://x.com/exampleco', { waitUntil: 'domcontentloaded' });
     // Screenshot taken for debugging
     expect(browserPort.screenshot).toHaveBeenCalled();
   });
@@ -225,7 +225,7 @@ describe('MOD-03: BasePoster', () => {
   it('UTC-308: validatePostOnProfile() throws ValidationError when content not found on profile', async () => {
     const content = 'This content was never posted';
     const page = createMockPage({
-      url: 'https://x.com/myzodiacai',
+      url: 'https://x.com/exampleco',
       bodyText: 'Completely different content here',
     });
     // allInnerTexts returns empty array by default
@@ -233,7 +233,7 @@ describe('MOD-03: BasePoster', () => {
     await expect(
       poster.validatePostOnProfilePublic(
         page,
-        'https://x.com/myzodiacai',
+        'https://x.com/exampleco',
         content,
         /\/status\/[A-Za-z0-9]+/,
       ),
@@ -243,7 +243,7 @@ describe('MOD-03: BasePoster', () => {
   // ── validatePostUrl() ──────────────────────────────────────────────────────
 
   it('UTC-309: validatePostUrl() returns url when URL matches post pattern', () => {
-    const url = 'https://x.com/myzodiacai/status/1234567890';
+    const url = 'https://x.com/exampleco/status/1234567890';
     const pattern = /\/status\/([A-Za-z0-9]+)$/;
 
     const result = poster.validatePostUrlPublic(url, pattern);

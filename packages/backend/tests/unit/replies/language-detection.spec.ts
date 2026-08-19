@@ -98,7 +98,7 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
 
   it('PRE-001: skips troll/spam comments', async () => {
     const result = await svc.decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '1', network: 'X', content: 'Post about Workflow' },
       { id: '2', commentId: 'c1', author: 'user', text: 'This is spam, buy my product' },
     );
     expect(result.action).toBe('skip');
@@ -107,7 +107,7 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
 
   it('PRE-002: does NOT flag innocent words containing "bot" (about)', async () => {
     const result = await svc.decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '1', network: 'X', content: 'Post about Workflow' },
       { id: '2', commentId: 'c1', author: 'user', text: 'Tell me about this post' },
     );
     // "about" contains "bot" but should not be flagged as troll.
@@ -123,7 +123,7 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
     const svcWithHandle = new RepliesMonitorService(
       prisma as any,
       createMockConfigService({ REPLIES_ENABLED: 'true' }),
-      createMockAccountsService('myzodiacai') as any,
+      createMockAccountsService('exampleco') as any,
       createMockSessionsService() as any,
       createMockSchedulerRegistry() as any,
       createMockDiscord() as any,
@@ -131,8 +131,8 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
       undefined, undefined, undefined,
     );
     const result = await (svcWithHandle as any).decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: '@myzodiacai', text: 'Great post' },
+      { id: '1', network: 'X', content: 'Post about Workflow' },
+      { id: '2', commentId: 'c1', author: '@exampleco', text: 'Great post' },
     );
     expect(result.action).toBe('skip');
     expect(result.reason).toContain('Self-reply');
@@ -143,8 +143,8 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
   it('PRE-004: skips when max replies per post is reached', async () => {
     prisma.incomingComment.count = vi.fn().mockResolvedValue(3); // maxRepliesPerPost=3
     const result = await svc.decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Great post about astrology' },
+      { id: '1', network: 'X', content: 'Post about Workflow' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Great post about productivity' },
     );
     expect(result.action).toBe('skip');
     expect(result.reason).toContain('Max replies');
@@ -152,58 +152,50 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
 
   // ── Sensitive topic detection (runs BEFORE LLM) ──
 
-  it('PRE-005: flags depression mentions for human review (Ukrainian)', async () => {
+  it('PRE-005: flags depression mentions for human review', async () => {
     const result = await svc.decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'У мене депресія через це' },
+      { id: '1', network: 'X', content: 'Post about Workflow' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'I feel depressed and anxious about this' },
     );
     expect(result.action).toBe('human_review');
   });
 
-  it('PRE-006: flags crisis mentions for human review (Russian)', async () => {
+  it('PRE-006: flags crisis mentions for human review', async () => {
     const result = await svc.decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'У меня кризис из-за этого' },
+      { id: '1', network: 'X', content: 'Post about Workflow' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'I am having a crisis because of this' },
     );
     expect(result.action).toBe('human_review');
   });
 
-  it('PRE-007: flags complaints for human review (Ukrainian)', async () => {
+  it('PRE-007: flags complaints for human review', async () => {
     const result = await svc.decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Це неправильно, ви помиляєтесь' },
+      { id: '1', network: 'X', content: 'Post about Workflow' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'This is wrong, you are misleading' },
     );
     expect(result.action).toBe('human_review');
   });
 
-  it('PRE-008: does NOT flag innocent words containing "гор" (город, гора)', async () => {
+  it('PRE-008: does NOT flag innocent words containing crisis roots', async () => {
     const result1 = await svc.decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Я живу в красивому місті' },
+      { id: '1', network: 'X', content: 'Post about Workflow' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'I love this product, great job' },
     );
     expect(result1.action).not.toBe('human_review');
 
     const result2 = await svc.decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Це як гора — важко піднятися' },
+      { id: '1', network: 'X', content: 'Post about Workflow' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'This is a big milestone, hard to reach' },
     );
     expect(result2.action).not.toBe('human_review');
-  });
-
-  it('PRE-009: flags grief in Ukrainian (горе, горю)', async () => {
-    const result = await svc.decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Яке горе, втратила близьку людину' },
-    );
-    expect(result.action).toBe('human_review');
   });
 
   // ── LLM-only behavior ──
 
   it('PRE-010: skips with "LLM not available" when llmService is not wired', async () => {
     const result = await svc.decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Great post about astrology' },
+      { id: '1', network: 'X', content: 'Post about Workflow' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Great post about productivity' },
     );
     // No LLM service → skip (no template fallback)
     expect(result.action).toBe('skip');
@@ -220,7 +212,7 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
     };
     const svcWithLlm = createServiceWithLlm(mockLlm);
     const result = await (svcWithLlm as any).decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '1', network: 'X', content: 'Post about Workflow' },
       { id: '2', commentId: 'c1', author: 'user', text: 'Love this post!' },
     );
     expect(result.action).toBe('auto_reply');
@@ -234,7 +226,7 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
     };
     const svcWithLlm = createServiceWithLlm(mockLlm);
     const result = await (svcWithLlm as any).decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '1', network: 'X', content: 'Post about Workflow' },
       { id: '2', commentId: 'c1', author: 'user', text: 'Love this post!' },
     );
     // LLM failed → skip (no template fallback, will retry next cycle)
@@ -252,7 +244,7 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
     };
     const svcWithLlm = createServiceWithLlm(mockLlm);
     const result = await (svcWithLlm as any).decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '1', network: 'X', content: 'Post about Workflow' },
       { id: '2', commentId: 'c1', author: 'user', text: 'Love this post!' },
     );
     expect(result.action).toBe('skip');
@@ -269,7 +261,7 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
     };
     const svcWithLlm = createServiceWithLlm(mockLlm);
     const result = await (svcWithLlm as any).decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '1', network: 'X', content: 'Post about Workflow' },
       { id: '2', commentId: 'c1', author: 'user', text: 'Love this post!' },
     );
     expect(result.action).toBe('human_review');
@@ -285,7 +277,7 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
     };
     const svcWithLlm = createServiceWithLlm(mockLlm);
     const result = await (svcWithLlm as any).decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '1', network: 'X', content: 'Post about Workflow' },
       { id: '2', commentId: 'c1', author: 'user', text: 'Love this post!' },
     );
     expect(result.action).toBe('human_review');
@@ -313,8 +305,8 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
 
   // ── Language matching (post-validation) ──
   // The LLM is asked to detect the comment's language and write the reply in it.
-  // We post-validate: if the LLM says "uk" but writes in Latin script, downgrade
-  // to human_review instead of posting an English reply to a Ukrainian comment.
+  // We post-validate: if the LLM says "es" or "it" but writes in the wrong script,
+  // downgrade to human_review instead of posting an English reply to a non-English comment.
 
   function createMockQuestionClassifier() {
     return {
@@ -347,59 +339,6 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
     );
   }
 
-  it('LANG-001: accepts auto_reply when Ukrainian comment gets Ukrainian reply', async () => {
-    const mockLlm = {
-      generateChat: vi.fn().mockResolvedValue({
-        content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"uk","replyText":"Дякую! Це реально так."}',
-        model: 'test',
-        tokens: 10,
-      }),
-    };
-    const svcWithLlm = createServiceWithLlm(mockLlm);
-    const result = await (svcWithLlm as any).decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Це супер! Дякую' },
-    );
-    expect(result.action).toBe('auto_reply');
-    expect(result.detectedLanguage).toBe('uk');
-    expect(result.replyText).toContain('Дякую');
-  });
-
-  it('LANG-002: downgrades to human_review when LLM writes English reply to Ukrainian comment', async () => {
-    const mockLlm = {
-      generateChat: vi.fn().mockResolvedValue({
-        content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"uk","replyText":"Thanks for sharing this!"}',
-        model: 'test',
-        tokens: 10,
-      }),
-    };
-    const svcWithLlm = createServiceWithLlm(mockLlm);
-    const result = await (svcWithLlm as any).decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Це супер! Дякую' },
-    );
-    // Script mismatch: uk expected Cyrillic, got Latin → downgrade
-    expect(result.action).toBe('human_review');
-    expect(result.reviewReason).toContain('script');
-  });
-
-  it('LANG-003: downgrades to human_review when LLM writes English reply to Russian comment', async () => {
-    const mockLlm = {
-      generateChat: vi.fn().mockResolvedValue({
-        content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"ru","replyText":"Love this post!"}',
-        model: 'test',
-        tokens: 10,
-      }),
-    };
-    const svcWithLlm = createServiceWithLlm(mockLlm);
-    const result = await (svcWithLlm as any).decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Спасибо за пост' },
-    );
-    expect(result.action).toBe('human_review');
-    expect(result.reviewReason).toContain('script');
-  });
-
   it('LANG-004: accepts auto_reply when English comment gets English reply', async () => {
     const mockLlm = {
       generateChat: vi.fn().mockResolvedValue({
@@ -410,8 +349,8 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
     };
     const svcWithLlm = createServiceWithLlm(mockLlm);
     const result = await (svcWithLlm as any).decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Love this post about astrology' },
+      { id: '1', network: 'X', content: 'Post about Workflow' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'Love this post about productivity' },
     );
     expect(result.action).toBe('auto_reply');
     expect(result.detectedLanguage).toBe('en');
@@ -420,14 +359,14 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
   it('LANG-005: accepts auto_reply when Spanish comment gets Spanish reply', async () => {
     const mockLlm = {
       generateChat: vi.fn().mockResolvedValue({
-        content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"es","replyText":"¡Gracias! Saturno es real."}',
+        content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"es","replyText":"¡Gracias! El ciclo de producto es real."}',
         model: 'test',
         tokens: 10,
       }),
     };
     const svcWithLlm = createServiceWithLlm(mockLlm);
     const result = await (svcWithLlm as any).decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '1', network: 'X', content: 'Post about Workflow' },
       { id: '2', commentId: 'c1', author: 'user', text: '¡Me encanta este post!' },
     );
     expect(result.action).toBe('auto_reply');
@@ -437,36 +376,18 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
   it('LANG-006: accepts auto_reply when Italian comment gets Italian reply', async () => {
     const mockLlm = {
       generateChat: vi.fn().mockResolvedValue({
-        content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"it","replyText":"Grazie! Saturno è reale."}',
+        content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"it","replyText":"Grazie! Il ciclo di prodotto è reale."}',
         model: 'test',
         tokens: 10,
       }),
     };
     const svcWithLlm = createServiceWithLlm(mockLlm);
     const result = await (svcWithLlm as any).decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '1', network: 'X', content: 'Post about Workflow' },
       { id: '2', commentId: 'c1', author: 'user', text: 'Mi piace questo post!' },
     );
     expect(result.action).toBe('auto_reply');
     expect(result.detectedLanguage).toBe('it');
-  });
-
-  it('LANG-007: downgrades when LLM writes Cyrillic reply to English comment', async () => {
-    const mockLlm = {
-      generateChat: vi.fn().mockResolvedValue({
-        content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"en","replyText":"Спасибо за пост"}',
-        model: 'test',
-        tokens: 10,
-      }),
-    };
-    const svcWithLlm = createServiceWithLlm(mockLlm);
-    const result = await (svcWithLlm as any).decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Love this post about astrology' },
-    );
-    // Script mismatch: en expected Latin, got Cyrillic → downgrade
-    expect(result.action).toBe('human_review');
-    expect(result.reviewReason).toContain('script');
   });
 
   it('LANG-008: accepts auto_reply when detectedLanguage is missing (no validation)', async () => {
@@ -480,7 +401,7 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
     };
     const svcWithLlm = createServiceWithLlm(mockLlm);
     const result = await (svcWithLlm as any).decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '1', network: 'X', content: 'Post about Workflow' },
       { id: '2', commentId: 'c1', author: 'user', text: 'Love this post' },
     );
     expect(result.action).toBe('auto_reply');
@@ -506,76 +427,6 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
     expect(systemPrompt).toContain('LANGUAGE DETECTION');
   });
 
-  it('LANG-010: accepts mixed-script reply for uk when Cyrillic dominates', async () => {
-    // Ukrainian reply with English astrology term — Cyrillic dominates
-    const mockLlm = {
-      generateChat: vi.fn().mockResolvedValue({
-        content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"uk","replyText":"Меркурий retrograde — це реально так."}',
-        model: 'test',
-        tokens: 10,
-      }),
-    };
-    const svcWithLlm = createServiceWithLlm(mockLlm);
-    const result = await (svcWithLlm as any).decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Так, це правда' },
-    );
-    expect(result.action).toBe('auto_reply');
-  });
-
-  it('LANG-011: accepts locale variant detectedLanguage (uk-UA normalizes to uk)', async () => {
-    const mockLlm = {
-      generateChat: vi.fn().mockResolvedValue({
-        content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"uk-UA","replyText":"Дякую за пост!"}',
-        model: 'test',
-        tokens: 10,
-      }),
-    };
-    const svcWithLlm = createServiceWithLlm(mockLlm);
-    const result = await (svcWithLlm as any).decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Дякую за цей пост, дуже точно' },
-    );
-    expect(result.action).toBe('auto_reply');
-  });
-
-  it('LANG-013: trusts deterministic detector when LLM echoes a different language code', async () => {
-    const mockLlm = {
-      generateChat: vi.fn().mockResolvedValue({
-        content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"en","replyText":"Дякую за пост!"}',
-        model: 'test',
-        tokens: 10,
-      }),
-    };
-    const svcWithLlm = createServiceWithLlm(mockLlm);
-    const result = await (svcWithLlm as any).decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Дякую за пост' },
-    );
-    // Detector says uk, LLM said en; we validate the Cyrillic reply as uk → passes
-    expect(result.action).toBe('auto_reply');
-    expect(result.detectedLanguage).toBe('uk');
-    expect(result.replyText).toContain('Дякую');
-  });
-
-  it('LANG-012: downgrades when locale variant detectedLanguage mismatches script', async () => {
-    const mockLlm = {
-      generateChat: vi.fn().mockResolvedValue({
-        content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"ru-RU","replyText":"Thanks!"}',
-        model: 'test',
-        tokens: 10,
-      }),
-    };
-    const svcWithLlm = createServiceWithLlm(mockLlm);
-    const result = await (svcWithLlm as any).decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'Спасибо за этот пост, очень точно' },
-    );
-    // ru-RU normalizes to ru, but replyText is Latin → mismatch → human_review
-    expect(result.action).toBe('human_review');
-    expect(result.reviewReason).toContain('script');
-  });
-
   // ── LLM skip action ──
 
   it('SKIP-001: accepts LLM skip action for low-value comment', async () => {
@@ -588,7 +439,7 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
     };
     const svcWithLlm = createServiceWithLlm(mockLlm);
     const result = await (svcWithLlm as any).decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '1', network: 'X', content: 'Post about Workflow' },
       { id: '2', commentId: 'c1', author: 'user', text: 'Who else is here from TikTok?' },
     );
     expect(result.action).toBe('skip');
@@ -606,7 +457,7 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
     const svcWithLlm = createServiceWithLlm(mockLlm);
     // "nice" is a generic reaction — deterministic filter catches it, no LLM call
     const result = await (svcWithLlm as any).decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '1', network: 'X', content: 'Post about Workflow' },
       { id: '2', commentId: 'c1', author: 'user', text: 'nice' },
     );
     expect(result.action).toBe('skip');
@@ -620,7 +471,7 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
     };
     const svcWithLlm = createServiceWithLlm(mockLlm);
     const result = await (svcWithLlm as any).decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
+      { id: '1', network: 'X', content: 'Post about Workflow' },
       { id: '2', commentId: 'c1', author: 'user', text: '🔥🔥🔥' },
     );
     expect(result.action).toBe('skip');
@@ -634,8 +485,8 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
     };
     const svcWithLlm = createServiceWithLlm(mockLlm);
     const result = await (svcWithLlm as any).decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'follow me for daily horoscopes' },
+      { id: '1', network: 'X', content: 'Post about Workflow' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'follow me for daily newsletters' },
     );
     expect(result.action).toBe('skip');
     expect(result.reason).toContain('Follow/subscribe bait');
@@ -645,15 +496,15 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
   it('SKIP-005: genuine question still goes to LLM (not caught by low-value filter)', async () => {
     const mockLlm = {
       generateChat: vi.fn().mockResolvedValue({
-        content: '{"action":"auto_reply","reason":"genuine question","detectedLanguage":"en","replyText":"Great question! Mercury retrograde is..."}',
+        content: '{"action":"auto_reply","reason":"genuine question","detectedLanguage":"en","replyText":"Great question! Remote work is..."}',
         model: 'test',
         tokens: 10,
       }),
     };
     const svcWithLlm = createServiceWithLlm(mockLlm);
     const result = await (svcWithLlm as any).decideReply(
-      { id: '1', network: 'X', content: 'Post about Mars' },
-      { id: '2', commentId: 'c1', author: 'user', text: 'What does Mercury retrograde mean for me?' },
+      { id: '1', network: 'X', content: 'Post about Workflow' },
+      { id: '2', commentId: 'c1', author: 'user', text: 'What does remote work mean for me?' },
     );
     expect(result.action).toBe('auto_reply');
     expect(mockLlm.generateChat).toHaveBeenCalledOnce();

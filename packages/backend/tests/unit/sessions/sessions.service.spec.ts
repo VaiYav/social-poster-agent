@@ -61,9 +61,9 @@ function createMockEmailReader() {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const ACCOUNT_X = { id: 'acc-x', network: SocialNetwork.X, handle: 'myzodiacai', active: true, credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD,SOCIAL_X_COOKIES' };
-const ACCOUNT_THREADS = { id: 'acc-threads', network: SocialNetwork.THREADS, handle: 'myzodiacai', active: true, credentialsRef: 'SOCIAL_THREADS_USERNAME,SOCIAL_THREADS_PASSWORD,SOCIAL_THREADS_COOKIES' };
-const ACCOUNT_FB = { id: 'acc-fb', network: SocialNetwork.FACEBOOK, handle: 'myzodiacai@fb.com', active: true, credentialsRef: 'SOCIAL_FACEBOOK_USERNAME,SOCIAL_FACEBOOK_PASSWORD,SOCIAL_FACEBOOK_COOKIES' };
+const ACCOUNT_X = { id: 'acc-x', network: SocialNetwork.X, handle: 'exampleco', active: true, credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD,SOCIAL_X_COOKIES' };
+const ACCOUNT_THREADS = { id: 'acc-threads', network: SocialNetwork.THREADS, handle: 'exampleco', active: true, credentialsRef: 'SOCIAL_THREADS_USERNAME,SOCIAL_THREADS_PASSWORD,SOCIAL_THREADS_COOKIES' };
+const ACCOUNT_FB = { id: 'acc-fb', network: SocialNetwork.FACEBOOK, handle: 'exampleco@fb.com', active: true, credentialsRef: 'SOCIAL_FACEBOOK_USERNAME,SOCIAL_FACEBOOK_PASSWORD,SOCIAL_FACEBOOK_COOKIES' };
 
 const ACTIVE_SESSION = {
   id: 'sess-active-1',
@@ -362,7 +362,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ THREADS: ACCOUNT_THREADS }),
       config: createMockConfigService({
-        SOCIAL_THREADS_USERNAME: 'myzodiacai',
+        SOCIAL_THREADS_USERNAME: 'exampleco',
         SOCIAL_THREADS_PASSWORD: 'secret-pass',
       }),
     });
@@ -392,7 +392,7 @@ describe('MOD-04: SessionsService', () => {
       accounts: createMockAccountsService({ THREADS: ACCOUNT_THREADS }),
       config: createMockConfigService({
         SESSION_DEFERRED_LOGIN: 'true',
-        SOCIAL_THREADS_USERNAME: 'myzodiacai',
+        SOCIAL_THREADS_USERNAME: 'exampleco',
         SOCIAL_THREADS_PASSWORD: 'secret-pass',
         // no SOCIAL_THREADS_COOKIES → cookie auth yields null
       }),
@@ -417,7 +417,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ THREADS: ACCOUNT_THREADS }),
       config: createMockConfigService({
-        SOCIAL_THREADS_USERNAME: 'myzodiacai',
+        SOCIAL_THREADS_USERNAME: 'exampleco',
         SOCIAL_THREADS_PASSWORD: 'secret-pass',
         FORM_LOGIN_COOLDOWN_MS: '1800000', // enable the cooldown for this assertion (default is 0/off)
         // deferral off (default) → form login allowed, but cooled down after the first.
@@ -455,7 +455,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ X: ACCOUNT_X }),
       config: createMockConfigService({
-        SOCIAL_X_USERNAME: 'myzodiacai',
+        SOCIAL_X_USERNAME: 'exampleco',
         // password missing → default ''
       }),
     });
@@ -478,7 +478,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ X: ACCOUNT_X }),
       config: createMockConfigService({
-        SOCIAL_X_USERNAME: 'myzodiacai',
+        SOCIAL_X_USERNAME: 'exampleco',
         SOCIAL_X_PASSWORD: 'secret-pass',
       }),
     });
@@ -505,7 +505,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ X: ACCOUNT_X }),
       config: createMockConfigService({
-        SOCIAL_X_USERNAME: 'myzodiacai',
+        SOCIAL_X_USERNAME: 'exampleco',
         SOCIAL_X_PASSWORD: 'secret-pass',
       }),
     });
@@ -533,7 +533,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ X: ACCOUNT_X }),
       config: createMockConfigService({
-        SOCIAL_X_USERNAME: 'myzodiacai',
+        SOCIAL_X_USERNAME: 'exampleco',
         SOCIAL_X_PASSWORD: 'secret-pass',
       }),
     });
@@ -558,7 +558,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ X: ACCOUNT_X }),
       config: createMockConfigService({
-        SOCIAL_X_USERNAME: 'myzodiacai',
+        SOCIAL_X_USERNAME: 'exampleco',
         SOCIAL_X_PASSWORD: 'secret-pass',
       }),
     });
@@ -748,7 +748,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ FACEBOOK: ACCOUNT_FB }),
       config: createMockConfigService({
-        SOCIAL_FACEBOOK_USERNAME: 'myzodiacai@fb.com',
+        SOCIAL_FACEBOOK_USERNAME: 'exampleco@fb.com',
         SOCIAL_FACEBOOK_PASSWORD: 'fb-pass',
       }),
     });
@@ -778,7 +778,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ FACEBOOK: ACCOUNT_FB }),
       config: createMockConfigService({
-        SOCIAL_FACEBOOK_USERNAME: 'myzodiacai@fb.com',
+        SOCIAL_FACEBOOK_USERNAME: 'exampleco@fb.com',
         SOCIAL_FACEBOOK_PASSWORD: 'fb-pass',
       }),
     });
@@ -805,7 +805,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ THREADS: ACCOUNT_THREADS }),
       config: createMockConfigService({
-        SOCIAL_THREADS_USERNAME: 'myzodiacai',
+        SOCIAL_THREADS_USERNAME: 'exampleco',
         SOCIAL_THREADS_PASSWORD: 'threads-pass',
       }),
     });
@@ -880,7 +880,7 @@ describe('MOD-04: SessionsService', () => {
       accounts: createMockAccountsService({ X: ACCOUNT_X }),
       config: createMockConfigService({
         SOCIAL_X_COOKIES: 'auth_token=test-auth-token; ct0=test-ct0',
-        SOCIAL_X_USERNAME: 'myzodiacai',
+        SOCIAL_X_USERNAME: 'exampleco',
         SOCIAL_X_PASSWORD: 'secret-pass',
       }),
     });
@@ -917,7 +917,7 @@ describe('MOD-04: SessionsService', () => {
       accounts: createMockAccountsService({ X: ACCOUNT_X }),
       config: createMockConfigService({
         SOCIAL_X_COOKIES: 'auth_token=test-auth-token; ct0=test-ct0',
-        SOCIAL_X_USERNAME: 'myzodiacai',
+        SOCIAL_X_USERNAME: 'exampleco',
         SOCIAL_X_PASSWORD: 'secret-pass',
       }),
     });
@@ -945,7 +945,7 @@ describe('MOD-04: SessionsService', () => {
       accounts: createMockAccountsService({ X: ACCOUNT_X }),
       config: createMockConfigService({
         SOCIAL_X_COOKIES: 'auth_token=test; ct0=test',
-        SOCIAL_X_USERNAME: 'myzodiacai',
+        SOCIAL_X_USERNAME: 'exampleco',
         SOCIAL_X_PASSWORD: 'secret-pass',
       }),
     });
@@ -964,7 +964,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ X: ACCOUNT_X }),
       config: createMockConfigService({
-        SOCIAL_X_USERNAME: 'myzodiacai',
+        SOCIAL_X_USERNAME: 'exampleco',
         SOCIAL_X_PASSWORD: 'secret-pass',
       }),
     });
@@ -1007,7 +1007,7 @@ describe('MOD-04: SessionsService', () => {
       const t = await setup({
         accounts: createMockAccountsService({ X: ACCOUNT_X }),
         config: createMockConfigService({
-          SOCIAL_X_USERNAME: 'myzodiacai',
+          SOCIAL_X_USERNAME: 'exampleco',
           SOCIAL_X_PASSWORD: 'secret-pass',
         }),
       });
@@ -1048,7 +1048,7 @@ describe('MOD-04: SessionsService', () => {
       const t = await setup({
         accounts: createMockAccountsService({ X: ACCOUNT_X }),
         config: createMockConfigService({
-          SOCIAL_X_USERNAME: 'myzodiacai',
+          SOCIAL_X_USERNAME: 'exampleco',
           SOCIAL_X_PASSWORD: 'secret-pass',
         }),
       });
@@ -1073,7 +1073,7 @@ describe('MOD-04: SessionsService', () => {
       // Make autoLogin fail (password missing) → getOrCreateSession returns null after
       // the breaker records the AutoLoginFailedError and transitions HALF_OPEN → OPEN.
       t.config.get.mockImplementation((key: string, def?: string) => {
-        if (key === 'SOCIAL_X_USERNAME') return 'myzodiacai';
+        if (key === 'SOCIAL_X_USERNAME') return 'exampleco';
         // password intentionally missing
         return def ?? '';
       });
@@ -1103,7 +1103,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ X: ACCOUNT_X }),
       config: createMockConfigService({
-        SOCIAL_X_USERNAME: 'myzodiacai',
+        SOCIAL_X_USERNAME: 'exampleco',
         SOCIAL_X_PASSWORD: 'secret-pass',
       }),
     });
@@ -1206,7 +1206,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ X: ACCOUNT_X }),
       config: createMockConfigService({
-        SOCIAL_X_USERNAME: 'myzodiacai',
+        SOCIAL_X_USERNAME: 'exampleco',
         SOCIAL_X_PASSWORD: 'secret-pass',
         FORM_LOGIN_COOLDOWN_MS: '1800000', // SE1 cooldown on for the concurrent-login assertions
       }),
@@ -1518,7 +1518,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ FACEBOOK: ACCOUNT_FB }),
       config: createMockConfigService({
-        SOCIAL_FACEBOOK_USERNAME: 'myzodiacai@fb.com',
+        SOCIAL_FACEBOOK_USERNAME: 'exampleco@fb.com',
         SOCIAL_FACEBOOK_PASSWORD: 'fb-pass',
       }),
     });
@@ -1546,7 +1546,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ X: ACCOUNT_X }),
       config: createMockConfigService({
-        SOCIAL_X_USERNAME: 'myzodiacai',
+        SOCIAL_X_USERNAME: 'exampleco',
         SOCIAL_X_PASSWORD: 'secret-pass',
       }),
     });
@@ -1593,7 +1593,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ X: ACCOUNT_X }),
       config: createMockConfigService({
-        SOCIAL_X_USERNAME: 'myzodiacai',
+        SOCIAL_X_USERNAME: 'exampleco',
         SOCIAL_X_PASSWORD: 'secret-pass',
       }),
     });
@@ -1631,7 +1631,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ FACEBOOK: ACCOUNT_FB }),
       config: createMockConfigService({
-        SOCIAL_FACEBOOK_USERNAME: 'myzodiacai@fb.com',
+        SOCIAL_FACEBOOK_USERNAME: 'exampleco@fb.com',
         SOCIAL_FACEBOOK_PASSWORD: 'fb-pass',
       }),
     });
@@ -1658,7 +1658,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ FACEBOOK: ACCOUNT_FB }),
       config: createMockConfigService({
-        SOCIAL_FACEBOOK_USERNAME: 'myzodiacai@fb.com',
+        SOCIAL_FACEBOOK_USERNAME: 'exampleco@fb.com',
         SOCIAL_FACEBOOK_PASSWORD: 'fb-pass',
       }),
     });
@@ -1736,7 +1736,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ X: ACCOUNT_X }),
       config: createMockConfigService({
-        SOCIAL_X_USERNAME: 'myzodiacai',
+        SOCIAL_X_USERNAME: 'exampleco',
         SOCIAL_X_PASSWORD: 'secret-pass',
         FORM_LOGIN_COOLDOWN_MS: '1800000', // SE1 cooldown on for the concurrent-login assertions
       }),
@@ -1775,7 +1775,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ FACEBOOK: ACCOUNT_FB }),
       config: createMockConfigService({
-        SOCIAL_FACEBOOK_USERNAME: 'myzodiacai@fb.com',
+        SOCIAL_FACEBOOK_USERNAME: 'exampleco@fb.com',
         SOCIAL_FACEBOOK_PASSWORD: 'fb-pass',
         SPA_DRY_RUN: 'true',
       }),
@@ -1812,7 +1812,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ X: ACCOUNT_X }),
       config: createMockConfigService({
-        SOCIAL_X_USERNAME: 'myzodiacai',
+        SOCIAL_X_USERNAME: 'exampleco',
         SOCIAL_X_PASSWORD: 'secret-pass',
       }),
     });
@@ -1856,7 +1856,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ X: ACCOUNT_X }),
       config: createMockConfigService({
-        SOCIAL_X_USERNAME: 'myzodiacai',
+        SOCIAL_X_USERNAME: 'exampleco',
         SOCIAL_X_PASSWORD: 'secret-pass',
       }),
     });
@@ -1904,7 +1904,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ FACEBOOK: ACCOUNT_FB }),
       config: createMockConfigService({
-        SOCIAL_FACEBOOK_USERNAME: 'myzodiacai@fb.com',
+        SOCIAL_FACEBOOK_USERNAME: 'exampleco@fb.com',
         SOCIAL_FACEBOOK_PASSWORD: 'fb-pass',
       }),
     });
@@ -1947,7 +1947,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ FACEBOOK: ACCOUNT_FB }),
       config: createMockConfigService({
-        SOCIAL_FACEBOOK_USERNAME: 'myzodiacai@fb.com',
+        SOCIAL_FACEBOOK_USERNAME: 'exampleco@fb.com',
         SOCIAL_FACEBOOK_PASSWORD: 'fb-pass',
       }),
     });
@@ -1987,7 +1987,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ X: ACCOUNT_X }),
       config: createMockConfigService({
-        SOCIAL_X_USERNAME: 'myzodiacai',
+        SOCIAL_X_USERNAME: 'exampleco',
         SOCIAL_X_PASSWORD: 'secret-pass',
         CAMOUFOX_HEADLESS: 'false',
       }),
@@ -2022,7 +2022,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ FACEBOOK: ACCOUNT_FB }),
       config: createMockConfigService({
-        SOCIAL_FACEBOOK_USERNAME: 'myzodiacai@fb.com',
+        SOCIAL_FACEBOOK_USERNAME: 'exampleco@fb.com',
         SOCIAL_FACEBOOK_PASSWORD: 'fb-pass',
         CAMOUFOX_HEADLESS: 'false',
       }),
@@ -2053,7 +2053,7 @@ describe('MOD-04: SessionsService', () => {
     const t = await setup({
       accounts: createMockAccountsService({ FACEBOOK: ACCOUNT_FB }),
       config: createMockConfigService({
-        SOCIAL_FACEBOOK_USERNAME: 'myzodiacai@fb.com',
+        SOCIAL_FACEBOOK_USERNAME: 'exampleco@fb.com',
         SOCIAL_FACEBOOK_PASSWORD: 'fb-pass',
         CAMOUFOX_HEADLESS: 'false',
       }),
@@ -2141,7 +2141,7 @@ describe('MOD-04: SessionsService', () => {
       const t = await setup({
         accounts: createMockAccountsService({ X: ACCOUNT_X }),
         config: createMockConfigService({
-          SOCIAL_X_USERNAME: 'myzodiacai',
+          SOCIAL_X_USERNAME: 'exampleco',
           SOCIAL_X_PASSWORD: 'secret-pass',
         }),
       });

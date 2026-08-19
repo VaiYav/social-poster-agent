@@ -137,7 +137,7 @@ describe('EngagementService — performInteraction cleanup', () => {
   });
 
   it('SF-002: blocks engagement with unsafe user-supplied comment text', async () => {
-    const result = await service.comment(SocialNetwork.X, 'https://x.com/post/1', 'Follow me for more astrology!');
+    const result = await service.comment(SocialNetwork.X, 'https://x.com/post/1', 'Follow me for more productivity!');
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('Follow/subscribe bait');

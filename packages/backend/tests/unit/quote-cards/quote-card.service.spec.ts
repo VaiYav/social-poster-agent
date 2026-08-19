@@ -38,7 +38,7 @@ describe('QuoteCardService (QC1 — real Satori render)', () => {
     const service = new QuoteCardService(makeConfig(true));
 
     const filepath = await service.generateQuoteCard(
-      'Mercury stations direct — revisit what felt stalled.',
+      'Workflow stations direct — revisit what felt stalled.',
       { author: 'Cosmic Insights' },
     );
 

@@ -7,7 +7,7 @@ import { scanSlop, getSlopListForPrompt, getLexicon, SLOP_LEXICON } from '../../
 
 describe('Slop Lexicon', () => {
   it('SL-001: detects English slop words with word boundaries', () => {
-    const matches = scanSlop("Let's delve into the realm of astrology.", 'en');
+    const matches = scanSlop("Let's delve into the realm of productivity.", 'en');
     const terms = matches.map((m) => m.term);
     expect(terms).toContain('delve');
     expect(terms).toContain('realm');
@@ -25,26 +25,6 @@ describe('Slop Lexicon', () => {
     expect(matches.map((m) => m.term)).toContain("in today's fast-paced world");
   });
 
-  it('SL-004: detects Russian slop (Cyrillic word boundaries work)', () => {
-    const matches = scanSlop('В современном мире каждый из нас ищет ответы.', 'ru');
-    const terms = matches.map((m) => m.term);
-    expect(terms).toContain('в современном мире');
-    expect(terms).toContain('каждый из нас');
-  });
-
-  it('SL-005: Russian word matching does not fire on substrings', () => {
-    // "уникальный" banned; "коммуникальный" is not a word but tests the boundary
-    const matches = scanSlop('перекоммуникальный тест', 'ru');
-    expect(matches.map((m) => m.term)).not.toContain('уникальный');
-  });
-
-  it('SL-006: detects Ukrainian slop', () => {
-    const matches = scanSlop('У сучасному світі варто зазначити важливе.', 'uk');
-    const terms = matches.map((m) => m.term);
-    expect(terms).toContain('у сучасному світі');
-    expect(terms).toContain('варто зазначити');
-  });
-
   it('SL-007: unknown language falls back to English lexicon', () => {
     expect(getLexicon('de')).toBe(SLOP_LEXICON.en);
     const matches = scanSlop('We must delve deeper.', 'de');
@@ -52,7 +32,7 @@ describe('Slop Lexicon', () => {
   });
 
   it('SL-008: getSlopListForPrompt renders non-empty list per language', () => {
-    for (const lang of ['en', 'ru', 'uk', 'es', 'it']) {
+    for (const lang of ['en', 'es', 'it']) {
       const list = getSlopListForPrompt(lang);
       expect(list.length).toBeGreaterThan(20);
       expect(list).toContain(',');
@@ -61,7 +41,7 @@ describe('Slop Lexicon', () => {
 
   it('SL-009: clean human text produces zero matches', () => {
     const matches = scanSlop(
-      'Saturn takes 29.5 years. I checked my chart at 2am and texted my ex. Bad idea.',
+      'A product cycle takes 29.5 years. I checked my plan at 2am and texted my ex. Bad idea.',
       'en',
     );
     expect(matches).toHaveLength(0);

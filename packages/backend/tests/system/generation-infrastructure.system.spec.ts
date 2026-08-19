@@ -210,31 +210,31 @@ function createMockQueueFactory() {
 const FIXTURE_TOPICS: ContentTopic[] = [
   {
     sourceType: 'brief',
-    path: 'briefs/mercury-retro-2026.json',
-    topic: 'Mercury Retrograde 2026',
-    keywords: ['mercury retrograde', 'astrology 2026'],
-    facts: ['Mercury retrograde: July 14 – August 7, 2026', 'Zodiac signs affected: Leo, Virgo'],
+    path: 'briefs/workflow-retro-2026.json',
+    topic: 'Workflow Trends 2026',
+    keywords: ['workflow trends', 'productivity 2026'],
+    facts: ['Workflow Trends: July 14 – August 7, 2026', 'workflow signs affected: Q2, Q3'],
   },
   {
     sourceType: 'brief',
-    path: 'briefs/full-moon-capricorn.json',
-    topic: 'Full Moon in Capricorn',
-    keywords: ['full moon', 'capricorn', 'astrology'],
-    facts: ['Full moon on July 21, 2026', 'Capricorn energy: discipline, ambition'],
+    path: 'briefs/product-launch-q4.json',
+    topic: 'Product Launch in Q4',
+    keywords: ['product launch', 'q4', 'productivity'],
+    facts: ['Product launch on July 21, 2026', 'Q4 energy: Discipline, ambition'],
   },
   {
     sourceType: 'article',
     path: 'blog/en/cosmic-weather-w28.md',
-    topic: 'Cosmic Weather Weekly',
-    keywords: ['cosmic weather', 'weekly horoscope'],
-    facts: ['Week of July 15: Venus trine Jupiter', 'Favorable for relationships'],
+    topic: 'weekly roundup Weekly',
+    keywords: ['weekly roundup', 'weekly newsletter'],
+    facts: ['Week of July 15: Team Milestone', 'Favorable for relationships'],
   },
 ];
 
 const ACCOUNTS: Record<string, { id: string; network: SocialNetwork; handle: string; active: boolean; credentialsRef: string }> = {
-  X: { id: 'acc-x-001', network: SocialNetwork.X, handle: 'myzodiacai', active: true, credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD' },
-  THREADS: { id: 'acc-threads-001', network: SocialNetwork.THREADS, handle: 'myzodiacai', active: true, credentialsRef: 'SOCIAL_THREADS_USERNAME,SOCIAL_THREADS_PASSWORD' },
-  FACEBOOK: { id: 'acc-fb-001', network: SocialNetwork.FACEBOOK, handle: 'myzodiacai@facebook.com', active: true, credentialsRef: 'SOCIAL_FACEBOOK_EMAIL,SOCIAL_FACEBOOK_PASSWORD' },
+  X: { id: 'acc-x-001', network: SocialNetwork.X, handle: 'exampleco', active: true, credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD' },
+  THREADS: { id: 'acc-threads-001', network: SocialNetwork.THREADS, handle: 'exampleco', active: true, credentialsRef: 'SOCIAL_THREADS_USERNAME,SOCIAL_THREADS_PASSWORD' },
+  FACEBOOK: { id: 'acc-fb-001', network: SocialNetwork.FACEBOOK, handle: 'exampleco@facebook.com', active: true, credentialsRef: 'SOCIAL_FACEBOOK_EMAIL,SOCIAL_FACEBOOK_PASSWORD' },
 };
 
 // ── Mock ContentReader ───────────────────────────────────────────────────────
@@ -342,7 +342,7 @@ async function buildAndStartApp(): Promise<void> {
   // Swagger/OpenAPI — set up exactly as in main.ts
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Social Poster Agent API')
-    .setDescription('Internal API for social media posting agent — My Zodiac AI')
+    .setDescription('Internal API for social media posting agent — Social Poster Agent')
     .setVersion('0.4.2')
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
@@ -378,15 +378,15 @@ function setupDefaultMocks(): void {
   llmPort.generateChat.mockImplementation((_sys: string, _userPrompt: string) => {
     sysLlmCounter++;
     return Promise.resolve({
-      content: `Mercury retrograde insight variant ${sysLlmCounter}: Reflect, not react. #astrology #v${sysLlmCounter}`,
-      model: 'gpt-4o-mini',
+      content: `Workflow Trends insight variant ${sysLlmCounter}: Reflect, not react. #productivity #v${sysLlmCounter}`,
+      model: 'gpt-5-nano',
       tokens: 100,
       cost: 0.001,
     });
   });
   llmPort.generate.mockResolvedValue({
     content: 'Mock LLM generated content',
-    model: 'gpt-4o-mini',
+    model: 'gpt-5-nano',
     tokens: 100,
     cost: 0.001,
   });
@@ -405,7 +405,7 @@ function setupDefaultMocks(): void {
     id: 'run-test-001',
     status: GenerationRunStatus.COMPLETED,
     completedAt: new Date('2026-07-15T10:05:00Z'),
-    sourceTopics: ['Mercury Retrograde 2026'],
+    sourceTopics: ['Workflow Trends 2026'],
     errorMessage: null,
   });
   prisma.generationRun.findMany.mockResolvedValue([]);
@@ -523,7 +523,7 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
 
     // Verify llmMetadata is populated
     expect(postData.llmMetadata).toBeDefined();
-    expect(postData.llmMetadata.model).toBe('gpt-4o-mini');
+    expect(postData.llmMetadata.model).toBe('gpt-5-nano');
     expect(postData.llmMetadata.promptVersion).toBeDefined();
   });
 
@@ -633,13 +633,13 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
       status: GenerationRunStatus.COMPLETED,
       startedAt: new Date('2026-07-15T10:00:00Z'),
       completedAt: new Date('2026-07-15T10:05:00Z'),
-      sourceTopics: ['Mercury Retrograde 2026'],
+      sourceTopics: ['Workflow Trends 2026'],
       errorMessage: null,
       posts: [
         {
           id: 'post-001',
           network: SocialNetwork.X,
-          content: 'Mercury retrograde is coming!',
+          content: 'Workflow Trends is coming!',
           status: PostStatus.DRAFT,
           createdAt: new Date('2026-07-15T10:01:00Z'),
         },
@@ -702,8 +702,8 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
         return Promise.reject(new Error('Simulated crash — LLM unavailable'));
       }
       return Promise.resolve({
-        content: 'Mercury retrograde is coming! Time to reflect.',
-        model: 'gpt-4o-mini',
+        content: 'Workflow Trends is coming! Time to reflect.',
+        model: 'gpt-5-nano',
         tokens: 100,
         cost: 0.001,
       });
@@ -735,8 +735,8 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
 
     // Phase 2: Resume — LLM works again
     llmPort.generateChat.mockResolvedValue({
-      content: 'Mercury retrograde is coming! Time to reflect, not react. #astrology',
-      model: 'gpt-4o-mini',
+      content: 'Workflow trends are coming! Time to focus, not react. #productivity',
+      model: 'gpt-5-nano',
       tokens: 100,
       cost: 0.001,
     });

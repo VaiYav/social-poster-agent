@@ -14,7 +14,7 @@ function createMockPrisma(postData: Record<string, unknown> | null = null) {
   };
 }
 
-function createMockConfig(baseUrl = 'https://my-zodiac-ai.com') {
+function createMockConfig(baseUrl = 'https://example.com') {
   return {
     get: vi.fn().mockImplementation(<T = string>(key: string, def?: T) => {
       if (key === 'BLOG_BASE_URL') return baseUrl as unknown as T;
@@ -39,28 +39,28 @@ describe('CanonicalUrlService', () => {
 
   describe('buildBlogUrl()', () => {
     it('CU-001: builds URL from clean slug', () => {
-      expect(service.buildBlogUrl('mars-in-gemini-2026')).toBe(
-        'https://my-zodiac-ai.com/blog/mars-in-gemini-2026',
+      expect(service.buildBlogUrl('workflow-in-learning-2026')).toBe(
+        'https://example.com/blog/workflow-in-learning-2026',
       );
     });
 
     it('CU-002: slugifies dirty slug (spaces, uppercase, special chars)', () => {
-      expect(service.buildBlogUrl('Mars in Gemini 2026: What to Expect!')).toBe(
-        'https://my-zodiac-ai.com/blog/mars-in-gemini-2026-what-to-expect',
+      expect(service.buildBlogUrl('Workflow in learning 2026: What to Expect!')).toBe(
+        'https://example.com/blog/workflow-in-learning-2026-what-to-expect',
       );
     });
 
     it('CU-003: handles empty slug — returns /blog/untitled', () => {
-      expect(service.buildBlogUrl('')).toBe('https://my-zodiac-ai.com/blog/untitled');
+      expect(service.buildBlogUrl('')).toBe('https://example.com/blog/untitled');
     });
 
     it('CU-004: handles slug with only special chars — returns /blog/untitled', () => {
-      expect(service.buildBlogUrl('!!!???')).toBe('https://my-zodiac-ai.com/blog/untitled');
+      expect(service.buildBlogUrl('!!!???')).toBe('https://example.com/blog/untitled');
     });
 
     it('CU-005: trims leading/trailing dashes', () => {
-      expect(service.buildBlogUrl('--mars-in-gemini--')).toBe(
-        'https://my-zodiac-ai.com/blog/mars-in-gemini',
+      expect(service.buildBlogUrl('--workflow-in-learning--')).toBe(
+        'https://example.com/blog/workflow-in-learning',
       );
     });
 
@@ -78,30 +78,30 @@ describe('CanonicalUrlService', () => {
 
   describe('slugify()', () => {
     it('CU-010: converts title to slug', () => {
-      expect(service.slugify('Mars in Gemini 2026')).toBe('mars-in-gemini-2026');
+      expect(service.slugify('Workflow in learning 2026')).toBe('workflow-in-learning-2026');
     });
 
     it('CU-011: handles unicode — non-ASCII chars become dashes', () => {
       // Non-ASCII chars (é, —) are replaced by - by the [^a-z0-9] regex
-      const result = service.slugify('Bélier — Aries');
+      const result = service.slugify('Bélier — Q1');
       // é is not in [a-z0-9] so it becomes -, then consecutive - are collapsed
-      expect(result).toBe('b-lier-aries');
+      expect(result).toBe('b-lier-q1');
     });
 
     it('CU-012: handles numbers and mixed case', () => {
-      expect(service.slugify('Top 10 Zodiac Signs of 2026')).toBe(
-        'top-10-zodiac-signs-of-2026',
+      expect(service.slugify('Top 10 workflow Signs of 2026')).toBe(
+        'top-10-workflow-signs-of-2026',
       );
     });
   });
 
   describe('setCanonical()', () => {
     it('CU-020: updates post with canonical URL', async () => {
-      await service.setCanonical('post-1', 'https://my-zodiac-ai.com/blog/test');
+      await service.setCanonical('post-1', 'https://example.com/blog/test');
 
       expect(mockPrisma.post.update).toHaveBeenCalledWith({
         where: { id: 'post-1' },
-        data: { canonicalUrl: 'https://my-zodiac-ai.com/blog/test' },
+        data: { canonicalUrl: 'https://example.com/blog/test' },
       });
     });
 
@@ -171,7 +171,7 @@ describe('CanonicalUrlService', () => {
     it('CU-040: stub returns true (optimistic)', async () => {
       const result = await service.verifyCanonical(
         'https://dev.to/article',
-        'https://my-zodiac-ai.com/blog/test',
+        'https://example.com/blog/test',
       );
       // Phase 0 stub — always returns true
       expect(result).toBe(true);

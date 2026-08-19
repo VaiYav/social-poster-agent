@@ -177,7 +177,7 @@ describe('BrowserAgentService', () => {
   describe('extract()', () => {
     it('BA-010: extracts structured data matching schema', async () => {
       mockLlm = createMockLlm([
-        '{"canonicalUrl":"https://my-zodiac-ai.com/blog/mars-in-gemini","title":"Mars in Gemini 2026"}',
+        '{"canonicalUrl":"https://example.com/blog/workflow-in-learning","title":"Workflow in learning 2026"}',
       ]);
       service = createService(mockLlm);
 
@@ -189,8 +189,8 @@ describe('BrowserAgentService', () => {
       const result = await service.extract(mockPage as never, schema);
 
       expect(result).not.toBeNull();
-      expect(result?.canonicalUrl).toBe('https://my-zodiac-ai.com/blog/mars-in-gemini');
-      expect(result?.title).toBe('Mars in Gemini 2026');
+      expect(result?.canonicalUrl).toBe('https://example.com/blog/workflow-in-learning');
+      expect(result?.title).toBe('Workflow in learning 2026');
     });
 
     it('BA-011: returns null when LLM response does not match schema', async () => {

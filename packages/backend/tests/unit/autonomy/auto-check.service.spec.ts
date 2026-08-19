@@ -20,7 +20,7 @@ function build(recentPosts: Array<{ simhash: string | null; content: string }> =
   return { service: new AutoCheckService(prisma as never), prisma };
 }
 
-const CLEAN = 'Mercury stations direct today — a gentle nudge to revisit what felt stalled.';
+const CLEAN = 'Workflow stations direct today — a gentle nudge to revisit what felt stalled.';
 
 describe('AutoCheckService (A1/BUG-12 — pure content-safety gate)', () => {
   it('passes clean content and runs exactly the four content checks', async () => {

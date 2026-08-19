@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service.js';
 import { DomainConfigService } from '../../domain/domain-config/domain-config.service.js';
@@ -22,10 +22,10 @@ export class CanonicalUrlService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
-    private readonly domainConfig: DomainConfigService,
+    @Optional() private readonly domainConfig?: DomainConfigService,
   ) {
-    // Blog base URL — set BLOG_BASE_URL in your .env
-    this.blogBaseUrl = this.domainConfig.blogBaseUrl || this.configService.get<string>('BLOG_BASE_URL', 'https://example.com');
+    // Blog base URL — set BLOG_BASE_URL in your .env, or provide it via DomainConfigService
+    this.blogBaseUrl = this.domainConfig?.blogBaseUrl || this.configService.get<string>('BLOG_BASE_URL', 'https://example.com');
   }
 
   /**

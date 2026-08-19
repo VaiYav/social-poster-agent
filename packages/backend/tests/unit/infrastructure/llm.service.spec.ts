@@ -50,13 +50,13 @@ function createMockConfigService(overrides: Record<string, unknown> = {}): Confi
   const defaults: Record<string, unknown> = {
     OPENAI_API_KEY: 'test-openai-key',
     GROQ_API_KEY: 'test-groq-key',
-    GROQ_MODEL: 'llama-3.3-70b-versatile',
+    GROQ_MODEL: 'meta-llama/llama-4-scout-17b-16e-instruct',
     OPENROUTER_API_KEY: '',
     DEEPSEEK_API_KEY: '',
     CEREBRAS_API_KEY: '',
     OLLAMA_URL: 'http://localhost:11434',
     OLLAMA_DEFAULT_MODEL: 'gemma4',
-    LLM_DEFAULT_MODEL: 'gpt-4o-mini',
+    LLM_DEFAULT_MODEL: 'gpt-5-nano',
     LLM_CACHE_SHARED: 'true',
     LLM_CACHE_KEY_PREFIX: 'spa:cache:llm',
   };

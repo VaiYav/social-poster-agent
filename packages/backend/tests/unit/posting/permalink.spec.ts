@@ -37,13 +37,13 @@ describe('permalink (P1 — native post-URL guard)', () => {
 
   describe('FACEBOOK', () => {
     it.each([
-      'https://www.facebook.com/myzodiacai/posts/123456789',
+      'https://www.facebook.com/exampleco/posts/123456789',
       'https://www.facebook.com/story/permalink/123456',
       'https://www.facebook.com/photos/987654',
     ])('accepts a post permalink %s', (url) => {
       expect(isPermalink(url, 'FACEBOOK')).toBe(true);
     });
-    it.each(['https://www.facebook.com/home', 'https://www.facebook.com/myzodiacai'])(
+    it.each(['https://www.facebook.com/home', 'https://www.facebook.com/exampleco'])(
       'rejects non-permalink %s',
       (url) => {
         expect(isPermalink(url, 'FACEBOOK')).toBe(false);

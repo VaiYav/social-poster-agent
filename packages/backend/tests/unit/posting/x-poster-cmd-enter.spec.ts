@@ -31,7 +31,7 @@ describe('XPoster — Cmd+Enter Keyboard Shortcut', () => {
     browserPort.humanClick = vi.fn().mockRejectedValue(new Error('Button not clickable'));
 
     const page = createMockPage({
-      url: 'https://x.com/myzodiacai/status/1234567890',
+      url: 'https://x.com/exampleco/status/1234567890',
     });
     const context = createMockContext(page as unknown);
 
@@ -48,7 +48,7 @@ describe('XPoster — Cmd+Enter Keyboard Shortcut', () => {
     browserPort.humanClick = vi.fn().mockResolvedValue(undefined);
 
     const page = createMockPage({
-      url: 'https://x.com/myzodiacai/status/1234567890',
+      url: 'https://x.com/exampleco/status/1234567890',
     });
     const context = createMockContext(page as unknown);
 
@@ -65,7 +65,7 @@ describe('XPoster — Cmd+Enter Keyboard Shortcut', () => {
     browserPort.humanClick = vi.fn().mockRejectedValue(new Error('Timeout 10000ms exceeded'));
 
     const page = createMockPage({
-      url: 'https://x.com/myzodiacai/status/1234567890',
+      url: 'https://x.com/exampleco/status/1234567890',
     });
     const context = createMockContext(page as unknown);
 
@@ -77,7 +77,7 @@ describe('XPoster — Cmd+Enter Keyboard Shortcut', () => {
     browserPort.humanClick = vi.fn().mockRejectedValue(new Error('Click failed'));
 
     const page = createMockPage({
-      url: 'https://x.com/myzodiacai/status/1234567890',
+      url: 'https://x.com/exampleco/status/1234567890',
     });
     const context = createMockContext(page as unknown);
 
@@ -91,19 +91,19 @@ describe('XPoster — Cmd+Enter Keyboard Shortcut', () => {
     browserPort.humanClick = vi.fn().mockRejectedValue(new Error('Button not found'));
 
     const page = createMockPage({
-      url: 'https://x.com/myzodiacai/status/1234567890',
+      url: 'https://x.com/exampleco/status/1234567890',
     });
     const context = createMockContext(page as unknown);
 
     const result = await poster.post(context as unknown, browserPort as unknown, 'Test post');
-    expect(result.url).toBe('https://x.com/myzodiacai/status/1234567890');
+    expect(result.url).toBe('https://x.com/exampleco/status/1234567890');
   });
 
   it('CE-006: both Meta+Enter and Control+Enter are sent (cross-platform)', async () => {
     browserPort.humanClick = vi.fn().mockRejectedValue(new Error('Failed'));
 
     const page = createMockPage({
-      url: 'https://x.com/myzodiacai/status/1234567890',
+      url: 'https://x.com/exampleco/status/1234567890',
     });
     const context = createMockContext(page as unknown);
 
@@ -117,7 +117,7 @@ describe('XPoster — Cmd+Enter Keyboard Shortcut', () => {
   it('CE-007: keyboard.press errors are caught (does not crash)', async () => {
     browserPort.humanClick = vi.fn().mockRejectedValue(new Error('Click failed'));
     const page = createMockPage({
-      url: 'https://x.com/myzodiacai/status/1234567890',
+      url: 'https://x.com/exampleco/status/1234567890',
     });
     page.keyboard.press = vi.fn().mockRejectedValue(new Error('Keyboard error')) as any;
 
@@ -134,13 +134,13 @@ describe('XPoster — Cmd+Enter Keyboard Shortcut', () => {
     browserPort.typeHuman = vi.fn().mockResolvedValue(undefined);
 
     const page = createMockPage({
-      url: 'https://x.com/myzodiacai/status/9999999999',
+      url: 'https://x.com/exampleco/status/9999999999',
     });
     const context = createMockContext(page as unknown);
 
     const result = await poster.post(context as unknown, browserPort as unknown, 'Normal post');
 
-    expect(result.url).toBe('https://x.com/myzodiacai/status/9999999999');
+    expect(result.url).toBe('https://x.com/exampleco/status/9999999999');
     expect(result.error).toBeUndefined();
   });
 
@@ -148,7 +148,7 @@ describe('XPoster — Cmd+Enter Keyboard Shortcut', () => {
     browserPort.humanClick = vi.fn().mockRejectedValue(new Error('Failed'));
 
     const page = createMockPage({
-      url: 'https://x.com/myzodiacai/status/1234567890',
+      url: 'https://x.com/exampleco/status/1234567890',
     });
     const context = createMockContext(page as unknown);
 
@@ -164,7 +164,7 @@ describe('XPoster — Cmd+Enter Keyboard Shortcut', () => {
     browserPort.typeHuman = vi.fn().mockResolvedValue(undefined);
 
     const page = createMockPage({
-      url: 'https://x.com/myzodiacai/status/1234567890',
+      url: 'https://x.com/exampleco/status/1234567890',
       bodyText: 'This is a reply text that was entered',
     });
 
@@ -186,7 +186,7 @@ describe('XPoster — Cmd+Enter Keyboard Shortcut', () => {
     browserPort.typeHuman = vi.fn().mockResolvedValue(undefined);
 
     const page = createMockPage({
-      url: 'https://x.com/myzodiacai/status/1234567890',
+      url: 'https://x.com/exampleco/status/1234567890',
       bodyText: 'Reply text entered',
     });
 
@@ -209,7 +209,7 @@ describe('XPoster — Cmd+Enter Keyboard Shortcut', () => {
     browserPort.typeHuman = vi.fn().mockResolvedValue(undefined);
 
     const page = createMockPage({
-      url: 'https://x.com/myzodiacai/status/1234567890',
+      url: 'https://x.com/exampleco/status/1234567890',
       bodyText: 'Reply entered',
     });
 

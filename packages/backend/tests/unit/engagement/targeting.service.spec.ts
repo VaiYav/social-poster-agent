@@ -20,7 +20,10 @@ describe('TargetingService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    service = new TargetingService(createMockConfigService());
+    service = new TargetingService(createMockConfigService({
+      ENGAGEMENT_HASHTAGS: '#productivity',
+      ENGAGEMENT_COMPETITORS: 'competitorco',
+    }));
   });
 
   // ── pickSource ──

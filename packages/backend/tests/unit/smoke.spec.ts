@@ -34,7 +34,7 @@ describe('Test Infrastructure Smoke Test', () => {
     const mock = createMockLlmPort();
     const result = await mock.generateChat('system', 'user');
     expect(result.content).toBe('Mock LLM chat content');
-    expect(result.model).toBe('gpt-4o-mini');
+    expect(result.model).toBe('gpt-5-nano');
   });
 
   it('should support vi.fn() mock assertions', async () => {

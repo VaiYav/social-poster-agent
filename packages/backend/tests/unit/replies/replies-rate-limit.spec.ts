@@ -93,7 +93,7 @@ function makeService(overrides: { redis?: any; maxPerDay?: number } = {}) {
   return { svc, prisma, engagement, redis };
 }
 
-const POST = { id: 'p1', network: 'X', postUrl: 'https://x.com/u/status/1', content: 'About Mars' };
+const POST = { id: 'p1', network: 'X', postUrl: 'https://x.com/u/status/1', content: 'About Workflow' };
 
 describe('F4.B — daily reply rate limit', () => {
   it('F4-B1: allows posting while under the daily budget', async () => {

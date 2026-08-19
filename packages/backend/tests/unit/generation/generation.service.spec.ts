@@ -62,26 +62,26 @@ import { createMockLlmPort, createMockPrismaService, createMockSseService, creat
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const ACCOUNT_X = { id: 'acc-x', network: SocialNetwork.X, handle: 'myzodiacai', active: true };
-const ACCOUNT_THREADS = { id: 'acc-threads', network: SocialNetwork.THREADS, handle: 'myzodiacai', active: true };
-const ACCOUNT_FB = { id: 'acc-fb', network: SocialNetwork.FACEBOOK, handle: 'myzodiacai@fb.com', active: true };
+const ACCOUNT_X = { id: 'acc-x', network: SocialNetwork.X, handle: 'exampleco', active: true };
+const ACCOUNT_THREADS = { id: 'acc-threads', network: SocialNetwork.THREADS, handle: 'exampleco', active: true };
+const ACCOUNT_FB = { id: 'acc-fb', network: SocialNetwork.FACEBOOK, handle: 'exampleco@fb.com', active: true };
 
 const TOPIC_1: ContentTopic = {
   sourceType: 'brief',
-  path: 'briefs/mercury-retro-2026.json',
-  topic: 'Mercury Retrograde July 2026',
-  keywords: ['mercury', 'retrograde'],
-  facts: ['Mercury retrograde: July 14 – August 7, 2026', 'Zodiac signs affected: Leo, Virgo'],
+  path: 'briefs/workflow-retro-2026.json',
+  topic: 'Workflow Trends July 2026',
+  keywords: ['workflow', 'slowdown'],
+  facts: ['Workflow Trends: July 14 – August 7, 2026', 'workflow signs affected: Q2, Q3'],
   category: 'educational',
   publishedAt: new Date('2026-07-15T10:00:00Z'),
 };
 
 const TOPIC_2: ContentTopic = {
   sourceType: 'article',
-  path: 'blog/en/full-moon-capricorn.md',
-  topic: 'Full Moon in Capricorn',
-  keywords: ['full moon', 'capricorn'],
-  facts: ['Full moon on July 21, 2026', 'Capricorn energy: discipline, ambition'],
+  path: 'blog/en/product-launch-q4.md',
+  topic: 'Product Launch in Q4',
+  keywords: ['product launch', 'q4'],
+  facts: ['Product launch on July 21, 2026', 'Q4 energy: Discipline, ambition'],
   category: 'educational',
   publishedAt: new Date('2026-07-16T10:00:00Z'),
 };
@@ -89,7 +89,7 @@ const TOPIC_2: ContentTopic = {
 const TRENDING_TOPIC: ContentTopic = {
   sourceType: 'topic',
   path: 'trending/google+x',
-  topic: 'Mercury transit',
+  topic: 'Market Shift',
   keywords: ['google', 'x'],
   facts: [],
   category: 'trending',
@@ -102,7 +102,7 @@ function genPost(network: SocialNetwork, content: string, hook = 'Hook line') {
     content,
     hook,
     angle: 'question — engaging',
-    model: 'gpt-4o-mini',
+    model: 'gpt-5-nano',
     qualityScore: 8,
     hookTechnique: 'question' as const,
     contentStyleId: 'style-1',
@@ -158,7 +158,7 @@ function createMockPostsService() {
 function createMockTrendingService() {
   return {
     getTrendingTopics: vi.fn().mockReturnValue([
-      { topic: 'Mercury transit', trending: true, networks: ['X', 'THREADS'] },
+      { topic: 'Market Shift', trending: true, networks: ['X', 'THREADS'] },
     ]),
     getUpcoming: vi.fn().mockReturnValue([]),
   };
@@ -167,7 +167,7 @@ function createMockTrendingService() {
 function createMockTrendingScraper() {
   return {
     getMergedTrending: vi.fn().mockResolvedValue([
-      { topic: 'Mercury transit', sources: ['google', 'x'], scrapedAt: new Date() },
+      { topic: 'Market Shift', sources: ['google', 'x'], scrapedAt: new Date() },
     ]),
     getGoogleTrends: vi.fn().mockResolvedValue([]),
     getXTrends: vi.fn().mockResolvedValue([]),
@@ -294,9 +294,9 @@ describe('GenerationService', () => {
       contentSource.getTopics.mockResolvedValue([TOPIC_1]);
       mockInvoke.mockResolvedValue({
         posts: [
-          genPost(SocialNetwork.X, 'Mercury retrograde starts July 14! Time to reflect on communication patterns. ♋'),
-          genPost(SocialNetwork.THREADS, 'The full moon in Capricorn brings discipline and ambition to your career. ♑'),
-          genPost(SocialNetwork.FACEBOOK, 'Did you know Mercury retrograde affects Virgo and Leo most? Here is what to expect. ♒'),
+          genPost(SocialNetwork.X, 'Workflow trends start July 14! Time to reflect on communication patterns. 🎯'),
+          genPost(SocialNetwork.THREADS, 'The product launch in Q4 brings Discipline and ambition to your career. 🚀'),
+          genPost(SocialNetwork.FACEBOOK, 'Did you know workflow trends affect Q3 and Q2 most? Here is what to expect. 💡'),
         ],
         facts: TOPIC_1.facts,
       });
@@ -322,8 +322,8 @@ describe('GenerationService', () => {
       contentSource.getTopics.mockResolvedValue([TOPIC_1]);
       mockInvoke.mockResolvedValue({
         posts: [
-          genPost(SocialNetwork.X, 'Mercury retrograde starts July 14 for X!'),
-          genPost(SocialNetwork.THREADS, 'Mercury retrograde starts July 14 for Threads!'),
+          genPost(SocialNetwork.X, 'Workflow trends start July 14 for X!'),
+          genPost(SocialNetwork.THREADS, 'Workflow trends start July 14 for Threads!'),
         ],
         facts: TOPIC_1.facts,
       });
@@ -334,7 +334,7 @@ describe('GenerationService', () => {
       expect(abVariantService.createVariants).toHaveBeenCalledWith(
         expect.any(String),
         SocialNetwork.X,
-        'Mercury retrograde starts July 14 for X!',
+        'Workflow trends start July 14 for X!',
         null,
         undefined,
       );
@@ -382,8 +382,8 @@ describe('GenerationService', () => {
       contentSource.getTopics.mockResolvedValue([TOPIC_1]);
       mockInvoke.mockResolvedValue({
         posts: [
-          genPost(SocialNetwork.X, 'Mercury retrograde starts July 14! Time to reflect on communication. ♋'),
-          genPost(SocialNetwork.THREADS, 'The full moon in Capricorn brings discipline and ambition to career. ♑'),
+          genPost(SocialNetwork.X, 'Workflow Trends starts July 14! Time to reflect on communication. 🎯'),
+          genPost(SocialNetwork.THREADS, 'The Product launch in Q4 brings Discipline and ambition to career. 🚀'),
         ],
         facts: [],
       });
@@ -460,10 +460,10 @@ describe('GenerationService', () => {
       contentSource.getTopics.mockResolvedValue([TOPIC_1]);
       // Recent post with identical content → simhash will match
       prisma.post.findMany.mockResolvedValue([
-        { content: 'Mercury retrograde is coming! ♋', simhash: null, llmMetadata: null, sourceRef: null },
+        { content: 'Workflow trends are here! 🎯', simhash: null, llmMetadata: null, sourceRef: null },
       ]);
       mockInvoke.mockResolvedValue({
-        posts: [genPost(SocialNetwork.X, 'Mercury retrograde is coming! ♋')],
+        posts: [genPost(SocialNetwork.X, 'Workflow trends are here! 🎯')],
         facts: [],
       });
 
@@ -480,7 +480,7 @@ describe('GenerationService', () => {
 
       expect(posts.create).toHaveBeenCalledWith(expect.objectContaining({
         llmMetadata: expect.objectContaining({
-          model: 'gpt-4o-mini',
+          model: 'gpt-5-nano',
           hook: 'Hook line',
           hookTechnique: 'question',
         }),
@@ -545,7 +545,7 @@ describe('GenerationService', () => {
 
       expect(trendingService.getTrendingTopics).toHaveBeenCalled();
       expect(trendingScraper.getMergedTrending).toHaveBeenCalledWith(
-        expect.arrayContaining([expect.objectContaining({ topic: 'Mercury transit' })]),
+        expect.arrayContaining([expect.objectContaining({ topic: 'Market Shift' })]),
         { includeX: true },
       );
     });
@@ -725,7 +725,7 @@ describe('GenerationService', () => {
 
     it('UTC-221: multiStage=true without ThreadDepthService → F2 fallback (2 posts)', async () => {
       contentSource.getTopics.mockResolvedValue([TOPIC_1]);
-      llm.generateChat.mockResolvedValue({ content: 'Continuation content here', model: 'gpt-4o-mini', tokens: 50, cost: 0.001 });
+      llm.generateChat.mockResolvedValue({ content: 'Continuation content here', model: 'gpt-5-nano', tokens: 50, cost: 0.001 });
       mockInvoke.mockResolvedValue({ posts: [genPost(SocialNetwork.X, 'Root post')], facts: [] });
 
       await service.generate(1, [SocialNetwork.X], GenerationTrigger.MANUAL, true);
@@ -824,9 +824,9 @@ describe('GenerationService', () => {
       prisma.post.findMany.mockResolvedValue([
         {
           id: 'old-post-1',
-          content: 'Old successful post about Mercury',
+          content: 'Old successful post about Workflow',
           network: SocialNetwork.X,
-          sourceRef: { topic: 'Mercury Retrograde' },
+          sourceRef: { topic: 'Workflow Trends' },
           createdAt: oldDate,
         },
       ]);

@@ -399,7 +399,7 @@ defineParamtypes(TestController, [ClsService]);
 const ACCOUNT_X = {
   id: 'acc-001',
   network: SocialNetwork.X,
-  handle: 'myzodiacai',
+  handle: 'exampleco',
   credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD',
   active: true,
   createdAt: new Date('2026-07-01T00:00:00Z'),
@@ -419,7 +419,7 @@ const ACTIVE_SESSION = {
 const APPROVED_POST_X = {
   id: 'post-020',
   network: SocialNetwork.X,
-  content: 'Mercury retrograde is coming! Time to reflect, not react.',
+  content: 'Workflow trends are coming! Time to focus, not react.',
   status: PostStatus.APPROVED,
   postUrl: null,
   errorMessage: null,
@@ -628,7 +628,7 @@ describe('Big-Bang Integration: Full AppModule (ITC-017..020, ITC-035)', () => {
             account: {
               id: 'acc-001',
               network: 'X',
-              handle: 'myzodiacai',
+              handle: 'exampleco',
               credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD',
               active: true,
             },
@@ -652,7 +652,7 @@ describe('Big-Bang Integration: Full AppModule (ITC-017..020, ITC-035)', () => {
         // Assert: non-sensitive fields are intact (redaction is field-specific).
         expect(session.id).toBe('sess-019');
         expect(session.status).toBe('ACTIVE');
-        expect(session.account.handle).toBe('myzodiacai');
+        expect(session.account.handle).toBe('exampleco');
         expect(session.account.network).toBe('X');
       } finally {
         await app.close();
@@ -687,7 +687,7 @@ describe('Big-Bang Integration: Full AppModule (ITC-017..020, ITC-035)', () => {
       // Override posters with success mocks (browser automation is mocked).
       const mockXPoster = { post: vi.fn().mockResolvedValue({ url: 'https://x.com/user/status/123' }) };
       const mockThreadsPoster = { post: vi.fn().mockResolvedValue({ url: 'https://www.threads.com/@user/post/abc123' }) };
-      const mockFacebookPoster = { post: vi.fn().mockResolvedValue({ url: 'https://www.facebook.com/myzodiacai/posts/789' }) };
+      const mockFacebookPoster = { post: vi.fn().mockResolvedValue({ url: 'https://www.facebook.com/exampleco/posts/789' }) };
 
       const mockSharedRedis = {
         get: vi.fn().mockResolvedValue(null),

@@ -19,11 +19,11 @@ import type { IPromptPort, CompiledChatPrompt } from '../../../src/domain/ports/
 
 function createMockLlm(responses: Partial<Record<string, string>> = {}): ILlmPort {
   const defaults: Record<string, string> = {
-    facts: '1. Mars takes 687 days to orbit the Sun\n2. Mars in Gemini happens every 2 years\n3. Gemini is ruled by Mercury',
-    outline: '## Introduction\n- Why Mars in Gemini matters\n- Estimated: 300 words\n\n## Mars in Gemini: The Energy\n- Restless curiosity\n- Estimated: 400 words\n\n## Conclusion\n- Summary\n- Estimated: 200 words',
-    draft: '# Mars in Gemini 2026: What to Expect\n\nMars enters Gemini on March 2026, bringing restless energy...\n\n## Mars in Gemini: The Energy\n\nWhen Mars transits Gemini, curiosity doubles.\n\n## Conclusion\n\nMars in Gemini is a time for mental exploration.',
+    facts: '1. Workflow takes 687 days to orbit the brand\n2. Workflow in learning happens every 2 years\n3. learning is ruled by Workflow',
+    outline: '## Introduction\n- Why Workflow in learning matters\n- Estimated: 300 words\n\n## Workflow in learning: The Energy\n- Restless curiosity\n- Estimated: 400 words\n\n## Conclusion\n- Summary\n- Estimated: 200 words',
+    draft: '# Workflow in learning 2026: What to Expect\n\nMars enters learning on March 2026, bringing restless energy...\n\n## Workflow in learning: The Energy\n\nWhen workflow surges learning, curiosity doubles.\n\n## Conclusion\n\nMars in learning is a time for mental exploration.',
     judge: '{"anti_ai_tone":0.75,"anti_ai_tone_reason":"good","hook_strength":0.8,"hook_strength_reason":"strong","factual_accuracy":0.85,"factual_accuracy_reason":"correct","structure_quality":0.7,"structure_quality_reason":"ok","seo_optimization":0.72,"seo_optimization_reason":"decent"}',
-    refine: '# Mars in Gemini 2026: The Ultimate Guide\n\nWhen Mars enters Gemini in March 2026, prepare for a whirlwind of mental energy...\n\n## The Energy of Mars in Gemini\n\nMars in Gemini is restless, curious, and never satisfied with one topic.\n\n## Conclusion\n\nEmbrace the mental chaos.',
+    refine: '# Workflow in learning 2026: The Ultimate Guide\n\nWhen Workflow enters learning in March 2026, prepare for a whirlwind of mental energy...\n\n## The Energy of Workflow in learning\n\nMars in learning is restless, curious, and never satisfied with one topic.\n\n## Conclusion\n\nEmbrace the mental chaos.',
   };
 
   const merged = { ...defaults, ...responses };
@@ -52,7 +52,7 @@ function createMockPromptPort(): IPromptPort {
 
 function createMockCanonicalService() {
   return {
-    buildBlogUrl: vi.fn().mockReturnValue('https://my-zodiac-ai.com/blog/test-slug'),
+    buildBlogUrl: vi.fn().mockReturnValue('https://example.com/blog/test-slug'),
     setCanonical: vi.fn().mockResolvedValue(undefined),
     addSyndicatedUrl: vi.fn().mockResolvedValue(undefined),
     verifyCanonical: vi.fn().mockResolvedValue(true),
@@ -78,12 +78,12 @@ describe('Article Generation Graph', () => {
   describe('createArticleInitialState()', () => {
     it('AG-001: creates initial state with topic and target networks', () => {
       const state = createArticleInitialState({
-        topic: 'Mars in Gemini 2026',
+        topic: 'Workflow in learning 2026',
         targetNetworks: ['DEVTO', 'HASHNODE', 'LINKEDIN'],
         language: 'en',
       }, 'run-001');
 
-      expect(state.topic).toBe('Mars in Gemini 2026');
+      expect(state.topic).toBe('Workflow in learning 2026');
       expect(state.targetNetworks).toEqual(['DEVTO', 'HASHNODE', 'LINKEDIN']);
       expect(state.language).toBe('en');
       expect(state.runId).toBe('run-001');
@@ -142,16 +142,16 @@ describe('Article Generation Graph', () => {
       });
 
       const state = createArticleInitialState({
-        topic: 'Mars in Gemini',
+        topic: 'Workflow in learning',
         targetNetworks: ['DEVTO'],
-        keywords: ['mars', 'gemini'],
+        keywords: ['workflow', 'learning'],
       }, 'run-010');
 
       const result = await graph.invoke(state);
 
       // Facts should be extracted from the numbered list
       expect(result.facts.length).toBeGreaterThan(0);
-      expect(result.facts[0]).toContain('Mars');
+      expect(result.facts[0]).toContain('Workflow');
     });
 
     it('AG-011: handles LLM failure gracefully — returns empty facts', async () => {
@@ -185,7 +185,7 @@ describe('Article Generation Graph', () => {
       });
 
       const state = createArticleInitialState({
-        topic: 'Mars in Gemini',
+        topic: 'Workflow in learning',
         targetNetworks: ['DEVTO'],
       }, 'run-020');
 
@@ -206,18 +206,18 @@ describe('Article Generation Graph', () => {
       });
 
       const state = createArticleInitialState({
-        topic: 'Mars in Gemini',
+        topic: 'Workflow in learning',
         targetNetworks: ['DEVTO'],
-        keywords: ['mars', 'gemini', 'astrology'],
+        keywords: ['workflow', 'learning', 'productivity'],
       }, 'run-030');
 
       const result = await graph.invoke(state);
 
       expect(result.draft).not.toBeNull();
-      expect(result.draft?.title).toContain('Mars in Gemini');
-      expect(result.draft?.slug).toMatch(/^mars-in-gemini/);
+      expect(result.draft?.title).toContain('Workflow in learning');
+      expect(result.draft?.slug).toMatch(/^workflow-in-learning/);
       expect(result.draft?.bodyMarkdown.length).toBeGreaterThan(50);
-      expect(result.draft?.tags).toEqual(['mars', 'gemini', 'astrology']);
+      expect(result.draft?.tags).toEqual(['workflow', 'learning', 'productivity']);
     });
   });
 
@@ -230,7 +230,7 @@ describe('Article Generation Graph', () => {
       });
 
       const state = createArticleInitialState({
-        topic: 'Mars in Gemini',
+        topic: 'Workflow in learning',
         targetNetworks: ['DEVTO'],
       }, 'run-040');
 
@@ -250,7 +250,7 @@ describe('Article Generation Graph', () => {
       });
 
       const state = createArticleInitialState({
-        topic: 'Mars in Gemini',
+        topic: 'Workflow in learning',
         targetNetworks: ['DEVTO'],
       }, 'run-041');
 
@@ -275,7 +275,7 @@ describe('Article Generation Graph', () => {
       });
 
       const state = createArticleInitialState({
-        topic: 'Mars in Gemini',
+        topic: 'Workflow in learning',
         targetNetworks: ['DEVTO'],
       }, 'run-050');
 
@@ -298,7 +298,7 @@ describe('Article Generation Graph', () => {
       });
 
       const state = createArticleInitialState({
-        topic: 'Mars in Gemini',
+        topic: 'Workflow in learning',
         targetNetworks: ['DEVTO'],
       }, 'run-051');
 
@@ -319,14 +319,14 @@ describe('Article Generation Graph', () => {
       });
 
       const state = createArticleInitialState({
-        topic: 'Mars in Gemini',
+        topic: 'Workflow in learning',
         targetNetworks: ['DEVTO'],
       }, 'run-060');
 
       const result = await graph.invoke(state);
 
       expect(result.canonicalUrl).not.toBeNull();
-      expect(result.canonicalUrl).toContain('https://my-zodiac-ai.com/blog/');
+      expect(result.canonicalUrl).toContain('https://example.com/blog/');
       expect(result.finalArticle).not.toBeNull();
     });
   });
@@ -344,9 +344,9 @@ describe('Article Generation Graph', () => {
       });
 
       const state = createArticleInitialState({
-        topic: 'Mars in Gemini 2026',
+        topic: 'Workflow in learning 2026',
         targetNetworks: ['DEVTO', 'HASHNODE', 'LINKEDIN'],
-        keywords: ['mars', 'gemini', 'astrology', 'transit'],
+        keywords: ['workflow', 'learning', 'productivity', 'period'],
         language: 'en',
       }, 'run-070');
 
@@ -386,10 +386,10 @@ describe('Article Generation Graph', () => {
           }
           const role = opts?.role ?? 'default';
           const defaults: Record<string, string> = {
-            facts: '1. Mars takes 687 days to orbit',
+            facts: '1. Workflow takes 687 days to orbit',
             outline: '## Intro\n- Point\n- Estimated: 300 words',
-            draft: '# Mars in Gemini\n\nArticle body here.',
-            refine: '# Mars in Gemini Refined\n\nBetter article body.',
+            draft: '# Workflow in learning\n\nArticle body here.',
+            refine: '# Workflow in learning Refined\n\nBetter article body.',
           };
           return Promise.resolve({ content: defaults[role] ?? 'mock', model: 'test', tokens: 100 } as LlmResponse);
         },
@@ -402,7 +402,7 @@ describe('Article Generation Graph', () => {
       });
 
       const state = createArticleInitialState({
-        topic: 'Mars in Gemini',
+        topic: 'Workflow in learning',
         targetNetworks: ['DEVTO'],
       }, 'run-071');
 

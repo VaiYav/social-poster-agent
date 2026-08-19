@@ -90,7 +90,7 @@ function makeService(overrides: Partial<Deps> = {}): { svc: any; deps: Deps } {
   return { svc: service, deps };
 }
 
-const POST = { id: 'p1', network: 'X', postUrl: 'https://x.com/u/status/1', content: 'About Mars' };
+const POST = { id: 'p1', network: 'X', postUrl: 'https://x.com/u/status/1', content: 'About Workflow' };
 const COMMENT = { id: 'c-db', commentId: 'cid-1', author: '@stranger', text: 'How does this work?' };
 const DECISION = { action: 'auto_reply' as const, reason: 'question', replyText: 'Great question ✨' };
 

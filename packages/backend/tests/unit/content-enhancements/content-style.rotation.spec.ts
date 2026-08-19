@@ -68,7 +68,7 @@ describe('Content Style Rotation', () => {
     expect(ids).toContain('mystical_poem');
     expect(ids).toContain('listicle');
     expect(ids).toContain('question_hook');
-    expect(ids).toContain('cosmic_weather');
+    expect(ids).toContain('weather_report');
     expect(ids).toContain('ancient_wisdom');
     expect(ids).toContain('real_talk');
     expect(ids).toContain('plot_twist');

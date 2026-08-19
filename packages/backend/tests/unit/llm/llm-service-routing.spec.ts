@@ -90,7 +90,7 @@ describe('LlmService — quality pass', () => {
     await service.generateChat('sys', 'prompt one', { temperature: 0.3, role: 'draft' });
     await service.generateChat('sys', 'prompt two', { temperature: 0.9, role: 'draft' });
 
-    const groqInstances = mocks.instances.filter((i) => i.ctorArgs.model === 'llama-3.3-70b-versatile');
+    const groqInstances = mocks.instances.filter((i) => i.ctorArgs.model === 'meta-llama/llama-4-scout-17b-16e-instruct');
     const temps = groqInstances.map((i) => i.ctorArgs.temperature).sort();
     expect(groqInstances).toHaveLength(2);
     expect(temps).toEqual([0.3, 0.9]);
@@ -159,7 +159,7 @@ describe('LlmService — quality pass', () => {
     expect(mocks.instances[0]!.ctorArgs.configuration?.baseURL).toContain('11434');
 
     await service.generateChat('sys', 'judge prompt', { role: 'judge' });
-    const groq = mocks.instances.find((i) => i.ctorArgs.model === 'llama-3.3-70b-versatile');
+    const groq = mocks.instances.find((i) => i.ctorArgs.model === 'meta-llama/llama-4-scout-17b-16e-instruct');
     expect(groq).toBeDefined();
     expect(groq!.invokeCalls).toBe(1);
   });
@@ -200,6 +200,6 @@ describe('LlmService — quality pass', () => {
     const groqOnly = makeService({ GROQ_API_KEY: 'key' });
     await groqOnly.generateChat('sys', 'prompt two', { model: 'unknown/model' });
     const fallbackModel = mocks.instances[0]?.ctorArgs.model;
-    expect(fallbackModel).toBe('llama-3.3-70b-versatile');
+    expect(fallbackModel).toBe('meta-llama/llama-4-scout-17b-16e-instruct');
   });
 });

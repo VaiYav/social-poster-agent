@@ -115,7 +115,7 @@ describe('ABVariantService', () => {
           network: SocialNetwork.X,
           postedAt: new Date(),
           postUrl: 'https://x.com/status/1',
-          sourceRef: { topic: 'Mercury Retrograde' },
+          sourceRef: { topic: 'Workflow Trends' },
         },
       })),
       ...Array.from({ length: 3 }, (_, i) => ({
@@ -136,12 +136,12 @@ describe('ABVariantService', () => {
           network: SocialNetwork.X,
           postedAt: new Date(),
           postUrl: 'https://x.com/status/2',
-          sourceRef: { topic: 'Mercury Retrograde' },
+          sourceRef: { topic: 'Workflow Trends' },
         },
       })),
     ]);
 
-    const winner = await service.getWinnerForTopic('Mercury Retrograde', SocialNetwork.X);
+    const winner = await service.getWinnerForTopic('Workflow Trends', SocialNetwork.X);
 
     expect(winner).toBe('a');
   });
@@ -173,12 +173,12 @@ describe('ABVariantService', () => {
           network: SocialNetwork.X,
           postedAt: new Date(),
           postUrl: 'https://x.com/status/1',
-          sourceRef: { topic: 'Mercury Retrograde' },
+          sourceRef: { topic: 'Workflow Trends' },
         },
       },
     ]);
 
-    const winner = await service.getWinnerForTopic('Mercury Retrograde', SocialNetwork.X);
+    const winner = await service.getWinnerForTopic('Workflow Trends', SocialNetwork.X);
 
     expect(winner).toBeNull();
   });
@@ -193,7 +193,7 @@ describe('ABVariantService', () => {
     service = new ABVariantService(config, prisma as never);
 
     (prisma.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
-      sourceRef: { topic: 'Mercury Retrograde' },
+      sourceRef: { topic: 'Workflow Trends' },
     });
 
     (prisma.postVariant.findMany as ReturnType<typeof vi.fn>).mockImplementation(async (args: { where?: { selected?: boolean; postId?: string } }) => {
@@ -217,7 +217,7 @@ describe('ABVariantService', () => {
               network: SocialNetwork.X,
               postedAt: new Date(),
               postUrl: 'https://x.com/status/1',
-              sourceRef: { topic: 'Mercury Retrograde' },
+              sourceRef: { topic: 'Workflow Trends' },
             },
           })),
           ...Array.from({ length: 3 }, (_, i) => ({
@@ -238,7 +238,7 @@ describe('ABVariantService', () => {
               network: SocialNetwork.X,
               postedAt: new Date(),
               postUrl: 'https://x.com/status/2',
-              sourceRef: { topic: 'Mercury Retrograde' },
+              sourceRef: { topic: 'Workflow Trends' },
             },
           })),
         ];

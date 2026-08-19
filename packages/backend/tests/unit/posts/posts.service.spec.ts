@@ -161,7 +161,7 @@ describe('MOD-02: PostsService', () => {
       content: 'hello',
       generationRunId: 'run-1',
       sourceRef: { type: 'brief', path: 'briefs/test.json' },
-      llmMetadata: { model: 'gpt-4o-mini', tokens: 120 },
+      llmMetadata: { model: 'gpt-5-nano', tokens: 120 },
     };
 
     const result = await service.create(data);
@@ -174,7 +174,7 @@ describe('MOD-02: PostsService', () => {
     expect(arg.data.generationRunId).toBe('run-1');
     expect(arg.data.sourceRef).toEqual({ type: 'brief', path: 'briefs/test.json' });
     expect(arg.data.sourcePath).toBe('briefs/test.json');
-    expect(arg.data.llmMetadata).toEqual({ model: 'gpt-4o-mini', tokens: 120 });
+    expect(arg.data.llmMetadata).toEqual({ model: 'gpt-5-nano', tokens: 120 });
   });
 
   it('UTC-035: create(data, tx) writes via the provided transaction client (A4)', async () => {
@@ -334,7 +334,7 @@ describe('MOD-02: PostsService', () => {
     prisma.post.findMany.mockResolvedValue([]);
     prisma.post.update.mockResolvedValue({ ...existing, status: 'APPROVED' });
 
-    const editedContent = 'Mercury stations direct today.';
+    const editedContent = 'Workflow stations direct today.';
     await service.approve('post-1', editedContent);
 
     const arg = prisma.post.update.mock.calls[0][0];

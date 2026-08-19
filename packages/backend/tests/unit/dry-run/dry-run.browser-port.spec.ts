@@ -143,7 +143,7 @@ describe('DryRunBrowserPort', () => {
       const locator = page.locator('button[data-testid="tweetButton"]');
 
       // Step 1: Type content (marks typedOnPage = true)
-      await dryRunPort.humanType(locator, 'Mercury retrograde is coming!');
+      await dryRunPort.humanType(locator, 'Workflow Trends is coming!');
       expect(realFactory.humanType).toHaveBeenCalled();
 
       // Step 2: Click submit — should be intercepted
@@ -238,7 +238,7 @@ describe('DryRunBrowserPort', () => {
     });
 
     it('should generate Facebook-compatible synthetic URL', async () => {
-      const fbPage = createMockPage('https://www.facebook.com/myzodiacai/');
+      const fbPage = createMockPage('https://www.facebook.com/exampleco/');
       const fbContext = createMockContext(fbPage);
       const fbFactory = createMockRealFactory(fbContext);
       const port = new DryRunBrowserPort(fbFactory as unknown as never);

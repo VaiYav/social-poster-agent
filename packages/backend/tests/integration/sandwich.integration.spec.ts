@@ -226,7 +226,7 @@ function createMockConfigService(overrides: Record<string, unknown> = {}): Confi
     SOCIAL_THREADS_PASSWORD: 'testpass',
     SOCIAL_FACEBOOK_EMAIL: 'test@fb.com',
     SOCIAL_FACEBOOK_PASSWORD: 'testpass',
-    SOCIAL_FACEBOOK_PAGE_SLUG: 'myzodiacai',
+    SOCIAL_FACEBOOK_PAGE_SLUG: 'exampleco',
   };
   const values = { ...defaults, ...overrides };
   return {
@@ -263,7 +263,7 @@ function createIntegrationPrismaService() {
 const ACCOUNT_X = {
   id: 'acc-001',
   network: SocialNetwork.X,
-  handle: 'myzodiacai',
+  handle: 'exampleco',
   credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD',
   active: true,
   createdAt: new Date('2026-07-01T00:00:00Z'),
@@ -293,7 +293,7 @@ const NEW_SESSION = {
 const APPROVED_POST_X = {
   id: 'post-001',
   network: SocialNetwork.X,
-  content: 'Mercury retrograde is coming! Time to reflect, not react.',
+  content: 'Workflow trends are coming! Time to focus, not react.',
   status: PostStatus.APPROVED,
   postUrl: null,
   errorMessage: null,
@@ -315,7 +315,7 @@ const APPROVED_POST_X = {
 const POSTED_POST_X = {
   ...APPROVED_POST_X,
   status: PostStatus.POSTED,
-  postUrl: 'https://x.com/myzodiacai/status/123456789',
+  postUrl: 'https://x.com/exampleco/status/123456789',
   postedAt: new Date('2026-07-15T12:00:00Z'),
 };
 
@@ -890,7 +890,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
     // Assert: returns success with existing url
     expect(result).toEqual({
       success: true,
-      url: 'https://x.com/myzodiacai/status/123456789',
+      url: 'https://x.com/exampleco/status/123456789',
     });
 
     // Assert: IBrowserPort.createContext NOT called (re-verification for X uses
@@ -903,7 +903,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
       (c: unknown[]) => c[0]?.where?.id === 'post-025' && c[0]?.data?.status === PostStatus.VERIFIED,
     );
     expect(verifiedUpdate).toBeDefined();
-    expect(verifiedUpdate[0].data.postUrl).toBe('https://x.com/myzodiacai/status/123456789');
+    expect(verifiedUpdate[0].data.postUrl).toBe('https://x.com/exampleco/status/123456789');
 
     // Assert: no rate limit check (checkRateLimit not called — no Redis incr)
     // The daily key would be set if checkRateLimit ran

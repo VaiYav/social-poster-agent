@@ -51,7 +51,7 @@ describe('MOD-03: XPoster (BasePoster architecture)', () => {
 
   it('UTC-057: XPoster.post() navigates to compose, types content, captures post URL', async () => {
     const page = createMockPage({
-      url: 'https://x.com/myzodiacai/status/1234567890',
+      url: 'https://x.com/exampleco/status/1234567890',
     });
     const context = createMockContext(page as unknown);
 
@@ -64,7 +64,7 @@ describe('MOD-03: XPoster (BasePoster architecture)', () => {
     });
 
     // URL matches /status/\d+/
-    expect(result.url).toBe('https://x.com/myzodiacai/status/1234567890');
+    expect(result.url).toBe('https://x.com/exampleco/status/1234567890');
     expect(result.error).toBeUndefined();
 
     // Page closed in finally
@@ -141,7 +141,7 @@ describe('MOD-03: XPoster (BasePoster architecture)', () => {
 
   it('UTC-057: XPoster.post() applies human-like delays via browserPort.randomDelay', async () => {
     const page = createMockPage({
-      url: 'https://x.com/myzodiacai/status/1234567890',
+      url: 'https://x.com/exampleco/status/1234567890',
     });
     const context = createMockContext(page as unknown);
 
@@ -153,7 +153,7 @@ describe('MOD-03: XPoster (BasePoster architecture)', () => {
 
   it('UTC-057: XPoster.post() uses fill() for typing content (twitter-mcp approach)', async () => {
     const page = createMockPage({
-      url: 'https://x.com/myzodiacai/status/1234567890',
+      url: 'https://x.com/exampleco/status/1234567890',
     });
     const context = createMockContext(page as unknown);
 
@@ -166,7 +166,7 @@ describe('MOD-03: XPoster (BasePoster architecture)', () => {
 
   it('UTC-057: XPoster.post() captures screenshots at multiple phases', async () => {
     const page = createMockPage({
-      url: 'https://x.com/myzodiacai/status/1234567890',
+      url: 'https://x.com/exampleco/status/1234567890',
     });
     const context = createMockContext(page as unknown);
 
@@ -190,7 +190,7 @@ describe('MOD-03: ThreadsPoster (BasePoster architecture)', () => {
 
   it('UTC-058: ThreadsPoster.post() navigates to threads.net, types, submits, captures URL', async () => {
     const page = createMockPage({
-      url: 'https://www.threads.com/@myzodiacai/post/abc123',
+      url: 'https://www.threads.com/@exampleco/post/abc123',
     });
     const context = createMockContext(page as unknown);
 
@@ -204,7 +204,7 @@ describe('MOD-03: ThreadsPoster (BasePoster architecture)', () => {
     });
 
     // Captured URL
-    expect(result.url).toBe('https://www.threads.com/@myzodiacai/post/abc123');
+    expect(result.url).toBe('https://www.threads.com/@exampleco/post/abc123');
     expect(result.error).toBeUndefined();
 
     // Page closed in finally
@@ -256,7 +256,7 @@ describe('MOD-03: ThreadsPoster (BasePoster architecture)', () => {
 
   it('UTC-058: ThreadsPoster.post() uses typeHuman for typing content (stealth typing)', async () => {
     const page = createMockPage({
-      url: 'https://www.threads.com/@myzodiacai/post/abc123',
+      url: 'https://www.threads.com/@exampleco/post/abc123',
     });
     const context = createMockContext(page as unknown);
 
@@ -268,7 +268,7 @@ describe('MOD-03: ThreadsPoster (BasePoster architecture)', () => {
 
   it('UTC-058: ThreadsPoster.post() captures screenshots at multiple phases', async () => {
     const page = createMockPage({
-      url: 'https://www.threads.com/@myzodiacai/post/abc123',
+      url: 'https://www.threads.com/@exampleco/post/abc123',
     });
     const context = createMockContext(page as unknown);
 
@@ -306,10 +306,10 @@ describe('MOD-03: FacebookPoster (BasePoster architecture)', () => {
   });
 
   it('UTC-059: FacebookPoster.post() navigates to business page, types, publishes, captures URL', async () => {
-    poster = buildFacebookPoster({ SOCIAL_FACEBOOK_PAGE_SLUG: 'myzodiacai' });
+    poster = buildFacebookPoster({ SOCIAL_FACEBOOK_PAGE_SLUG: 'exampleco' });
 
     const page = createMockPage({
-      url: 'https://www.facebook.com/myzodiacai/posts/123456',
+      url: 'https://www.facebook.com/exampleco/posts/123456',
       bodyText: 'Hello from Facebook!',
     });
     const context = createMockContext(page as unknown);
@@ -317,13 +317,13 @@ describe('MOD-03: FacebookPoster (BasePoster architecture)', () => {
     const result = await poster.post(context as unknown, browserPort as unknown, 'Hello from Facebook!');
 
     // Navigated to business page
-    expect(page.goto).toHaveBeenCalledWith('https://www.facebook.com/myzodiacai/', {
+    expect(page.goto).toHaveBeenCalledWith('https://www.facebook.com/exampleco/', {
       waitUntil: 'networkidle',
       timeout: 30000,
     });
 
     // Captured URL
-    expect(result.url).toBe('https://www.facebook.com/myzodiacai/posts/123456');
+    expect(result.url).toBe('https://www.facebook.com/exampleco/posts/123456');
     expect(result.error).toBeUndefined();
 
     // Page closed in finally
@@ -331,7 +331,7 @@ describe('MOD-03: FacebookPoster (BasePoster architecture)', () => {
   });
 
   it('UTC-059: FacebookPoster.post() returns error when redirected to login', async () => {
-    poster = buildFacebookPoster({ SOCIAL_FACEBOOK_PAGE_SLUG: 'myzodiacai' });
+    poster = buildFacebookPoster({ SOCIAL_FACEBOOK_PAGE_SLUG: 'exampleco' });
 
     const page = createMockPage({
       url: 'https://www.facebook.com/login.php',
@@ -346,10 +346,10 @@ describe('MOD-03: FacebookPoster (BasePoster architecture)', () => {
   });
 
   it('UTC-059: FacebookPoster.post() uses humanType for typing content', async () => {
-    poster = buildFacebookPoster({ SOCIAL_FACEBOOK_PAGE_SLUG: 'myzodiacai' });
+    poster = buildFacebookPoster({ SOCIAL_FACEBOOK_PAGE_SLUG: 'exampleco' });
 
     const page = createMockPage({
-      url: 'https://www.facebook.com/myzodiacai/posts/123456',
+      url: 'https://www.facebook.com/exampleco/posts/123456',
       bodyText: 'Hello!',
     });
     const context = createMockContext(page as unknown);
@@ -360,13 +360,13 @@ describe('MOD-03: FacebookPoster (BasePoster architecture)', () => {
   });
 
   it('UTC-059: FacebookPoster.getPageSlug() returns configured slug', () => {
-    poster = buildFacebookPoster({ SOCIAL_FACEBOOK_PAGE_SLUG: 'myzodiacai' });
-    expect(poster.getPageSlug()).toBe('myzodiacai');
+    poster = buildFacebookPoster({ SOCIAL_FACEBOOK_PAGE_SLUG: 'exampleco' });
+    expect(poster.getPageSlug()).toBe('exampleco');
   });
 
   it('UTC-059: FacebookPoster.getPageUrl() returns full URL', () => {
-    poster = buildFacebookPoster({ SOCIAL_FACEBOOK_PAGE_SLUG: 'myzodiacai' });
-    expect(poster.getPageUrl()).toBe('https://www.facebook.com/myzodiacai/');
+    poster = buildFacebookPoster({ SOCIAL_FACEBOOK_PAGE_SLUG: 'exampleco' });
+    expect(poster.getPageUrl()).toBe('https://www.facebook.com/exampleco/');
   });
 });
 
@@ -383,7 +383,7 @@ describe('MOD-03: XPoster (extended posting flow)', () => {
 
   it('UTC-060: XPoster.post() single tweet — navigates to /compose/post, types content, validates URL', async () => {
     const page = createMockPage({
-      url: 'https://x.com/myzodiacai/status/1234567890',
+      url: 'https://x.com/exampleco/status/1234567890',
     });
     const context = createMockContext(page as unknown);
 
@@ -398,13 +398,13 @@ describe('MOD-03: XPoster (extended posting flow)', () => {
     expect(page.locator).toHaveBeenCalledWith('[data-testid="tweetTextarea_0"]');
     expect(page.keyboard.press).toHaveBeenCalledWith('Control+Enter');
     // Result has valid URL
-    expect(result.url).toBe('https://x.com/myzodiacai/status/1234567890');
+    expect(result.url).toBe('https://x.com/exampleco/status/1234567890');
     expect(result.error).toBeUndefined();
   });
 
   it('UTC-061: XPoster.post() thread — root + 2 replies → threadReplyResults populated', async () => {
     const page = createMockPage({
-      url: 'https://x.com/myzodiacai/status/1234567890',
+      url: 'https://x.com/exampleco/status/1234567890',
     });
     const context = createMockContext(page as unknown);
 
@@ -416,7 +416,7 @@ describe('MOD-03: XPoster (extended posting flow)', () => {
     );
 
     // Root post URL captured
-    expect(result.url).toBe('https://x.com/myzodiacai/status/1234567890');
+    expect(result.url).toBe('https://x.com/exampleco/status/1234567890');
     // Thread reply results populated (2 replies)
     expect(result.threadReplyResults).toBeDefined();
     expect(result.threadReplyResults).toHaveLength(2);
@@ -429,7 +429,7 @@ describe('MOD-03: XPoster (extended posting flow)', () => {
     // Simulate: compose page loads but post button not visible
     // The poster falls back to home page compose dialog
     const page = createMockPage({
-      url: 'https://x.com/myzodiacai/status/9999999999',
+      url: 'https://x.com/exampleco/status/9999999999',
     });
     // Make isVisible return false for post button to trigger fallback
     (page._locator as any).isVisible = vi.fn().mockResolvedValue(false);
@@ -448,7 +448,7 @@ describe('MOD-03: XPoster (extended posting flow)', () => {
 
   it('UTC-063: XPoster.post() uses Cmd+Enter shortcut when humanClick fails', async () => {
     const page = createMockPage({
-      url: 'https://x.com/myzodiacai/status/1234567890',
+      url: 'https://x.com/exampleco/status/1234567890',
     });
     // Make humanClick throw to trigger Cmd+Enter fallback
     browserPort.humanClick = vi.fn().mockRejectedValue(new Error('click timeout'));
@@ -503,7 +503,7 @@ describe('MOD-03: ThreadsPoster (extended posting flow)', () => {
 
   it('UTC-066: ThreadsPoster.post() opens compose dialog via button click', async () => {
     const page = createMockPage({
-      url: 'https://www.threads.com/@myzodiacai/post/abc123',
+      url: 'https://www.threads.com/@exampleco/post/abc123',
     });
     const context = createMockContext(page as unknown);
 
@@ -520,13 +520,13 @@ describe('MOD-03: ThreadsPoster (extended posting flow)', () => {
     // typeHuman called for stealth typing
     expect(browserPort.typeHuman).toHaveBeenCalled();
     // Result has valid URL
-    expect(result.url).toBe('https://www.threads.com/@myzodiacai/post/abc123');
+    expect(result.url).toBe('https://www.threads.com/@exampleco/post/abc123');
     expect(result.error).toBeUndefined();
   });
 
   it('UTC-067: ThreadsPoster.post() fallback to /compose URL when compose button not found', async () => {
     const page = createMockPage({
-      url: 'https://www.threads.com/@myzodiacai/post/abc123',
+      url: 'https://www.threads.com/@exampleco/post/abc123',
     });
     const context = createMockContext(page as unknown);
     // Mock resolve to throw only on first call (compose button) — triggers fallback
@@ -548,7 +548,7 @@ describe('MOD-03: ThreadsPoster (extended posting flow)', () => {
 
   it('UTC-068: ThreadsPoster.post() thread — root + 2 replies → threadReplyResults populated', async () => {
     const page = createMockPage({
-      url: 'https://www.threads.com/@myzodiacai/post/abc123',
+      url: 'https://www.threads.com/@exampleco/post/abc123',
     });
     const context = createMockContext(page as unknown);
 
@@ -560,7 +560,7 @@ describe('MOD-03: ThreadsPoster (extended posting flow)', () => {
     );
 
     // Root post URL captured
-    expect(result.url).toBe('https://www.threads.com/@myzodiacai/post/abc123');
+    expect(result.url).toBe('https://www.threads.com/@exampleco/post/abc123');
     // Thread reply results populated
     expect(result.threadReplyResults).toBeDefined();
     expect(result.threadReplyResults).toHaveLength(2);
@@ -569,11 +569,11 @@ describe('MOD-03: ThreadsPoster (extended posting flow)', () => {
   it('UTC-069: ThreadsPoster.post() extracts profile URL for validation when post URL not immediate', async () => {
     // When URL doesn't match postUrlPattern, poster tries to extract profile URL
     const page = createMockPage({
-      url: 'https://www.threads.com/@myzodiacai/post/validated123',
+      url: 'https://www.threads.com/@exampleco/post/validated123',
       bodyText: 'Content that was posted',
     });
     // Make the locator return a profile href for extractProfileUrl
-    (page._locator as any).getAttribute = vi.fn().mockResolvedValue('/@myzodiacai');
+    (page._locator as any).getAttribute = vi.fn().mockResolvedValue('/@exampleco');
     const context = createMockContext(page as unknown);
 
     const result = await poster.post(context as unknown, browserPort as unknown, 'Content that was posted');
@@ -586,11 +586,11 @@ describe('MOD-03: ThreadsPoster (extended posting flow)', () => {
   it('UTC-070: ThreadsPoster.post() validates content on profile page and returns url', async () => {
     // When post URL doesn't match pattern, poster validates on profile
     const page = createMockPage({
-      url: 'https://www.threads.com/@myzodiacai',
+      url: 'https://www.threads.com/@exampleco',
       bodyText: 'Profile page with the posted content visible here',
     });
     // extractProfileUrl returns a profile URL
-    (page._locator as any).getAttribute = vi.fn().mockResolvedValue('/@myzodiacai');
+    (page._locator as any).getAttribute = vi.fn().mockResolvedValue('/@exampleco');
     const context = createMockContext(page as unknown);
 
     const result = await poster.post(

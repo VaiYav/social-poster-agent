@@ -53,12 +53,12 @@ function createMockConfigService(overrides: Record<string, unknown> = {}): Confi
 
 /** A valid brief.json payload matching BriefSchema. */
 const validBrief = {
-  topic: 'Mercury Retrograde 2026',
+  topic: 'Workflow Trends 2026',
   source_locale: 'en',
-  target_queries: ['mercury retrograde 2026', 'mercury retrograde dates'],
+  target_queries: ['workflow trends 2026', 'workflow trends dates'],
   intent: 'informational',
   outline: [
-    { heading: 'Astrology', intent_note: 'overview', entities: ['Mercury', 'Leo'] },
+    { heading: 'productivity', intent_note: 'overview', entities: ['Workflow', 'Q2'] },
     { heading: 'Dates', entities: ['July 14', 'August 7'] },
   ],
 };
@@ -66,16 +66,16 @@ const validBrief = {
 /** A valid topic-queue.json payload matching TopicQueueSchema. */
 const validTopicQueue = {
   locale: 'en',
-  seeds: ['astrology', 'mercury retrograde'],
+  seeds: ['productivity', 'workflow trends'],
   clusters: [
-    { representative: 'Mercury retrograde effects', members: 3, status: 'new', score: 0.9 },
-    { representative: 'Full moon rituals', members: 2, status: 'reviewed', score: 0.7 },
+    { representative: 'Workflow trends effects', members: 3, status: 'new', score: 0.9 },
+    { representative: 'Launch day rituals', members: 2, status: 'reviewed', score: 0.7 },
   ],
 };
 
 /** A valid create-run report.json matching CreateRunReportSchema. */
 const validCreateReport = {
-  files: ['content/blog/en/mercury-retrograde-2026.md'],
+  files: ['content/blog/en/workflow-trends-2026.md'],
   skipped: [],
   tokens_in: 100,
   tokens_out: 200,
@@ -86,21 +86,21 @@ const validCreateReport = {
 
 /** A valid markdown article with frontmatter matching ArticleFrontmatterSchema. */
 const validArticleMd = `---
-title: Full Moon in Capricorn
-description: Discipline and ambition under the full moon.
+title: Product Launch in Q4
+description: Discipline and ambition under the product launch.
 date: "2026-07-21"
-tags: [astrology, capricorn]
+tags: [productivity, q4]
 answerCapsule:
-  question: What does the full moon in Capricorn mean?
+  question: What does the product launch in Q4 mean?
   answer: Focus on goals and structure.
   keyPoints: [Goal-setting, Discipline]
 seo:
-  keywords: [full moon capricorn, capricorn full moon]
+  keywords: [product launch q4, q4 product launch]
 ---
 
-# Full Moon in Capricorn
+# Product Launch in Q4
 
-The full moon in Capricorn highlights discipline, ambition and long-term goal setting.
+The product launch in Q4 highlights Discipline, ambition and long-term goal setting.
 `;
 
 /** Simulate readdir returning Dirent-like objects. */
@@ -162,15 +162,15 @@ describe('ContentReader (UTC-480 — CAP content reading)', () => {
 
     expect(topics).toHaveLength(1);
     expect(topics[0]!.sourceType).toBe('brief');
-    expect(topics[0]!.topic).toBe('Mercury Retrograde 2026');
-    expect(topics[0]!.keywords).toEqual(['mercury retrograde 2026', 'mercury retrograde dates']);
+    expect(topics[0]!.topic).toBe('Workflow Trends 2026');
+    expect(topics[0]!.keywords).toEqual(['workflow trends 2026', 'workflow trends dates']);
     // outline mapped with heading + entities
     expect(topics[0]!.outline).toEqual([
-      { heading: 'Astrology', entities: ['Mercury', 'Leo'] },
+      { heading: 'productivity', entities: ['Workflow', 'Q2'] },
       { heading: 'Dates', entities: ['July 14', 'August 7'] },
     ]);
     // category from first outline heading
-    expect(topics[0]!.category).toBe('Astrology');
+    expect(topics[0]!.category).toBe('productivity');
     // publishedAt from file mtime
     expect(topics[0]!.publishedAt).toEqual(new Date('2026-07-15T10:00:00Z'));
     // path points to brief.json
@@ -211,7 +211,7 @@ describe('ContentReader (UTC-480 — CAP content reading)', () => {
   it('UTC-484: readArticles() parses .md frontmatter via ArticleFrontmatterSchema', async () => {
     fsMocks.access.mockResolvedValueOnce(undefined);
     fsMocks.readdir.mockResolvedValueOnce(
-      dirents([{ name: 'full-moon-capricorn.md', isDir: false }]),
+      dirents([{ name: 'product-launch-q4.md', isDir: false }]),
     );
     fsMocks.readFile.mockResolvedValueOnce(validArticleMd);
 
@@ -219,18 +219,18 @@ describe('ContentReader (UTC-480 — CAP content reading)', () => {
 
     expect(topics).toHaveLength(1);
     expect(topics[0]!.sourceType).toBe('article');
-    expect(topics[0]!.topic).toBe('Full Moon in Capricorn');
+    expect(topics[0]!.topic).toBe('Product Launch in Q4');
     // keywords from seo.keywords
-    expect(topics[0]!.keywords).toEqual(['full moon capricorn', 'capricorn full moon']);
+    expect(topics[0]!.keywords).toEqual(['product launch q4', 'q4 product launch']);
     // F10: facts include answerCapsule.keyPoints + answer; body adds more when present.
     expect(topics[0]!.facts).toEqual([
       'Goal-setting',
       'Discipline',
       'Focus on goals and structure.',
-      'The full moon in Capricorn highlights discipline, ambition and long-term goal setting.',
+      'The product launch in Q4 highlights Discipline, ambition and long-term goal setting.',
     ]);
     // category from first tag
-    expect(topics[0]!.category).toBe('astrology');
+    expect(topics[0]!.category).toBe('productivity');
     // publishedAt from date
     expect(topics[0]!.publishedAt).toEqual(new Date('2026-07-21'));
   });
@@ -247,7 +247,7 @@ describe('ContentReader (UTC-480 — CAP content reading)', () => {
     const topics = await service.readArticles(10);
 
     expect(topics).toHaveLength(1);
-    expect(topics[0]!.topic).toBe('Full Moon in Capricorn');
+    expect(topics[0]!.topic).toBe('Product Launch in Q4');
   });
 
   it('UTC-486: readArticles() skips .md file with no content / empty frontmatter', async () => {
@@ -282,14 +282,14 @@ describe('ContentReader (UTC-480 — CAP content reading)', () => {
 
     expect(topics).toHaveLength(2);
     expect(topics[0]!.sourceType).toBe('topic');
-    expect(topics[0]!.topic).toBe('Mercury retrograde effects');
+    expect(topics[0]!.topic).toBe('Workflow trends effects');
     // keywords from seeds
-    expect(topics[0]!.keywords).toEqual(['astrology', 'mercury retrograde']);
+    expect(topics[0]!.keywords).toEqual(['productivity', 'workflow trends']);
     // category: 'trending' when status === 'new'
     expect(topics[0]!.category).toBe('trending');
     // second cluster: status 'reviewed' → 'general'
     expect(topics[1]!.category).toBe('general');
-    expect(topics[1]!.topic).toBe('Full moon rituals');
+    expect(topics[1]!.topic).toBe('Launch day rituals');
   });
 
   // ── readCreateRuns ──
@@ -303,8 +303,8 @@ describe('ContentReader (UTC-480 — CAP content reading)', () => {
 
     expect(topics).toHaveLength(1);
     expect(topics[0]!.sourceType).toBe('create_run');
-    // slug "mercury-retrograde-2026" → "Mercury Retrograde 2026" (trailing -2026 stripped)
-    expect(topics[0]!.topic).toBe('Mercury Retrograde');
+    // slug "workflow-trends-2026" → "Workflow Trends 2026" (trailing -2026 stripped)
+    expect(topics[0]!.topic).toBe('Workflow Trends');
     expect(topics[0]!.category).toBe('fresh');
   });
 
@@ -380,7 +380,7 @@ describe('ContentReader (UTC-480 — CAP content reading)', () => {
   it('UTC-492: getTopics() falls through to articles when no briefs/create-runs/queues', async () => {
     setupGetTopics({
       capDirs: [],
-      blogFiles: [{ name: 'full-moon-capricorn.md', content: validArticleMd }],
+      blogFiles: [{ name: 'product-launch-q4.md', content: validArticleMd }],
     });
 
     const topics = await service.getTopics(5);

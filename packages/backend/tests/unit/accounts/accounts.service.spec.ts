@@ -25,7 +25,7 @@ describe('AccountsService', () => {
   describe('seedFromEnv', () => {
     it('seeds a single account from legacy un-suffixed env vars', async () => {
       const config = createMockConfigService({
-        SOCIAL_X_USERNAME: 'myzodiacai',
+        SOCIAL_X_USERNAME: 'exampleco',
         SOCIAL_X_PASSWORD: 'secret',
       });
       const svc = new AccountsService(prisma as any, config, undefined);
@@ -38,7 +38,7 @@ describe('AccountsService', () => {
       expect(prisma.socialAccount.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           network: SocialNetwork.X,
-          handle: 'myzodiacai',
+          handle: 'exampleco',
           credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD',
           active: true,
         }),
@@ -91,7 +91,7 @@ describe('AccountsService', () => {
 
     it('does not update existing accounts', async () => {
       const config = createMockConfigService({
-        SOCIAL_X_USERNAME: 'myzodiacai',
+        SOCIAL_X_USERNAME: 'exampleco',
         SOCIAL_X_PASSWORD: 'secret',
       });
       const svc = new AccountsService(prisma as any, config, undefined);
@@ -112,7 +112,7 @@ describe('AccountsService', () => {
       const config = createMockConfigService({
         SOCIAL_FACEBOOK_EMAIL: 'fb@test.com',
         SOCIAL_FACEBOOK_PASSWORD: 'secret',
-        SOCIAL_FACEBOOK_PAGE_SLUG: 'myzodiacai',
+        SOCIAL_FACEBOOK_PAGE_SLUG: 'exampleco',
         SOCIAL_FACEBOOK_COOKIES: 'sessionid=abc',
       });
       const svc = new AccountsService(prisma as any, config, undefined);
@@ -121,7 +121,7 @@ describe('AccountsService', () => {
       expect(creds).toEqual({
         username: 'fb@test.com',
         password: 'secret',
-        extra: 'myzodiacai',
+        extra: 'exampleco',
         cookies: 'sessionid=abc',
       });
     });

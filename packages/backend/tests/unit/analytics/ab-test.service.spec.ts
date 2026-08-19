@@ -28,7 +28,7 @@ describe('ABTestService', () => {
           network: SocialNetwork.X,
           postedAt,
           postUrl: 'https://x.com/1',
-          sourceRef: { topic: 'Mercury retrograde' },
+          sourceRef: { topic: 'Workflow Trends' },
         },
       },
       {
@@ -50,7 +50,7 @@ describe('ABTestService', () => {
           network: SocialNetwork.X,
           postedAt,
           postUrl: 'https://x.com/2',
-          sourceRef: { topic: 'Mercury retrograde' },
+          sourceRef: { topic: 'Workflow Trends' },
         },
       },
     ]);
@@ -60,7 +60,7 @@ describe('ABTestService', () => {
 
     expect(results).toHaveLength(1);
     const test = results[0]!;
-    expect(test.topic).toBe('Mercury retrograde');
+    expect(test.topic).toBe('Workflow Trends');
     expect(test.network).toBe('X');
     expect(test.totalPosts).toBe(2);
     expect(test.variants).toHaveLength(2);
@@ -101,7 +101,7 @@ describe('ABTestService', () => {
           network: SocialNetwork.X,
           postedAt,
           postUrl: null,
-          sourceRef: { topic: 'Mercury retrograde' },
+          sourceRef: { topic: 'Workflow Trends' },
         },
       },
       {
@@ -123,7 +123,7 @@ describe('ABTestService', () => {
           network: SocialNetwork.X,
           postedAt,
           postUrl: null,
-          sourceRef: { topic: 'Mercury retrograde' },
+          sourceRef: { topic: 'Workflow Trends' },
         },
       },
     ]);

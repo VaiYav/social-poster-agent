@@ -105,7 +105,7 @@ function createMockConfigService(overrides: Record<string, unknown> = {}): Confi
     SOCIAL_THREADS_PASSWORD: 'testpass',
     SOCIAL_FACEBOOK_EMAIL: 'test@fb.com',
     SOCIAL_FACEBOOK_PASSWORD: 'testpass',
-    SOCIAL_FACEBOOK_PAGE_SLUG: 'myzodiacai',
+    SOCIAL_FACEBOOK_PAGE_SLUG: 'exampleco',
   };
   const values = { ...defaults, ...overrides };
   return { get: vi.fn((key: string, def?: unknown) => (key in values ? values[key] : def)) } as unknown as ConfigService;

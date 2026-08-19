@@ -46,12 +46,12 @@ function createMockLlm(responses: Partial<LlmResponse>[] = []): ILlmPort {
 
 function createTopic(overrides: Partial<ContentTopic> = {}): ContentTopic {
   return {
-    topic: 'Mercury Retrograde 2026',
-    keywords: ['mercury', 'retrograde', 'astrology'],
-    category: 'astrology',
-    facts: ['Mercury retrograde happens 3-4 times a year'],
+    topic: 'Workflow Trends 2026',
+    keywords: ['workflow', 'slowdown', 'productivity'],
+    category: 'productivity',
+    facts: ['Workflow Trends happens 3-4 times a year'],
     outline: [],
-    path: '/blog/mercury-retrograde',
+    path: '/blog/workflow-slowdown',
     ...overrides,
   } as ContentTopic;
 }
@@ -70,7 +70,7 @@ describe('Hook Cache', () => {
 
   it('HC-002: second run with same topic skips LLM call (cache hit)', async () => {
     const mockLlm = createMockLlm([
-      { content: '1. Why is Mercury acting up?\n2. Mercury retrograde is not what you think\n3. The hidden gift of retrograde', model: 'mock' },
+      { content: '1. Why is Workflow acting up?\n2. Workflow Trends is not what you think\n3. The hidden gift of slowdown', model: 'mock' },
     ]);
 
     const graph = buildGenerationGraph(mockLlm);

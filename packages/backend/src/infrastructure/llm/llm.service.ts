@@ -89,7 +89,7 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     name: 'groq',
     keyEnv: 'GROQ_API_KEY',
     modelEnv: 'GROQ_MODEL',
-    defaultModel: 'llama-3.3-70b-versatile',
+    defaultModel: 'meta-llama/llama-4-scout-17b-16e-instruct',
     free: true,
     baseURL: 'https://api.groq.com/openai/v1',
   },
@@ -121,7 +121,7 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     name: 'openrouter',
     keyEnv: 'OPENROUTER_API_KEY',
     modelEnv: 'OPENROUTER_MODEL',
-    defaultModel: 'meta-llama/llama-3.3-70b-instruct:free',
+    defaultModel: 'meta-llama/llama-4-maverick:free',
     free: true,
     baseURL: 'https://openrouter.ai/api/v1',
   },
@@ -177,30 +177,21 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     name: 'nvidia',
     keyEnv: 'NVIDIA_API_KEY',
     modelEnv: 'NVIDIA_MODEL',
-    defaultModel: 'meta/llama-3.3-70b-instruct',
+    defaultModel: 'meta/llama-4-scout-17b-16e-instruct',
     free: true,
     baseURL: 'https://integrate.api.nvidia.com/v1',
   },
-  // 9. GitHub Models — FREE 150 RPD, no credit card, OpenAI-compatible
+  // 10. GitHub Models — FREE 150 RPD, no credit card, OpenAI-compatible
   // Access to GPT-5, Llama, DeepSeek, Mistral via one key. Needs GitHub PAT with models:read.
   {
     name: 'github',
     keyEnv: 'GITHUB_TOKEN',
     modelEnv: 'GITHUB_MODEL',
-    defaultModel: 'meta-llama/Llama-3.3-70B-Instruct',
+    defaultModel: 'meta-llama/Llama-4-Scout-17B-16E-Instruct',
     free: true,
     baseURL: 'https://models.inference.ai.azure.com',
   },
-  // 10. xAI Grok — $25 free credits on signup, no credit card, OpenAI-compatible
-  {
-    name: 'xai',
-    keyEnv: 'XAI_API_KEY',
-    modelEnv: 'XAI_MODEL',
-    defaultModel: 'grok-4.1-fast',
-    free: false,
-    baseURL: 'https://api.x.ai/v1',
-  },
-  // 11. Mistral AI — Free mode, no credit card, OpenAI-compatible
+  // 10. Mistral AI — Free mode, no credit card, OpenAI-compatible
   // EU-hosted, strong multilingual (good for uk/es/it).
   {
     name: 'mistral',
@@ -210,17 +201,17 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     free: true,
     baseURL: 'https://api.mistral.ai/v1',
   },
-  // 12. Hugging Face Inference Providers — $0.10/mo free, auto-failover, OpenAI-compatible
+  // 11. Hugging Face Inference Providers — $0.10/mo free, auto-failover, OpenAI-compatible
   // Routes to 15+ inference partners automatically.
   {
     name: 'huggingface',
     keyEnv: 'HF_TOKEN',
     modelEnv: 'HF_MODEL',
-    defaultModel: 'meta-llama/Llama-3.3-70B-Instruct',
+    defaultModel: 'meta-llama/Llama-4-Scout-17B-16E-Instruct',
     free: true,
     baseURL: 'https://router.huggingface.co/v1',
   },
-  // 13. Together AI — $25 free credits, no credit card, OpenAI-compatible
+  // 12. Together AI — $25 free credits, no credit card, OpenAI-compatible
   // 68 free models including Llama 3.3 70B free variant. Credits don't expire.
   {
     name: 'together',
@@ -230,7 +221,7 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     free: true,
     baseURL: 'https://api.together.ai/v1',
   },
-  // 14. Cohere — Trial key: 1000 calls/mo, 20 RPM, no credit card
+  // 13. Cohere — Trial key: 1000 calls/mo, 20 RPM, no credit card
   // Not for production use (TOS). Good for prototyping.
   {
     name: 'cohere',
@@ -240,7 +231,7 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
     free: true,
     baseURL: 'https://api.cohere.ai/v1',
   },
-  // 15. Ollama — local, last resort (no API key needed)
+  // 14. Ollama — local, last resort (no API key needed)
   {
     name: 'ollama',
     modelEnv: 'OLLAMA_DEFAULT_MODEL',
@@ -305,12 +296,16 @@ export function withLlmCallbacks<T>(callbacks: BaseCallbackHandler[], fn: () => 
  *
  * Reuses the same API keys as content-agent-platform (OQ-6 resolved).
  * Provider chain (FREE-FIRST, matching CAP's cheap-tier strategy):
- *   1. Groq (FREE, fast — llama-3.3-70b)
- *   2. OpenRouter FREE (meta-llama/llama-3.3-70b-instruct:free)
- *   3. DeepSeek (cheap — deepseek-chat)
- *   4. Cerebras (FREE, fast — llama-3.3-70b)
- *   5. OpenAI (gpt-5-nano — paid overflow)
- *   6. Ollama local (gemma4 — last resort, no API key needed)
+ *   1. Groq (FREE, fast — llama-4-scout)
+ *   2. SambaNova (FREE 20M tokens/day — Llama 3.3 70B / gpt-oss-120b)
+ *   3. Cerebras (FREE, fast — gpt-oss-120b)
+ *   4. OpenRouter FREE (meta-llama/llama-4-maverick:free)
+ *   5. DeepSeek (cheap — deepseek-chat)
+ *   6. Anthropic (claude-haiku-4-5 — paid backstop)
+ *   7. OpenAI (gpt-5-nano — paid overflow)
+ *   8. Google (gemini-2.5-flash — free tier)
+ *   9. NVIDIA/GitHub/HF/Together/Mistral/Cohere free variants
+ *   10. Ollama local (gemma4 — last resort, no API key needed)
  *
  * Implements ILlmPort for testability — unit tests inject a mock ILlmPort.
  * LangGraph workflow is in modules/generation/generation.service.ts.
@@ -681,12 +676,11 @@ export class LlmService implements ILlmPort, OnModuleInit {
       cerebras: [0, 0],
       openrouter: [0, 0], // free models only in the chain
       deepseek: [0.27, 1.10],
-      anthropic: [0.80, 4.00], // claude-haiku-4-5
-      openai: [0.50, 2.00], // gpt-5-nano approximate
+      anthropic: [1.00, 5.00], // claude-haiku-4-5
+      openai: [0.05, 0.40], // gpt-5-nano
       google: [0, 0], // free tier
       nvidia: [0, 0],
       github: [0, 0],
-      xai: [2.00, 10.00], // grok-4.1-fast
       mistral: [0, 0], // free tier
       huggingface: [0, 0],
       together: [0, 0], // free variant in chain

@@ -47,9 +47,9 @@ function createMockEngager(overrides: Partial<BaseEngager> = {}): BaseEngager {
     scrollFeed: vi.fn().mockResolvedValue([]),
     scrollUrl: vi.fn().mockResolvedValue([]),
     extractPostText: vi.fn().mockResolvedValue({
-      text: 'Mars in Aries brings energy today.',
+      text: 'Remote Work in Q1 brings energy today.',
       hasMedia: false,
-      authorHandle: 'astrologer',
+      authorHandle: 'analyst',
     }),
     openCommentsThread: vi.fn().mockResolvedValue(3),
     navigateBack: vi.fn().mockResolvedValue(undefined),
@@ -136,7 +136,7 @@ describe('HumanBehaviorEngine', () => {
   it('HB-004: executes comment action when LLM decides comment', async () => {
     decisionPort = createMockDecisionPort({
       action: 'comment', reason: 'valuable', confidence: 0.8,
-      commentText: 'Great insight about Mars!',
+      commentText: 'Great insight about Workflow!',
     });
     engine = new HumanBehaviorEngine(
       mockPrisma as never, browser, createMockSseService() as never,
@@ -146,7 +146,7 @@ describe('HumanBehaviorEngine', () => {
     const page = createMockPage();
     const results = await engine.processPosts(page, ['url1'], engager, config);
 
-    expect(engager.comment).toHaveBeenCalledWith(page, 'url1', 'Great insight about Mars!');
+    expect(engager.comment).toHaveBeenCalledWith(page, 'url1', 'Great insight about Workflow!');
     expect(results[0]!.success).toBe(true);
   });
 
@@ -188,7 +188,7 @@ describe('HumanBehaviorEngine', () => {
     const page = createMockPage();
     const results = await engine.processPosts(page, ['url1'], engager, config);
 
-    expect(engager.visitProfile).toHaveBeenCalledWith(page, 'astrologer');
+    expect(engager.visitProfile).toHaveBeenCalledWith(page, 'analyst');
     expect(engager.navigateBack).toHaveBeenCalled();
     expect(results[0]!.success).toBe(true);
   });

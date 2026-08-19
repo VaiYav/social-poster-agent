@@ -17,7 +17,7 @@ import { TrendingScraperService } from '../../../src/modules/trending/trending-s
 // ── Sample Google Trends RSS XML ──
 const SAMPLE_API_JSON = [
   { topic: 'OpenAI GPT-5', rank: 1, url: 'https://example.com/gpt5', traffic: '500K+' },
-  { topic: 'Mercury Retrograde', rank: 2, url: 'https://example.com/mercury', traffic: '200K+' },
+  { topic: 'Workflow Trends', rank: 2, url: 'https://example.com/workflow', traffic: '200K+' },
   { topic: 'Climate Summit 2026', rank: 3, traffic: '100K+' },
 ];
 
@@ -31,8 +31,8 @@ const SAMPLE_RSS_XML = `<?xml version="1.0" encoding="UTF-8"?>
       <ht:approx_traffic>500K+</ht:approx_traffic>
     </item>
     <item>
-      <title><![CDATA[Mercury Retrograde]]></title>
-      <link>https://trends.google.com/trends/explore?q=mercury+retrograde</link>
+      <title><![CDATA[Workflow Trends]]></title>
+      <link>https://trends.google.com/trends/explore?q=workflow+trends</link>
       <ht:approx_traffic>200K+</ht:approx_traffic>
     </item>
     <item>
@@ -51,7 +51,7 @@ function createMockBrowserPort() {
     waitForSelector: vi.fn().mockResolvedValue(undefined),
     evaluate: vi.fn().mockResolvedValue([
       { topic: 'OpenAI GPT-5', rank: 1 },
-      { topic: '#MercuryRetrograde', rank: 2 },
+      { topic: '#WorkflowTrends', rank: 2 },
       { topic: 'World Cup 2026', rank: 3 },
     ]),
     close: vi.fn().mockResolvedValue(undefined),
@@ -387,7 +387,7 @@ describe('TrendingScraperService (Item 38 — F22 Google Trends + X scraping)', 
     } as Response);
 
     const eventTopics = [
-      { topic: 'Mercury Retrograde', networks: ['X', 'THREADS'] },
+      { topic: 'Workflow Trends', networks: ['X', 'THREADS'] },
     ];
 
     const merged = await service.getMergedTrending(eventTopics);
@@ -398,12 +398,12 @@ describe('TrendingScraperService (Item 38 — F22 Google Trends + X scraping)', 
     expect(sources).toContain('google_trends');
     expect(sources).toContain('x_trends');
 
-    // "Mercury Retrograde" appears in events + Google Trends → higher priority
-    const mercury = merged.find((m) => m.topic.toLowerCase().includes('mercury'));
-    expect(mercury).toBeDefined();
-    expect(mercury!.sources).toContain('events');
-    expect(mercury!.sources).toContain('google_trends');
-    expect(mercury!.priority).toBeGreaterThan(3); // 3 (events) + 2 (google) = 5
+    // "Workflow Trends" appears in events + Google Trends → higher priority
+    const workflow = merged.find((m) => m.topic.toLowerCase().includes('workflow'));
+    expect(workflow).toBeDefined();
+    expect(workflow!.sources).toContain('events');
+    expect(workflow!.sources).toContain('google_trends');
+    expect(workflow!.priority).toBeGreaterThan(3); // 3 (events) + 2 (google) = 5
 
     fetchSpy.mockRestore();
   });
@@ -433,7 +433,7 @@ describe('TrendingScraperService (Item 38 — F22 Google Trends + X scraping)', 
     } as Response);
 
     const eventTopics = [
-      { topic: 'Mercury Retrograde', networks: ['X', 'THREADS'] }, // in Google Trends too → priority 5
+      { topic: 'Workflow Trends', networks: ['X', 'THREADS'] }, // in Google Trends too → priority 5
     ];
 
     const merged = await service.getMergedTrending(eventTopics);

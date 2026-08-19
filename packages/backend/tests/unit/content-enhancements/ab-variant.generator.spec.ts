@@ -18,7 +18,7 @@ describe('ABVariantGenerator', () => {
     const generator = new ABVariantGenerator(config);
 
     const result = await generator.generateVariants(
-      'Mercury retrograde starts next week. Pause before sending. Reflect on the past. #astrology',
+      'Workflow Trends starts next week. Pause before sending. Reflect on the past. #productivity',
       SocialNetwork.X,
     );
 
@@ -35,7 +35,7 @@ describe('ABVariantGenerator', () => {
     const mockLlm = {
       generateChat: vi.fn().mockResolvedValue({
         content: 'A: Clean variant\nB: Expressive variant',
-        model: 'gpt-4o-mini',
+        model: 'gpt-5-nano',
         tokens: 50,
         cost: 0.001,
       }),
@@ -43,7 +43,7 @@ describe('ABVariantGenerator', () => {
     const config = new ConfigService({ AB_VARIANTS_ENABLED: 'true' });
     const generator = new ABVariantGenerator(config, mockLlm as never);
 
-    await generator.generateVariants('base content', SocialNetwork.X, { topic: 'Mercury', priorWinner: 'a' });
+    await generator.generateVariants('base content', SocialNetwork.X, { topic: 'Workflow', priorWinner: 'a' });
 
     expect(mockLlm.generateChat).toHaveBeenCalled();
     const systemPrompt = mockLlm.generateChat.mock.calls[0][0];
@@ -55,7 +55,7 @@ describe('ABVariantGenerator', () => {
     const mockLlm = {
       generateChat: vi.fn().mockResolvedValue({
         content: 'A: Clean variant\nB: Expressive variant',
-        model: 'gpt-4o-mini',
+        model: 'gpt-5-nano',
         tokens: 50,
         cost: 0.001,
       }),
@@ -63,7 +63,7 @@ describe('ABVariantGenerator', () => {
     const config = new ConfigService({ AB_VARIANTS_ENABLED: 'true' });
     const generator = new ABVariantGenerator(config, mockLlm as never);
 
-    await generator.generateVariants('base content', SocialNetwork.X, { topic: 'Mercury', priorWinner: 'b' });
+    await generator.generateVariants('base content', SocialNetwork.X, { topic: 'Workflow', priorWinner: 'b' });
 
     const systemPrompt = mockLlm.generateChat.mock.calls[0][0];
     expect(systemPrompt).toContain('Expressive/Rich" style');

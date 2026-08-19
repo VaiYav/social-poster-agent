@@ -306,7 +306,7 @@ describe('E2E: Posting flow with mocked browser', () => {
             slug: 'test-devto-article',
             excerpt: 'A test article for Dev.to syndication.',
           }),
-          canonicalUrl: 'https://my-zodiac-ai.com/blog/test-devto-article',
+          canonicalUrl: 'https://example.com/blog/test-devto-article',
           status: PostStatus.APPROVED,
           threadId: null,
           threadPosition: 0,
@@ -390,7 +390,7 @@ describe('E2E: Posting flow with mocked browser', () => {
         postArticle: vi.fn().mockResolvedValue({
           success: true,
           url: 'https://dev.to/testuser/test-devto-article-123',
-          canonicalUrl: 'https://my-zodiac-ai.com/blog/test-devto-article',
+          canonicalUrl: 'https://example.com/blog/test-devto-article',
         }),
         verifyPosted: vi.fn().mockResolvedValue('https://dev.to/testuser/test-devto-article-123'),
       })

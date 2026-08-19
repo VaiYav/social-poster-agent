@@ -266,14 +266,14 @@ function createMockPrismaModule(mockPrisma: ReturnType<typeof createTestPrisma>)
  */
 function createIntegrationLlmPort(): ILlmPortType {
   const responses: LlmResponse = {
-    content: 'Mercury retrograde is coming! Reflect, not react. #astrology',
-    model: 'gpt-4o-mini',
+    content: 'Workflow Trends is coming! Reflect, not react. #productivity',
+    model: 'gpt-5-nano',
     tokens: 120,
     cost: 0.001,
   };
   const critiqueResponse: LlmResponse = {
     content: 'The draft is a bit long — consider shortening the hook.',
-    model: 'gpt-4o-mini',
+    model: 'gpt-5-nano',
     tokens: 40,
     cost: 0.0005,
   };
@@ -290,8 +290,8 @@ function createIntegrationLlmPort(): ILlmPortType {
       if (prompt.includes('X post')) {
         draftCounter++;
         return Promise.resolve({
-          content: `Mercury retrograde is coming! Reflect, not react. Short punchy take for X. #astrology #X${draftCounter}`,
-          model: 'gpt-4o-mini',
+          content: `Workflow Trends is coming! Reflect, not react. Short punchy take for X. #productivity #X${draftCounter}`,
+          model: 'gpt-5-nano',
           tokens: 120,
           cost: 0.001,
         });
@@ -299,8 +299,8 @@ function createIntegrationLlmPort(): ILlmPortType {
       if (prompt.includes('THREADS post')) {
         draftCounter++;
         return Promise.resolve({
-          content: `Mercury retrograde is here. Let me tell you a story about cosmic timing and why slowing down matters now. A narrative thread for you. #astrology #THREADS${draftCounter}`,
-          model: 'gpt-4o-mini',
+          content: `Workflow Trends is here. Let me tell you a story about cosmic timing and why slowing down matters now. A narrative thread for you. #productivity #THREADS${draftCounter}`,
+          model: 'gpt-5-nano',
           tokens: 120,
           cost: 0.001,
         });
@@ -308,8 +308,8 @@ function createIntegrationLlmPort(): ILlmPortType {
       if (prompt.includes('FACEBOOK post')) {
         draftCounter++;
         return Promise.resolve({
-          content: `Mercury retrograde is approaching! How are you preparing for this cosmic shift? Share your thoughts below and let us navigate this together as a community. #astrology #FACEBOOK${draftCounter}`,
-          model: 'gpt-4o-mini',
+          content: `Workflow Trends is approaching! How are you preparing for this cosmic shift? Share your thoughts below and let us navigate this together as a community. #productivity #FACEBOOK${draftCounter}`,
+          model: 'gpt-5-nano',
           tokens: 120,
           cost: 0.001,
         });
@@ -328,7 +328,7 @@ function makeTopic(
     sourceType,
     path,
     topic,
-    keywords: ['astrology', topic.split(' ')[0]!.toLowerCase()],
+    keywords: ['productivity', topic.split(' ')[0]!.toLowerCase()],
     facts: ['Key fact about ' + topic],
   };
 }
@@ -504,7 +504,7 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     prisma.post.create.mockImplementation(() => Promise.resolve({ id: `post-${++created}` }));
 
     const contentReader = {
-      getTopics: vi.fn().mockResolvedValue([makeTopic('/blog/venus.md', 'Venus transit 2026')]),
+      getTopics: vi.fn().mockResolvedValue([makeTopic('/blog/customer feedback.md', 'Customer Feedback period 2026')]),
       readBriefs: vi.fn().mockResolvedValue([]),
       readArticles: vi.fn().mockResolvedValue([]),
     };
@@ -526,7 +526,7 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     // the mock LLM and sourceRef carries the topic path.
     expect(createArg.data.status).toBeUndefined();
     expect(createArg.data.content).toBeTruthy();
-    expect(createArg.data.sourceRef.path).toBe('/blog/venus.md');
+    expect(createArg.data.sourceRef.path).toBe('/blog/customer feedback.md');
   });
 
   // ── ITC-002: Generation → Content Source ─────────────────────────────────
@@ -541,7 +541,7 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     let created = 0;
     prisma.post.create.mockImplementation(() => Promise.resolve({ id: `post-${++created}` }));
 
-    const topics = [makeTopic('/blog/mercury.md', 'Mercury retrograde 2026')];
+    const topics = [makeTopic('/blog/workflow.md', 'Workflow Trends 2026')];
     const contentReader = {
       getTopics: vi.fn().mockResolvedValue(topics),
       readBriefs: vi.fn().mockResolvedValue([]),
@@ -562,7 +562,7 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     expect(runId).toBe('run-002');
     expect(contentReader.getTopics).toHaveBeenCalledWith(1);
     expect(prisma.post.create).toHaveBeenCalledTimes(1);
-    expect(prisma.post.create.mock.calls[0]![0].data.sourceRef.path).toBe('/blog/mercury.md');
+    expect(prisma.post.create.mock.calls[0]![0].data.sourceRef.path).toBe('/blog/workflow.md');
   });
 
   // ── ITC-003: Generation → Posts (dedup) ──────────────────────────────────
@@ -573,12 +573,12 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     prisma.socialAccount.findFirst.mockResolvedValue(ACCOUNTS.X);
     // Simulate an existing post for this source+network → dedup hit
     prisma.post.findMany.mockResolvedValue([
-      { id: 'existing-1', network: SocialNetwork.X, sourceRef: { path: '/blog/venus.md' } },
+      { id: 'existing-1', network: SocialNetwork.X, sourceRef: { path: '/blog/customer feedback.md' } },
     ]);
     prisma.post.create.mockResolvedValue({ id: 'should-not-be-called' });
 
     const contentReader = {
-      getTopics: vi.fn().mockResolvedValue([makeTopic('/blog/venus.md', 'Venus transit 2026')]),
+      getTopics: vi.fn().mockResolvedValue([makeTopic('/blog/customer feedback.md', 'Customer Feedback period 2026')]),
       readBriefs: vi.fn().mockResolvedValue([]),
       readArticles: vi.fn().mockResolvedValue([]),
     };
@@ -592,7 +592,7 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     await gen.generate(1, [SocialNetwork.X]);
 
     // Dedup check was invoked through the real PostsService
-    expect(spy).toHaveBeenCalledWith('/blog/venus.md', SocialNetwork.X, 14);
+    expect(spy).toHaveBeenCalledWith('/blog/customer feedback.md', SocialNetwork.X, 14);
     // No new post created because a duplicate already exists for X
     expect(prisma.post.create).not.toHaveBeenCalled();
   });
@@ -607,7 +607,7 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     prisma.post.create.mockResolvedValue({ id: 'post-004' });
 
     const contentReader = {
-      getTopics: vi.fn().mockResolvedValue([makeTopic('/blog/mars.md', 'Mars in Aries 2026')]),
+      getTopics: vi.fn().mockResolvedValue([makeTopic('/blog/workflow.md', 'Remote Work in Q1 2026')]),
       readBriefs: vi.fn().mockResolvedValue([]),
       readArticles: vi.fn().mockResolvedValue([]),
     };
@@ -643,7 +643,7 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     prisma.generationRun.update.mockResolvedValue({ id: 'run-005' });
 
     const contentReader = {
-      getTopics: vi.fn().mockResolvedValue([makeTopic('/blog/saturn.md', 'Saturn return 2026')]),
+      getTopics: vi.fn().mockResolvedValue([makeTopic('/blog/product cycle.md', 'Product cycle 2026')]),
       readBriefs: vi.fn().mockResolvedValue([]),
       readArticles: vi.fn().mockResolvedValue([]),
     };
@@ -666,7 +666,7 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     expect(updateArg.where.id).toBe('run-005');
     expect(updateArg.data.status).toBe('COMPLETED');
     expect(updateArg.data.completedAt).toBeInstanceOf(Date);
-    expect(updateArg.data.sourceTopics).toEqual(['Saturn return 2026']);
+    expect(updateArg.data.sourceTopics).toEqual(['Product cycle 2026']);
     expect(updateArg.data.errorMessage).toBeUndefined();
   });
 
@@ -739,7 +739,7 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     const topics = [
       makeTopic('/blog/t1.md', 'Solar eclipse 2026'),
       makeTopic('/blog/t2.md', 'Lunar eclipse 2026'),
-      makeTopic('/blog/t3.md', 'Jupiter transit 2026'),
+      makeTopic('/blog/t3.md', 'Workflow period 2026'),
     ];
     const contentReader = {
       getTopics: vi.fn().mockResolvedValue(topics),
@@ -797,14 +797,14 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
       throw new Error('ENOENT');
     });
     fsMocks.readdir.mockImplementation(async (p: string) => {
-      if (p === '/test/blog') return [{ name: 'mercury-retro-2026.md', isDirectory: () => false, isFile: () => true }] as never;
+      if (p === '/test/blog') return [{ name: 'workflow-retro-2026.md', isDirectory: () => false, isFile: () => true }] as never;
       return [];
     });
     fsMocks.readFile.mockImplementation(async (p: string) => {
-      if (p === '/test/blog/mercury-retro-2026.md') {
+      if (p === '/test/blog/workflow-retro-2026.md') {
         // Minimal frontmatter — the ContentReader YAML parser only handles
         // scalar keys and `- item` arrays, so we omit tags (Zod default []).
-        return ['---', 'title: Mercury Retrograde July 2026', 'description: Mercury retrograde guide', '---', 'Body content.'].join('\n');
+        return ['---', 'title: Workflow Trends July 2026', 'description: Workflow Trends guide', '---', 'Body content.'].join('\n');
       }
       // brand-voice.md → throw so GenerationService uses its fallback voice
       throw new Error('ENOENT');
@@ -819,7 +819,7 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     const topics = await cs.getTopics(1);
     expect(topics).toHaveLength(1);
     expect(topics[0]!.sourceType).toBe('article');
-    expect(topics[0]!.topic).toBe('Mercury Retrograde July 2026');
+    expect(topics[0]!.topic).toBe('Workflow Trends July 2026');
 
     // GenerationService consumes the fallback topic and creates a DRAFT post
     const runId = await gen.generate(1, [SocialNetwork.X]);
@@ -827,7 +827,7 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     expect(prisma.post.create).toHaveBeenCalledTimes(1);
     const createArg = prisma.post.create.mock.calls[0]![0];
     expect(createArg.data.sourceRef.type).toBe('article');
-    expect(createArg.data.sourceRef.topic).toBe('Mercury Retrograde July 2026');
+    expect(createArg.data.sourceRef.topic).toBe('Workflow Trends July 2026');
   });
 
   // ── ITC-032: Queue → Posting (job data + failed-job inspection) ──────────
@@ -886,7 +886,7 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     prisma.post.create.mockResolvedValue({ id: 'post-033' });
 
     const contentReader = {
-      getTopics: vi.fn().mockResolvedValue([makeTopic('/blog/jupiter.md', 'Jupiter transit 2026')]),
+      getTopics: vi.fn().mockResolvedValue([makeTopic('/blog/workflow.md', 'Workflow period 2026')]),
       readBriefs: vi.fn().mockResolvedValue([]),
       readArticles: vi.fn().mockResolvedValue([]),
     };
@@ -895,9 +895,9 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     const saver = moduleRef.get(RedisCheckpointSaver);
 
     // Use the real generation graph builder + real checkpoint saver (from DI).
-    const threadId = 'run-033:X:Jupiter transit 2026';
+    const threadId = 'run-033:X:Workflow period 2026';
     const initialState = createInitialState(
-      makeTopic('/blog/jupiter.md', 'Jupiter transit 2026'),
+      makeTopic('/blog/workflow.md', 'Workflow period 2026'),
       SocialNetwork.X,
       'Mystical-but-grounded, accessible, empowering.',
     );

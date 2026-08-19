@@ -56,7 +56,7 @@ const QUESTION_JSON = JSON.stringify({
 const SAFETY_NONE_JSON = JSON.stringify({
   risk: 'none',
   confidence: 0.95,
-  reason: 'Safe, on-topic astrology question',
+  reason: 'Safe, on-topic productivity question',
 });
 
 const SAFETY_TOXIC_JSON = JSON.stringify({
@@ -67,8 +67,8 @@ const SAFETY_TOXIC_JSON = JSON.stringify({
 
 const REPLY_DECISION_JSON = JSON.stringify({
   action: 'auto_reply',
-  reason: 'Genuine personal astrology question',
-  replyText: 'Cancer Moon feels deeply — trust your intuition.',
+  reason: 'Genuine personal productivity question',
+  replyText: 'Customer Feedback feels deeply — trust your intuition.',
   detectedLanguage: 'en',
 });
 
@@ -251,15 +251,15 @@ describe('F4 RepliesModule integration', () => {
     expect(question).toBeDefined();
   });
 
-  it('decides auto_reply for a safe personal astrology question', async () => {
-    const post = { id: 'p1', network: 'X', content: 'Mars enters Gemini today — stay curious.' };
+  it('decides auto_reply for a safe personal productivity question', async () => {
+    const post = { id: 'p1', network: 'X', content: 'Workflow enters learning today — stay curious.' };
     const comment = {
       id: 'c1',
       postId: 'p1',
       network: SocialNetwork.X,
       commentId: 'cid-1',
       author: 'stargazer',
-      text: 'What does this mean for my Cancer Moon?',
+      text: 'What does this mean for my Customer Feedback?',
       commentUrl: null,
       status: CommentStatus.NEW,
     };
@@ -272,7 +272,7 @@ describe('F4 RepliesModule integration', () => {
   });
 
   it('escalates a toxic comment to human_review at the safety gate', async () => {
-    const post = { id: 'p1', network: 'X', content: 'Mars enters Gemini today.' };
+    const post = { id: 'p1', network: 'X', content: 'Workflow enters learning today.' };
     const comment = {
       id: 'c2',
       postId: 'p1',

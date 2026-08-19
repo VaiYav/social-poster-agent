@@ -337,7 +337,7 @@ function createMockContext(
 const ACCOUNT_X = {
   id: 'acc-001',
   network: SocialNetwork.X,
-  handle: 'myzodiacai',
+  handle: 'exampleco',
   credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD',
   active: true,
   createdAt: new Date('2026-07-01T00:00:00Z'),
@@ -347,7 +347,7 @@ const ACCOUNT_X = {
 const ACCOUNT_THREADS = {
   id: 'acc-002',
   network: SocialNetwork.THREADS,
-  handle: 'myzodiacai',
+  handle: 'exampleco',
   credentialsRef: 'SOCIAL_THREADS_USERNAME,SOCIAL_THREADS_PASSWORD',
   active: true,
   createdAt: new Date('2026-07-01T00:00:00Z'),
@@ -357,7 +357,7 @@ const ACCOUNT_THREADS = {
 const ACCOUNT_FACEBOOK = {
   id: 'acc-003',
   network: SocialNetwork.FACEBOOK,
-  handle: 'myzodiacai@facebook.com',
+  handle: 'exampleco@facebook.com',
   credentialsRef: 'SOCIAL_FACEBOOK_EMAIL,SOCIAL_FACEBOOK_PASSWORD',
   active: true,
   createdAt: new Date('2026-07-01T00:00:00Z'),
@@ -400,7 +400,7 @@ const ERROR_SESSION_THREADS = {
 const DRAFT_POST_X = {
   id: 'post-draft-001',
   network: SocialNetwork.X,
-  content: 'Mercury retrograde is coming! Time to reflect, not react. ♋',
+  content: 'Workflow trends are coming! Time to focus, not react. 🎯',
   status: PostStatus.DRAFT,
   postUrl: null,
   errorMessage: null,
@@ -408,8 +408,8 @@ const DRAFT_POST_X = {
   threadId: null,
   threadPosition: 0,
   generationRunId: 'run-001',
-  sourceRef: { type: 'brief', path: 'briefs/mercury-retro-2026.json', topic: 'Mercury Retrograde 2026' },
-  llmMetadata: { model: 'gpt-4o-mini', promptVersion: '0.2.0', angleType: 'punchy' },
+  sourceRef: { type: 'brief', path: 'briefs/workflow-retro-2026.json', topic: 'Workflow Trends 2026' },
+  llmMetadata: { model: 'gpt-5-nano', promptVersion: '0.2.0', angleType: 'punchy' },
   createdAt: new Date('2026-07-15T10:00:00Z'),
   updatedAt: new Date('2026-07-15T10:00:00Z'),
   approvedAt: null,
@@ -422,7 +422,7 @@ const DRAFT_POST_X = {
 const APPROVED_POST_X = {
   id: 'post-approved-001',
   network: SocialNetwork.X,
-  content: 'Full Moon in Capricorn — discipline meets ambition. 🌕♑',
+  content: 'Product Launch in Q4 — Discipline meets ambition. 📅🚀',
   status: PostStatus.APPROVED,
   postUrl: null,
   errorMessage: null,
@@ -444,24 +444,24 @@ const APPROVED_POST_X = {
 const CAP_TOPICS: ContentTopic[] = [
   {
     sourceType: 'brief',
-    path: 'briefs/mercury-retro-2026.json',
-    topic: 'Mercury Retrograde July 2026',
-    keywords: ['mercury retrograde', 'july 2026', 'astrology'],
-    facts: ['Mercury retrograde: July 14 – August 7, 2026', 'Zodiac signs affected: Leo, Virgo'],
+    path: 'briefs/workflow-retro-2026.json',
+    topic: 'Workflow Trends July 2026',
+    keywords: ['workflow trends', 'july 2026', 'productivity'],
+    facts: ['Workflow Trends: July 14 – August 7, 2026', 'workflow signs affected: Q2, Q3'],
   },
   {
     sourceType: 'brief',
-    path: 'briefs/full-moon-capricorn.json',
-    topic: 'Full Moon in Capricorn',
-    keywords: ['full moon', 'capricorn', 'astrology'],
-    facts: ['Full moon on July 21, 2026', 'Capricorn energy: discipline, ambition'],
+    path: 'briefs/product-launch-q4.json',
+    topic: 'Product Launch in Q4',
+    keywords: ['product launch', 'q4', 'productivity'],
+    facts: ['Product launch on July 21, 2026', 'Q4 energy: Discipline, ambition'],
   },
   {
     sourceType: 'article',
     path: 'blog/en/cosmic-weather-w28.md',
-    topic: 'Cosmic Weather Weekly — Week 28',
-    keywords: ['cosmic weather', 'weekly horoscope', 'venus trine jupiter'],
-    facts: ['Week of July 15: Venus trine Jupiter', 'Favorable for relationships and abundance'],
+    topic: 'weekly roundup Weekly — Week 28',
+    keywords: ['weekly roundup', 'weekly newsletter', 'Team Milestone'],
+    facts: ['Week of July 15: Team Milestone', 'Favorable for relationships and abundance'],
   },
 ];
 
@@ -492,9 +492,9 @@ async function buildFullAppModule(): Promise<FullAppResult> {
   const queueFactory = createMockQueueFactory();
   const contentReader = createMockContentReader(CAP_TOPICS);
 
-  const mockXPoster = { post: vi.fn().mockResolvedValue({ url: 'https://x.com/myzodiacai/status/123' }) };
-  const mockThreadsPoster = { post: vi.fn().mockResolvedValue({ url: 'https://threads.net/@myzodiacai/post/456' }) };
-  const mockFacebookPoster = { post: vi.fn().mockResolvedValue({ url: 'https://facebook.com/myzodiacai/posts/789' }) };
+  const mockXPoster = { post: vi.fn().mockResolvedValue({ url: 'https://x.com/exampleco/status/123' }) };
+  const mockThreadsPoster = { post: vi.fn().mockResolvedValue({ url: 'https://threads.net/@exampleco/post/456' }) };
+  const mockFacebookPoster = { post: vi.fn().mockResolvedValue({ url: 'https://facebook.com/exampleco/posts/789' }) };
 
   // Default prisma mocks so onModuleInit hooks (CronService.seedFromEnv) don't crash.
   prisma.socialAccount.findFirst.mockResolvedValue(null);
@@ -797,7 +797,7 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
     setupPostingFlow(APPROVED_POST_X);
 
     // Arrange: mock browser + poster for successful posting.
-    const postPage = createMockPage({ url: 'https://x.com/myzodiacai/status/999' });
+    const postPage = createMockPage({ url: 'https://x.com/exampleco/status/999' });
     const postContext = createMockContext(postPage);
     browserPort.acquireContext.mockResolvedValue(postContext);
     const savedState = JSON.stringify({
@@ -806,7 +806,7 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
     });
     browserPort.saveStorageState.mockResolvedValue(savedState);
     browserPort.randomDelay.mockResolvedValue(undefined);
-    mockXPoster.post.mockResolvedValue({ url: 'https://x.com/myzodiacai/status/999' });
+    mockXPoster.post.mockResolvedValue({ url: 'https://x.com/exampleco/status/999' });
 
     // Act: POST /api/v1/posting/post-approved-001
     const res = await request(app.getHttpServer())
@@ -1424,14 +1424,14 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
     prisma.session.update.mockResolvedValue({});
 
     // Mock browser + poster for successful posting.
-    const postPage = createMockPage({ url: 'https://x.com/myzodiacai/status/051' });
+    const postPage = createMockPage({ url: 'https://x.com/exampleco/status/051' });
     const postContext = createMockContext(postPage);
     browserPort.acquireContext.mockResolvedValue(postContext);
     browserPort.saveStorageState.mockResolvedValue(
       JSON.stringify({ cookies: [], origins: [] }),
     );
     browserPort.randomDelay.mockResolvedValue(undefined);
-    mockXPoster.post.mockResolvedValue({ url: 'https://x.com/myzodiacai/status/051' });
+    mockXPoster.post.mockResolvedValue({ url: 'https://x.com/exampleco/status/051' });
 
     // Spy on SSE publish to verify events.
     const publishSpy = vi.spyOn(sseService, 'publish');
@@ -1518,7 +1518,7 @@ describe('System Tests: Sessions & Cross-Cutting (STC-026..035, STC-049..052)', 
       }),
     );
     browserPort.randomDelay.mockResolvedValue(undefined);
-    mockXPoster.post.mockResolvedValue({ url: 'https://x.com/myzodiacai/status/052' });
+    mockXPoster.post.mockResolvedValue({ url: 'https://x.com/exampleco/status/052' });
 
     const postRes = await request(app.getHttpServer())
       .post('/api/v1/posting/post-approved-001');

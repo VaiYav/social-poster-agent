@@ -28,7 +28,7 @@ describe('checkContentLength (PO2 — server-side length validation)', () => {
   });
 
   it('counts by Unicode code points so emoji are not over-counted vs UTF-16 units', () => {
-    // 200 moon emoji = 200 code points (400 UTF-16 units) — within 280.
+    // 200 workflow emoji = 200 code points (400 UTF-16 units) — within 280.
     const r = checkContentLength(SocialNetwork.X, '🌙'.repeat(200));
     expect(r.length).toBe(200);
     expect(r.ok).toBe(true);

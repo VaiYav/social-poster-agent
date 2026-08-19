@@ -5,10 +5,10 @@ describe('ab-test.utils', () => {
   describe('extractTopic', () => {
     it('uses sourceRef.topic when present', () => {
       const row = {
-        post: { sourceRef: { topic: 'Mercury Retrograde', extra: 'ignore' } },
+        post: { sourceRef: { topic: 'Workflow Trends', extra: 'ignore' } },
         content: 'fallback text',
       };
-      expect(extractTopic(row)).toBe('Mercury Retrograde');
+      expect(extractTopic(row)).toBe('Workflow Trends');
     });
 
     it('falls back to sourceRef.originalTopic', () => {
@@ -21,10 +21,10 @@ describe('ab-test.utils', () => {
 
     it('falls back to sourceRef.title', () => {
       const row = {
-        post: { sourceRef: { title: 'Full Moon in Capricorn' } },
+        post: { sourceRef: { title: 'Product Launch in Q4' } },
         content: 'fallback text',
       };
-      expect(extractTopic(row)).toBe('Full Moon in Capricorn');
+      expect(extractTopic(row)).toBe('Product Launch in Q4');
     });
 
     it('falls back to content slice when sourceRef has no topic key', () => {

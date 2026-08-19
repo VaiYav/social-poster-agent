@@ -47,13 +47,13 @@ describe('F1: EngagementSafetyService', () => {
   });
 
   describe('checkContentSafety', () => {
-    it('allows safe astrology comment', () => {
-      const result = service.checkContentSafety('Saturn return really does feel like a second adolescence.');
+    it('allows safe productivity comment', () => {
+      const result = service.checkContentSafety('Product cycle really does feel like a second adolescence.');
       expect(result.safe).toBe(true);
     });
 
     it('blocks self-promo / follow-bait', () => {
-      const result = service.checkContentSafety('Follow me for more astrology tips!');
+      const result = service.checkContentSafety('Follow me for more productivity tips!');
       expect(result.safe).toBe(false);
       expect(result.reason).toContain('Follow/subscribe bait');
     });
