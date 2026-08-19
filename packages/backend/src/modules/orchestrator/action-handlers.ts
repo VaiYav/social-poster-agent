@@ -274,9 +274,13 @@ export class RecoverSessionHandler implements IActionHandler {
       const account = await accountsService.getNextAccountForNetwork(action.network);
       accountId = account?.id;
     }
+    // Recovery is still allowed to use env cookies, but must not fall back to
+    // the high-risk username/password form when deferred login is enabled.
+    // This keeps the orchestrator from repeatedly triggering suspicious-login
+    // challenges on expired accounts.
     const session = accountId
-      ? await sessionsService.getOrCreateSession(accountId, action.network)
-      : await sessionsService.getOrCreateSession(action.network);
+      ? await sessionsService.getOrCreateSession(accountId, action.network, { deferFormLogin: true })
+      : await sessionsService.getOrCreateSession(action.network, { deferFormLogin: true });
     return {
       recovered: session !== null,
       sessionStatus: session?.status ?? 'FAILED',

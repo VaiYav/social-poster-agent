@@ -139,6 +139,19 @@ export class AccountsService implements OnModuleInit {
             await this.warmupService.startWarmup(created.id);
             this.logger.log(`Warm-up started for ${network} @${handle}`);
           }
+        } else {
+          // Keep DB references aligned when credential env vars are renamed
+          // (for example SOCIAL_X_USERNAME -> SOCIAL_X_USERNAME_1). Existing
+          // accounts must be updated because credentialsRef intentionally stores
+          // env var names, not their values.
+          const credentialsRef = credentialsParts.join(',');
+          if (existing.credentialsRef !== credentialsRef) {
+            await this.prisma.socialAccount.update({
+              where: { id: existing.id },
+              data: { credentialsRef },
+            });
+            this.logger.log(`Updated credential references: ${network} @${handle}`);
+          }
         }
 
         index++;

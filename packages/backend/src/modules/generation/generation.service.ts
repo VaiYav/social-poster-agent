@@ -367,7 +367,7 @@ export class GenerationService {
    */
   private async persistGeneratedPosts(
     generatedPosts: GeneratedPost[],
-    accountByNetwork: Map<SocialNetwork, AccountResult | null | undefined>,
+    accountsByNetwork: Map<SocialNetwork, AccountResult[] | AccountResult | null | undefined>,
     runId: string,
     sourceRef: { type: string; path: string; topic: string; keywords: string[]; originalPostId?: string; originalTopic?: string },
     options: {
@@ -394,29 +394,31 @@ export class GenerationService {
         continue;
       }
 
-      const account = accountByNetwork.get(genPost.network) ?? (await this.accountsService.getNextAccountForNetwork(genPost.network));
-      if (!account) continue;
+      const configuredAccounts = accountsByNetwork.get(genPost.network);
+      const accounts = (Array.isArray(configuredAccounts) ? configuredAccounts : [configuredAccounts]).filter(
+        (account): account is NonNullable<AccountResult> => Boolean(account),
+      );
+      for (const account of accounts) {
+        const post = await this.postsService.create({
+          accountId: account.id,
+          network: genPost.network,
+          language: options.language ?? 'en',
+          content: genPost.content,
+          generationRunId: runId,
+          simhash: candidateHash,
+          sourceRef,
+          canonicalUrl: options.canonicalUrl ?? null,
+          llmMetadata: this.buildPostLlmMetadata(
+            genPost,
+            candidateHash,
+            genPost.promptLabels ?? options.promptLabels ?? {},
+          ) as Prisma.InputJsonValue,
+        });
 
-      const post = await this.postsService.create({
-        accountId: account.id,
-        network: genPost.network,
-        language: options.language ?? 'en',
-        content: genPost.content,
-        generationRunId: runId,
-        simhash: candidateHash,
-        sourceRef,
-        canonicalUrl: options.canonicalUrl ?? null,
-        llmMetadata: this.buildPostLlmMetadata(
-          genPost,
-          candidateHash,
-          genPost.promptLabels ?? options.promptLabels ?? {},
-        ) as Prisma.InputJsonValue,
-      });
-
-      await this.persistPostVariants(post.id, genPost, genPost.judgeScores);
-
-      savedPosts.push(post);
-      recentHashes.push(candidateHash);
+        await this.persistPostVariants(post.id, genPost, genPost.judgeScores);
+        savedPosts.push(post);
+      }
+      if (accounts.length > 0) recentHashes.push(candidateHash);
       this.logger.debug(
         `Created draft post for ${genPost.network} (score: ${genPost.qualityScore ?? 'n/a'}/10): ${genPost.content.slice(0, 50)}...`,
       );
@@ -455,6 +457,7 @@ export class GenerationService {
     humanReview = false,
     model?: string,
     signal?: AbortSignal,
+    options?: { accountIds?: string[] },
   ): Promise<string> {
     const run = await this.prisma.generationRun.create({
       data: { triggeredBy, sourceTopics: [] },
@@ -601,6 +604,7 @@ export class GenerationService {
               language,
               model,
               stopSignal,
+              options?.accountIds,
             );
           }),
         );
@@ -1183,6 +1187,7 @@ export class GenerationService {
     language = 'en',
     model?: string,
     signal?: AbortSignal,
+    accountIds?: string[],
   ): Promise<{ id: string; network: SocialNetwork; llmMetadata: Prisma.JsonValue }[]> {
     // Only generate for networks that are enabled in configuration.
     const resolvedTargetNetworks = this.resolveTargetNetworks(targetNetworks);
@@ -1191,23 +1196,29 @@ export class GenerationService {
     // Q11 (N+1 fix): load each network's account ONCE and reuse the map in the
     // save loop below (previously findByNetwork was re-queried per generated
     // post); per-network checks run in parallel instead of sequentially.
-    const accountByNetwork = new Map<SocialNetwork, AccountResult>();
+    const accountsByNetwork = new Map<SocialNetwork, AccountResult[]>();
     const activeNetworks: SocialNetwork[] = [];
     const networkChecks = await Promise.all(
       resolvedTargetNetworks.map(async (network) => {
-        const account = await this.accountsService.getNextAccountForNetwork(network);
-        if (!account) return { network, account: null as AccountResult, recentCount: 0 };
+        const accounts = accountIds?.length
+          ? (await Promise.all(accountIds.map((id) => this.accountsService.findById(id)))).filter(
+              (account): account is NonNullable<AccountResult> => Boolean(account?.active && account.network === network),
+            )
+          : [(await this.accountsService.getNextAccountForNetwork(network))].filter(
+              (account): account is NonNullable<AccountResult> => Boolean(account),
+            );
+        if (accounts.length === 0) return { network, accounts: [] as AccountResult[], recentCount: 0 };
         const recent = await this.postsService.findBySourceAndNetwork(
           topic.path,
           network,
           Number(this.configService.get<string>('DEDUP_SINCE_DAYS', '14')) || 14,
         );
-        return { network, account, recentCount: recent.length };
+        return { network, accounts, recentCount: recent.length };
       }),
     );
     for (const check of networkChecks) {
-      accountByNetwork.set(check.network, check.account);
-      if (!check.account) {
+      accountsByNetwork.set(check.network, check.accounts);
+      if (check.accounts.length === 0) {
         this.logger.warn(`No active account for ${check.network}`);
       } else if (check.recentCount > 0) {
         this.logger.debug(`Skipping ${check.network} — already posted about ${topic.path}`);
@@ -1266,7 +1277,7 @@ export class GenerationService {
 
     const savedPosts = await this.persistGeneratedPosts(
       generatedPosts,
-      accountByNetwork,
+      accountsByNetwork,
       runId,
       {
         type: topic.sourceType,
@@ -1292,7 +1303,7 @@ export class GenerationService {
       const post = rootPostsByNetwork.get(genPost.network);
       if (!post) continue;
 
-      const account = accountByNetwork.get(genPost.network) ?? (await this.accountsService.getNextAccountForNetwork(genPost.network));
+      const account = accountsByNetwork.get(genPost.network)?.[0] ?? (await this.accountsService.getNextAccountForNetwork(genPost.network));
       if (!account) continue;
 
       if (multiStage && (genPost.network === SocialNetwork.X || genPost.network === SocialNetwork.THREADS)) {

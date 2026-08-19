@@ -16,14 +16,16 @@ export class GenerationController {
   async run(@Body() rawBody: unknown) {
     const dto = GeneratePostsDtoSchema.parse(rawBody ?? {}) as GeneratePostsDto;
     const body = rawBody as { humanReview?: boolean };
-    const runId = await this.generationService.generate(
+    const generationArgs: Parameters<GenerationService['generate']> = [
       dto.count,
       dto.networks,
       GenerationTrigger.MANUAL,
       dto.multiStage,
       body.humanReview ?? false,
       dto.model,
-    );
+    ];
+    if (dto.accountIds) generationArgs.push(undefined, { accountIds: dto.accountIds });
+    const runId = await this.generationService.generate(...generationArgs);
     return { runId, status: 'started' };
   }
 

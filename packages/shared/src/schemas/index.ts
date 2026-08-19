@@ -70,6 +70,8 @@ export type SchedulePostDto = z.infer<typeof SchedulePostDtoSchema>;
 export const GeneratePostsDtoSchema = z.object({
   count: z.number().int().min(1).max(10).default(3),
   networks: z.array(z.enum(['X', 'THREADS', 'FACEBOOK'])).optional(),
+  /** Optional explicit target accounts. When omitted, one account per network is selected by rotation. */
+  accountIds: z.array(z.string().uuid()).min(1).max(100).optional(),
   sourceType: z.enum(['brief', 'article', 'topic', 'create_run']).optional(),
   multiStage: z.boolean().optional().default(false), // F2: hook + continuation thread
   model: z.string().optional(), // F3: explicit provider/model override (e.g. "openai/gpt-5-nano")
