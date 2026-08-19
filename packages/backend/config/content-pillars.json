@@ -1,0 +1,8 @@
+[
+  { "id": "general", "name": "General", "targetRatio": 0.2, "description": "Default topic bucket" },
+  { "id": "educational", "name": "Educational", "targetRatio": 0.2, "description": "How-to, explainers, and deep dives" },
+  { "id": "product", "name": "Product", "targetRatio": 0.15, "description": "Feature updates, case studies, and product tips" },
+  { "id": "opinion", "name": "Opinion", "targetRatio": 0.15, "description": "Hot takes, contrarian views, and industry commentary" },
+  { "id": "trending", "name": "Trending", "targetRatio": 0.15, "description": "Reactions to current events and trending conversations" },
+  { "id": "behind_the_scenes", "name": "Behind the scenes", "targetRatio": 0.15, "description": "Personal stories, process, and team culture" }
+]

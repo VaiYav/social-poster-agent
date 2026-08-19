@@ -1,0 +1,12 @@
+[
+  {
+    "id": "quote_card",
+    "name": "Quote card",
+    "description": "Typography-focused image with the post hook on a gradient background"
+  },
+  {
+    "id": "aesthetic_photo",
+    "name": "Aesthetic photo",
+    "description": "Atmospheric mood image that complements the post without text overlay"
+  }
+]

@@ -1,0 +1,63 @@
+{
+  "en": {
+    "words": [
+      "delve", "unlock", "discover", "empowering", "transformative", "journey", "navigate",
+      "landscape", "tapestry", "comprehensive", "robust", "seamless", "leverage", "resonate",
+      "foster", "cascade", "pivotal", "crucial", "vital", "essential", "underscore",
+      "illuminate", "captivate", "embark", "elevate", "holistic", "dynamic", "innovative"
+    ],
+    "phrases": [
+      "it is important to note", "in conclusion", "as we all know", "in today's fast-paced world",
+      "at the end of the day", "the power of", "a deep dive into", "unleash your potential",
+      "game changer", "think outside the box", "moving forward", "going forward",
+      "let's unpack this", "the beauty of", "the truth about", "the real reason",
+      "what you need to know", "everything you need to know", "why this matters",
+      "the world of", "the future of"
+    ]
+  },
+  "ru": {
+    "words": [
+      "погрузиться", "раскрыть", "открыть", "трансформационный", "путешествие", "навигация",
+      "ландшафт", "комплексный", "бесшовный", "лечь в основу", "резонировать", "каскад",
+      "ключевой", "краеугольный", "важный", "подчеркнуть", "захватить", "приподнять",
+      "холистический", "динамичный", "инновационный"
+    ],
+    "phrases": [
+      "важно отметить", "в заключение", "как мы все знаем", "в современном мире",
+      "в конечном счете", "сила", "глубокое погружение", "раскрой потенциал",
+      "переломный момент", "думать нестандартно", "двигаясь вперед", "давайте разберем",
+      "красота", "правда о", "настоящая причина", "что вам нужно знать",
+      "все что вам нужно знать", "почему это важно", "мир", "будущее"
+    ]
+  },
+  "es": {
+    "words": [
+      "sumergir", "desbloquear", "descubrir", "transformador", "viaje", "navegar",
+      "panorama", "integral", "fluido", "aprovechar", "resonar", "cascada",
+      "clave", "crucial", "vital", "esencial", "subrayar", "iluminar", "cautivar",
+      "embarcar", "elevar", "holistico", "dinamico", "innovador"
+    ],
+    "phrases": [
+      "es importante destacar", "en conclusion", "como todos sabemos", "en el mundo actual",
+      "al final del dia", "el poder de", "un analisis profundo", "libera tu potencial",
+      "cambio de juego", "pensar fuera de la caja", "en adelante", "vamos a desglosar",
+      "la belleza de", "la verdad sobre", "la razon real", "lo que necesitas saber",
+      "todo lo que necesitas saber", "por que importa", "el mundo de", "el futuro de"
+    ]
+  },
+  "it": {
+    "words": [
+      "immergersi", "sbloccare", "scoprire", "trasformativo", "viaggio", "navigare",
+      "panorama", "complessivo", "fluido", "sfruttare", "risuonare", "cascata",
+      "cruciale", "vitale", "essenziale", "sottolineare", "illuminare", "cattivare",
+      "intraprendere", "elevare", "olistico", "dinamico", "innovativo"
+    ],
+    "phrases": [
+      "e importante notare", "in conclusione", "come sappiamo tutti", "nel mondo odierno",
+      "alla fine", "il potere di", "un approfondimento", "libera il tuo potenziale",
+      "cambio di gioco", "pensare fuori dagli schemi", "procedendo", "analizziamo",
+      "la bellezza di", "la verita su", "la vera ragione", "cio che devi sapere",
+      "tutto cio che devi sapere", "perche importa", "il mondo di", "il futuro di"
+    ]
+  }
+}

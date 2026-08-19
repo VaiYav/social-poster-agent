@@ -16,8 +16,9 @@ packages/backend/.env
 packages/backend/.env.*
 
 # Brand voice (user-specific, copied from brand-voice.example.md)
-brand-voice.md
-packages/backend/brand-voice.md
+# NOTE: tracked in the private my-zodiac-ai deploy repo; ignored in the public open-source repo.
+# brand-voice.md
+# packages/backend/brand-voice.md
 
 # Browser sessions (cookies, storage state)
 .sessions/
