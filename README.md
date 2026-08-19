@@ -1,7 +1,7 @@
 # Social Poster Agent
 
 [![Version](https://img.shields.io/badge/version-0.5.2-blue)](#)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D26.0.0-339933?logo=node.js&logoColor=white)](package.json)
 [![pnpm](https://img.shields.io/badge/pnpm-%3E%3D11.0.0-F69220?logo=pnpm&logoColor=white)](package.json)
 [![NestJS](https://img.shields.io/badge/NestJS-11-E0234E?logo=nestjs&logoColor=white)](https://nestjs.com)
@@ -336,6 +336,6 @@ social-poster-agent/
 
 ## License & contributing
 
-Social Poster Agent is released under the [MIT License](LICENSE).
+Social Poster Agent is released under the [Apache License 2.0](LICENSE).
 
 Contributions, bug reports, and ideas are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) for the PR process, coding conventions, and verification steps. If you are hacking on something experimental, check `CLAUDE.md` first — it documents the non-obvious traps and architectural decisions.
