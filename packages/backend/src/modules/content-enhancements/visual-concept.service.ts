@@ -6,10 +6,10 @@
  * image generation API (Flux, DALL-E, Recraft) can render into a visual.
  *
  * Two visual styles:
- *   1. "quote_card" — typography-focused, the post's hook on a cosmic gradient
+ *   1. "quote_card" — typography-focused, the post's hook on a gradient
  *      (reuses the existing F19 QuoteCardService for rendering)
- *   2. "aesthetic_photo" — mood image (moon, stars, crystals, nature) that
- *      complements the post without text
+ *   2. "aesthetic_photo" — mood image (nature, light, texture, abstract)
+ *      that complements the post without text
  *
  * The visual concept is stored in Post.llmMetadata.visualConcept and rendered
  * by the posting pipeline (image upload step in the poster).
@@ -28,7 +28,7 @@ import { parseBool } from '../../infrastructure/config/parse-bool.js';
  */
 export interface VisualConcept {
   /** Visual style — drives the rendering pipeline. */
-  style: 'quote_card' | 'aesthetic_photo' | 'chart_visualization';
+  style: 'quote_card' | 'aesthetic_photo';
   /** Prompt for the image generation API (Flux/DALL-E/Recraft). */
   imagePrompt: string;
   /** The text to render on the image (for quote_card style). */
@@ -54,14 +54,14 @@ const NETWORK_DIMENSIONS: Partial<Record<SocialNetwork, { width: number; height:
 };
 
 /**
- * Cosmic gradient presets — match the My Zodiac AI "Cosmic Glass" aesthetic.
+ * Gradient presets for quote-card backgrounds.
  */
-const COSMIC_GRADIENTS: [string, string][] = [
+const GRADIENT_PRESETS: [string, string][] = [
   ['#1a1a2e', '#16213e'],   // deep night
   ['#2d1b4e', '#1a1a2e'],   // purple dusk
   ['#0f3460', '#16213e'],   // midnight blue
-  ['#533483', '#0f3460'],   // cosmic purple
-  ['#1a1a2e', '#533483'],   // nebula
+  ['#533483', '#0f3460'],   // violet
+  ['#1a1a2e', '#533483'],   // twilight
 ];
 
 @Injectable()
@@ -86,7 +86,6 @@ export class VisualConceptService {
    * Uses the LLM to decide the best visual style based on the post content:
    *   - Educational/factual posts → quote_card (typography focus)
    *   - Mood/reflection posts → aesthetic_photo (atmospheric)
-   *   - Chart/birth-chart posts → chart_visualization (natal wheel)
    *
    * Falls back to a deterministic quote_card when the LLM is unavailable.
    *
@@ -102,14 +101,11 @@ export class VisualConceptService {
   ): Promise<VisualConcept | null> {
     if (!this.enabled) return null;
 
-    // Deterministic gradient selection based on content hash
-    const gradientIdx = content.length % COSMIC_GRADIENTS.length;
-    const bgGradient = COSMIC_GRADIENTS[gradientIdx]!;
+    const gradientIdx = content.length % GRADIENT_PRESETS.length;
+    const bgGradient = GRADIENT_PRESETS[gradientIdx]!;
 
-    // Extract the hook (first line) for quote card text overlay
     const firstLine = content.split('\n')[0]?.trim() ?? content.slice(0, 80);
 
-    // Try LLM-based style selection
     if (this.llm) {
       try {
         const concept = await this.llmStyleSelection(content, network, topic, bgGradient, firstLine);
@@ -119,7 +115,6 @@ export class VisualConceptService {
       }
     }
 
-    // Fallback: deterministic quote_card
     return {
       style: 'quote_card',
       imagePrompt: this.buildQuoteCardPrompt(firstLine, bgGradient, network),
@@ -143,26 +138,24 @@ export class VisualConceptService {
   ): Promise<VisualConcept | null> {
     if (!this.llm) return null;
 
-    const systemPrompt = `You are a visual content strategist for My Zodiac AI, an AI-powered astrology platform.
+    const systemPrompt = `You are a visual content strategist for a social media brand.
 Choose the best visual style for a social media post image.
 
 Return ONLY a JSON object (no markdown, no code fences):
 {
-  "style": "quote_card" | "aesthetic_photo" | "chart_visualization",
+  "style": "quote_card" | "aesthetic_photo",
   "imagePrompt": "detailed prompt for an image generation API (Flux/DALL-E)",
   "reasoning": "one sentence explaining the choice"
 }
 
 Style guidelines:
-- "quote_card": typography-focused, the hook text on a cosmic gradient. Best for bold statements, facts, counter-intuitive observations.
-- "aesthetic_photo": atmospheric mood image (moon, stars, crystals, nature, cosmic scenes). Best for reflective, emotional, wellness posts. NO text overlay.
-- "chart_visualization": natal wheel or astrological chart diagram. Best for educational posts about birth charts, aspects, houses.
+- "quote_card": typography-focused, the hook text on a gradient background. Best for bold statements, facts, counter-intuitive observations.
+- "aesthetic_photo": atmospheric mood image (nature, light, texture, abstract scenes). Best for reflective, emotional, lifestyle posts. NO text overlay.
 
 Image prompt rules:
 - For quote_card: describe the gradient, typography style, and layout
 - For aesthetic_photo: describe the scene, lighting, mood, composition. No text in image.
-- For chart_visualization: describe the chart type, elements, and aesthetic
-- All styles: cosmic, mystical, elegant, high-quality, professional
+- All styles: elegant, high-quality, professional
 - Aspect ratio: ${NETWORK_DIMENSIONS[network]!.ratio}`;
 
     const userPrompt = `Post content: "${content}"
@@ -187,7 +180,7 @@ Choose the visual style:`;
     };
 
     const style = (
-      ['quote_card', 'aesthetic_photo', 'chart_visualization'].includes(parsed.style ?? '')
+      ['quote_card', 'aesthetic_photo'].includes(parsed.style ?? '')
         ? parsed.style
         : 'quote_card'
     ) as VisualConcept['style'];
@@ -211,7 +204,7 @@ Choose the visual style:`;
     network: SocialNetwork,
   ): string {
     const dims = NETWORK_DIMENSIONS[network]!;
-    return `Cosmic gradient background (${gradient[0]} to ${gradient[1]}), minimalist white typography centered, quote: "${text}", elegant serif font, subtle starfield texture, ${dims.ratio} aspect ratio, professional social media graphic`;
+    return `Gradient background (${gradient[0]} to ${gradient[1]}), minimalist white typography centered, quote: "${text}", elegant serif font, subtle texture, ${dims.ratio} aspect ratio, professional social media graphic`;
   }
 
   /**

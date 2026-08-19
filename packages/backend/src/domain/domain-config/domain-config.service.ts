@@ -56,7 +56,7 @@ export class DomainConfigService implements OnModuleInit {
   }
 
   get brandVoicePath(): string {
-    return this.configService.get<string>('BRAND_VOICE_PATH', 'brand-voice.md');
+    return this.configService.get<string>('BRAND_VOICE_PATH', '../brand-voice.md');
   }
 
   get promptDir(): string {

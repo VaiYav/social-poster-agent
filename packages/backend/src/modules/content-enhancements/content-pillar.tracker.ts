@@ -1,19 +1,19 @@
 /**
  * P6: Content Pillar Rotation — strategic diversity enforcement.
  *
- * The brand-voice.md defines 7 content themes (pillars) but there was no
- * enforcement — the LLM could generate 5 daily-horoscope posts in a row.
- * This tracker uses Redis to count posts per pillar over a rolling 7-day
- * window and recommends which pillar to prioritize next.
+ * The brand voice defines content pillars but there was no enforcement —
+ * the LLM could generate 5 similar posts in a row. This tracker uses Redis
+ * to count posts per pillar over a rolling 7-day window and recommends
+ * which pillar to prioritize next.
  *
- * Pillars (from brand-voice.md "Content Themes"):
- *   1. daily_weather   — daily/weekly cosmic weather
- *   2. educational     — "Did you know..." about houses, aspects, nodes
- *   3. compatibility   — sign pairs, synastry
- *   4. ai_advantage    — why AI-astrology is more accurate
- *   5. self_discovery  — Moon sign, Rising sign, Chiron, retrogrades
- *   6. wellness        — meditations by sign, timing by lunar phases
- *   7. blog_promo      — announce fresh articles with a content hook
+ * Pillars:
+ *   1. general           — default, broad-audience posts
+ *   2. educational       — explainers, how-to, tips
+ *   3. product           — features, launches, updates
+ *   4. opinion           — takes, hot opinions, commentary
+ *   5. behind-the-scenes — process, team, building
+ *   6. trending          — news, timely, viral
+ *   7. blog_promo        — announce fresh articles with a content hook
  *
  * Integration:
  *   - GenerationService calls `recommendPillar()` before topic selection.
@@ -31,16 +31,15 @@ import type { Redis } from 'ioredis';
 import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
 
 /**
- * The 7 content pillars from brand-voice.md.
- * The order matches the document's "Content Themes (rotation)" section.
+ * Generic content pillars.
  */
 export const CONTENT_PILLARS = [
-  'daily_weather',
+  'general',
   'educational',
-  'compatibility',
-  'ai_advantage',
-  'self_discovery',
-  'wellness',
+  'product',
+  'opinion',
+  'behind-the-scenes',
+  'trending',
   'blog_promo',
 ] as const;
 export type ContentPillar = (typeof CONTENT_PILLARS)[number];
@@ -50,13 +49,13 @@ export type ContentPillar = (typeof CONTENT_PILLARS)[number];
  * Sums to 1.0. Tunable via env in future; defaults favor variety.
  */
 const DEFAULT_TARGET_RATIOS: Record<ContentPillar, number> = {
-  daily_weather: 0.20,   // frequent but not dominant
-  educational: 0.20,     // high value, evergreen
-  compatibility: 0.10,   // niche but engaging
-  ai_advantage: 0.10,    // brand differentiator
-  self_discovery: 0.20,  // core value prop
-  wellness: 0.10,        // actionable
-  blog_promo: 0.10,      // distribution
+  general: 0.20,
+  educational: 0.20,
+  product: 0.15,
+  opinion: 0.10,
+  'behind-the-scenes': 0.10,
+  trending: 0.10,
+  blog_promo: 0.15,
 };
 
 /** Redis key prefix. */
@@ -70,24 +69,24 @@ const WINDOW_SECONDS = 7 * 24 * 60 * 60;
  * to steer prioritization. The LLM still has final say on the actual angle.
  *
  * Classification rules (first match wins):
- *   - "compatibility" / "synastry" / "match" + sign names → compatibility
- *   - "ai" / "algorithm" / "10 planets" → ai_advantage
- *   - "meditation" / "wellness" / "ritual" / "lunar phase" → wellness
  *   - "new article" / "blog" / "read more" / "fresh" → blog_promo
- *   - "did you know" / "house" / "aspect" / "node" / "retrograde" → educational
- *   - "moon sign" / "rising sign" / "chiron" / "self" / "discover" → self_discovery
- *   - default → daily_weather
+ *   - "opinion" / "hot take" / "controversial" / "unpopular" → opinion
+ *   - "behind the scenes" / "process" / "how we" / "team" → behind-the-scenes
+ *   - "product" / "feature" / "tool" / "launch" / "update" → product
+ *   - "trending" / "news" / "viral" / "this week" → trending
+ *   - "did you know" / "how to" / "guide" / "tutorial" / "explain" → educational
+ *   - default → general
  */
 export function classifyPillar(topic: string, keywords: string[]): ContentPillar {
   const text = `${topic} ${keywords.join(' ')}`.toLowerCase();
 
-  if (/(compatib|synastr|sign match|couple|relationship|partner)/.test(text)) return 'compatibility';
-  if (/(ai |algorithm|10 planets|machine|ai-powered|ai read)/.test(text)) return 'ai_advantage';
-  if (/(meditat|wellness|ritual|lunar phase|journal|self-care|mindful)/.test(text)) return 'wellness';
   if (/(new article|blog|read more|fresh|just published|new post)/.test(text)) return 'blog_promo';
-  if (/(did you know|house|aspect|node|retrograde|orbit|ingress|transit)/.test(text)) return 'educational';
-  if (/(moon sign|rising sign|chiron|self|discover|birth chart|natal)/.test(text)) return 'self_discovery';
-  return 'daily_weather';
+  if (/(opinion|hot take|controversial|unpopular|think|believe|argue|take on)/.test(text)) return 'opinion';
+  if (/(behind the scenes|behind-the-scenes|process|how we|team|building|making of|day in the life)/.test(text)) return 'behind-the-scenes';
+  if (/(product|feature|tool|demo|launch|release|update|app|service)/.test(text)) return 'product';
+  if (/(trending|trend|news|just happened|this week|today in|viral|breaking)/.test(text)) return 'trending';
+  if (/(did you know|how to|guide|tutorial|learn|tip|explainer|faq|explain|deep dive|what is|why does)/.test(text)) return 'educational';
+  return 'general';
 }
 
 /**
@@ -118,7 +117,6 @@ export class ContentPillarTracker {
   private readonly targetRatios: Record<ContentPillar, number>;
 
   constructor(@Inject(SHARED_REDIS) private readonly redis: Redis) {
-    // Future: load target ratios from env/config. For now, use defaults.
     this.targetRatios = DEFAULT_TARGET_RATIOS;
   }
 
@@ -151,12 +149,11 @@ export class ContentPillarTracker {
   /**
    * Recommend which pillar to prioritize next.
    * Picks the pillar with the highest deficit (most underrepresented).
-   * Ties broken by pillar order (daily_weather first).
+   * Ties broken by pillar order (general first).
    */
   async recommendPillar(): Promise<PillarRecommendation> {
     const stats = await this.getPillarStats();
 
-    // Sort by deficit descending — most underrepresented first
     const sorted = [...stats].sort((a, b) => b.deficit - a.deficit);
     const recommended = sorted[0]!;
 
@@ -177,9 +174,6 @@ export class ContentPillarTracker {
   async recordPillar(pillar: ContentPillar): Promise<void> {
     const key = `${PILLAR_KEY_PREFIX}:${pillar}:count`;
     const count = await this.redis.incr(key);
-    // 2.8.2: Only set TTL on the FIRST write. Refreshing TTL on every
-    // increment turned the "7-day rolling window" into "7 days since the
-    // most recent post", which overcounts old posts when posting restarts.
     if (count === 1) {
       await this.redis.expire(key, WINDOW_SECONDS);
     }

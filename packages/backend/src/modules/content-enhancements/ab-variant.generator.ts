@@ -109,7 +109,6 @@ export class ABVariantGenerator {
       }
     }
 
-    // Heuristic fallback — adjust emoji/hashtag count deterministically
     return this.heuristicVariants(content, options);
   }
 
@@ -133,8 +132,8 @@ export class ABVariantGenerator {
       winnerHint = `\nPrior winner for this topic is the "Expressive/Rich" style. Lean the baseline slightly toward that style while still producing a valid variant A.`;
     }
 
-    const systemPrompt = `You are a social media copywriter for My Zodiac AI, an AI-powered astrology platform.
-Brand voice: mystical-but-grounded, accessible, human. Never use AI-cliché words (delve, unlock, discover, empowering, transformative).
+    const systemPrompt = `You are a social media copywriter for the brand.
+Brand voice: approachable, human, on-brand. Never use AI-cliché words (delve, unlock, discover, empowering, transformative).
 
 Generate TWO variants of a post for A/B testing:
 
@@ -144,7 +143,7 @@ VARIANT A — "Clean/Minimal":
   - Professional, understated
 
 VARIANT B — "Expressive/Rich":
-  - 2-3 emojis (cosmic/astrology themed: ✨🌙🔮⭐💫🌟)
+  - 2-3 emojis (relevant/themed: \u2728\uD83D\uDCA1\uD83C\uDFAF\uD83D\uDD25\uD83D\uDCAC)
   - NO hashtags (algorithms deprioritize them)
   - Warmer, more visually engaging
 
@@ -170,7 +169,6 @@ Generate A/B variants:`;
       temperature: 0.6,
     });
 
-    // Parse "A: ..." and "B: ..." lines
     const lines = response.content.split('\n');
     let variantA = '';
     let variantB = '';
@@ -213,30 +211,27 @@ Generate A/B variants:`;
   /**
    * Heuristic fallback — adjusts emoji count without LLM.
    * Variant A: strips all emojis/hashtags (clean text only)
-   * Variant B: adds 1-2 cosmic emojis, strips hashtags
+   * Variant B: adds 1-2 themed emojis, strips hashtags
    */
   private heuristicVariants(content: string, options?: GenerateVariantsOptions): ABVariantPair {
     const priorWinner = options?.priorWinner;
 
-    // Variant A: strip to minimal — no emojis, no hashtags
     const variantA = content
-      .replace(/(\s*#[\p{L}\p{N}_]+\s*)/gu, ' ') // remove all hashtags (Unicode-aware)
-      .replace(/(\s*[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}✨🌙🔮⭐💫🌟]+\s*)/gu, ' ') // remove all emojis
+      .replace(/(\s*#[\p{L}\p{N}_]+\s*)/gu, ' ')
+      .replace(/(\s*[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]+\s*)/gu, ' ')
       .replace(/\s+/g, ' ')
       .trim();
 
-    // Variant B: add cosmic emojis if missing, strip hashtags
-    const cosmicEmojis = [' ✨', ' 🌙', ' 🔮'];
+    const themedEmojis = [' \u2728', ' \uD83D\uDCA1', ' \uD83C\uDFAF'];
     let variantB = content.replace(/(\s*#[\p{L}\p{N}_]+\s*)/gu, ' ').replace(/\s+/g, ' ').trim();
 
     const minBEmojis = priorWinner === 'b' ? 3 : 2;
     if (countEmojis(variantB) < minBEmojis) {
-      // Add 1-2 emojis at natural break points (end of sentences)
       const sentences = variantB.split(/(?<=[.!?])\s/);
       const slots = Math.min(sentences.length - 1, minBEmojis - countEmojis(variantB));
       for (let i = 0; i < Math.max(slots, 1); i++) {
-        const emojiIdx = i % cosmicEmojis.length;
-        sentences[i] = sentences[i]!.trimEnd() + cosmicEmojis[emojiIdx]!;
+        const emojiIdx = i % themedEmojis.length;
+        sentences[i] = sentences[i]!.trimEnd() + themedEmojis[emojiIdx]!;
       }
       variantB = sentences.join(' ');
     }
@@ -272,7 +267,6 @@ function countEmojis(text: string): number {
  * Count hashtags in a string.
  */
 function countHashtags(text: string): number {
-  // 2.8.5: Unicode-aware regex so Cyrillic, Arabic, etc. hashtags are counted.
   const matches = text.match(/#[\p{L}\p{N}_]+/gu);
   return matches?.length ?? 0;
 }

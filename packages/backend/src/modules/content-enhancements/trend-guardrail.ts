@@ -5,12 +5,12 @@
  *
  *   Layer 1 — Deterministic keyword blocklist (free, instant).
  *     Rejects topics that contain scandal/drama/political/medical/violence
- *     keywords. These never align with the My Zodiac AI brand voice
- *     (mystical-but-grounded, empowering, no controversy).
+ *     keywords. These never align with the brand voice
+ *     (grounded, empowering, no controversy).
  *
  *   Layer 2 — LLM opportunity scoring (paid, ~1 call per topic).
  *     For topics that pass layer 1, asks the LLM to evaluate:
- *       - Is there a safe astrological angle?
+ *       - Is there a safe brand/domain angle?
  *       - How strong is the opportunity (1-10)?
  *       - What angle to use?
  *     Rejects topics with score < 4 or no safe angle.
@@ -30,7 +30,7 @@ export interface TrendGuardrailResult {
   safe: boolean;
   /** 1-10 opportunity score (higher = better fit). 0 when blocked by layer 1. */
   opportunityScore: number;
-  /** Suggested astrological angle for the LLM to use. Empty when blocked. */
+  /** Suggested angle for the LLM to use. Empty when blocked. */
   suggestedAngle: string;
   /** Human-readable reason for the decision. */
   reason: string;
@@ -81,9 +81,6 @@ const MIN_OPPORTUNITY_SCORE = 4;
  * getTrendingTopics(). The path prefix is the reliable identifier.
  */
 export function isTrendingSource(sourceType: string, path: string): boolean {
-  // B16: startsWith is a strict subset of includes. Match a path *segment* "trending/" (at
-  // start or after a slash) so an unrelated slug like "blog/trending-now/x" isn't force-routed
-  // through the guardrail.
   return /(^|\/)trending\//.test(path ?? '');
 }
 
@@ -95,36 +92,6 @@ export function isTrendingSource(sourceType: string, path: string): boolean {
 const STEM_KEYWORDS: ReadonlySet<string> = new Set([
   'casualt', 'homophob', 'transphob', 'islamophob', 'antisemit',
 ]);
-
-/**
- * Astrological allowlist — keywords that share spelling with blocklisted terms but
- * have a legitimate astrological meaning. When the topic contains astrological
- * context (planet/sign/house keywords), these blocklisted terms are allowed.
- *
- * Example: "Jupiter in Cancer" — "Cancer" is a zodiac sign, not the disease.
- */
-const ASTROLOGICAL_OVERRIDES: ReadonlyMap<string, readonly string[]> = new Map([
-  // "cancer" (medical) → allowed when topic mentions planets/signs/houses
-  ['cancer', ['jupiter', 'moon', 'sun', 'mercury', 'venus', 'mars', 'saturn',
-    'uranus', 'neptune', 'pluto', 'zodiac', 'sign', 'house', 'ascendant',
-    'natal', 'transit', 'retrograde', 'degree', 'conjunction', 'square',
-    'trine', 'opposition', 'aries', 'taurus', 'gemini', 'leo', 'virgo',
-    'libra', 'scorpio', 'sagittarius', 'capricorn', 'aquarius', 'pisces',
-    'season', 'chart', 'horoscope', 'astrology', 'planet', 'element',
-    'water', 'crab', 'cardinal', 'fourth']],
-]);
-
-/**
- * Check if a blocklisted keyword match should be overridden by astrological context.
- * Returns true if the topic contains an astrological context word that legitimises
- * the keyword (e.g. "Cancer" the zodiac sign vs the disease).
- */
-function isAstrologicalOverride(keyword: string, topic: string): boolean {
-  const contextWords = ASTROLOGICAL_OVERRIDES.get(keyword.toLowerCase());
-  if (!contextWords) return false;
-  const topicLower = topic.toLowerCase();
-  return contextWords.some((w) => topicLower.includes(w));
-}
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -143,18 +110,10 @@ const BLOCKLIST_MATCHERS: readonly RegExp[] = BLOCKLIST_KEYWORDS.map((kw) => {
 /**
  * Layer 1 — deterministic blocklist check (word-boundary aware, B11).
  * Returns true if the topic contains a blocked keyword.
- * Astrological overrides (e.g. "Cancer" the zodiac sign) are allowed when
- * the topic contains astrological context words.
  */
 export function isBlocklisted(topic: string): boolean {
   for (const re of BLOCKLIST_MATCHERS) {
-    const match = re.exec(topic);
-    if (match) {
-      const matchedKeyword = match[0].toLowerCase();
-      // Check if this keyword has an astrological override in this context
-      if (isAstrologicalOverride(matchedKeyword, topic)) {
-        continue; // Skip — astrological context legitimises this keyword
-      }
+    if (re.test(topic)) {
       return true;
     }
   }
@@ -163,7 +122,7 @@ export function isBlocklisted(topic: string): boolean {
 
 /**
  * Layer 2 — LLM opportunity scoring.
- * Asks the LLM to evaluate whether a trending topic has a safe astrological
+ * Asks the LLM to evaluate whether a trending topic has a safe brand/domain
  * angle and how strong the opportunity is.
  *
  * Returns a structured result. On LLM failure, defaults to "safe with low
@@ -173,24 +132,24 @@ export async function llmOpportunityScore(
   topic: string,
   llm: ILlmPort,
 ): Promise<TrendGuardrailResult> {
-  const systemPrompt = `You are a brand-safety evaluator for My Zodiac AI, an AI-powered astrology platform.
-Brand voice: mystical-but-grounded, accessible, empowering. No controversy, no fear-mongering, no medical/financial advice.
+  const systemPrompt = `You are a brand-safety evaluator for a social media brand.
+Brand voice: grounded, accessible, empowering. No controversy, no fear-mongering, no medical/financial advice.
 
-Evaluate whether a trending topic can be safely used for an astrology social media post.
+Evaluate whether a trending topic can be safely used for a social media post for the configured domain.
 
 Return ONLY a JSON object (no markdown, no code fences):
 {
   "safe": true | false,
   "opportunityScore": 1-10,
-  "suggestedAngle": "one sentence describing the astrological angle",
+  "suggestedAngle": "one sentence describing a brand- or domain-relevant angle",
   "reason": "one sentence explaining the decision"
 }
 
 Rules:
-- safe=true only if there is a genuine astrological angle that fits the brand voice
+- safe=true only if there is a genuine brand/domain angle that fits the brand voice
 - opportunityScore: 1-3 = weak fit, 4-6 = decent, 7-10 = strong fit
-- Reject (safe=false) if: the topic is scandalous, political, medical, violent, or has no astrological connection
-- Accept (safe=true) if: the topic relates to self-discovery, wellness, timing, relationships, or personal growth`;
+- Reject (safe=false) if: the topic is scandalous, political, medical, violent, or has no connection to the brand's domain
+- Accept (safe=true) if: the topic relates to the brand's domain and audience interests`;
 
   const userPrompt = `Trending topic: "${topic}"
 
@@ -201,7 +160,6 @@ Evaluate:`;
       temperature: 0.2,
     });
 
-    // Parse JSON — strip any markdown fences defensively
     const jsonStr = response.content
       .replace(/^```(?:json)?\s*/i, '')
       .replace(/\s*```$/i, '')
@@ -221,10 +179,6 @@ Evaluate:`;
       decidedBy: 'llm',
     };
   } catch (err) {
-    // B9: a brand-safety filter must fail CLOSED. On an LLM/parse error we cannot vouch for
-    // the topic, so reject it — the topic is simply skipped and generation continues with
-    // other topics. Failing open (the old default) let off-brand trends through whenever the
-    // LLM hiccuped.
     return {
       safe: false,
       opportunityScore: 0,
@@ -253,7 +207,6 @@ export async function checkTrendSafety(
   path: string,
   llm: ILlmPort,
 ): Promise<TrendGuardrailResult> {
-  // Non-trending sources are already brand-safe — skip guardrail
   if (!isTrendingSource(sourceType, path)) {
     return {
       safe: true,
@@ -264,7 +217,6 @@ export async function checkTrendSafety(
     };
   }
 
-  // Layer 1: deterministic blocklist
   if (isBlocklisted(topic)) {
     return {
       safe: false,
@@ -275,10 +227,8 @@ export async function checkTrendSafety(
     };
   }
 
-  // Layer 2: LLM opportunity scoring
   const llmResult = await llmOpportunityScore(topic, llm);
 
-  // Enforce minimum score threshold
   if (llmResult.safe && llmResult.opportunityScore < MIN_OPPORTUNITY_SCORE) {
     return {
       ...llmResult,

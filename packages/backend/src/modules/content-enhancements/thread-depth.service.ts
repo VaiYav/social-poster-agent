@@ -12,7 +12,7 @@
  *   - Network: X supports threads natively; Threads (Meta) supports threads;
  *     Facebook does NOT support threads (always single post)
  *   - User override: `threadDepth` parameter in generation request
- *   - Topic type: educational/self_discovery pillars → deeper threads
+ *   - Topic type: educational/product pillars → deeper threads
  *
  * The controller generates all continuation tweets in a single LLM call
  * (batch prompt) to ensure narrative coherence across the thread.
@@ -94,13 +94,11 @@ export class ThreadDepthService {
     keywords: string[],
     userOverride?: number,
   ): Promise<ThreadPlan> {
-    // Facebook never gets threads
     const networkMax = NETWORK_MAX_DEPTH[network] ?? 1;
     if (networkMax === 1) {
       return { depth: 1, continuations: [], reasoning: 'Facebook does not support threads' };
     }
 
-    // User override takes precedence (clamped to network max)
     if (userOverride !== undefined && userOverride > 0) {
       const depth = Math.min(userOverride, networkMax);
       if (depth === 1) {
@@ -109,14 +107,12 @@ export class ThreadDepthService {
       return this.generateContinuations(depth, rootContent, keyFacts, topic, keywords, 'User override');
     }
 
-    // Auto-decide depth based on content richness
     const pillar = classifyPillar(topic, keywords);
     const factsCount = keyFacts.length;
 
     let targetDepth = this.defaultDepth;
 
-    // Deep threads (3-5) only for rich educational/self_discovery content
-    if (factsCount >= MIN_FACTS_FOR_DEEP_THREAD && (pillar === 'educational' || pillar === 'self_discovery')) {
+    if (factsCount >= MIN_FACTS_FOR_DEEP_THREAD && (pillar === 'educational' || pillar === 'product')) {
       targetDepth = Math.min(MAX_THREAD_DEPTH, Math.min(factsCount + 1, 5));
     } else if (factsCount >= 2) {
       targetDepth = 3;
@@ -124,7 +120,6 @@ export class ThreadDepthService {
       targetDepth = this.defaultDepth;
     }
 
-    // Clamp to network max
     targetDepth = Math.min(targetDepth, networkMax);
 
     if (targetDepth === 1) {
@@ -159,8 +154,8 @@ export class ThreadDepthService {
     }
 
     try {
-      const systemPrompt = `You are a social media thread writer for My Zodiac AI, an AI-powered astrology platform.
-Brand voice: mystical-but-grounded, accessible, empowering. No fear-mongering, no medical/financial advice.
+      const systemPrompt = `You are a social media thread writer for the brand.
+Brand voice: approachable, human, on-brand. No fear-mongering, no medical/financial advice.
 
 Write ${continuationCount} continuation tweet(s) for a thread. The root tweet is provided.
 Each continuation must:
@@ -191,18 +186,17 @@ Write ${continuationCount} continuation tweet(s):`;
         .filter((line) => line.length > 0)
         .slice(0, continuationCount);
 
-      // Pad with heuristic if LLM returned fewer than requested
       while (tweets.length < continuationCount) {
         const idx = tweets.length;
         tweets.push(
           keyFacts[idx] ??
-            `Discover more about ${topic} ✨`,
+            `Discover more about ${topic} \u2728`,
         );
       }
 
       const continuations: ThreadContinuationTweet[] = tweets.map((content, i) => ({
         position: i + 1,
-        content: truncateForThread(content), // AU8: enforce per-tweet char limit
+        content: truncateForThread(content),
       }));
 
       return { depth, continuations, reasoning };
@@ -228,8 +222,8 @@ Write ${continuationCount} continuation tweet(s):`;
     const continuations: ThreadContinuationTweet[] = [];
     for (let i = 0; i < count; i++) {
       const fact = keyFacts[i];
-      const content = fact ? fact : 'Discover what this means for your chart ✨';
-      continuations.push({ position: i + 1, content: truncateForThread(content) }); // AU8
+      const content = fact ? fact : 'Discover how this applies to your brand \u2728';
+      continuations.push({ position: i + 1, content: truncateForThread(content) });
     }
     return continuations;
   }
