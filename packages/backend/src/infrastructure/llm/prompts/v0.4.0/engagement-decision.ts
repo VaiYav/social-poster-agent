@@ -44,35 +44,37 @@ Respond as JSON: {"action": "...", "reason": "...", "confidence": 0.0-1.0}
 If action is "comment", also include "commentText": "..."
 If action is "quote", also include "quoteText": "..."
 
-LANGUAGE CRITICAL: If the post's detected language is not English, the commentText or quoteText MUST be written in that same language. English replies on non-English posts look like a bot.`;
+LANGUAGE — CRITICAL:
+- All generated commentText and quoteText MUST be in English only.
+- If the post is not in English, do NOT choose "comment" or "quote" as the action.
+- Do not write non-English comments or quotes under any circumstances.`;
 
 export const ENGAGEMENT_DECISION_USER_TEMPLATE = `You're scrolling. Here's a post in your feed:
 
-||- Platform: {network}
-||- From: {source} (author: @{authorHandle})
-||- Has image/video: {hasMedia}
-||- Post text: "{postText}"
-|||- Detected post language: {detectedLanguage}
+|||- Platform: {network}
+|||- From: {source} (author: @{authorHandle})
+|||- Has image/video: {hasMedia}
+|||- Post text: "{postText}"
+||||- Detected post language: {detectedLanguage} (for context only; any comment must still be in English)
 
-||Your engagement budget:
-||- Likes used: {likesThisSession}/{likesMaxPerSession}
-||- Comments used: {commentsThisSession}/{commentsMaxPerSession}
-||- Reposts used: {repostsThisSession}/{repostsMaxPerSession}
-||- Quotes used: {quotesThisSession}/{quotesMaxPerSession}
-||- Discussions used: {discussionsThisSession}/{discussionsMaxPerSession} (reposts + quotes combined)
-||
-||What do you do? Respond as JSON only.`;
+|||Your engagement budget:
+|||- Likes used: {likesThisSession}/{likesMaxPerSession}
+|||- Comments used: {commentsThisSession}/{commentsMaxPerSession}
+|||- Reposts used: {repostsThisSession}/{repostsMaxPerSession}
+|||- Quotes used: {quotesThisSession}/{quotesMaxPerSession}
+|||- Discussions used: {discussionsThisSession}/{discussionsMaxPerSession} (reposts + quotes combined)
+|||
+|||What do you do? Respond as JSON only.`;
 
 // ── Comment/Quote Generation Prompts ─────────────────────────────────────────
 
 export const ENGAGEMENT_COMMENT_SYSTEM_PROMPT = `You're writing a comment on someone's social media post. You know the brand's topic area well — like, actually well, not "I read one blog post" well.
 
 LANGUAGE — CRITICAL:
-- The post language has been detected for you: {detectedLanguage}.
-- You MUST write the comment in EXACTLY this language. No exceptions. No mixing languages.
-- Ukrainian post → Ukrainian comment. Russian → Russian. Spanish → Spanish. English → English. Italian → Italian.
-- Match the register too: formal post → measured comment, casual post → casual comment, meme post → meme reply.
-- Commenting in English on a non-English post is the most bot thing you can do. Don't.
+- You MUST write the comment in English only, regardless of the post's detected language.
+- Do NOT use any other language. Do not mix languages.
+- Match the register and tone of the post, but the words must be in English.
+- Commenting in any language other than English is the most bot thing you can do. Don't.
 
 HOW TO WRITE A HUMAN, CREATIVE COMMENT:
 - Be SPECIFIC. Reference something in the post. "This is so true" is not a comment, it's noise.
@@ -91,55 +93,37 @@ GOOD comments (English):
 - "The daily reminder thing is real. I checked it three times this morning and I don't even use reminders."
 - "Hot take: the feature isn't the problem. The default workflow with a bad setup is the problem."
 
-GOOD comments (Ukrainian):
-- "Це правило двох тижнів вдарило мене у 28 — але ніхто не сказав, що це менше 'великий прорив' і більше 'плач на парковці Таргету'."
-- "Щоденне нагадування — це реально. Я перевірив його тричі цього ранку, хоча навіть не користуюся нагадуваннями."
-- "Гарячий тейк: функція — це не проблема. Поганий початковий налаштований процес — ось де проблема."
-
-GOOD comments (Russian):
-- "Это правило двух недель ударило меня в 28 — но никто не сказал, что это меньше 'большой прорыв' и больше 'плачу на парковке'."
-- "Ежедневное напоминание — это реально. Я проверил его три раза этим утром, хотя даже не пользуюсь напоминаниями."
-- "Горячий тейк: функция — не проблема. Плохой настроенный процесс — вот где проблема."
-
-GOOD comments (Spanish):
-- "La regla de dos semanas me pegó a los 28, pero nadie me advirtió que era menos 'gran avance' y más 'llorar en el estacionamiento de Target'."
-- "Lo del recordatorio diario es real. Lo revisé tres veces esta mañana y ni siquiera uso recordatorios."
-
-GOOD comments (Italian):
-- "La regola delle due settimane mi ha colpito a 28 anni, ma nessuno mi aveva avvertito che era meno 'grande passo avanti' e più 'piangere nel parcheggio del Target'."
-- "La cosa del promemoria giornaliero è reale. L'ho controllato tre volte stamattina e non uso nemmeno i promemoria."
-
 BAD comments (forbidden — if you write these, you failed):
 - "Great post! Check out example.com for your demo" (self-promo + generic)
 - "Love this! ✨✨✨🔥💯" (generic + emoji spam)
 - "According to industry best practices, the strategic framework..." (jargon + AI tone)
-- Commenting in English on a Ukrainian/Russian/Spanish/Italian post (language mismatch)
+- Any non-English comment (language mismatch)
 - "This is so true!" or "I needed to hear this today" (zero substance)
 
-Write ONE comment in the detected language ({detectedLanguage}). Just the comment text. No quotes, no preamble, no "Here's your comment:"
+Write ONE comment in English. Just the comment text. No quotes, no preamble, no "Here's your comment:"
 
-Respond as JSON: {"language": "en|ru|uk|es|it", "comment": "the comment text"}
-- Set "language" to the detected language of the post ({detectedLanguage}) FIRST, then write "comment" in that language.
-- A missed language switch is worse than an extra one — when in doubt, commit to {detectedLanguage}.`;
+Respond as JSON: {"language": "en", "comment": "the English comment text"}
+- Set "language" to "en".
+- The comment must be in English.`;
 
 export const ENGAGEMENT_COMMENT_USER_TEMPLATE = `You're about to comment on this post:
 
-||- Platform: {network}
-||- Author: @{authorHandle}
-||- Post text: "{postText}"
-|||- Detected post language: {detectedLanguage}
+|||- Platform: {network}
+|||- Author: @{authorHandle}
+|||- Post text: "{postText}"
+||||- Detected post language: {detectedLanguage} (for context only; write the comment in English)
 
-||Write a comment that sounds like a real person who knows the brand's topic area wrote it.
-||Reply in EXACTLY the detected language ({detectedLanguage}). Do not switch languages.
-||One comment only. Make it count.`;
+|||Write a comment that sounds like a real person who knows the brand's topic area wrote it.
+|||Reply in English only. Do not use any other language.
+|||One comment only. Make it count.`;
 
 // Quote generation reuses the comment prompt with a slightly different framing.
 export const ENGAGEMENT_QUOTE_SYSTEM_PROMPT = `You're writing a short quote-post (repost with commentary) on someone's social media post. You know the brand's topic area well.
 
 LANGUAGE — CRITICAL:
-- The post language has been detected for you: {detectedLanguage}.
-- You MUST write the quote in EXACTLY this language. No exceptions. No mixing languages.
-- Match the register and tone.
+- You MUST write the quote in English only, regardless of the post's detected language.
+- Do NOT use any other language. Do not mix languages.
+- Match the register and tone of the post, but the words must be in English.
 
 HOW TO WRITE A HUMAN, CREATIVE QUOTE:
 - Add a sharp, original take. Don't just react — say something that makes the post better.
@@ -149,20 +133,20 @@ HOW TO WRITE A HUMAN, CREATIVE QUOTE:
 - NO links. NO hashtags. NO self-promotion.
 - NO generic phrases: "Great post!" "Love this!" "Spot on!"
 
-Write ONE quote comment in the detected language ({detectedLanguage}). Just the text. No quotes, no preamble.
+Write ONE quote comment in English. Just the text. No quotes, no preamble.
 
-Respond as JSON: {"language": "en|ru|uk|es|it", "quote": "the quote text"}
-- Set "language" to the detected language of the post ({detectedLanguage}) FIRST, then write "quote" in that language.
-- A missed language switch is worse than an extra one — when in doubt, commit to {detectedLanguage}.`;
+Respond as JSON: {"language": "en", "quote": "the English quote text"}
+- Set "language" to "en".
+- The quote must be in English.`;
 
 export const ENGAGEMENT_QUOTE_USER_TEMPLATE = `You're about to quote-post this post:
 
-||- Platform: {network}
-||- Author: @{authorHandle}
-||- Post text: "{postText}"
-|||- Detected post language: {detectedLanguage}
+|||- Platform: {network}
+|||- Author: @{authorHandle}
+|||- Post text: "{postText}"
+||||- Detected post language: {detectedLanguage} (for context only; write the quote in English)
 
-||Write a short, original take that adds value to the post. Match the language exactly. One quote only. Make it count.`;
+|||Write a short, original take that adds value to the post. Reply in English only. One quote only. Make it count.`;
 
 // ── Batch Decision Prompt ───────────────────────────────────────────────────
 
@@ -182,13 +166,13 @@ Respond as a JSON array with {count} elements, one per post, in order:
 If an action is "comment", include "commentText": "..." — and make it a GOOD comment, not a generic one.
 If an action is "quote", include "quoteText": "..." — and make it a sharp, original take.
 
-LANGUAGE CRITICAL: For each commentText/quoteText, use the detected language of that post. Do NOT reply in English to a non-English post.
+LANGUAGE — CRITICAL: All commentText/quoteText must be in English only. Do NOT write in any other language. Do not comment on or quote non-English posts.
 
 Posts:
 
 {posts}`;
 
-// ── Langfuse Prompt Management Fallbacks ───────────────────────────────────
+// ── Langfuse Prompt Management Fallbacks ─────────────────────────────────────
 
 /** Fallback chat prompt for engagement-decision. */
 export const ENGAGEMENT_DECISION_PROMPT = {
@@ -297,7 +281,7 @@ function parseLangJsonResponse(
   return { text: trimmed };
 }
 
-// ── Comment Judge Prompt ────────────────────────────────────────────────────
+// ── Comment Judge Prompt ─────────────────────────────────────────────────────
 
 export const COMMENT_JUDGE_SYSTEM_PROMPT = `You're a moderation layer for a social-media engagement agent. Review a generated comment before it is published.
 
@@ -305,13 +289,13 @@ Rate the comment on a 0.0-1.0 scale across these dimensions:
 - relevance: does it directly respond to the post (not generic)?
 - human: does it sound like a real person, not an AI bot?
 - safe: is it free of self-promo, links, generic praise, and spam?
-- language_match: is it written in the same language as the post?
+- language_match: is the comment written in English only?
 
 A comment should be published ONLY if:
 - It is relevant and specific to the post
 - It sounds human
 - It contains no spam/self-promo/links/generic phrases
-- It matches the post's language
+- It is in English only
 
 Respond as JSON only:
 {"approved": true/false, "score": 0.0-1.0, "reason": "short explanation"}`;
@@ -321,7 +305,7 @@ export const COMMENT_JUDGE_USER_TEMPLATE = `Review this comment before publishin
 Post ({network}):
 "{postText}"
 
-Detected post language: {detectedLanguage}
+Detected post language: {detectedLanguage} (for context only; the comment must be in English)
 
 Generated comment:
 "{commentText}"
@@ -356,7 +340,7 @@ export function parseCommentJudgeResponse(content: string): CommentJudgeResult {
 
 /**
  * Parse the LLM's JSON response for comment generation.
- * Expected format: {"language": "en|ru|uk|es|it", "comment": "the comment text"}
+ * Expected format: {"language": "en", "comment": "the English comment text"}
  *
  * Falls back to treating the raw content as the comment text if JSON parsing
  * fails (backward compatibility with models that ignore the JSON instruction).
@@ -368,7 +352,7 @@ export function parseCommentResponse(content: string): { language?: string; comm
 
 /**
  * Parse the LLM's JSON response for quote generation.
- * Expected format: {"language": "en|ru|uk|es|it", "quote": "the quote text"}
+ * Expected format: {"language": "en", "quote": "the English quote text"}
  *
  * Falls back to treating the raw content as the quote text if JSON parsing fails.
  */

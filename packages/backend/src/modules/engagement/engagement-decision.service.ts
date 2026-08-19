@@ -241,6 +241,10 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
    * Identical robotic comments on every post are worse than no comment at all.
    */
   async generateComment(context: PostContext): Promise<string | null> {
+    if (!this.isEnglishPost(context)) {
+      this.logger.debug('Skipping comment: source post is not English');
+      return null;
+    }
     if (!this.llm) {
       this.logger.warn('No LLM configured — generateComment returns null');
       return null;
@@ -287,6 +291,10 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
    * the action (quote → read) rather than posting a generic fallback.
    */
   async generateQuoteText(context: PostContext): Promise<string | null> {
+    if (!this.isEnglishPost(context)) {
+      this.logger.debug('Skipping quote: source post is not English');
+      return null;
+    }
     if (!this.llm) {
       this.logger.warn('No LLM configured — generateQuoteText returns null');
       return null;

@@ -242,11 +242,11 @@ const LANGUAGE_NAMES: Record<string, string> = {
 };
 
 const LANGUAGE_INSTRUCTIONS: Record<string, string> = {
-  en: '',
-  ru: ' Use natural conversational Russian. Use Cyrillic script.',
-  uk: ' Use natural conversational Ukrainian — NOT Russian. Ukrainian has its own vocabulary (e.g. "дякую" not "спасибо", "так" not "да", "час" not "время"). Use Cyrillic script.',
-  es: ' Use natural conversational Spanish. Use appropriate regional Spanish (neutral/international).',
-  it: ' Use natural conversational Italian. Use standard Italian, not dialects.',
+  en: ' English only. Do NOT use any other language, even if the topic, facts, or brand voice include non-English words.',
+  ru: ' English only. Do NOT use Russian or any other language.',
+  uk: ' English only. Do NOT use Ukrainian, Russian, or any other language.',
+  es: ' English only. Do NOT use Spanish or any other language.',
+  it: ' English only. Do NOT use Italian or any other language.',
 };
 
 const NETWORK_TONE: Partial<Record<SocialNetwork, string>> = {
@@ -444,7 +444,8 @@ async function hookGenerationNode(
     performanceGuidance,
     facts: state.facts.join(', '),
     keywords: state.topic.keywords.join(', '),
-    slopList: getSlopListForPrompt(state.language || 'en'),
+    // English-only generation: always use the English slop lexicon.
+    slopList: getSlopListForPrompt('en'),
   };
 
   const { systemPrompt, userPrompt } = await promptPort.getCompiledChat('hook-generation', variables, HOOK_GENERATION_PROMPT);
@@ -539,8 +540,9 @@ function makeDraftNode(network: SocialNetwork, promptPort: IPromptPort, draftTem
     const tone = NETWORK_TONE[network] ?? '';
     const persona = NETWORK_PERSONA[network] ?? '';
 
-    // Multilingual support — determine the language for this post
-    const lang = state.language || 'en';
+    // English-only generation: all prompts are rendered for English regardless
+    // of the source topic's declared language.
+    const lang = 'en';
     const langName = LANGUAGE_NAMES[lang] ?? 'English';
     const langInstruction = LANGUAGE_INSTRUCTIONS[lang] ?? '';
 
@@ -651,7 +653,8 @@ function makeCritiqueNode(network: SocialNetwork, promptPort: IPromptPort) {
 
     // Q6: Humanizer Gate — deterministic statistical scan (slop words,
     // em dashes, uniform sentence lengths, hashtags). Free, zero LLM tokens.
-    const lang = state.language || 'en';
+    // English-only generation: the English slop lexicon is always used.
+    const lang = 'en';
     const humanizeInstruction = buildHumanizeInstruction(netResult.draft, lang);
     const gateInstructions = [baitInstruction, humanizeInstruction].filter(Boolean).join('\n');
 
@@ -737,7 +740,8 @@ function makeRefineNode(network: SocialNetwork, promptPort: IPromptPort, refineT
     // Sprint I: Skip if previous step failed
     if (netResult.error) return {};
 
-    const lang = state.language || 'en';
+    // English-only generation: the rewrite must always stay in English.
+    const lang = 'en';
     const langName = LANGUAGE_NAMES[lang] ?? 'English';
     const langInstruction = LANGUAGE_INSTRUCTIONS[lang] ?? '';
 
@@ -1029,7 +1033,8 @@ function makeJudgeNode(
     const content = netResult.refined || netResult.draft;
     if (!content) return {};
 
-    const lang = state.language || 'en';
+    // English-only generation: the English slop lexicon is always used for judging.
+    const lang = 'en';
     const slopList = getSlopListForPrompt(lang);
     const factsText = state.facts.length > 0 ? state.facts.map((f) => `- ${f}`).join('\n') : '- (no source facts provided)';
 
@@ -1428,14 +1433,15 @@ export function createInitialState(
   targetNetworks: SocialNetwork | SocialNetwork[],
   brandVoice: string,
   humanReview = false,
-  language = 'en',
+  _language = 'en',
 ): GenerationStateType {
   const networks = Array.isArray(targetNetworks) ? targetNetworks : [targetNetworks];
   return {
     topic,
     targetNetworks: networks,
     brandVoice,
-    language,
+    // Generation is English-only regardless of the language argument.
+    language: 'en',
     facts: [],
     hooks: [],
     results: {},

@@ -21,9 +21,11 @@ TOPIC RULES:
 - Think like a CONTENT CREATOR, not an encyclopedia. What would make someone stop scrolling?
 - It's okay to be funny, weird, or slightly unhinged. Boring topics = boring posts.
 
+All topics, keywords, and facts must be in English only. Do not generate topics in any other language.
+
 Return a JSON array:
 [{"topic": "...", "keywords": ["...", "..."], "facts": ["...", "..."], "category": "..."}]`,
-  userPrompt: `Generate {count} diverse topics for social media posts.
+  userPrompt: `Generate {count} diverse topics for social media posts in English only. Do not use any other language.
 Mix categories. Be specific, provocative, and fun. Think "what would I actually stop scrolling to read?"
 
 Return ONLY the JSON array, no markdown, no explanation.`,

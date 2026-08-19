@@ -32,12 +32,16 @@ GOOD facts (specific, surprising, human):
 - "The first iPhone launched with only 4 GB of storage and no third-party apps — Apple originally thought apps would all run in Safari."
 - "A study of 2,000 remote workers found the biggest productivity killer wasn't meetings or social media, but micro-interruptions from notifications."
 
-Return ONLY the facts, one per line, numbered 1-8. No preamble.`,
+Return ONLY the facts, one per line, numbered 1-8. No preamble.
+
+All facts must be in English only. Do not use any other language.`,
   userPrompt: `Topic: {topic}
 Keywords: {keywords}
 Category: {category}
 Outline:
 {outline}
+
+Extract the key facts in English only. Do not use any other language.
 
 Key facts:`,
 }
@@ -54,7 +58,7 @@ It needs to make them stop. Not because it's "engaging" but because it's specifi
 
 ANTI-AI RULES — CRITICAL:
 - Do NOT start with "Did you know" or "Discover" or "Unlock" or "Explore" or "The truth about" or "What nobody tells you" — those scream bot.
-- BANNED words/phrases (AI tells for this language): {slopList}
+- BANNED words/phrases (AI tells for English): {slopList}
 - Do NOT write hooks that sound like a Wikipedia intro, a generic listicle, or a clickbait thumbnail.
 - Do NOT use em dashes (—) — use periods, commas, or parentheses.
 - Do NOT use the same opener for every hook. Vary structure.
@@ -85,7 +89,9 @@ BAD hooks (these sound like AI):
 - "Let's explore what burnout really means for you"
 - "The truth about productivity (and why nobody talks about it)"
 
-Return ONLY the hooks, one per line, numbered 1-5. No quotes, no preamble.{performanceGuidance}`,
+Return ONLY the hooks, one per line, numbered 1-5. No quotes, no preamble.
+
+All hooks must be in English only. Do not use any other language.{performanceGuidance}`,
   userPrompt: `Topic: {topic}
 Key facts: {facts}
 Keywords: {keywords}
@@ -105,9 +111,9 @@ BRAND VOICE: {brandVoice}
 
 Write a {network} post using the hook and angle provided. {lengthGuidance}
 
-LANGUAGE: Write this post in {langName}.{langInstruction}
-- Russian and Ukrainian are DIFFERENT languages. Do not mix them. Do not use Russian words in Ukrainian posts or vice versa.
-- Use natural, native-speaker phrasing — not translated-sounding text. Use slang, colloquialisms, and informal expressions natural to that language.
+LANGUAGE — CRITICAL: Write this post in {langName}.{langInstruction}
+- English only. Do NOT use any other language, even if the topic, facts, or brand voice include non-English words.
+- Use natural, native-speaker English phrasing — not translated-sounding text. Use slang, colloquialisms, and informal expressions natural to English.
 - Do NOT use hashtags — they are deprioritized by all major platforms. Pure text only.{langExamples}
 
 THE #1 RULE — SOUND HUMAN, NOT AI:
@@ -158,7 +164,7 @@ HOW TO SOUND HUMAN — CONCRETE TECHNIQUES:
    - Don't summarize the topic — react to it. Have a real thought.
 
 ANTI-AI RULES — CRITICAL (read these twice):
-- BANNED words/phrases for this language (instant AI tells): {slopList}
+- BANNED words/phrases for English (instant AI tells): {slopList}
 - NEVER use em dashes (—) or en dashes (–). Use periods, commas, or parentheses instead.
 - NEVER start with "Did you know" or a rhetorical question that answers itself.
 - NEVER write a "hook → explanation → CTA" sandwich. That structure is a dead giveaway.
@@ -221,7 +227,7 @@ Check these things:
    - Ends with a neat summary or conclusion = AI
    - Repetitive sentence starts ("The... / "This..." / "It..." every sentence) = AI
    - Formal connectors (furthermore, moreover, consequently, etc.) = essay, not a post
-3. Does it use any banned AI words/phrases for this language? ({slopList}) Any em dashes (—)?
+3. Is the post written in English only? Does it use any banned AI words/phrases for English? ({slopList}) Any em dashes (—)?
 4. No fear-mongering or absolute predictions?
 5. Does the first line grab you, or is it generic?
 6. No hashtags? (hashtags are deprioritized by algorithms and look spammy — posts should be pure text)
@@ -247,10 +253,8 @@ Where SCORE 10 = "I'd share this on my personal account and people would think I
 export const REFINE_POST_PROMPT = `Rewrite this {network} post based on the critique. Make it sound MORE HUMAN and LESS like AI.
 
 LANGUAGE — CRITICAL: The rewrite must be in {langName}.{langInstruction}
-- Do NOT translate the draft into English or any other language.
-- Preserve the original language, script, and natural phrasing of the draft.
-- Russian and Ukrainian are DIFFERENT languages. Do not mix them. Do not use Russian words in Ukrainian posts or vice versa.
-- Use natural, native-speaker phrasing — not translated-sounding text. Use slang, colloquialisms, and informal expressions natural to that language.{langExamples}
+- English only. Do NOT translate the draft into any other language or mix other languages into the rewrite.
+- Preserve natural, native-speaker English phrasing — not translated-sounding text. Use slang, colloquialisms, and informal expressions natural to English.{langExamples}
 
 Draft:
 "{draft}"
@@ -288,15 +292,17 @@ Each fact must be:
 - ORGANIZED by theme (e.g. "Background", "Core concept", "Practical application")
 - Written as a clear statement
 
-Return the facts as a numbered list, grouped by theme. No preamble.`,
+Return the facts as a numbered list, grouped by theme. No preamble.
+
+All facts must be in English only. Do not use any other language.`,
   userPrompt: `Topic: {topic}
 Keywords: {keywords}
 Language: {language}
 
-Extract facts for a long-form article about this topic.`,
+Extract facts for a long-form article about this topic in English only. Do not use any other language.`,
 }
 
-export const ARTICLE_OUTLINE_PROMPT = `Create a detailed outline for a long-form article (1500-3000 words).
+export const ARTICLE_OUTLINE_PROMPT = `Create a detailed outline for a long-form article (1500-3000 words). The outline must be in English only.
 
 Topic: {topic}
 Keywords: {keywords}
@@ -332,7 +338,7 @@ export const ARTICLE_DRAFT_PROMPT: CompiledChatPrompt = {
 - WELL-STRUCTURED — clear sections, smooth flow, no filler
 - SEO-AWARE — natural keyword integration, no stuffing
 
-Write the full article in markdown. Include the H1 title, all sections from the outline, and a conclusion. The article should be 1500-3000 words.`,
+Write the full article in markdown. Include the H1 title, all sections from the outline, and a conclusion. The article should be 1500-3000 words. The article must be in English only. Do not use any other language.`,
   userPrompt: `Topic: {topic}
 Keywords: {keywords}
 Language: {language}
@@ -374,7 +380,7 @@ Topic: {topic}
 Keywords: {keywords}
 Language: {language}
 
-Focus on the weakest criteria identified by the judge. Make the article:
+Focus on the weakest criteria identified by the judge. The rewrite must remain in English only — do not switch languages or mix in any other language. Make the article:
 - More human-sounding (fix AI clichés, vary sentence structure)
 - More engaging (strengthen the hook, add specific examples)
 - More accurate (fix any factual errors)

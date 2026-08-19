@@ -404,22 +404,22 @@ describe('EngagementDecisionService', () => {
     expect(comment).toBe('Product cycle hit me at 28 too.');
   });
 
-  it('ED-LANG-005: accepts Spanish comment for Spanish post', async () => {
+  it('ED-LANG-005: rejects non-English posts and returns null', async () => {
     mockLlm = createMockLlm([
-      { content: '{"language":"es","comment":"Un ciclo de producto tarda 18 meses. Y aun así te destroza."}', model: 'mock' },
+      { content: 'Un ciclo de producto tarda 18 meses. Y aun así te destroza.', model: 'mock' },
     ]);
     service = new EngagementDecisionService(mockLlm, configService);
     const comment = await service.generateComment(createPostContext({ postText: 'Productividad en Q1 hoy' }));
-    expect(comment).toBe('Un ciclo de producto tarda 18 meses. Y aun así te destroza.');
+    expect(comment).toBeNull();
   });
 
-  it('ED-LANG-006: accepts Italian comment for Italian post', async () => {
+  it('ED-LANG-006: rejects Cyrillic posts and returns null', async () => {
     mockLlm = createMockLlm([
-      { content: '{"language":"it","comment":"Un ciclo di prodotto impiega 18 mesi. E ti distrugge lo stesso."}', model: 'mock' },
+      { content: 'Это правило двух недель ударило меня в 28...', model: 'mock' },
     ]);
     service = new EngagementDecisionService(mockLlm, configService);
-    const comment = await service.generateComment(createPostContext({ postText: 'Produttività in Q1 oggi' }));
-    expect(comment).toBe('Un ciclo di prodotto impiega 18 mesi. E ti distrugge lo stesso.');
+    const comment = await service.generateComment(createPostContext({ postText: 'Продуктивность в Q1 сегодня' }));
+    expect(comment).toBeNull();
   });
 
   it('ED-LANG-009: backward compat — plain text response (no JSON) still works', async () => {

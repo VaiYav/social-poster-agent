@@ -15,7 +15,8 @@ import { StateGraph, START, END, Annotation } from '@langchain/langgraph';
 import type { ILlmPort, LlmResponse } from '../../domain/ports/llm.port.js';
 import { IPromptPort } from '../../domain/ports/prompt.port.js';
 import { sanitizeUntrustedInput } from '../../infrastructure/llm/sanitize-untrusted-input.js';
-import { matchesScript, normalizeLanguage } from '../../infrastructure/util/script-check.js';
+import { matchesScript, normalizeLanguage, type SupportedLanguage } from '../../infrastructure/util/script-check.js';
+import { detectLanguage, isLanguageDetectable } from '../../infrastructure/util/language-detector.js';
 import { extractFirstJsonObject } from '../../infrastructure/util/extract-json.js';
 import { interpolate } from '../../domain/prompt-interpolation.js';
 import { REPLY_DECISION_PROMPT } from './prompts/reply-decision.prompt.js';
@@ -201,7 +202,11 @@ function decideNode(deps: DialogueGraphDeps) {
         maxDepth: String(state.maxDepth),
         isQuestion: String(classification?.isQuestion ?? false),
         questionType: classification?.questionType ?? 'none',
-        detectedLanguage: state.detectedLanguage,
+        // Original comment language is passed as context only. The reply must
+        // always be in English, so we also provide the old variable as 'en'
+        // for any prompt versions that still reference it.
+        commentLanguage: state.detectedLanguage,
+        detectedLanguage: 'en',
         network: state.network,
         tone: state.tone ?? 'neutral',
       },
@@ -252,20 +257,20 @@ Return JSON only.`;
       parsed.reviewReason = parsed.reviewReason ?? 'LLM auto_reply missing replyText';
     }
 
-    // Post-validation: script must match detected language.
-    // The deterministic detector is the ground truth; if the LLM echoed a
-    // different language code, use the detector's label for validation and
-    // correct the decision's detectedLanguage.
+    // Post-validation: all replies must be in English, regardless of the
+    // original comment language. We trust the deterministic script check and
+    // the language detector to catch non-English output.
     if (action === 'auto_reply' && parsed.replyText) {
-      const llmLang = normalizeLanguage(parsed.detectedLanguage);
-      const detectorLang = normalizeLanguage(state.detectedLanguage);
-      const lang = llmLang === detectorLang ? llmLang : detectorLang;
-      if (llmLang !== detectorLang) {
-        parsed.detectedLanguage = lang;
-      }
-      if (!matchesScript(parsed.replyText, lang)) {
+      const englishLang: SupportedLanguage = 'en';
+      if (!matchesScript(parsed.replyText, englishLang)) {
         action = 'human_review';
-        parsed.reviewReason = `Reply script does not match detected language (${lang}) — requires human review`;
+        parsed.reviewReason = `Reply is not in English — requires human review`;
+      } else if (isLanguageDetectable(parsed.replyText) && detectLanguage(parsed.replyText) !== englishLang) {
+        action = 'human_review';
+        parsed.reviewReason = `Reply language detector returned non-English — requires human review`;
+      } else {
+        // The reply is in English; lock the recorded language to en.
+        parsed.detectedLanguage = englishLang;
       }
     }
 

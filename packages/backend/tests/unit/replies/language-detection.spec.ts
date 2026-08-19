@@ -304,9 +304,8 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
   });
 
   // ── Language matching (post-validation) ──
-  // The LLM is asked to detect the comment's language and write the reply in it.
-  // We post-validate: if the LLM says "es" or "it" but writes in the wrong script,
-  // downgrade to human_review instead of posting an English reply to a non-English comment.
+  // The LLM must always reply in English, regardless of the original comment language.
+  // We post-validate: any non-English reply is downgraded to human_review.
 
   function createMockQuestionClassifier() {
     return {
@@ -356,7 +355,7 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
     expect(result.detectedLanguage).toBe('en');
   });
 
-  it('LANG-005: accepts auto_reply when Spanish comment gets Spanish reply', async () => {
+  it('LANG-005: downgrades Spanish reply to human_review under English-only mode', async () => {
     const mockLlm = {
       generateChat: vi.fn().mockResolvedValue({
         content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"es","replyText":"¡Gracias! El ciclo de producto es real."}',
@@ -369,11 +368,12 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
       { id: '1', network: 'X', content: 'Post about Workflow' },
       { id: '2', commentId: 'c1', author: 'user', text: '¡Me encanta este post!' },
     );
-    expect(result.action).toBe('auto_reply');
-    expect(result.detectedLanguage).toBe('es');
+    expect(result.action).toBe('human_review');
+    expect(result.reviewReason).toMatch(/not in English|non-English/i);
+    expect(result.replyText).toBeUndefined();
   });
 
-  it('LANG-006: accepts auto_reply when Italian comment gets Italian reply', async () => {
+  it('LANG-006: downgrades Italian reply to human_review under English-only mode', async () => {
     const mockLlm = {
       generateChat: vi.fn().mockResolvedValue({
         content: '{"action":"auto_reply","reason":"Positive","detectedLanguage":"it","replyText":"Grazie! Il ciclo di prodotto è reale."}',
@@ -386,8 +386,9 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
       { id: '1', network: 'X', content: 'Post about Workflow' },
       { id: '2', commentId: 'c1', author: 'user', text: 'Mi piace questo post!' },
     );
-    expect(result.action).toBe('auto_reply');
-    expect(result.detectedLanguage).toBe('it');
+    expect(result.action).toBe('human_review');
+    expect(result.reviewReason).toMatch(/not in English|non-English/i);
+    expect(result.replyText).toBeUndefined();
   });
 
   it('LANG-008: accepts auto_reply when detectedLanguage is missing (no validation)', async () => {
@@ -423,8 +424,9 @@ describe('RepliesMonitorService — Pre-LLM Decision Logic', () => {
     );
     const [systemPrompt] = mockLlm.generateChat.mock.calls[0];
     expect(systemPrompt).toContain('detectedLanguage');
-    expect(systemPrompt).toContain('en|ru|uk|es|it');
-    expect(systemPrompt).toContain('LANGUAGE DETECTION');
+    expect(systemPrompt).toContain('"en"');
+    expect(systemPrompt).toContain('English only');
+    expect(systemPrompt).toContain('REPLY LANGUAGE');
   });
 
   // ── LLM skip action ──

@@ -122,34 +122,34 @@ describe('Engagement Prompts', () => {
     expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('CRITICAL');
   });
 
-  it('PR-018b: comment system prompt instructs to match post language', () => {
-    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('EXACTLY this language');
+  it('PR-018b: comment system prompt instructs to write in English only', () => {
+    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('English only');
   });
 
   it('PR-018c: comment system prompt forbids language mismatch', () => {
-    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('English on a non-English');
+    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('Any non-English comment (language mismatch)');
   });
 
   it('PR-018f: comment system prompt includes JSON language schema', () => {
     expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('Respond as JSON');
     expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('"language"');
-    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('en|ru|uk|es|it');
+    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('"en"');
   });
 
   it('PR-018g: quote system prompt includes JSON language schema', () => {
     expect(ENGAGEMENT_QUOTE_PROMPT.systemPrompt).toContain('Respond as JSON');
     expect(ENGAGEMENT_QUOTE_PROMPT.systemPrompt).toContain('"language"');
-    expect(ENGAGEMENT_QUOTE_PROMPT.systemPrompt).toContain('en|ru|uk|es|it');
+    expect(ENGAGEMENT_QUOTE_PROMPT.systemPrompt).toContain('"en"');
   });
 
-  it('PR-018h: comment system prompt includes detectedLanguage placeholder', () => {
-    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('{detectedLanguage}');
-    expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain('EXACTLY this language');
+  it('PR-018h: comment user prompt includes detectedLanguage placeholder and English-only instruction', () => {
+    expect(ENGAGEMENT_COMMENT_PROMPT.userPrompt).toContain('{detectedLanguage}');
+    expect(ENGAGEMENT_COMMENT_PROMPT.userPrompt).toContain('English only');
   });
 
-  it('PR-018i: quote system prompt includes detectedLanguage placeholder', () => {
-    expect(ENGAGEMENT_QUOTE_PROMPT.systemPrompt).toContain('{detectedLanguage}');
-    expect(ENGAGEMENT_QUOTE_PROMPT.systemPrompt).toContain('EXACTLY this language');
+  it('PR-018i: quote user prompt includes detectedLanguage placeholder and English-only instruction', () => {
+    expect(ENGAGEMENT_QUOTE_PROMPT.userPrompt).toContain('{detectedLanguage}');
+    expect(ENGAGEMENT_QUOTE_PROMPT.userPrompt).toContain('English only');
   });
 
   // ── parseCommentResponse ──

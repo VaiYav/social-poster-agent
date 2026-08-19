@@ -551,7 +551,8 @@ export function createArticleInitialState(
     canonicalUrl: null,
     finalArticle: null,
     error: null,
-    language: options.language ?? 'en',
+    // English-only article generation regardless of the requested language.
+    language: 'en',
     targetNetworks: options.targetNetworks ?? [SocialNetwork.DEVTO, SocialNetwork.HASHNODE, SocialNetwork.LINKEDIN],
   };
 }

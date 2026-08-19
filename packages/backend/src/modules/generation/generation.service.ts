@@ -116,16 +116,19 @@ export class GenerationService {
     @Optional() private readonly domainConfig?: DomainConfigService,
   ) {
     // Read POSTING_LANGUAGES from config — comma-separated ISO 639-1 codes.
-    // Default: en only (backward compatible). Round-robin rotation across topics.
+    // Default: en only. Multilingual posting has been disabled; the agent now
+    // generates and posts in English only regardless of the env value.
     const langEnv = this.configService.get<string>('POSTING_LANGUAGES', 'en').trim();
-    this.postingLanguages = langEnv
+    const parsed = langEnv
       .split(',')
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean);
-    if (this.postingLanguages.length === 0) this.postingLanguages.push('en');
-    if (this.postingLanguages.length > 1) {
-      this.logger.log(`Multilingual generation enabled: ${this.postingLanguages.join(', ')}`);
+    if (parsed.some((l) => l !== 'en')) {
+      this.logger.warn(
+        `POSTING_LANGUAGES contains non-English codes (${langEnv}). English-only mode is enforced; non-English codes will be ignored.`,
+      );
     }
+    this.postingLanguages = parsed.includes('en') ? ['en'] : ['en'];
   }
 
   /**
@@ -232,7 +235,9 @@ export class GenerationService {
     const runId = `article-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     this.logger.log(`generateArticle: topic="${options.topic}", runId=${runId}`);
 
-    const initialState = createArticleInitialState(options, runId);
+    // English-only article generation.
+    const englishOptions = { ...options, language: 'en' };
+    const initialState = createArticleInitialState(englishOptions, runId);
     const config = {
       configurable: { thread_id: `${runId}:${options.topic}` },
       recursionLimit: 50,
@@ -1185,11 +1190,15 @@ export class GenerationService {
     runId: string,
     multiStage = false,
     humanReview = false,
-    language = 'en',
+    _language = 'en',
     model?: string,
     signal?: AbortSignal,
     accountIds?: string[],
   ): Promise<{ id: string; network: SocialNetwork; llmMetadata: Prisma.JsonValue }[]> {
+    // English-only generation: ignore any non-English language passed from
+    // topic/language rotation and always generate in English.
+    const language = 'en';
+
     // Only generate for networks that are enabled in configuration.
     const resolvedTargetNetworks = this.resolveTargetNetworks(targetNetworks);
 
