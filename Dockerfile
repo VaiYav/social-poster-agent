@@ -2,7 +2,7 @@
 # Railway builds from repo root, so this Dockerfile is at the top level.
 # Multi-stage build: build TypeScript → slim production image
 
-FROM node:26-slim AS builder
+FROM node:24-slim AS builder
 
 WORKDIR /app
 
@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Node 26 slim no longer ships Corepack. Install the workspace-pinned pnpm
+# Node 24 slim no longer ships Corepack. Install the workspace-pinned pnpm
 # directly so Railway builds remain reproducible.
 RUN npm install --global pnpm@11.21.0
 
@@ -51,7 +51,7 @@ RUN SQLITE3_BUILD=$(find /app/node_modules/.pnpm -maxdepth 4 -path '*/better-sql
     cp -r "$SQLITE3_BUILD" /tmp/better-sqlite3-build
 
 # ── Production stage ──
-FROM node:26-slim AS production
+FROM node:24-slim AS production
 
 WORKDIR /app
 

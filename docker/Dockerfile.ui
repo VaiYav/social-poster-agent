@@ -1,11 +1,11 @@
 # SPA UI — Vue 3 + Vite SPA
 # Multi-stage: build → nginx static serve
 
-FROM node:26-slim AS builder
+FROM node:24-slim AS builder
 
 WORKDIR /app
 
-# Node 26 slim no longer ships Corepack.
+# Node 24 slim no longer ships Corepack.
 RUN npm install --global pnpm@11.21.0
 
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./

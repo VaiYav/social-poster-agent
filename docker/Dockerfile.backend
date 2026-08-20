@@ -1,11 +1,11 @@
 # SPA Backend — NestJS API + BullMQ worker
 # Multi-stage build: build TypeScript → slim production image
 
-FROM node:26-slim AS builder
+FROM node:24-slim AS builder
 
 WORKDIR /app
 
-# Node 26 slim no longer ships Corepack.
+# Node 24 slim no longer ships Corepack.
 RUN npm install --global pnpm@11.21.0
 
 # Copy workspace config
@@ -34,7 +34,7 @@ RUN pnpm --filter backend build
 RUN cd packages/backend && npx prisma generate
 
 # ── Production stage ──
-FROM node:26-slim AS production
+FROM node:24-slim AS production
 
 WORKDIR /app
 
