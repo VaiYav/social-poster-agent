@@ -13,4 +13,6 @@ allowBuilds:
   protobufjs: true
   vue-demi: true
 overrides:
+  "@types/node": ^24.0.0
+
   protobufjs: 7.6.4
