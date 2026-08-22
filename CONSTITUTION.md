@@ -156,67 +156,67 @@ generates LLM creatives for social networks and posts them through browser autom
                     └───────────────────────────────┘
 ```
 
-### 4.1 Компоненты
+### 4.1 Components
 
-| Компонент | Технология | Ответственность |
+| Component | Technology | Responsibility |
 |-----------|-----------|-----------------|
-| **REST API** | NestJS controllers + @nestjs/swagger | REST endpoints для posts, generation, posting, sessions, accounts. Swagger/OpenAPI авто-документация на /docs |
-| **API client (UI)** | axios + shared Zod types | Type-safe REST клиент в UI, типы из shared Zod schemas (z.infer) |
-| **Shared contract** | packages/shared (TS) | Zod schemas, domain types, DTO types (z.infer) — импортируется и backend и UI |
-| **LLM Orchestration** | LangGraph.js | Граф генерации: topic → hook → per-network angle → draft → critique → refine. Checkpoint в Redis для pause/resume |
-| **Browser Automation** | Camoufox (Firefox fork) + camoufox-js | Stealth на C++ level (не JS injection). 1 browser, multi-context per network. Playwright-compatible API. Fingerprint rotation, humanize, geoip — built-in |
-| **Posting Queue** | BullMQ + Redis | Очередь постинга, auto-retry (3x backoff), dead-letter queue, rate limiter |
-| **БД** | PostgreSQL + Prisma ORM | Посты, очереди, аккаунты, сессии, история, rate limit config |
-| **Content Source Adapter** | Node module | Чтение briefs/topics/articles из content-agent-platform/runs/ + content/blog/en/ |
-| **Session Manager** | NestJS service | storageState (cookies), health-check, автологин из env-кредов (2FA выключен) |
-| **Logger** | NestJS Logger (built-in) | Structured JSON format, redact secrets через interceptor, run-id correlation |
-| **Cron** | @nestjs/schedule | Декларативные cron-jobs для генерации |
-| **API docs** | @nestjs/swagger | OpenAPI 3.0 spec на /docs, Swagger UI для тестирования endpoints |
+| **REST API** | NestJS controllers + @nestjs/swagger | REST endpoints for posts, generation, posting, sessions, accounts. Swagger/OpenAPI auto-docs at /docs |
+| **API client (UI)** | axios + shared Zod types | Type-safe REST client in UI, types from shared Zod schemas (z.infer) |
+| **Shared contract** | packages/shared (TS) | Zod schemas, domain types, DTO types (z.infer) — imported by both backend and UI |
+| **LLM Orchestration** | LangGraph.js | Generation graph: topic → hook → per-network angle → draft → critique → refine. Redis checkpoint for pause/resume |
+| **Browser Automation** | Camoufox (Firefox fork) + camoufox-js | Stealth at C++ level (no JS injection). 1 browser, multi-context per network. Playwright-compatible API. Fingerprint rotation, humanize, geoip — built-in |
+| **Posting Queue** | BullMQ + Redis | Posting queue, auto-retry (3x backoff), dead-letter queue, rate limiter |
+| **DB** | PostgreSQL + Prisma ORM | Posts, queues, accounts, sessions, history, rate limit config |
+| **Content Source Adapter** | Node module | Reading briefs/topics/articles from content-agent-platform/runs/ + content/blog/en/ |
+| **Session Manager** | NestJS service | storageState (cookies), health-check, auto-login from env credentials (2FA off) |
+| **Logger** | NestJS Logger (built-in) | Structured JSON format, redact secrets via interceptor, run-id correlation |
+| **Cron** | @nestjs/schedule | Declarative cron-jobs for generation |
+| **API docs** | @nestjs/swagger | OpenAPI 3.0 spec at /docs, Swagger UI for endpoint testing |
 
-### 4.2 Поток данных (happy path)
+### 4.2 Data flow (happy path)
 
 ```
-1. Cron (2x/день) → триггерит GenerationRun
-2. ContentSourceAdapter → читает content-agent-platform/runs/{brief,topics,create}-*/
-   + content/blog/en/*.md → отбирает N тем
+1. Cron (2x/day) → triggers GenerationRun
+2. ContentSourceAdapter → reads content-agent-platform/runs/{brief,topics,create}-*/
+   + content/blog/en/*.md → selects N topics
 3. LangGraph workflow (per topic):
-   a. topic → research_extract (LLM: извлечь факты/хуки)
-   b. → hook_generation (LLM: 3-5 вариантов хука)
-   c. → angle_per_network (3 угла: X=punchy, Threads=narrative, FB=conversational)
-   d. → draft_{x,threads,facebook} (LLM: генерация per-network с учётом лимитов)
-   e. → self_critique (LLM: оценить draft — кликбейт? факт-ошибка? off-brand?)
-   f. → refine (LLM: финальная полировка)
-   g. → сохраняет 3 Post в БД (status=draft, generation_run_id=...)
-4. Оператор открывает UI (Vue 3 SPA, axios) → видит draft-посты → ревьюит
-5. Оператор нажимает "Approve & Post" → REST POST /posts/:id/approve
+   a. topic → research_extract (LLM: extract facts/hooks)
+   b. → hook_generation (LLM: 3-5 hook variants)
+   c. → angle_per_network (3 angles: X=punchy, Threads=narrative, FB=conversational)
+   d. → draft_{x,threads,facebook} (LLM: per-network generation with limits in mind)
+   e. → self_critique (LLM: evaluate draft — clickbait? fact error? off-brand?)
+   f. → refine (LLM: final polish)
+   g. → saves 3 Posts in DB (status=draft, generation_run_id=...)
+4. Operator opens UI (Vue 3 SPA, axios) → sees draft posts → reviews
+5. Operator clicks "Approve & Post" → REST POST /posts/:id/approve
    → Post.status=approved → BullMQ enqueue: posting job for this post
 6. BullMQ worker picks up job → PostingService:
    a. Rate limit check (configurable per network/day)
-   b. SessionManager → загружает storageState для сети
-   c. Camoufox (1 browser, new context) → восстанавливает сессию
-   d. health-check (если протухла → автологин из env credentials)
-   e. навигация → ввод текста → submit
-   f. для тредов → цикл post-by-post
-   g. собирает URL поста / ошибки
-   h. Post.status=posted (или failed) + metadata
-7. При ошибке → BullMQ auto-retry: 3x backoff (1мин, 5мин, 15мин)
-   → если все fail → dead-letter queue + UI alert
-8. UI обновляется через SSE (Server-Sent Events) → история пополняется
+   b. SessionManager → loads storageState for the network
+   c. Camoufox (1 browser, new context) → restores session
+   d. health-check (if stale → auto-login from env credentials)
+   e. navigate → type text → submit
+   f. for threads → post-by-post loop
+   g. collect post URL / errors
+   h. Post.status=posted (or failed) + metadata
+7. On error → BullMQ auto-retry: 3x backoff (1min, 5min, 15min)
+   → if all fail → dead-letter queue + UI alert
+8. UI updates via SSE (Server-Sent Events) → history is populated
 ```
 
 ---
 
-## 5. Технологический стек
+## 5. Technology stack
 
-| Слой | Технология | Версия | Обоснование |
+| Layer | Technology | Version | Rationale |
 |------|-----------|--------|-------------|
-| **Runtime** | Node.js | 22 LTS | Стабильность, совместимость с NestJS |
-| **Package manager** | pnpm | 11.x | Единый с astro-ai-landing workspace |
+| **Runtime** | Node.js | 22 LTS | Stability, NestJS compatibility |
+| **Package manager** | pnpm | 11.x | Same as astro-ai-landing workspace |
 | **Monorepo** | pnpm workspace | 11.x | packages/backend + packages/ui + packages/shared |
-| **Backend framework** | NestJS | 11.x | DI, модульность, cron, Swagger, ecosystem. Знаком из MZAI backend |
-| **API layer** | NestJS REST controllers | 11.x | Зрелое, предсказуемое. Guards, interceptors, pipes работают нативно |
-| **API docs** | @nestjs/swagger | latest | OpenAPI 3.0 авто-генерация, Swagger UI на /docs |
-| **Language** | TypeScript | 5.x strict | Типобезопасность, no `any` |
+| **Backend framework** | NestJS | 11.x | DI, modularity, cron, Swagger, ecosystem. Familiar from MZAI backend |
+| **API layer** | NestJS REST controllers | 11.x | Mature, predictable. Guards, interceptors, pipes work natively |
+| **API docs** | @nestjs/swagger | latest | OpenAPI 3.0 auto-generation, Swagger UI at /docs |
+| **Language** | TypeScript | 5.x strict | Type safety, no `any` |
 | **Shared contract** | packages/shared (TS) | — | Zod schemas, domain types, DTO types (z.infer) |
 | **LLM orchestration** | LangGraph.js | latest stable | Граф генерации + checkpoint в Redis для pause/resume (F5) |
 | **LLM provider** | OpenAI / Anthropic (через LangChain) | — | Переиспользование ключей из CAP, fallback |
