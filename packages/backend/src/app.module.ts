@@ -14,6 +14,7 @@ import { DomainConfigModule } from "./domain/domain-config/domain-config.module.
 import { FiltersModule } from "./infrastructure/filters/filters.module";
 import { CryptoModule } from "./infrastructure/crypto/crypto.module";
 import { HealthModule } from "./modules/health/health.module";
+import { ResilienceModule } from "./modules/resilience/resilience.module";
 import { PostsModule } from "./modules/posts/posts.module";
 import { GenerationModule } from "./modules/generation/generation.module";
 import { PostingModule } from "./modules/posting/posting.module";
@@ -116,6 +117,7 @@ const syndicationImports = parseBool(process.env.SYNDICATION_ENABLED)
     ContentModule,
     QueueInfraModule,
     HealthModule,
+    ResilienceModule, // M1.5: unified degradation model (skeleton — wiring at M3 GA)
     AccountsModule,
     ContentSourceModule,
     GenerationModule,
