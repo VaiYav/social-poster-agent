@@ -1,46 +1,46 @@
-# Прод-чеклист: вывод Social Poster Agent в боевую эксплуатацию
+# Prod rollout checklist: taking Social Poster Agent to production
 
-> Назначение: пройти от «зелёного сьюта» к **реально проверенному** постингу.
-> Главный принцип: **green CI ≠ working posting**. Браузер в тестах замокан, живые селекторы
-> X/Threads/FB не проверялись ни одним тестом — поэтому первые живые посты это и есть валидация.
-> Двигаемся снизу вверх: одиночный пост вручную → по сетям → поэтапное включение автономии.
+> Purpose: move from a "green test suite" to a **genuinely verified** posting flow.
+> Core principle: **green CI ≠ working posting**. The browser is mocked in tests; live selectors
+> on X/Threads/FB are not covered by any test — so the first live posts are the real validation.
+> Move bottom-up: single manual post → per network → gradual autonomy enablement.
 >
-> Версия документа синхронизирована с состоянием ветки на момент закрытия SE1/SEC2 (сьют 1275).
+> Document version is in sync with the branch state at the close of SE1/SEC2 (suite 1275).
 
 ---
 
-## Фаза 0 — Pre-flight (один раз перед первым живым запуском)
+## Phase 0 — Pre-flight (once, before the first live run)
 
-### 0.1 Окружение и зависимости
-- [ ] Node ≥ 22, pnpm ≥ 10 на проде.
-- [ ] `pnpm install` прошёл чисто.
-- [ ] `pnpm build` зелёный (`@spa/shared` → `@spa/backend` → `@spa/ui`).
-- [ ] `pnpm test` зелёный локально (ожидаемо 85 файлов / ~1275 тестов; точное число — из прогона).
-      Перед прогоном почистить rate-limit ключи в Redis, иначе ложные падения:
+### 0.1 Environment and dependencies
+- [ ] Node ≥ 22, pnpm ≥ 10 in production.
+- [ ] `pnpm install` completed cleanly.
+- [ ] `pnpm build` is green (`@spa/shared` → `@spa/backend` → `@spa/ui`).
+- [ ] `pnpm test` is green locally (expected 85 files / ~1275 tests; exact count from the run).
+      Before running, clear rate-limit keys in Redis or false failures will occur:
       `redis-cli -p 6381 --scan --pattern 'spa:ratelimit*' | xargs -r redis-cli -p 6381 del`
 - [ ] `npx oxlint` — 0 errors.
 
-### 0.2 Инфраструктура
-- [ ] Postgres поднят (нестандартный порт **5433**), Redis (**6381**) — `pnpm infra:up`.
-- [ ] `pnpm prisma:generate` выполнен.
-- [ ] **`prisma migrate deploy`** на боевой БД (НЕ `migrate dev`). Есть несколько новых миграций;
-      у enum `PAUSED` ограничение по откату — держи рядом план отката (`docs/runbooks/rollback.md`).
-- [ ] Бэкап БД снят до миграции.
+### 0.2 Infrastructure
+- [ ] Postgres is up (non-standard port **5433**), Redis (**6381**) — `pnpm infra:up`.
+- [ ] `pnpm prisma:generate` has been run.
+- [ ] **`prisma migrate deploy`** on the production DB (NOT `migrate dev`). There are several new migrations;
+      the `PAUSED` enum has a rollback constraint — keep the rollback plan at hand (`docs/runbooks/rollback.md`).
+- [ ] DB backup taken before migration.
 
-### 0.3 Критичные секреты / env (без них прод не стартует или ведёт себя небезопасно)
+### 0.3 Critical secrets / env (production will not start or will be unsafe without them)
 - [ ] **`SESSION_ENCRYPTION_KEY`** = `openssl rand -hex 32`.
-      ⚠️ При `NODE_ENV=production` без валидного ключа — **хард-фейл на бутстрапе** (by design).
+      ⚠️ With `NODE_ENV=production`, missing a valid key is a **hard bootstrap fail** (by design).
 - [ ] `NODE_ENV=production`.
-- [ ] `SPA_DRY_RUN=false` (для боевого постинга; для безопасного прогона — `true`, см. Фазу 1).
-- [ ] `DATABASE_URL`, `REDIS_URL` указывают на боевые инстансы.
-- [ ] LLM-ключи заданы (хотя бы один провайдер; иначе цепочка пустая, генерация падает).
-- [ ] `DISCORD_WEBHOOK_*` задан — алерты (DLQ, форма-логин, бан-детект) идут в канал.
-- [ ] **`CAMOUFOX_PROFILE_DIR`** (SEC2): вынести с мир-читаемого `/tmp` на ограниченный/шифрованный том.
-      Каталог создаётся `chmod 0700`, но настоящее at-rest шифрование живого профиля — это
-      **шифр-том на уровне ОС**, не код. На single-tenant VPN-машине `/tmp` + 0700 терпимо.
+- [ ] `SPA_DRY_RUN=false` (for live posting; for a safe dry run, `true`, see Phase 1).
+- [ ] `DATABASE_URL`, `REDIS_URL` point to live instances.
+- [ ] LLM keys are set (at least one provider; otherwise the chain is empty and generation fails).
+- [ ] `DISCORD_WEBHOOK_*` is set — alerts (DLQ, form login, ban detection) go to the channel.
+- [ ] **`CAMOUFOX_PROFILE_DIR`** (SEC2): moved from world-readable `/tmp` to a restricted/encrypted volume.
+      The directory is created with `chmod 0700`, but true at-rest encryption of a live profile is
+      **OS-level encrypted volume**, not code. On a single-tenant VPN machine, `/tmp` + 0700 is tolerable.
 
-### 0.4 Все флаги автономии — OFF на старте
-Свежий `.env` уже такой; перепроверь, что НЕ включены:
+### 0.4 All autonomy flags — OFF at start
+A fresh `.env` is already like this; double-check that these are NOT enabled:
 - [ ] `AUTO_APPROVE_ENABLED=false`
 - [ ] `AUTONOMOUS_RUNNER_ENABLED=false`
 - [ ] `ENGAGEMENT_ENABLED=false`
@@ -50,100 +50,100 @@
 - [ ] `RECYCLING_CRON_ENABLED=false`
 - [ ] `SESSION_DEFERRED_LOGIN=false`
 - [ ] `CAPTCHA_SOLVER_ENABLED=false`, `PROXY_ROTATION_ENABLED=false`, `QUOTE_CARDS_ENABLED=false`
-      (эти модули при OFF **физически отсутствуют** — роуты 404, сервисы не резолвятся; включение требует рестарта).
+      (these modules are **physically absent** when OFF — 404 routes, services not resolved; enabling requires a restart).
 
-### 0.5 Безопасность периметра
-- [ ] API/UI **не выставлены в публичный интернет** (auth нет by design — VPN-only).
-- [ ] Доступ к `CAMOUFOX_PROFILE_DIR`, `/tmp`, бэкапам контейнера ограничен (SEC2).
+### 0.5 Perimeter security
+- [ ] API/UI is **not exposed to the public internet** (auth is absent by design — VPN-only).
+- [ ] Access to `CAMOUFOX_PROFILE_DIR`, `/tmp`, container backups is restricted (SEC2).
 
-### 0.6 Аккаунты и сессии
-- [ ] Используется **тестовый / малоценный** аккаунт на каждую сеть (риск бана реален).
-- [ ] Приоритет cookie-auth: заданы `SOCIAL_X_COOKIES` / `SOCIAL_THREADS_COOKIES` / `SOCIAL_FACEBOOK_COOKIES`
-      (cookie-вход стабильнее и **не триггерит «suspicious login»**, в отличие от формы).
-- [ ] Логин/пароль (`SOCIAL_*_USERNAME/PASSWORD`) заданы только как крайний fallback.
-
----
-
-## Фаза 1 — Dry-run (безопасно, реальный браузер, submit перехватывается)
-
-`pnpm dry-run` открывает реальный браузер, реально навигирует и печатает, но **финальный submit
-перехватывает** (скриншот + синтетический URL). LLM-вызовы и скрейпы трендов при этом **настоящие**.
-
-- [ ] `CAMOUFOX_HEADLESS=false` — смотреть глазами первый прогон.
-- [ ] `pnpm dry-run` по каждой сети — дошло до экрана публикации, форма заполнилась, селекторы живые.
-- [ ] Проверить захват пермалинка/детекцию успеха (P1/H2): в dry-run видно, как код определяет успех.
-- [ ] В логах нет неожиданных `SelectorNotFoundError` / дрейфа селекторов (есть selector-health детектор).
+### 0.6 Accounts and sessions
+- [ ] Use a **test / low-value** account for each network (ban risk is real).
+- [ ] Cookie-auth priority: set `SOCIAL_X_COOKIES` / `SOCIAL_THREADS_COOKIES` / `SOCIAL_FACEBOOK_COOKIES`
+      (cookie login is more stable and **does not trigger "suspicious login"**, unlike the form).
+- [ ] Login/password (`SOCIAL_*_USERNAME/PASSWORD`) only as a last resort fallback.
 
 ---
 
-## Фаза 2 — Первый ЖИВОЙ пост (по одной сети, под присмотром)
+## Phase 1 — Dry-run (safe, real browser, submit is intercepted)
 
-`pnpm --filter @spa/backend live` — **реальные посты/лайки/комменты**. Требует ввода буквального
-`yes` (или `--yes`/`-y`). Не из корня репо.
+`pnpm dry-run` opens a real browser, really navigates and types, but **intercepts the final submit**
+(screenshot + synthetic URL). LLM calls and trend scrapes are **real**.
 
-Делать по очереди, **по одной сети**, только одиночные посты:
-
-- [x] **X** — один живой пост на тестовом аккаунте.
-      Проверить: пост встал; в БД статус `POSTED`; `postUrl` — валидный пермалинк (`/status/...`), не bogus.
-      ✅ 2026-06-29: 3 поста POSTED (x.com/mzai_soulwise/status/2071562244878389524 и др.)
-      Fix: Cmd+Enter fallback chain для headless submit (коммит ad2f95b).
-- [x] **Threads** — то же (`/@user/post/...`).
-      ✅ 2026-06-29: 3 поста POSTED. Дубль-проверка H2 прошла (повторный пост отклонён).
-- [ ] **Facebook** — то же. ⚠️ FB постит отдельным кодом (persistent-context); проверять независимо.
-      ⚠️ 1 пост застрял в POSTING → помечен FAILED (persistent context issue). Требует отладки.
-- [x] После каждого: дёрнуть посту повторно (ре-аппрув/ре-энкью) — убедиться, что **дубля нет**
-      (H2: pre-retry `verifyPosted`; идемпотентность по статусу). ✅ Проверено на Threads draft 47e9d758.
-
-> ⚠️ **Треды (мульти-пост)**: BUG-6 закрыт (ответы больше не теряются на home-page fallback / degraded-ветке),
-> но цепочки всё равно проверять отдельно и осторожно — это самый хрупкий путь.
-
-### Что смотреть в логах (Фазы 1–2)
-- `PostingService`: `POSTING → POSTED` без `FAILED`; `Posted to X: <url>` с валидным URL.
-- Нет `auto-login deferred or failed (will retry)` циклов (если есть — проблема с сессией/куками).
-- Discord-алерт **`Form Login Performed`** = сработал форма-логин (риск бана) — желательно избегать,
-  значит cookie-auth не отработал.
-- Нет всплеска ошибок после деплоя; reaper не подбирает «застрявшие POSTING» пачками.
-- Rate-limit: `Rate limited: ...` — ожидаемо при превышении `RATE_LIMIT_*`, не баг.
+- [ ] `CAMOUFOX_HEADLESS=false` — watch the first run with your own eyes.
+- [ ] `pnpm dry-run` per network — reaches the publish screen, the form is filled, selectors are live.
+- [ ] Verify permalink capture / success detection (P1/H2): in dry-run you can see how the code determines success.
+- [ ] No unexpected `SelectorNotFoundError` / selector drift in logs (selector-health detector exists).
 
 ---
 
-## Фаза 3 — Поэтапное включение автономии (каждый слой = отдельная живая проверка)
+## Phase 2 — First LIVE post (one network at a time, supervised)
 
-Включать **по одному**, рестарт после каждого флага, наблюдать сутки-двое.
+`pnpm --filter @spa/backend live` — **real posts/likes/comments**. Requires a literal
+`yes` (or `--yes`/`-y`). Do not run from the repo root.
 
-> **Статус на 2026-06-29:** Все флаги автономии были включены одновременно (не поэтапно).
-> Решено зафиксировать текущее состояние как рабочее — система генерирует, аппрувит и постит
-> автономно. Живые посты валидированы: X (3 POSTED), Threads (3 POSTED), Facebook (pending).
-> Застрявшие/failed посты почищены. Engagement/replies очереди активны в Redis (BullMQ).
-> `METRICS_SCRAPER_ENABLED` остаётся OFF — нужны токены Threads/FB (AN1).
+Do this in turn, **one network at a time**, single posts only:
 
-1. [x] **Auto-approve** (`AUTO_APPROVE_ENABLED=true`, `AUTO_APPROVE_MIN_SCORE=7`) — валидирован
-       живыми постами X и Threads. Draфты авто-аппрувятся и постятся через BullMQ.
-2. [x] **Autonomous runner** (`AUTONOMOUS_RUNNER_ENABLED=true`) — генерация→аппрув→постинг по крону.
-       В БД 19 постов, сгенерированных автономно (X/Threads/Facebook).
-3. [x] **Recycling cron** (`RECYCLING_CRON_ENABLED=true`) — включён 2026-06-29.
-       Ресайклы переписываются графом (RC3), не дословные дубли; черновики требуют аппрува.
-4. [x] **Deferred login** (`SESSION_DEFERRED_LOGIN=true`) — включён 2026-06-29.
-       `SESSION_RELOGIN_CRON=*/15 * * * *` (каждые 15 мин), `FORM_LOGIN_COOLDOWN_MS=1800000` (30 мин).
-       `refreshSessionsCron` активируется этим флагом — постинг не логинится инлайн, ждёт cron.
-5. [x] **Engagement** (`ENGAGEMENT_ENABLED=true` + `ENGAGEMENT_SCHEDULER_ENABLED=true`) — включён.
-       Очередь `spa-engagement-facebook` активна в Redis. **Максимальный риск бана** — наблюдать.
-       BUG-2/BUG-10 закрыты (крон ре-планирует ежедневно; кривое окно не рушит тик).
-6. [x] **Replies** (`REPLIES_ENABLED=true` + `ENGAGEMENT_ENABLED=true`) — включён.
-       RP1: ответы идут отложенными BullMQ-джобами (не блокируют крон). SEC3: ввод комментов санитизируется.
-       `IncomingComment` таблица пуста (0 записей) — входящих комментов пока нет.
-7. [ ] **Metrics** (`METRICS_SCRAPER_ENABLED=true`) — OFF. После получения токенов (Threads/FB), см. AN1.
+- [x] **X** — one live post on a test account.
+      Verify: post went live; DB status is `POSTED`; `postUrl` is a valid permalink (`/status/...`), not bogus.
+      ✅ 2026-06-29: 3 posts POSTED (x.com/mzai_soulwise/status/2071562244878389524 etc.)
+      Fix: Cmd+Enter fallback chain for headless submit (commit ad2f95b).
+- [x] **Threads** — same (`/@user/post/...`).
+      ✅ 2026-06-29: 3 posts POSTED. Duplicate-check H2 passed (re-post was rejected).
+- [ ] **Facebook** — same. ⚠️ FB posts through separate code (persistent context); verify independently.
+      ⚠️ 1 post got stuck in POSTING → marked FAILED (persistent context issue). Requires debugging.
+- [x] After each: re-trigger the post (re-approve / re-enqueue) — confirm **no duplicate**
+      (H2: pre-retry `verifyPosted`; idempotency by status). ✅ Verified on Threads draft 47e9d758.
+
+> ⚠️ **Threads (multi-post)**: BUG-6 is closed (replies no longer get lost on the home-page fallback / degraded branch),
+> but chains should still be checked separately and carefully — this is the most fragile path.
+
+### What to watch in logs (Phases 1–2)
+- `PostingService`: `POSTING → POSTED` without `FAILED`; `Posted to X: <url>` with a valid URL.
+- No `auto-login deferred or failed (will retry)` loops (if present, session/cookie issue).
+- Discord alert **`Form Login Performed`** = form login happened (ban risk) — better to avoid,
+  means cookie-auth did not work.
+- No spike in errors after deploy; reaper is not picking up "stuck POSTING" posts in batches.
+- Rate-limit: `Rate limited: ...` — expected when `RATE_LIMIT_*` is exceeded, not a bug.
 
 ---
 
-## Известные ограничения на момент выката (честно)
-- **Живой путь не провалидирован тестами** — постинг/логин/engagement мокаются. Фазы 1–2 обязательны.
-- **SEC2**: настоящее at-rest шифрование FB-профиля = шифр-том ОС (не код). Без него — риск угона при доступе к диску.
-- **Auth нет** — VPN-only, не публиковать API/UI.
-- **Анти-бан эвристический** (concurrency=1, задержки, Camoufox stealth) — гарантий нет, объём наращивать плавно.
-- **AN1 (аналитика)** не закрыт — нужны живые токены Threads/FB; X отложен (платный read с фев-2026).
+## Phase 3 — Gradual autonomy enablement (each layer = separate live check)
 
-## Откат
-- [ ] План отката миграций — `docs/runbooks/rollback.md` (особо: enum `PAUSED`).
-- [ ] Быстрый стоп без рестарта: flow-control Redis-флаги (`flow:pause_*`) — сервисы их поллят и встают на паузу.
-- [ ] Выключение автономии — флаги в OFF + рестарт.
+Enable **one at a time**, restart after each flag, observe for a day or two.
+
+> **Status as of 2026-06-29:** All autonomy flags were enabled at once (not gradually).
+> It was decided to lock the current state as working — the system generates, approves and posts
+> autonomously. Live posts validated: X (3 POSTED), Threads (3 POSTED), Facebook (pending).
+> Stuck/failed posts cleaned. Engagement/replies queues are active in Redis (BullMQ).
+> `METRICS_SCRAPER_ENABLED` stays OFF — needs Threads/FB tokens (AN1).
+
+1. [x] **Auto-approve** (`AUTO_APPROVE_ENABLED=true`, `AUTO_APPROVE_MIN_SCORE=7`) — validated
+       by live X and Threads posts. Drafts auto-approve and post through BullMQ.
+2. [x] **Autonomous runner** (`AUTONOMOUS_RUNNER_ENABLED=true`) — generation→approval→posting on cron.
+       19 posts in the DB generated autonomously (X/Threads/Facebook).
+3. [x] **Recycling cron** (`RECYCLING_CRON_ENABLED=true`) — enabled 2026-06-29.
+       Recycles are rewritten by the graph (RC3), not verbatim duplicates; drafts require approval.
+4. [x] **Deferred login** (`SESSION_DEFERRED_LOGIN=true`) — enabled 2026-06-29.
+       `SESSION_RELOGIN_CRON=*/15 * * * *` (every 15 min), `FORM_LOGIN_COOLDOWN_MS=1800000` (30 min).
+       `refreshSessionsCron` is activated by this flag — posting does not log in inline, waits for cron.
+5. [x] **Engagement** (`ENGAGEMENT_ENABLED=true` + `ENGAGEMENT_SCHEDULER_ENABLED=true`) — enabled.
+       Queue `spa-engagement-facebook` is active in Redis. **Highest ban risk** — watch closely.
+       BUG-2/BUG-10 closed (cron re-schedules daily; bad window does not break the tick).
+6. [x] **Replies** (`REPLIES_ENABLED=true` + `ENGAGEMENT_ENABLED=true`) — enabled.
+       RP1: replies go through delayed BullMQ jobs (do not block cron). SEC3: comment input is sanitized.
+       `IncomingComment` table is empty (0 rows) — no incoming comments yet.
+7. [ ] **Metrics** (`METRICS_SCRAPER_ENABLED=true`) — OFF. After getting tokens (Threads/FB), see AN1.
+
+---
+
+## Known limitations at rollout time (honest)
+- **The live path is not validated by tests** — posting/login/engagement are mocked. Phases 1–2 are mandatory.
+- **SEC2**: true at-rest encryption of the FB profile = OS-level encrypted volume (not code). Without it, there is a risk of exfiltration if disk is accessed.
+- **No auth** — VPN-only, do not expose API/UI.
+- **Anti-ban is heuristic** (concurrency=1, delays, Camoufox stealth) — no guarantees; scale volume gradually.
+- **AN1 (analytics)** is not closed — needs live Threads/FB tokens; X deferred (paid read since Feb 2026).
+
+## Rollback
+- [ ] Migration rollback plan — `docs/runbooks/rollback.md` (notably: enum `PAUSED`).
+- [ ] Quick stop without restart: flow-control Redis flags (`flow:pause_*`) — services poll them and pause.
+- [ ] Autonomy off: set flags to OFF + restart.

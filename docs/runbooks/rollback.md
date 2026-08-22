@@ -118,92 +118,92 @@ Is the issue a crash/500?
     └── Bad config? → Fix .env, restart container
 ```
 
-## Autonomy Flag Rollback (Phase 3 — поэтапная автономия)
+## Autonomy Flag Rollback (Phase 3 — gradual autonomy)
 
-> **Сценарий:** включили флаг автономии, поведение некорректно — нужно откатить.
-> Порядок отката **обратный** порядку включения (см. `prod-rollout-checklist.md` Фаза 3).
+> **Scenario:** an autonomy flag was enabled, behavior is incorrect — roll it back.
+> Rollback order is the **reverse** of the enable order (see `prod-rollout-checklist.md` Phase 3).
 
-### Быстрый стоп БЕЗ рестарта (flow-control Redis-флаги)
+### Quick stop WITHOUT restart (flow-control Redis flags)
 
-Сервисы поллят Redis-флаги `flow:pause_*` и встают на паузу без перезапуска процесса.
-Это **первое действие** при любых признаках проблем (спам, бан-детект, зацикливание):
+Services poll Redis `flow:pause_*` flags and pause without restarting the process.
+This is the **first action** at any sign of trouble (spam, ban detection, looping):
 
 ```bash
-# Поставить на паузу ВСЁ (немедленно, без рестарта) — рекомендуемый первый шаг:
+# Pause EVERYTHING immediately (no restart) — recommended first step:
 redis-cli -p 6381 SET flow:pause_all 1
 
-# Или по отдельности (generation / posting / engagement / replies):
+# Or individually (generation / posting / engagement / replies):
 redis-cli -p 6381 SET flow:pause_generation 1
 redis-cli -p 6381 SET flow:pause_posting 1
 redis-cli -p 6381 SET flow:pause_engagement 1
 redis-cli -p 6381 SET flow:pause_replies 1
 
-# Проверить статус:
+# Check status:
 redis-cli -p 6381 MGET flow:pause_all flow:pause_generation flow:pause_posting flow:pause_engagement flow:pause_replies
 
-# Снять паузу (после устранения причины):
+# Resume (after the cause is fixed):
 redis-cli -p 6381 DEL flow:pause_all flow:pause_generation flow:pause_posting flow:pause_engagement flow:pause_replies
 ```
 
-> ⚠️ Recycling cron (`RECYCLING_CRON_ENABLED`) **не** управляется flow-control —
-> только флагом в `.env` + рестартом. Для остановки recycling: выключить флаг и рестартить.
+> ⚠️ The recycling cron (`RECYCLING_CRON_ENABLED`) is **not** controlled by flow-control —
+> only by its `.env` flag + restart. To stop recycling: disable the flag and restart.
 
-> ⚠️ Flow-control **не останавливает** уже запущенные BullMQ-джобы — они довыполнятся.
-> Для немедленной остановки очередей: `redis-cli -p 6381 FLUSHALL` (потеряет все джобы — крайняя мера).
+> ⚠️ Flow-control **does not stop** already-running BullMQ jobs — they finish.
+> For immediate queue stop: `redis-cli -p 6381 FLUSHALL` (loses all jobs — last resort).
 
-### Откат флагов автономии (с рестартом)
+### Roll back autonomy flags (with restart)
 
-Выключать по одному, в **обратном** порядке от включения. После каждого — рестарт + наблюдение:
+Disable one by one, in the **reverse** order of enablement. After each — restart + observe:
 
-| Порядок отката | Флаг | Действие | Что останавливается |
+| Rollback order | Flag | Action | What it stops |
 |---|---|---|---|
-| 7 → OFF | `METRICS_SCRAPER_ENABLED=false` | Рестарт | Сбор метрик (Threads/FB токены) |
-| 6 → OFF | `REPLIES_ENABLED=false` | Рестарт | Модуль Replies физически исчезает (роуты 404) |
-| 5 → OFF | `ENGAGEMENT_SCHEDULER_ENABLED=false` + `ENGAGEMENT_ENABLED=false` | Рестарт | Модуль Engagement физически исчезает (~1300 строк) |
-| 4 → OFF | `SESSION_DEFERRED_LOGIN=false` | Рестарт | Постинг снова логинится инлайн (форма-логин) |
-| 3 → OFF | `RECYCLING_CRON_ENABLED=false` | Рестарт | Ресайкл-крон останавливается |
-| 2 → OFF | `AUTONOMOUS_RUNNER_ENABLED=false` | Рестарт | Генерация→аппрув→постинг по крону останавливается |
-| 1 → OFF | `AUTO_APPROVE_ENABLED=false` | Рестарт | Черновики снова требуют ручного HITL-аппрува |
+| 7 → OFF | `METRICS_SCRAPER_ENABLED=false` | Restart | Metrics collection (Threads/FB tokens) |
+| 6 → OFF | `REPLIES_ENABLED=false` | Restart | Replies module physically disappears (404 routes) |
+| 5 → OFF | `ENGAGEMENT_SCHEDULER_ENABLED=false` + `ENGAGEMENT_ENABLED=false` | Restart | Engagement module physically disappears (~1,300 LOC) |
+| 4 → OFF | `SESSION_DEFERRED_LOGIN=false` | Restart | Posting logs in inline again (form-login) |
+| 3 → OFF | `RECYCLING_CRON_ENABLED=false` | Restart | Recycling cron stops |
+| 2 → OFF | `AUTONOMOUS_RUNNER_ENABLED=false` | Restart | Generation→approval→posting on cron stops |
+| 1 → OFF | `AUTO_APPROVE_ENABLED=false` | Restart | Drafts require manual HITL approval again |
 
 ```bash
-# Пример: откат engagement + replies (шаги 5-6)
-# 1. Поставить flow-control паузу (см. выше)
-# 2. Выключить флаги в .env:
+# Example: roll back engagement + replies (steps 5-6)
+# 1. Set flow-control pause (see above)
+# 2. Disable flags in .env:
 sed -i.bak 's/ENGAGEMENT_ENABLED=true/ENGAGEMENT_ENABLED=false/' .env
 sed -i.bak 's/ENGAGEMENT_SCHEDULER_ENABLED=true/ENGAGEMENT_SCHEDULER_ENABLED=false/' .env
 sed -i.bak 's/REPLIES_ENABLED=true/REPLIES_ENABLED=false/' .env
-# 3. Рестарт:
+# 3. Restart:
 docker compose -f docker/docker-compose.prod.yml restart backend
-# 4. Снять flow-control паузу (если другие флаги остаются ON):
+# 4. Remove flow-control pause (if other flags stay ON):
 redis-cli -p 6381 DEL flow:pause_engagement flow:pause_replies
-# 5. Проверить:
+# 5. Verify:
 curl http://localhost:3100/api/v1/health
-curl http://localhost:3100/api/v1/engagement/browsing-sessions  # должно быть 404
+curl http://localhost:3100/api/v1/engagement/browsing-sessions  # should 404
 ```
 
-### Откат миграции enum PAUSED
+### Roll back the `PAUSED` enum migration
 
-Миграция `20260627120000_add_paused_run_status` выполняет `ALTER TYPE "GenerationRunStatus" ADD VALUE 'PAUSED'`.
-PostgreSQL **не поддерживает** удаление значения из enum — это **необратимая операция**.
+Migration `20260627120000_add_paused_run_status` runs `ALTER TYPE "GenerationRunStatus" ADD VALUE 'PAUSED'`.
+PostgreSQL **does not support** dropping a value from an enum — this is an **irreversible operation**.
 
-Откат возможен только через пересоздание типа:
+Rollback is only possible by recreating the type:
 ```sql
--- DANGER: пересоздаёт тип. Только если нет строк со статусом PAUSED.
--- 1. Проверить, что нет PAUSED-ранов:
+-- DANGER: recreates the type. Only safe if no rows have status PAUSED.
+-- 1. Verify there are no PAUSED runs:
 SELECT COUNT(*) FROM "GenerationRun" WHERE status = 'PAUSED';
--- 2. Если есть — перевести в FAILED/COMPLETED:
+-- 2. If any exist, move them to FAILED/COMPLETED:
 UPDATE "GenerationRun" SET status = 'FAILED' WHERE status = 'PAUSED';
--- 3. Пересоздать тип (требует EXCLUSIVE LOCK):
+-- 3. Recreate the type (requires EXCLUSIVE LOCK):
 ALTER TYPE "GenerationRunStatus" RENAME TO "GenerationRunStatus_old";
 CREATE TYPE "GenerationRunStatus" AS ENUM ('PENDING', 'RUNNING', 'COMPLETED', 'FAILED');
 ALTER TABLE "GenerationRun" ALTER COLUMN status TYPE "GenerationRunStatus" USING status::text::"GenerationRunStatus";
 DROP TYPE "GenerationRunStatus_old";
--- 4. Отметить миграцию как откатанную:
+-- 4. Mark the migration as rolled back:
 npx prisma migrate resolve --rolled-back 20260627120000_add_paused_run_status
 ```
 
-> **Рекомендация:** не откатывать эту миграцию. Значение `PAUSED` в enum безвредно,
-> даже если не используется. Откат несёт риск блокировки таблицы.
+> **Recommendation:** do not roll back this migration. The `PAUSED` enum value is harmless
+> even if unused. Rolling back carries a table-lock risk.
 
 ## Post-Rollback Checklist
 
