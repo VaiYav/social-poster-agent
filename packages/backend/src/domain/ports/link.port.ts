@@ -42,18 +42,40 @@ export interface FunnelReportParams {
   to?: Date;
 }
 
-/** Per-link funnel report from zodiac-back (clicks → conversions). */
+/** One breakdown row from the zodiac funnel report. */
+export interface LinkFunnelBreakdownEntry {
+  key: string;
+  count: number;
+  converted: number;
+}
+
+/**
+ * Per-link funnel report — mirrors my_zodiac_ai/back `LinkFunnelReport`
+ * (funnel-report.service.ts): clicks → quiz_started → email_captured →
+ * paywall_viewed → checkout_initiated → payment_succeeded.
+ */
 export interface LinkFunnelReport {
   linkId: string;
-  slug?: string;
-  totalClicks: number;
-  conversions: number;
-  conversionRate: number | null;
-  revenueTotal: number | null;
-  currency?: string;
-  /** Optional breakdowns served by zodiac-back's funnel-report.service. */
-  byCountry?: Record<string, number>;
-  byDevice?: Record<string, number>;
+  slug: string;
+  /** false when linkId is unknown — totals are zeroed, not an error. */
+  found: boolean;
+  totals: {
+    clicks: number;
+    converted: number;
+    conversionRate: number;
+  };
+  stages: {
+    quizStarted: number;
+    emailCaptured: number;
+    paywallViewed: number;
+    checkoutInitiated: number;
+    paymentSucceeded: number;
+  };
+  breakdowns: {
+    byCountry: LinkFunnelBreakdownEntry[];
+    byLocale: LinkFunnelBreakdownEntry[];
+    byDevice: LinkFunnelBreakdownEntry[];
+  };
 }
 
 /**

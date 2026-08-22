@@ -11,13 +11,13 @@
  * The HookPerformanceBank (P1) is also registered here when analytics data
  * is available.
  */
-import { Module } from '@nestjs/common';
-import { ContentPillarTracker } from './content-pillar.tracker.js';
-import { HookPerformanceBank } from './hook-performance-bank.js';
-import { VisualConceptService } from './visual-concept.service.js';
-import { ThreadDepthService } from './thread-depth.service.js';
-import { ABVariantGenerator } from './ab-variant.generator.js';
-import { ABVariantService } from './ab-variant.service.js';
+import { Module } from "@nestjs/common";
+import { ContentPillarTracker } from "./content-pillar.tracker.js";
+import { HookPerformanceBank } from "./hook-performance-bank.js";
+import { VisualConceptService } from "./visual-concept.service.js";
+import { ThreadDepthService } from "./thread-depth.service.js";
+import { ABVariantGenerator } from "./ab-variant.generator.js";
+import { ABVariantService } from "./ab-variant.service.js";
 
 @Module({
   providers: [

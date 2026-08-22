@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue';
-import { Radio } from '@lucide/vue';
-import { Card, Badge } from '../ui';
+import { computed } from "vue";
+import { Radio } from "@lucide/vue";
+import { Card, Badge } from "../ui";
 
 interface FeedEvent {
   type: string;
@@ -17,7 +17,7 @@ const props = defineProps<{
 const displayed = computed(() => props.events.slice(0, props.maxEvents ?? 20));
 
 function formatEvent(event: FeedEvent): string {
-  if (!event.data || typeof event.data !== 'object') return event.type;
+  if (!event.data || typeof event.data !== "object") return event.type;
   const data = event.data;
   if (data.postId) return `${event.type}: ${data.postId}`;
   if (data.network) return `${event.type}: ${data.network}`;
@@ -28,7 +28,7 @@ function formatEvent(event: FeedEvent): string {
 }
 
 function formatTime(ts?: number): string {
-  if (!ts) return '';
+  if (!ts) return "";
   return new Date(ts).toLocaleTimeString();
 }
 
@@ -40,18 +40,37 @@ function eventKey(event: FeedEvent, index: number): string | number {
   return index;
 }
 
-function statusVariant(event: FeedEvent): 'success' | 'warning' | 'error' | 'info' | 'neutral' {
+function statusVariant(event: FeedEvent): "success" | "warning" | "error" | "info" | "neutral" {
   const data = event.data ?? {};
   const status =
-    (typeof data.status === 'string' && data.status) ||
-    (typeof data.severity === 'string' && data.severity) ||
+    (typeof data.status === "string" && data.status) ||
+    (typeof data.severity === "string" && data.severity) ||
     event.type;
   const text = status.toLowerCase();
-  if (text.includes('error') || text.includes('failed') || text.includes('alert') || text.includes('critical')) return 'error';
-  if (text.includes('completed') || text.includes('posted') || text.includes('success') || text.includes('replied')) return 'success';
-  if (text.includes('paused') || text.includes('warning') || text.includes('review')) return 'warning';
-  if (text.includes('progress') || text.includes('snapshot') || text.includes('started') || text.includes('info')) return 'info';
-  return 'neutral';
+  if (
+    text.includes("error") ||
+    text.includes("failed") ||
+    text.includes("alert") ||
+    text.includes("critical")
+  )
+    return "error";
+  if (
+    text.includes("completed") ||
+    text.includes("posted") ||
+    text.includes("success") ||
+    text.includes("replied")
+  )
+    return "success";
+  if (text.includes("paused") || text.includes("warning") || text.includes("review"))
+    return "warning";
+  if (
+    text.includes("progress") ||
+    text.includes("snapshot") ||
+    text.includes("started") ||
+    text.includes("info")
+  )
+    return "info";
+  return "neutral";
 }
 </script>
 
@@ -85,7 +104,9 @@ function statusVariant(event: FeedEvent): 'success' | 'warning' | 'error' | 'inf
           <div class="flex-1">
             <span class="text-text-primary">{{ formatEvent(event) }}</span>
           </div>
-          <span class="text-xs text-text-muted whitespace-nowrap">{{ formatTime(event.timestamp) }}</span>
+          <span class="text-xs text-text-muted whitespace-nowrap">{{
+            formatTime(event.timestamp)
+          }}</span>
         </div>
       </div>
     </div>

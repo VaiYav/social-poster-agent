@@ -7,4 +7,4 @@ export {
   parseDecisionResponse,
   parseBatchDecisionResponse,
   parseCommentJudgeResponse,
-} from './v0.4.0/index.js'
+} from "./v0.4.0/index.js";

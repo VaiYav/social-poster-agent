@@ -8,7 +8,7 @@
  * a new handler class and registering it, without modifying the executor.
  */
 
-import type { Action } from './types.js';
+import type { Action } from "./types.js";
 
 export interface IActionHandler {
   /** The action type this handler processes */

@@ -1,7 +1,7 @@
-import type { SocialNetwork } from '@spa/shared';
-import { X_SELECTORS } from './selectors/x.selectors.js';
-import { THREADS_SELECTORS } from './selectors/threads.selectors.js';
-import { FACEBOOK_SELECTORS } from './selectors/facebook.selectors.js';
+import type { SocialNetwork } from "@spa/shared";
+import { X_SELECTORS } from "./selectors/x.selectors.js";
+import { THREADS_SELECTORS } from "./selectors/threads.selectors.js";
+import { FACEBOOK_SELECTORS } from "./selectors/facebook.selectors.js";
 
 /**
  * P1: native post-permalink shape per network — the single source of truth is the

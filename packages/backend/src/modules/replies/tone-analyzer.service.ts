@@ -8,9 +8,9 @@
  * This is intentionally rule-based rather than an extra LLM call — the reply
  * LLM already generates text; we only need a fast, cheap signal to steer it.
  */
-import { Injectable } from '@nestjs/common';
+import { Injectable } from "@nestjs/common";
 
-export type CommentTone = 'casual' | 'formal' | 'playful' | 'sarcastic' | 'sincere' | 'neutral';
+export type CommentTone = "casual" | "formal" | "playful" | "sarcastic" | "sincere" | "neutral";
 
 export interface ToneAnalysis {
   tone: CommentTone;
@@ -18,72 +18,220 @@ export interface ToneAnalysis {
   reason: string;
 }
 
-const EMOJI_RE = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\uFE0F\u200D]/gu;
+const EMOJI_RE =
+  /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\uFE0F\u200D]/gu;
 
 const CASUAL_MARKERS = new Set([
   // English
-  'lol', 'lmao', 'haha', 'cool', 'nice', 'thanks', 'thx', 'ty', 'ok', 'okay', 'yeah', 'yep', 'nope',
-  'gonna', 'wanna', 'gotta', 'kinda', 'sorta', 'tbh', 'imo', 'imho', 'fr', 'ngl', 'idk', 'rn',
+  "lol",
+  "lmao",
+  "haha",
+  "cool",
+  "nice",
+  "thanks",
+  "thx",
+  "ty",
+  "ok",
+  "okay",
+  "yeah",
+  "yep",
+  "nope",
+  "gonna",
+  "wanna",
+  "gotta",
+  "kinda",
+  "sorta",
+  "tbh",
+  "imo",
+  "imho",
+  "fr",
+  "ngl",
+  "idk",
+  "rn",
   // Russian / Ukrainian
-  'прикол', 'круто', 'супер', 'ок', 'спс', 'пасиб', 'да', 'нет', 'ого', 'ух', 'блин',
-  'класс', 'ахах', 'хаха', 'хіхі', 'дякую', 'дяки', 'агонь', 'топ', 'база',
+  "прикол",
+  "круто",
+  "супер",
+  "ок",
+  "спс",
+  "пасиб",
+  "да",
+  "нет",
+  "ого",
+  "ух",
+  "блин",
+  "класс",
+  "ахах",
+  "хаха",
+  "хіхі",
+  "дякую",
+  "дяки",
+  "агонь",
+  "топ",
+  "база",
   // Spanish / Italian
-  'jaja', 'jeje', 'vale', 'pues', 'bueno', 'dai', 'tipo', 'tio', 'tia', 'che', 'mah', 'boh',
-  'guay', 'genial', 'ok', 'bene', 'bella', 'simpatica',
+  "jaja",
+  "jeje",
+  "vale",
+  "pues",
+  "bueno",
+  "dai",
+  "tipo",
+  "tio",
+  "tia",
+  "che",
+  "mah",
+  "boh",
+  "guay",
+  "genial",
+  "ok",
+  "bene",
+  "bella",
+  "simpatica",
 ]);
 
 const FORMAL_MARKERS = new Set([
-  'dear', 'sir', 'madam', 'regards', 'sincerely', 'regarding', 'concerning',
-  'would', 'could', 'should', 'please', 'appreciate', 'request', 'inquiry',
+  "dear",
+  "sir",
+  "madam",
+  "regards",
+  "sincerely",
+  "regarding",
+  "concerning",
+  "would",
+  "could",
+  "should",
+  "please",
+  "appreciate",
+  "request",
+  "inquiry",
   // RU/UA
-  'уважаемый', 'уважаемая', 'прошу', 'будьте', 'добры', 'относительно', 'касательно',
-  'щодо', 'шановний', 'шановна',
+  "уважаемый",
+  "уважаемая",
+  "прошу",
+  "будьте",
+  "добры",
+  "относительно",
+  "касательно",
+  "щодо",
+  "шановний",
+  "шановна",
   // Spanish / Italian
-  'por', 'favor', 'gentile', 'cordiali', 'saluti', 'distinti', 'porgo', 'distinti saluti',
+  "por",
+  "favor",
+  "gentile",
+  "cordiali",
+  "saluti",
+  "distinti",
+  "porgo",
+  "distinti saluti",
 ]);
 
 const FORMAL_PHRASES = new Set([
-  'please clarify', 'could you please', 'would you please', 'i would appreciate',
-  'thank you in advance',
+  "please clarify",
+  "could you please",
+  "would you please",
+  "i would appreciate",
+  "thank you in advance",
   // RU/UA
-  'прошу вас', 'будьте добры', 'доброго дня', 'доброго ранку', 'добрий день',
+  "прошу вас",
+  "будьте добры",
+  "доброго дня",
+  "доброго ранку",
+  "добрий день",
   // Spanish / Italian
-  'por favor', 'le agradecería', 'la ringrazio', 'cordiali saluti', 'distinti saluti',
+  "por favor",
+  "le agradecería",
+  "la ringrazio",
+  "cordiali saluti",
+  "distinti saluti",
 ]);
 
 const SARCASM_MARKERS = new Set([
-  'oh great', 'nice one', 'wow thanks', 'as if', 'obviously', 'sure thing', 'tell me about it',
-  'love that for me', 'just what i needed', 'couldn\'t be better', 'genius', 'brilliant',
+  "oh great",
+  "nice one",
+  "wow thanks",
+  "as if",
+  "obviously",
+  "sure thing",
+  "tell me about it",
+  "love that for me",
+  "just what i needed",
+  "couldn't be better",
+  "genius",
+  "brilliant",
   // RU/UA
-  'ну класс', 'спасибо большое', 'очень рад', 'ясен пень', 'конечно', 'звичайно', 'як чудово',
+  "ну класс",
+  "спасибо большое",
+  "очень рад",
+  "ясен пень",
+  "конечно",
+  "звичайно",
+  "як чудово",
   // Spanish / Italian
-  'genial', 'perfecto', 'justo lo que necesitaba', 'otra vez', 'gracias por nada',
-  'por supuesto', 'come sempre', 'proprio quello che ci voleva', 'perfetto',
+  "genial",
+  "perfecto",
+  "justo lo que necesitaba",
+  "otra vez",
+  "gracias por nada",
+  "por supuesto",
+  "come sempre",
+  "proprio quello che ci voleva",
+  "perfetto",
 ]);
 
 const SINCERE_MARKERS = new Set([
-  'honestly', 'truthfully', 'genuinely', 'really', 'seriously', 'appreciate', 'grateful',
-  'touched', 'moved', 'worried', 'scared', 'anxious',
+  "honestly",
+  "truthfully",
+  "genuinely",
+  "really",
+  "seriously",
+  "appreciate",
+  "grateful",
+  "touched",
+  "moved",
+  "worried",
+  "scared",
+  "anxious",
   // RU/UA
-  'чесно', 'чесне', 'щиро', 'волнуюсь', 'переживаю', 'боюсь',
+  "чесно",
+  "чесне",
+  "щиро",
+  "волнуюсь",
+  "переживаю",
+  "боюсь",
   // Spanish / Italian
-  'gracias', 'grazie', 'sinceramente', 'veramente', 'grazie mille', 'muchas gracias',
+  "gracias",
+  "grazie",
+  "sinceramente",
+  "veramente",
+  "grazie mille",
+  "muchas gracias",
 ]);
 
 const SINCERE_PHRASES = new Set([
-  'mean a lot', 'thank you so much', 'thank you very much', 'means the world',
+  "mean a lot",
+  "thank you so much",
+  "thank you very much",
+  "means the world",
   // RU/UA
-  'спасибо большое', 'дякую велике', 'дякую тобі', 'дякую за',
+  "спасибо большое",
+  "дякую велике",
+  "дякую тобі",
+  "дякую за",
   // Spanish / Italian
-  'muchas gracias', 'gracias por', 'ti voglio bene', 'grazie di cuore',
+  "muchas gracias",
+  "gracias por",
+  "ti voglio bene",
+  "grazie di cuore",
 ]);
 
 @Injectable()
 export class ToneAnalyzerService {
   detectTone(text: string, detectedLanguage: string): ToneAnalysis {
-    const t = (text ?? '').toLowerCase();
+    const t = (text ?? "").toLowerCase();
     const tokens = t
-      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+      .replace(/[^\p{L}\p{N}\s]/gu, " ")
       .split(/\s+/)
       .filter(Boolean);
 
@@ -150,10 +298,13 @@ export class ToneAnalyzerService {
     const [tone, maxScore] = entries[0]!;
 
     if (maxScore < 1) {
-      return { tone: 'neutral', confidence: 0.6, reason: 'No strong tone markers detected' };
+      return { tone: "neutral", confidence: 0.6, reason: "No strong tone markers detected" };
     }
 
-    const total = Math.max(1, entries.reduce((sum, [, s]) => sum + s, 0));
+    const total = Math.max(
+      1,
+      entries.reduce((sum, [, s]) => sum + s, 0),
+    );
     const confidence = Math.min(1, Math.max(0.4, maxScore / total + 0.2));
     return {
       tone,

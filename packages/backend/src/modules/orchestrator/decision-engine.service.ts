@@ -14,21 +14,21 @@
  * V-Model: WS-2 (critical — wrong decisions = wrong actions = bans)
  */
 
-import { Injectable, Logger, Inject } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { getEnabledNetworks } from '../../domain/enabled-networks.js';
-import { parseBool } from '../../infrastructure/config/parse-bool.js';
-import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
-import { PostingWindowService } from './posting-window.service.js';
-import { HardRulesService } from './hard-rules.service.js';
-import { LlmDecisionService } from './llm-decision.service.js';
-import { GuardrailsService } from './guardrails.service.js';
-import { RulesEngine } from './rules-engine.js';
-import type { WorldState, Action } from './types.js';
-import { WAIT_ACTION } from './types.js';
+import { Injectable, Logger, Inject } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { getEnabledNetworks } from "../../domain/enabled-networks.js";
+import { parseBool } from "../../infrastructure/config/parse-bool.js";
+import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
+import { PostingWindowService } from "./posting-window.service.js";
+import { HardRulesService } from "./hard-rules.service.js";
+import { LlmDecisionService } from "./llm-decision.service.js";
+import { GuardrailsService } from "./guardrails.service.js";
+import { RulesEngine } from "./rules-engine.js";
+import type { WorldState, Action } from "./types.js";
+import { WAIT_ACTION } from "./types.js";
 
-const ACTION_HISTORY_KEY = 'spa:orchestrator:action-history'; // Redis sorted set (score=timestamp)
-const LLM_DECISION_HISTORY_KEY = 'spa:orchestrator:llm-decision-history'; // Redis sorted set (score=timestamp)
+const ACTION_HISTORY_KEY = "spa:orchestrator:action-history"; // Redis sorted set (score=timestamp)
+const LLM_DECISION_HISTORY_KEY = "spa:orchestrator:llm-decision-history"; // Redis sorted set (score=timestamp)
 const ACTION_HISTORY_WINDOW_SEC = 3600; // 1 hour
 
 @Injectable()
@@ -41,17 +41,23 @@ export class DecisionEngineService {
 
   constructor(
     private readonly configService: ConfigService,
-    @Inject(SHARED_REDIS) private readonly redis: InstanceType<typeof import('ioredis').default>,
+    @Inject(SHARED_REDIS) private readonly redis: InstanceType<typeof import("ioredis").default>,
     private readonly postingWindowService: PostingWindowService,
     private readonly hardRules: HardRulesService,
     private readonly llmDecision: LlmDecisionService,
     private readonly guardrails: GuardrailsService,
     private readonly rulesEngine: RulesEngine,
   ) {
-    this.llmEnabled = parseBool(this.configService.get<string>('ORCHESTRATOR_LLM_ENABLED', 'true'));
-    this.maxActionsPerHour = Number(this.configService.get<number>('ORCHESTRATOR_MAX_ACTIONS_PER_HOUR', 60));
-    this.llmFullLoopEnabled = parseBool(this.configService.get<string>('LLM_FULL_LOOP_ENABLED', 'false'));
-    this.llmFullLoopMaxDecisionsPerHour = Number(this.configService.get<number>('LLM_FULL_LOOP_MAX_DECISIONS_PER_HOUR', 60));
+    this.llmEnabled = parseBool(this.configService.get<string>("ORCHESTRATOR_LLM_ENABLED", "true"));
+    this.maxActionsPerHour = Number(
+      this.configService.get<number>("ORCHESTRATOR_MAX_ACTIONS_PER_HOUR", 60),
+    );
+    this.llmFullLoopEnabled = parseBool(
+      this.configService.get<string>("LLM_FULL_LOOP_ENABLED", "false"),
+    );
+    this.llmFullLoopMaxDecisionsPerHour = Number(
+      this.configService.get<number>("LLM_FULL_LOOP_MAX_DECISIONS_PER_HOUR", 60),
+    );
   }
 
   /**
@@ -74,9 +80,7 @@ export class DecisionEngineService {
     let action: Action;
     const useLlm = this.llmEnabled || this.llmFullLoopEnabled;
     if (useLlm) {
-      const withinBudget = this.llmFullLoopEnabled
-        ? await this.isLlmDecisionWithinBudget()
-        : true; // legacy mode: no separate LLM budget
+      const withinBudget = this.llmFullLoopEnabled ? await this.isLlmDecisionWithinBudget() : true; // legacy mode: no separate LLM budget
       if (withinBudget) {
         try {
           action = await this.llmDecision.decide(world, signal);
@@ -110,22 +114,28 @@ export class DecisionEngineService {
     // G6: Enforce max actions per hour (soft guardrail).
     // Check before recording, otherwise the guardrails/LLM could choose a non-WAIT
     // action and we would immediately exceed the hourly budget.
-    if (guarded.type !== 'WAIT') {
+    if (guarded.type !== "WAIT") {
       const actionsThisHour = await this.getActionsThisHour();
       if (actionsThisHour >= this.maxActionsPerHour) {
         this.logger.warn(
           `Guardrail G6: hourly action budget exhausted (${actionsThisHour}/${this.maxActionsPerHour}) — overriding ${guarded.type} to WAIT`,
         );
-        guarded = WAIT_ACTION(`Hourly action budget exhausted (${actionsThisHour}/${this.maxActionsPerHour})`, 300000, 'guardrail_override');
+        guarded = WAIT_ACTION(
+          `Hourly action budget exhausted (${actionsThisHour}/${this.maxActionsPerHour})`,
+          300000,
+          "guardrail_override",
+        );
       }
     }
 
     // Record the final action (only non-WAIT actions count toward the budget)
-    if (guarded.type !== 'WAIT') {
+    if (guarded.type !== "WAIT") {
       await this.recordAction(guarded);
     }
 
-    this.logger.log(`Decision: ${guarded.type}${guarded.network ? `:${guarded.network}` : ''} — ${guarded.reason}`);
+    this.logger.log(
+      `Decision: ${guarded.type}${guarded.network ? `:${guarded.network}` : ""} — ${guarded.reason}`,
+    );
     return guarded;
   }
 
@@ -155,7 +165,7 @@ export class DecisionEngineService {
     try {
       const now = Date.now();
       const cutoff = now - ACTION_HISTORY_WINDOW_SEC * 1000;
-      await this.redis.zremrangebyscore(ACTION_HISTORY_KEY, '-inf', String(cutoff));
+      await this.redis.zremrangebyscore(ACTION_HISTORY_KEY, "-inf", String(cutoff));
       return await this.redis.zcount(ACTION_HISTORY_KEY, String(cutoff), String(now));
     } catch {
       return 0;
@@ -168,7 +178,7 @@ export class DecisionEngineService {
   async recordAction(action: Action): Promise<void> {
     try {
       const now = Date.now();
-      const member = `${now}:${action.type}:${action.network ?? 'null'}`;
+      const member = `${now}:${action.type}:${action.network ?? "null"}`;
       await this.redis.zadd(ACTION_HISTORY_KEY, String(now), member);
       await this.redis.expire(ACTION_HISTORY_KEY, ACTION_HISTORY_WINDOW_SEC);
     } catch (err) {
@@ -187,7 +197,7 @@ export class DecisionEngineService {
     try {
       const now = Date.now();
       const cutoff = now - ACTION_HISTORY_WINDOW_SEC * 1000;
-      await this.redis.zremrangebyscore(LLM_DECISION_HISTORY_KEY, '-inf', String(cutoff));
+      await this.redis.zremrangebyscore(LLM_DECISION_HISTORY_KEY, "-inf", String(cutoff));
       return await this.redis.zcount(LLM_DECISION_HISTORY_KEY, String(cutoff), String(now));
     } catch {
       return 0;

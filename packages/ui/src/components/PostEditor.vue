@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
-import type { Post } from '@spa/shared';
-import { X } from '@lucide/vue';
-import { Button, Textarea } from './ui';
+import { ref, watch, computed } from "vue";
+import type { Post } from "@spa/shared";
+import { X } from "@lucide/vue";
+import { Button, Textarea } from "./ui";
 
 /**
  * PostEditor — modal for editing draft post content before approve.
@@ -17,7 +17,7 @@ const emit = defineEmits<{
   save: [id: string, editedContent: string];
 }>();
 
-const editedContent = ref('');
+const editedContent = ref("");
 const charLimit = ref(5000);
 const charCount = computed(() => editedContent.value.length);
 
@@ -28,29 +28,33 @@ const NETWORK_LIMITS: Record<string, number> = {
 };
 
 const isOverLimit = computed(() => {
-  const limit = props.post ? NETWORK_LIMITS[props.post.network] ?? 5000 : 5000;
+  const limit = props.post ? (NETWORK_LIMITS[props.post.network] ?? 5000) : 5000;
   return editedContent.value.length > limit;
 });
 
 const networkLimit = computed(() => {
-  return props.post ? NETWORK_LIMITS[props.post.network] ?? 5000 : 5000;
+  return props.post ? (NETWORK_LIMITS[props.post.network] ?? 5000) : 5000;
 });
 
-watch(() => props.post, (newPost) => {
-  if (newPost) {
-    editedContent.value = newPost.content;
-    charLimit.value = NETWORK_LIMITS[newPost.network] ?? 5000;
-  }
-}, { immediate: true });
+watch(
+  () => props.post,
+  (newPost) => {
+    if (newPost) {
+      editedContent.value = newPost.content;
+      charLimit.value = NETWORK_LIMITS[newPost.network] ?? 5000;
+    }
+  },
+  { immediate: true },
+);
 
 function save() {
   if (props.post && editedContent.value.trim().length > 0) {
-    emit('save', props.post.id, editedContent.value);
+    emit("save", props.post.id, editedContent.value);
   }
 }
 
 function close() {
-  emit('close');
+  emit("close");
 }
 </script>
 
@@ -62,7 +66,9 @@ function close() {
       @click.self="close"
     >
       <div class="absolute inset-0 bg-background/80 backdrop-blur-sm" />
-      <div class="relative w-full max-w-2xl rounded-xl border border-border bg-surface-elevated p-6 shadow-elevated">
+      <div
+        class="relative w-full max-w-2xl rounded-xl border border-border bg-surface-elevated p-6 shadow-elevated"
+      >
         <div class="flex items-center justify-between">
           <div>
             <h2 class="text-lg font-bold text-text-primary">Edit Draft</h2>
@@ -97,13 +103,8 @@ function close() {
         </div>
 
         <div class="mt-6 flex justify-end gap-3">
-          <Button variant="outline" @click="close">
-            Cancel
-          </Button>
-          <Button
-            :disabled="editedContent.trim().length === 0 || isOverLimit"
-            @click="save"
-          >
+          <Button variant="outline" @click="close"> Cancel </Button>
+          <Button :disabled="editedContent.trim().length === 0 || isOverLimit" @click="save">
             Save & Approve
           </Button>
         </div>

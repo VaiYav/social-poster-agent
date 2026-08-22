@@ -1,8 +1,8 @@
-import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { SchedulerRegistry } from '@nestjs/schedule';
-import { CronJob } from 'cron';
-import { GenerationService } from '../generation/generation.service.js';
+import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { SchedulerRegistry } from "@nestjs/schedule";
+import { CronJob } from "cron";
+import { GenerationService } from "../generation/generation.service.js";
 
 /**
  * ArticleGenerationCron — triggers article generation on a weekly schedule.
@@ -31,19 +31,19 @@ export class ArticleGenerationCron implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     const cronExpr =
-      this.configService?.get<string>('CRON_ARTICLE_GENERATION_SCHEDULE', '0 9 * * 1') ??
-      '0 9 * * 1';
+      this.configService?.get<string>("CRON_ARTICLE_GENERATION_SCHEDULE", "0 9 * * 1") ??
+      "0 9 * * 1";
 
     const job = new CronJob(cronExpr, async () => {
       await this.handleArticleGeneration();
     });
 
     try {
-      this.schedulerRegistry?.addCronJob('article-generation', job);
+      this.schedulerRegistry?.addCronJob("article-generation", job);
       job.start();
       this.logger.log(`Cron job "article-generation" registered with schedule: ${cronExpr}`);
     } catch {
-      this.logger.warn('SchedulerRegistry not available — article cron will not run');
+      this.logger.warn("SchedulerRegistry not available — article cron will not run");
     }
   }
 
@@ -53,14 +53,14 @@ export class ArticleGenerationCron implements OnModuleInit {
    * Phase 1: calls GenerationService.generateArticle() with topics from content source.
    */
   async handleArticleGeneration(): Promise<void> {
-    this.logger.log('Article generation cron triggered');
+    this.logger.log("Article generation cron triggered");
     try {
       // Phase 1: fetch topics from content source, call generateArticle() for each
       // const topics = await this.contentReader.getArticleTopics();
       // for (const topic of topics) {
       //   await this.generationService.generateArticle({ topic, ... });
       // }
-      this.logger.log('Article generation cron — Phase 0 stub (no articles generated yet)');
+      this.logger.log("Article generation cron — Phase 0 stub (no articles generated yet)");
     } catch (error) {
       this.logger.error(
         `Article generation cron failed: ${error instanceof Error ? error.message : String(error)}`,

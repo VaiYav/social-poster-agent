@@ -1,5 +1,5 @@
-import { readFileSync } from 'fs';
-import { Injectable, Logger } from '@nestjs/common';
+import { readFileSync } from "fs";
+import { Injectable, Logger } from "@nestjs/common";
 
 /**
  * F22: Trending Topic Detection — event calendar.
@@ -17,7 +17,7 @@ interface CalendarEvent {
   date: string; // ISO date
   windowDays: number; // how many days before/after the event is "trending"
   topic: string; // suggested generation topic
-  networks: ('X' | 'THREADS' | 'FACEBOOK')[]; // recommended networks
+  networks: ("X" | "THREADS" | "FACEBOOK")[]; // recommended networks
 }
 
 // Default trending window — how many days before/after an event it is considered "trending".
@@ -30,7 +30,7 @@ function loadEvents(): CalendarEvent[] {
   const path = process.env.TRENDING_EVENTS_PATH;
   if (!path) return [];
   try {
-    const raw = readFileSync(path, 'utf8');
+    const raw = readFileSync(path, "utf8");
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
     return parsed as CalendarEvent[];
@@ -59,24 +59,22 @@ export class TrendingService {
    */
   getTrendingTopics(): TrendingTopic[] {
     const now = new Date();
-    return EVENTS
-      .map((event) => {
-        const eventDate = new Date(event.date);
-        const diffMs = eventDate.getTime() - now.getTime();
-        const daysUntil = Math.round(diffMs / (1000 * 60 * 60 * 24));
-        const windowDays = event.windowDays ?? DEFAULT_WINDOW_DAYS;
-        const trending = Math.abs(daysUntil) <= windowDays;
+    return EVENTS.map((event) => {
+      const eventDate = new Date(event.date);
+      const diffMs = eventDate.getTime() - now.getTime();
+      const daysUntil = Math.round(diffMs / (1000 * 60 * 60 * 24));
+      const windowDays = event.windowDays ?? DEFAULT_WINDOW_DAYS;
+      const trending = Math.abs(daysUntil) <= windowDays;
 
-        return {
-          event: event.name,
-          topic: event.topic,
-          daysUntil,
-          trending,
-          networks: event.networks,
-          windowDays,
-        };
-      })
-      .filter((t) => t.daysUntil >= -t.windowDays); // drop fully-past events
+      return {
+        event: event.name,
+        topic: event.topic,
+        daysUntil,
+        trending,
+        networks: event.networks,
+        windowDays,
+      };
+    }).filter((t) => t.daysUntil >= -t.windowDays); // drop fully-past events
   }
 
   /**

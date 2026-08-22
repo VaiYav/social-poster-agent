@@ -1,7 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { SessionStatus } from '@prisma/client';
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service";
+import { SessionStatus } from "../../generated/prisma/client";
 
 /**
  * F20: Session Warm-up Mode — gradual ramp for new accounts.
@@ -26,7 +26,7 @@ export class WarmupService {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
   ) {
-    this.defaultWarmupDays = this.configService?.get<number>('WARMUP_DAYS_TOTAL', 7) ?? 7;
+    this.defaultWarmupDays = this.configService?.get<number>("WARMUP_DAYS_TOTAL", 7) ?? 7;
   }
 
   /**
@@ -85,8 +85,8 @@ export class WarmupService {
       daysElapsed,
       daysTotal: account.warmupDaysTotal,
       phase,
-      canPost: phase === 'moderate' || phase === 'full',
-      canInteract: phase !== 'browse-only',
+      canPost: phase === "moderate" || phase === "full",
+      canInteract: phase !== "browse-only",
       maxInteractionsPerDay: this.getMaxInteractions(phase),
     };
   }
@@ -135,16 +135,16 @@ export class WarmupService {
   private getWarmupPhase(daysElapsed: number, totalDays: number): WarmupPhase {
     if (totalDays <= 3) {
       // Short warm-up: day 1 browse, day 2 light, day 3+ full
-      if (daysElapsed < 1) return 'browse-only';
-      if (daysElapsed < 2) return 'light';
-      return 'full';
+      if (daysElapsed < 1) return "browse-only";
+      if (daysElapsed < 2) return "light";
+      return "full";
     }
 
     // Standard 7-day warm-up
-    if (daysElapsed < 2) return 'browse-only';
-    if (daysElapsed < 5) return 'light';
-    if (daysElapsed < totalDays) return 'moderate';
-    return 'full';
+    if (daysElapsed < 2) return "browse-only";
+    if (daysElapsed < 5) return "light";
+    if (daysElapsed < totalDays) return "moderate";
+    return "full";
   }
 
   /**
@@ -152,17 +152,21 @@ export class WarmupService {
    */
   private getMaxInteractions(phase: WarmupPhase): number {
     switch (phase) {
-      case 'browse-only': return 0;
-      case 'light': return 2;
-      case 'moderate': return 5;
-      case 'full': return 15;
+      case "browse-only":
+        return 0;
+      case "light":
+        return 2;
+      case "moderate":
+        return 5;
+      case "full":
+        return 15;
     }
   }
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type WarmupPhase = 'browse-only' | 'light' | 'moderate' | 'full';
+export type WarmupPhase = "browse-only" | "light" | "moderate" | "full";
 
 export interface WarmupStatus {
   accountId: string;

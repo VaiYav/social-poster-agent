@@ -1,4 +1,4 @@
-import { SocialNetwork } from '@prisma/client';
+import { SocialNetwork } from "../../generated/prisma/client";
 
 const VALID_NETWORKS = new Set<string>(Object.values(SocialNetwork));
 
@@ -10,7 +10,7 @@ const VALID_NETWORKS = new Set<string>(Object.values(SocialNetwork));
 export function parseTargetNetworks(csv: string): { networks: SocialNetwork[]; invalid: string[] } {
   const networks: SocialNetwork[] = [];
   const invalid: string[] = [];
-  for (const raw of (csv ?? '').split(',')) {
+  for (const raw of (csv ?? "").split(",")) {
     const token = raw.trim().toUpperCase();
     if (!token) continue;
     if (VALID_NETWORKS.has(token)) {

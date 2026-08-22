@@ -6,4 +6,7 @@
  *
  * This file re-exports for backward compatibility with existing module-level imports.
  */
-export { parseGoogleTrendsRss, type ParsedTrend } from '../../infrastructure/content/google-trends-rss.js';
+export {
+  parseGoogleTrendsRss,
+  type ParsedTrend,
+} from "../../infrastructure/content/google-trends-rss.js";

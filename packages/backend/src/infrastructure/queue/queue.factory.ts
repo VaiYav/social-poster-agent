@@ -1,10 +1,17 @@
-import { Inject, Injectable, Logger, Optional, type OnModuleInit, type OnModuleDestroy } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { Queue, Worker, type Job } from 'bullmq';
-import IORedis from 'ioredis';
-import { DiscordNotificationService } from '../notifications/discord-notification.service';
-import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER } from '../redis/redis.module.js';
-import { isJobInFlight } from './queue-state-utils.js';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  Optional,
+  type OnModuleInit,
+  type OnModuleDestroy,
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { Queue, Worker, type Job } from "bullmq";
+import IORedis from "ioredis";
+import { DiscordNotificationService } from "../notifications/discord-notification.service";
+import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER } from "../redis/redis.module.js";
+import { isJobInFlight } from "./queue-state-utils.js";
 
 /**
  * BullMQ queue factory — creates Redis-backed queues and workers for posting.
@@ -61,18 +68,18 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
     @Optional() @Inject(SHARED_REDIS) private readonly injectedClient?: IORedis,
     @Optional() @Inject(SHARED_REDIS_SUBSCRIBER) private readonly injectedSubscriber?: IORedis,
   ) {
-    this.redisUrl = this.configService.get<string>('REDIS_URL', 'redis://localhost:6381');
+    this.redisUrl = this.configService.get<string>("REDIS_URL", "redis://localhost:6381");
     // NOTE: parse env ints with an explicit fallback that preserves a valid 0.
     // `Number(x) || fallback` treats a parsed 0 as falsy, so BULLMQ_MAX_RETRIES=0
     // (operator disabling retries to avoid duplicate posts) was silently replaced by 3.
-    this.maxRetries = this.parseIntEnv('BULLMQ_MAX_RETRIES', 3);
-    this.retryDelayMs = this.parseIntEnv('BULLMQ_RETRY_DELAY_MS', 60000);
+    this.maxRetries = this.parseIntEnv("BULLMQ_MAX_RETRIES", 3);
+    this.retryDelayMs = this.parseIntEnv("BULLMQ_RETRY_DELAY_MS", 60000);
     // Posting jobs get more retries + longer backoff for session-recovery scenarios
-    this.postingMaxRetries = this.parseIntEnv('BULLMQ_POSTING_MAX_RETRIES', 8);
-    this.postingRetryDelayMs = this.parseIntEnv('BULLMQ_POSTING_RETRY_DELAY_MS', 120000); // 2min base
-    this.queuePrefix = this.configService.get<string>('BULLMQ_QUEUE_PREFIX', 'spa');
+    this.postingMaxRetries = this.parseIntEnv("BULLMQ_POSTING_MAX_RETRIES", 8);
+    this.postingRetryDelayMs = this.parseIntEnv("BULLMQ_POSTING_RETRY_DELAY_MS", 120000); // 2min base
+    this.queuePrefix = this.configService.get<string>("BULLMQ_QUEUE_PREFIX", "spa");
     // Concurrency must be >= 1 (0 would stall the queue), so clamp the parsed value.
-    this.concurrency = Math.max(1, this.parseIntEnv('BULLMQ_CONCURRENCY_PER_QUEUE', 1));
+    this.concurrency = Math.max(1, this.parseIntEnv("BULLMQ_CONCURRENCY_PER_QUEUE", 1));
     // Engagement jobs include browsing sessions that can run for 15+ minutes. BullMQ's default
     // lockDuration (30s) marks them as stalled before they finish. The worker auto-renews the
     // lock while it is alive, so we only need a short lock duration to recover from a crashed
@@ -80,12 +87,12 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
     // BullMQ to requeue a stuck browsing session within minutes instead of ~20 min.
     this.engagementLockDurationMs = 5 * 60 * 1000;
     // P1: Configurable retention — keep DLQ small to avoid Redis bloat.
-    this.removeOnCompleteCount = this.parseIntEnv('BULLMQ_REMOVE_ON_COMPLETE', 100);
-    this.removeOnFailCount = this.parseIntEnv('BULLMQ_REMOVE_ON_FAIL', 100);
+    this.removeOnCompleteCount = this.parseIntEnv("BULLMQ_REMOVE_ON_COMPLETE", 100);
+    this.removeOnFailCount = this.parseIntEnv("BULLMQ_REMOVE_ON_FAIL", 100);
     // P1: Limit the BullMQ events stream per queue. Default 100 is enough for
     // debugging but far smaller than the BullMQ default of 10 000. Set to 0
     // to disable the events stream entirely (QueueEvents is not used in this app).
-    this.eventsMaxLen = this.parseIntEnv('BULLMQ_EVENTS_MAX_LENGTH', 100);
+    this.eventsMaxLen = this.parseIntEnv("BULLMQ_EVENTS_MAX_LENGTH", 100);
   }
 
   /**
@@ -94,7 +101,7 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
    */
   private parseIntEnv(key: string, fallback: number): number {
     const raw = this.configService.get<string>(key);
-    if (raw === undefined || raw === null || raw === '') {
+    if (raw === undefined || raw === null || raw === "") {
       return fallback;
     }
     const parsed = Number(raw);
@@ -102,7 +109,7 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit(): void {
-    const connectionSource = this.injectedClient ? 'shared Redis' : 'dedicated Redis';
+    const connectionSource = this.injectedClient ? "shared Redis" : "dedicated Redis";
     this.logger.log(
       `BullMQ configured (${connectionSource}, prefix=${this.queuePrefix}, retries=${this.maxRetries}, postingRetries=${this.postingMaxRetries})`,
     );
@@ -125,7 +132,7 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
       await this.sharedSubscriber.quit().catch(() => void 0);
       this.sharedSubscriber = null;
     }
-    this.logger.log('BullMQ queues and workers closed');
+    this.logger.log("BullMQ queues and workers closed");
   }
 
   /**
@@ -137,19 +144,23 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
    */
   private getConnectionOpts() {
     if (!this.sharedClient) {
-      this.sharedClient = this.injectedClient ?? new IORedis(this.redisUrl, {
-        maxRetriesPerRequest: null,
-        lazyConnect: false,
-        retryStrategy: (times: number) => Math.min(times * 500, 5000),
-      });
+      this.sharedClient =
+        this.injectedClient ??
+        new IORedis(this.redisUrl, {
+          maxRetriesPerRequest: null,
+          lazyConnect: false,
+          retryStrategy: (times: number) => Math.min(times * 500, 5000),
+        });
       this.sharedClientInjected = !!this.injectedClient;
     }
     if (!this.sharedSubscriber) {
-      this.sharedSubscriber = this.injectedSubscriber ?? new IORedis(this.redisUrl, {
-        maxRetriesPerRequest: null,
-        lazyConnect: false,
-        retryStrategy: (times: number) => Math.min(times * 500, 5000),
-      });
+      this.sharedSubscriber =
+        this.injectedSubscriber ??
+        new IORedis(this.redisUrl, {
+          maxRetriesPerRequest: null,
+          lazyConnect: false,
+          retryStrategy: (times: number) => Math.min(times * 500, 5000),
+        });
       this.sharedSubscriberInjected = !!this.injectedSubscriber;
     }
 
@@ -159,13 +170,13 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
 
     return {
       connection: { url: this.redisUrl },
-      createClient: (type: 'client' | 'subscriber' | 'bclient') => {
+      createClient: (type: "client" | "subscriber" | "bclient") => {
         switch (type) {
-          case 'client':
+          case "client":
             return client;
-          case 'subscriber':
+          case "subscriber":
             return subscriber;
-          case 'bclient':
+          case "bclient":
             // Blocking client must be unique per queue/worker — cannot be shared.
             return new IORedis(this.redisUrl, {
               maxRetriesPerRequest: null,
@@ -186,7 +197,7 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
    * Queue name: {prefix}:{action}-{network}
    * action: 'posting' or 'engagement'
    */
-  getQueue(network: string, action: 'posting' | 'engagement' = 'posting'): Queue {
+  getQueue(network: string, action: "posting" | "engagement" = "posting"): Queue {
     const queueName = `${this.queuePrefix}-${action}-${network.toLowerCase()}`;
     let queue = this.queues.get(queueName);
     if (!queue) {
@@ -205,8 +216,12 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
    *
    * Sprint K: Priority queues — trending posts get priority 1 (higher = lower number).
    */
-  async enqueuePosting(postId: string, network: string, opts?: { priority?: number; delay?: number }): Promise<void> {
-    const queue = this.getQueue(network, 'posting');
+  async enqueuePosting(
+    postId: string,
+    network: string,
+    opts?: { priority?: number; delay?: number },
+  ): Promise<void> {
+    const queue = this.getQueue(network, "posting");
 
     // Check if a job with this jobId already exists in a terminal or limbo state.
     // BullMQ's queue.add() with jobId silently returns the existing job without re-enqueuing
@@ -230,7 +245,7 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
         // Active/waiting/prioritized/delayed jobs are in-flight or scheduled — don't remove.
         const activeStates = isJobInFlight(state);
         if (!activeStates) {
-          if (state === 'completed') {
+          if (state === "completed") {
             this.logger.warn(
               `Removing existing COMPLETED posting job for ${postId} → re-enqueuing fresh job. ` +
                 `Post.status may not have been updated; verify account timeline to avoid duplicates.`,
@@ -243,9 +258,7 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
           await existingJob.remove();
         } else {
           // Job is already scheduled/in-flight — skip re-enqueuing to avoid resetting the delay
-          this.logger.debug(
-            `Posting job for ${postId} already ${state} — skipping re-enqueue`,
-          );
+          this.logger.debug(`Posting job for ${postId} already ${state} — skipping re-enqueue`);
           return;
         }
       }
@@ -254,7 +267,7 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
     }
 
     await queue.add(
-      'post',
+      "post",
       { postId, network },
       {
         jobId: postId, // idempotent — won't create duplicate jobs
@@ -262,14 +275,16 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
         delay: opts?.delay, // Sprint K: delayed jobs for multi-stage threads
         attempts: this.postingMaxRetries, // more retries for session-recovery scenarios
         backoff: {
-          type: 'exponential',
+          type: "exponential",
           delay: this.postingRetryDelayMs, // 2min → 4min → 8min → 16min...
         },
         removeOnComplete: { count: this.removeOnCompleteCount },
         removeOnFail: { count: this.removeOnFailCount },
       },
     );
-    this.logger.log(`Enqueued posting job for post ${postId} → ${network} (priority: ${opts?.priority ?? 10})`);
+    this.logger.log(
+      `Enqueued posting job for post ${postId} → ${network} (priority: ${opts?.priority ?? 10})`,
+    );
   }
 
   /**
@@ -280,11 +295,11 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
   async enqueueEngagement(
     interactionId: string,
     network: string,
-    action: 'like' | 'comment' | 'follow' | 'reply' | 'repost' | 'quote' | 'browsing-session',
+    action: "like" | "comment" | "follow" | "reply" | "repost" | "quote" | "browsing-session",
     payload: Record<string, unknown>,
     opts?: { delay?: number },
   ): Promise<void> {
-    const queue = this.getQueue(network, 'engagement');
+    const queue = this.getQueue(network, "engagement");
     await queue.add(
       action,
       { interactionId, network, action, ...payload },
@@ -292,7 +307,7 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
         jobId: interactionId, // idempotent
         attempts: this.maxRetries,
         backoff: {
-          type: 'exponential',
+          type: "exponential",
           delay: this.retryDelayMs,
         },
         removeOnComplete: { count: this.removeOnCompleteCount },
@@ -300,7 +315,9 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
         ...(opts?.delay ? { delay: opts.delay } : {}),
       },
     );
-    this.logger.log(`Enqueued ${action} job ${interactionId} → ${network}${opts?.delay ? ` (delay: ${Math.round(opts.delay / 1000 / 60)}min)` : ''}`);
+    this.logger.log(
+      `Enqueued ${action} job ${interactionId} → ${network}${opts?.delay ? ` (delay: ${Math.round(opts.delay / 1000 / 60)}min)` : ""}`,
+    );
   }
 
   /**
@@ -310,7 +327,7 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
    * flight for a comment that is still NEW. Redis-backed, so it survives restarts.
    */
   async getEngagementJob(interactionId: string, network: string): Promise<Job | undefined> {
-    const queue = this.getQueue(network, 'engagement');
+    const queue = this.getQueue(network, "engagement");
     return queue.getJob(interactionId);
   }
 
@@ -318,7 +335,7 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
    * Retry a failed job by moving it back to the waiting state.
    */
   async retryFailedJob(network: string, jobId: string): Promise<void> {
-    const queue = this.getQueue(network, 'posting');
+    const queue = this.getQueue(network, "posting");
     const job = await queue.getJob(jobId);
     if (!job) {
       throw new Error(`Job ${jobId} not found in ${network} queue`);
@@ -326,7 +343,7 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
     if (job.failedReason) {
       // Reset attempts so the retried job gets its full retry budget back.
       // Without this, exhausted jobs would fail immediately after being retried.
-      await job.retry('failed', { resetAttemptsMade: true, resetAttemptsStarted: true });
+      await job.retry("failed", { resetAttemptsMade: true, resetAttemptsStarted: true });
       this.logger.log(`Retrying failed job ${jobId} in ${network} queue`);
     } else {
       throw new Error(`Job ${jobId} is not in failed state`);
@@ -336,33 +353,31 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
   /**
    * Schedule a posting job for a specific time.
    */
-  async schedulePosting(
-    postId: string,
-    network: string,
-    scheduledAt: Date,
-  ): Promise<void> {
-    const queue = this.getQueue(network, 'posting');
+  async schedulePosting(postId: string, network: string, scheduledAt: Date): Promise<void> {
+    const queue = this.getQueue(network, "posting");
     const delayMs = scheduledAt.getTime() - Date.now();
     if (delayMs <= 0) {
       // Schedule time is in the past — enqueue immediately
       return this.enqueuePosting(postId, network);
     }
     await queue.add(
-      'post',
+      "post",
       { postId, network },
       {
         jobId: postId,
         delay: delayMs,
         attempts: this.postingMaxRetries,
         backoff: {
-          type: 'exponential',
+          type: "exponential",
           delay: this.postingRetryDelayMs,
         },
         removeOnComplete: { count: this.removeOnCompleteCount },
         removeOnFail: { count: this.removeOnFailCount },
       },
     );
-    this.logger.log(`Scheduled posting job for post ${postId} → ${network} at ${scheduledAt.toISOString()}`);
+    this.logger.log(
+      `Scheduled posting job for post ${postId} → ${network} at ${scheduledAt.toISOString()}`,
+    );
   }
 
   /**
@@ -372,7 +387,7 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
   registerWorker(
     network: string,
     handler: (job: Job, token?: string) => Promise<void>,
-    action: 'posting' | 'engagement' = 'posting',
+    action: "posting" | "engagement" = "posting",
   ): Worker {
     const queueName = `${this.queuePrefix}-${action}-${network.toLowerCase()}`;
     let worker = this.workers.get(queueName);
@@ -384,20 +399,20 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
     worker = new Worker(queueName, handler, {
       ...this.getConnectionOpts(),
       concurrency: this.concurrency,
-      ...(action === 'engagement' ? { lockDuration: this.engagementLockDurationMs } : {}),
+      ...(action === "engagement" ? { lockDuration: this.engagementLockDurationMs } : {}),
     });
 
     // Attempts are configured per-action at enqueue time (enqueuePosting uses
     // postingMaxRetries, enqueueEngagement uses maxRetries) — mirror that here so failure
     // logs and the DLQ alert report the retry budget actually in effect for this queue,
     // instead of always assuming the general-queue default.
-    const effectiveMaxRetries = action === 'posting' ? this.postingMaxRetries : this.maxRetries;
+    const effectiveMaxRetries = action === "posting" ? this.postingMaxRetries : this.maxRetries;
 
-    worker.on('completed', (job) => {
+    worker.on("completed", (job) => {
       this.logger.log(`Job ${job.id} completed (${queueName})`);
     });
 
-    worker.on('failed', (job, err) => {
+    worker.on("failed", (job, err) => {
       const attemptsMade = job?.attemptsMade ?? 0;
       this.logger.error(
         `Job ${job?.id} failed (${queueName}): ${err.message} (attempts: ${attemptsMade}/${effectiveMaxRetries})`,
@@ -407,19 +422,19 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
       if (attemptsMade >= effectiveMaxRetries) {
         this.discord
           .critical(
-            'Job Entered DLQ — Manual Intervention Needed',
+            "Job Entered DLQ — Manual Intervention Needed",
             `Job **${job?.id}** in \`${queueName}\` exhausted all ${effectiveMaxRetries} retry attempts.`,
             [
-              { name: 'Error', value: err.message.slice(0, 1024) },
-              { name: 'Queue', value: queueName, inline: true },
-              { name: 'Attempts', value: `${attemptsMade}/${effectiveMaxRetries}`, inline: true },
+              { name: "Error", value: err.message.slice(0, 1024) },
+              { name: "Queue", value: queueName, inline: true },
+              { name: "Attempts", value: `${attemptsMade}/${effectiveMaxRetries}`, inline: true },
             ],
           )
           .catch(() => void 0);
       }
     });
 
-    worker.on('stalled', (jobId) => {
+    worker.on("stalled", (jobId) => {
       this.logger.warn(`Job ${jobId} stalled (${queueName}) — will be retried`);
     });
 
@@ -431,7 +446,7 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
   /**
    * Get failed jobs (dead-letter queue) for a network.
    */
-  async getFailedJobs(network: string, action: 'posting' | 'engagement' = 'posting') {
+  async getFailedJobs(network: string, action: "posting" | "engagement" = "posting") {
     const queue = this.getQueue(network, action);
     return queue.getFailed();
   }
@@ -439,16 +454,16 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
   /**
    * Get active/waiting job counts for a network.
    */
-  async getJobCounts(network: string, action: 'posting' | 'engagement' = 'posting') {
+  async getJobCounts(network: string, action: "posting" | "engagement" = "posting") {
     const queue = this.getQueue(network, action);
-    return queue.getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed');
+    return queue.getJobCounts("waiting", "active", "completed", "failed", "delayed");
   }
 
   /**
    * Pause a queue — stops workers from processing new jobs (F5).
    * Already-running jobs continue to completion.
    */
-  async pauseQueue(network: string, action: 'posting' | 'engagement' = 'posting'): Promise<void> {
+  async pauseQueue(network: string, action: "posting" | "engagement" = "posting"): Promise<void> {
     const queue = this.getQueue(network, action);
     await queue.pause();
   }
@@ -456,7 +471,7 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
   /**
    * Resume a paused queue — workers start picking up jobs again (F5).
    */
-  async resumeQueue(network: string, action: 'posting' | 'engagement' = 'posting'): Promise<void> {
+  async resumeQueue(network: string, action: "posting" | "engagement" = "posting"): Promise<void> {
     const queue = this.getQueue(network, action);
     await queue.resume();
   }
@@ -464,7 +479,10 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
   /**
    * Check if a queue is currently paused.
    */
-  async isQueuePaused(network: string, action: 'posting' | 'engagement' = 'posting'): Promise<boolean> {
+  async isQueuePaused(
+    network: string,
+    action: "posting" | "engagement" = "posting",
+  ): Promise<boolean> {
     const queue = this.getQueue(network, action);
     return queue.isPaused();
   }
@@ -474,7 +492,10 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
    * BullMQ dedup: if a job with the same jobId exists in completed/failed/delayed set,
    * queue.add() silently no-ops. This clears the completed set for a network.
    */
-  async clearCompletedJobs(network: string, action: 'posting' | 'engagement' = 'posting'): Promise<number> {
+  async clearCompletedJobs(
+    network: string,
+    action: "posting" | "engagement" = "posting",
+  ): Promise<number> {
     return this.clearCompletedAndFailedJobs(network, action);
   }
 
@@ -488,14 +509,17 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
    * unbounded — thousands of accumulated jobs would cause memory spikes. `clean()` handles
    * removal server-side in Redis with a configurable limit.
    */
-  async clearCompletedAndFailedJobs(network: string, action: 'posting' | 'engagement' = 'posting'): Promise<number> {
+  async clearCompletedAndFailedJobs(
+    network: string,
+    action: "posting" | "engagement" = "posting",
+  ): Promise<number> {
     const queue = this.getQueue(network, action);
     // clean(graceTimeMs, limit, type) — grace=0 removes all regardless of age.
     // Limit caps the number of jobs removed per call to bound Redis work.
     const CLEAN_LIMIT = 1000;
     const [completedCount, failedCount] = await Promise.all([
-      queue.clean(0, CLEAN_LIMIT, 'completed'),
-      queue.clean(0, CLEAN_LIMIT, 'failed'),
+      queue.clean(0, CLEAN_LIMIT, "completed"),
+      queue.clean(0, CLEAN_LIMIT, "failed"),
     ]);
     return completedCount.length + failedCount.length;
   }
@@ -506,11 +530,11 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
    * old delayed jobs from previous days do not accumulate and exceed sessionsPerDay.
    */
   async clearPendingEngagementBrowsingJobs(network: string): Promise<number> {
-    const queue = this.getQueue(network, 'engagement');
-    const states: Array<'delayed' | 'waiting' | 'paused'> = ['delayed', 'waiting'];
+    const queue = this.getQueue(network, "engagement");
+    const states: Array<"delayed" | "waiting"> = ["delayed", "waiting"];
     const jobs = await queue.getJobs(states);
     const toRemove = jobs.filter(
-      (job) => job.name === 'browsing-session' || (job.id as string)?.startsWith('browsing-'),
+      (job) => job.name === "browsing-session" || (job.id as string)?.startsWith("browsing-"),
     );
     await Promise.all(toRemove.map((job) => job.remove()));
     return toRemove.length;

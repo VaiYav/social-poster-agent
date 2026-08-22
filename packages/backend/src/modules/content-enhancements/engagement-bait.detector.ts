@@ -26,13 +26,13 @@ export interface BaitMatch {
  * Categorization of bait patterns — drives the rewrite instruction.
  */
 export type BaitCategory =
-  | 'explicit_like_ask'      // "like if", "drop a 🔥"
-  | 'explicit_comment_ask'   // "comment below", "tell us"
-  | 'explicit_share_ask'     // "retweet", "share this"
-  | 'explicit_tag_ask'       // "tag a friend", "tag someone"
-  | 'vote_bait'              // "agree or disagree?", "1 or 2?"
-  | 'engagement_question'    // "what's your sign?" with no insight
-  | 'follow_bait';           // "follow for more"
+  | "explicit_like_ask" // "like if", "drop a 🔥"
+  | "explicit_comment_ask" // "comment below", "tell us"
+  | "explicit_share_ask" // "retweet", "share this"
+  | "explicit_tag_ask" // "tag a friend", "tag someone"
+  | "vote_bait" // "agree or disagree?", "1 or 2?"
+  | "engagement_question" // "what's your sign?" with no insight
+  | "follow_bait"; // "follow for more"
 
 interface BaitPattern {
   regex: RegExp;
@@ -42,38 +42,38 @@ interface BaitPattern {
 // Patterns are case-insensitive. Ordered by specificity (most explicit first).
 const BAIT_PATTERNS: readonly BaitPattern[] = [
   // Explicit like asks
-  { regex: /\blike if\b/i, category: 'explicit_like_ask' },
-  { regex: /\bdrop a (?:🔥|fire|💯|❤️|♥️|like)\b/i, category: 'explicit_like_ask' },
-  { regex: /\bsmash that like\b/i, category: 'explicit_like_ask' },
-  { regex: /\bdouble tap\b/i, category: 'explicit_like_ask' },
+  { regex: /\blike if\b/i, category: "explicit_like_ask" },
+  { regex: /\bdrop a (?:🔥|fire|💯|❤️|♥️|like)\b/i, category: "explicit_like_ask" },
+  { regex: /\bsmash that like\b/i, category: "explicit_like_ask" },
+  { regex: /\bdouble tap\b/i, category: "explicit_like_ask" },
 
   // Explicit comment asks
-  { regex: /\bcomment below\b/i, category: 'explicit_comment_ask' },
-  { regex: /\btell us in the comments?\b/i, category: 'explicit_comment_ask' },
-  { regex: /\blet me know in the comments?\b/i, category: 'explicit_comment_ask' },
-  { regex: /\bdrop a comment\b/i, category: 'explicit_comment_ask' },
-  { regex: /\bsound off below\b/i, category: 'explicit_comment_ask' },
+  { regex: /\bcomment below\b/i, category: "explicit_comment_ask" },
+  { regex: /\btell us in the comments?\b/i, category: "explicit_comment_ask" },
+  { regex: /\blet me know in the comments?\b/i, category: "explicit_comment_ask" },
+  { regex: /\bdrop a comment\b/i, category: "explicit_comment_ask" },
+  { regex: /\bsound off below\b/i, category: "explicit_comment_ask" },
 
   // Explicit share asks
-  { regex: /\bretweet if\b/i, category: 'explicit_share_ask' },
-  { regex: /\brt if\b/i, category: 'explicit_share_ask' },
-  { regex: /\bshare this (?:post|with)\b/i, category: 'explicit_share_ask' },
-  { regex: /\brepost if\b/i, category: 'explicit_share_ask' },
+  { regex: /\bretweet if\b/i, category: "explicit_share_ask" },
+  { regex: /\brt if\b/i, category: "explicit_share_ask" },
+  { regex: /\bshare this (?:post|with)\b/i, category: "explicit_share_ask" },
+  { regex: /\brepost if\b/i, category: "explicit_share_ask" },
 
   // Explicit tag asks
-  { regex: /\btag a friend\b/i, category: 'explicit_tag_ask' },
-  { regex: /\btag someone\b/i, category: 'explicit_tag_ask' },
-  { regex: /\btag (?:your|a) (?:friend|bestie|soulmate)\b/i, category: 'explicit_tag_ask' },
-  { regex: /\bshare with someone who\b/i, category: 'explicit_tag_ask' },
+  { regex: /\btag a friend\b/i, category: "explicit_tag_ask" },
+  { regex: /\btag someone\b/i, category: "explicit_tag_ask" },
+  { regex: /\btag (?:your|a) (?:friend|bestie|soulmate)\b/i, category: "explicit_tag_ask" },
+  { regex: /\bshare with someone who\b/i, category: "explicit_tag_ask" },
 
   // Vote bait — "agree or disagree", "1 or 2"
-  { regex: /\b(?:agree|disagree)\??\s*(?:👇|below)?\s*$/i, category: 'vote_bait' },
-  { regex: /\b(?:1|2|3|4)\s+or\s+(?:2|3|4|5)\b/i, category: 'vote_bait' },
-  { regex: /\bwhich (?:one|are you)\s*(?:1|2|3)\b/i, category: 'vote_bait' },
+  { regex: /\b(?:agree|disagree)\??\s*(?:👇|below)?\s*$/i, category: "vote_bait" },
+  { regex: /\b(?:1|2|3|4)\s+or\s+(?:2|3|4|5)\b/i, category: "vote_bait" },
+  { regex: /\bwhich (?:one|are you)\s*(?:1|2|3)\b/i, category: "vote_bait" },
 
   // Follow bait
-  { regex: /\bfollow (?:us|me) for more\b/i, category: 'follow_bait' },
-  { regex: /\bfollow for daily\b/i, category: 'follow_bait' },
+  { regex: /\bfollow (?:us|me) for more\b/i, category: "follow_bait" },
+  { regex: /\bfollow for daily\b/i, category: "follow_bait" },
 
   // Engagement question with no insight — "what's your sign?" at the end with no preceding value
   // This is borderline — only flag when it's the entire closing line with no insight.
@@ -88,7 +88,7 @@ const BAIT_PATTERNS: readonly BaitPattern[] = [
  * @returns Array of matches (empty if clean)
  */
 export function detectEngagementBait(content: string): BaitMatch[] {
-  if (!content || typeof content !== 'string') return [];
+  if (!content || typeof content !== "string") return [];
 
   const matches: BaitMatch[] = [];
 
@@ -113,14 +113,15 @@ export function detectEngagementBait(content: string): BaitMatch[] {
   // e.g. "What's your sign? 👇" with no preceding insight
   const trimmed = content.trim();
   const last60 = trimmed.slice(-60).toLowerCase();
-  const endsWithSignQuestion = /\bwhat'?s your (?:sun |moon |rising )?sign\??\s*(?:👇|🤔|✨)?\s*$/i.test(last60);
+  const endsWithSignQuestion =
+    /\bwhat'?s your (?:sun |moon |rising )?sign\??\s*(?:👇|🤔|✨)?\s*$/i.test(last60);
   if (endsWithSignQuestion && trimmed.length < 200) {
     // Only flag if not already flagged by another pattern
     const alreadyFlagged = matches.some((m) => m.index >= trimmed.length - 60);
     if (!alreadyFlagged) {
       matches.push({
         match: last60.trim(),
-        category: 'engagement_question',
+        category: "engagement_question",
         index: trimmed.length - 60,
       });
     }
@@ -151,18 +152,21 @@ export function buildBaitRewriteInstruction(content: string): string | null {
   if (matches.length === 0) return null;
 
   const categoryLabels: Record<BaitCategory, string> = {
-    explicit_like_ask: 'asking for likes',
-    explicit_comment_ask: 'asking for comments',
-    explicit_share_ask: 'asking for shares/retweets',
-    explicit_tag_ask: 'asking to tag friends',
+    explicit_like_ask: "asking for likes",
+    explicit_comment_ask: "asking for comments",
+    explicit_share_ask: "asking for shares/retweets",
+    explicit_tag_ask: "asking to tag friends",
     vote_bait: 'vote-style engagement bait ("agree or disagree", "1 or 2")',
     engagement_question: 'closing with "what\'s your sign?" without adding insight',
-    follow_bait: 'asking for follows',
+    follow_bait: "asking for follows",
   };
 
   const foundCategories = [...new Set(matches.map((m) => m.category))];
-  const labels = foundCategories.map((c) => categoryLabels[c]).join(', ');
-  const examples = matches.slice(0, 3).map((m) => `"${m.match}"`).join(', ');
+  const labels = foundCategories.map((c) => categoryLabels[c]).join(", ");
+  const examples = matches
+    .slice(0, 3)
+    .map((m) => `"${m.match}"`)
+    .join(", ");
 
   return [
     `ENGAGEMENT BAIT DETECTED — rewrite required.`,
@@ -170,5 +174,5 @@ export function buildBaitRewriteInstruction(content: string): string | null {
     `Flagged phrases: ${examples}.`,
     `Replace with value-first closing: end with an insight, a question that invites reflection (not "what's your sign?"), or a soft CTA to read more.`,
     `Do NOT ask for likes, comments, shares, tags, or follows.`,
-  ].join(' ');
+  ].join(" ");
 }

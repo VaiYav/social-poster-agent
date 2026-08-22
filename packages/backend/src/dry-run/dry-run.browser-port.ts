@@ -14,18 +14,14 @@
 // the wrapped page skips navigation and enters "reply mode" — all subsequent
 // locator interactions return a dummy locator (no-ops).
 
-import { Logger } from '@nestjs/common';
-import type { BrowserContext, Locator, Page } from '../domain/ports/browser-primitives.js';
-import type { SocialNetwork } from '@prisma/client';
-import type {
-  IBrowserPort,
-  ScrollDirection,
-  ScreenshotPhase,
-} from '../domain/ports/browser.port';
-import { BrowserFactory } from '../infrastructure/browser/browser.factory';
+import { Logger } from "@nestjs/common";
+import type { BrowserContext, Locator, Page } from "../domain/ports/browser-primitives.js";
+import type { SocialNetwork } from "../generated/prisma/client";
+import type { IBrowserPort, ScrollDirection, ScreenshotPhase } from "../domain/ports/browser.port";
+import { BrowserFactory } from "../infrastructure/browser/browser.factory";
 
 /** Sentinel symbol used to unwrap a proxied Page to its real Page. */
-const REAL_PAGE = Symbol('realPage');
+const REAL_PAGE = Symbol("realPage");
 
 /** Per-page dry-run state. */
 interface DryRunPageState {
@@ -48,12 +44,7 @@ interface DryRunPageState {
 }
 
 /** Login URL patterns — clicks on these pages are NEVER intercepted. */
-const LOGIN_URL_PATTERNS = [
-  /\/login/,
-  /\/auth/,
-  /\/i\/flow\/login/,
-  /\/login\.php/,
-];
+const LOGIN_URL_PATTERNS = [/\/login/, /\/auth/, /\/i\/flow\/login/, /\/login\.php/];
 
 function isLoginUrl(url: string): boolean {
   return LOGIN_URL_PATTERNS.some((p) => p.test(url));
@@ -63,11 +54,11 @@ function isLoginUrl(url: string): boolean {
 function generateSyntheticUrl(network: SocialNetwork): string {
   const ts = Date.now();
   switch (network) {
-    case 'X':
+    case "X":
       return `https://x.com/dryrun/status/${ts}`;
-    case 'THREADS':
+    case "THREADS":
       return `https://www.threads.com/@dryrun/post/${ts}`;
-    case 'FACEBOOK':
+    case "FACEBOOK":
       return `https://www.facebook.com/dryrun/posts/${ts}`;
     default:
       return `https://dryrun.example.com/post/${ts}`;
@@ -98,7 +89,7 @@ function extractRealPage(page: Page): Page {
 /** Create a dummy locator for reply mode — all methods are no-ops. */
 function createDummyLocator(): Locator {
   const noop = () => Promise.resolve(undefined);
-  const noopStr = () => Promise.resolve('');
+  const noopStr = () => Promise.resolve("");
   const noopBool = () => Promise.resolve(true);
   const noopNum = () => Promise.resolve(1);
   const noopStrOpt = () => Promise.resolve(null);
@@ -145,14 +136,14 @@ function createDummyLocator(): Locator {
 /** Wrap a real Page with dry-run interception. */
 function wrapPage(realPage: Page, state: DryRunPageState): Page {
   const locatorMethods = new Set([
-    'locator',
-    'getByRole',
-    'getByTestId',
-    'getByLabel',
-    'getByText',
-    'getByPlaceholder',
-    'getByAltText',
-    'getByTitle',
+    "locator",
+    "getByRole",
+    "getByTestId",
+    "getByLabel",
+    "getByText",
+    "getByPlaceholder",
+    "getByAltText",
+    "getByTitle",
   ]);
 
   return new Proxy(realPage, {
@@ -163,18 +154,18 @@ function wrapPage(realPage: Page, state: DryRunPageState): Page {
       }
 
       // url() — return synthetic URL after submit
-      if (prop === 'url') {
+      if (prop === "url") {
         return () => (state.submitted ? state.syntheticUrl : target.url());
       }
 
       // goto() — skip navigation to synthetic URL (thread replies)
-      if (prop === 'goto') {
+      if (prop === "goto") {
         return async (url: string, ...args: unknown[]) => {
-          if (state.submitted && typeof url === 'string' && url === state.syntheticUrl) {
+          if (state.submitted && typeof url === "string" && url === state.syntheticUrl) {
             state.replyMode = true;
             return undefined;
           }
-          return target.goto(url, ...(args as Parameters<Page['goto']>[1][]));
+          return target.goto(url, ...(args as Parameters<Page["goto"]>[1][]));
         };
       }
 
@@ -184,10 +175,10 @@ function wrapPage(realPage: Page, state: DryRunPageState): Page {
           if (state.replyMode) {
             return createDummyLocator();
           }
-          const method = (target as unknown as Record<string, ((...a: unknown[]) => Locator) | undefined>)[
-            prop as string
-          ];
-          if (typeof method !== 'function') {
+          const method = (
+            target as unknown as Record<string, ((...a: unknown[]) => Locator) | undefined>
+          )[prop as string];
+          if (typeof method !== "function") {
             throw new Error(`Page method ${String(prop)} not found`);
           }
           // Bind to target so Playwright internal this is correct
@@ -199,7 +190,7 @@ function wrapPage(realPage: Page, state: DryRunPageState): Page {
       // Use target (not receiver) as 3rd arg so getters like mainFrame
       // are called with this=realPage, not this=Proxy
       const value = Reflect.get(target, prop, target);
-      return typeof value === 'function' ? value.bind(target) : value;
+      return typeof value === "function" ? value.bind(target) : value;
     },
   });
 }
@@ -212,18 +203,18 @@ function wrapContext(
 ): BrowserContext {
   return new Proxy(realContext, {
     get(target, prop, _receiver) {
-      if (prop === 'newPage') {
+      if (prop === "newPage") {
         return async () => {
           const realPage = await target.newPage();
           const state: DryRunPageState = {
             typedOnPage: false,
             submitted: false,
-            syntheticUrl: '',
+            syntheticUrl: "",
             network,
             replyMode: false,
             engagementMode: false,
             interceptedActions: 0,
-            lastInterceptedAction: '',
+            lastInterceptedAction: "",
           };
           pageStates.set(realPage, state);
           return wrapPage(realPage, state);
@@ -232,7 +223,7 @@ function wrapContext(
 
       // All other properties — delegate to real context (bind methods)
       const value = Reflect.get(target, prop, target);
-      return typeof value === 'function' ? value.bind(target) : value;
+      return typeof value === "function" ? value.bind(target) : value;
     },
   });
 }
@@ -244,7 +235,7 @@ function wrapContext(
  * screenshots) happen for real. Only the final submit click is intercepted.
  */
 export class DryRunBrowserPort implements IBrowserPort {
-  private readonly logger = new Logger('DryRunBrowserPort');
+  private readonly logger = new Logger("DryRunBrowserPort");
 
   /** Per-page state, keyed by the real Page object. */
   private readonly pageStates = new WeakMap<object, DryRunPageState>();
@@ -309,11 +300,7 @@ export class DryRunBrowserPort implements IBrowserPort {
     return this.real.randomDelay(minMs, maxMs);
   }
 
-  async humanType(
-    locator: Locator,
-    text: string,
-    opts?: { delayMs?: number },
-  ): Promise<void> {
+  async humanType(locator: Locator, text: string, opts?: { delayMs?: number }): Promise<void> {
     // Track typing on non-login pages
     const page = getPageFromLocator(locator);
     if (page) {
@@ -368,14 +355,18 @@ export class DryRunBrowserPort implements IBrowserPort {
       // Determine action type from context:
       // - If typing happened on this page → it's a comment/reply submit
       // - Otherwise → it's a like/follow/reaction
-      const actionType = state.typedOnPage ? 'comment' : 'like';
+      const actionType = state.typedOnPage ? "comment" : "like";
       state.interceptedActions++;
       state.lastInterceptedAction = actionType;
       state.typedOnPage = false; // reset for next action
 
       // Take screenshot as evidence
       try {
-        await this.real.screenshot(page, state.network, `dry-run-${actionType}-${state.interceptedActions}` as ScreenshotPhase);
+        await this.real.screenshot(
+          page,
+          state.network,
+          `dry-run-${actionType}-${state.interceptedActions}` as ScreenshotPhase,
+        );
       } catch (err) {
         this.logger.warn(`Dry-run screenshot failed: ${(err as Error).message}`);
       }
@@ -395,7 +386,7 @@ export class DryRunBrowserPort implements IBrowserPort {
 
       // Take screenshot as evidence of what would have been posted
       try {
-        await this.real.screenshot(page, state.network, 'after-submit');
+        await this.real.screenshot(page, state.network, "after-submit");
       } catch (err) {
         this.logger.warn(`Dry-run screenshot failed: ${(err as Error).message}`);
       }
@@ -412,11 +403,7 @@ export class DryRunBrowserPort implements IBrowserPort {
     return this.real.humanClick(locator, opts);
   }
 
-  scrollPage(
-    page: Page,
-    direction: ScrollDirection,
-    amountPx?: number,
-  ): Promise<void> {
+  scrollPage(page: Page, direction: ScrollDirection, amountPx?: number): Promise<void> {
     return this.real.scrollPage(page, direction, amountPx);
   }
 
@@ -428,11 +415,7 @@ export class DryRunBrowserPort implements IBrowserPort {
     return this.real.scrollToElement(page, locator);
   }
 
-  screenshot(
-    page: Page,
-    network: SocialNetwork,
-    phase: ScreenshotPhase,
-  ): Promise<string> {
+  screenshot(page: Page, network: SocialNetwork, phase: ScreenshotPhase): Promise<string> {
     return this.real.screenshot(page, network, phase);
   }
 
@@ -459,15 +442,18 @@ export class DryRunBrowserPort implements IBrowserPort {
   // ── LLM-in-the-loop stubs (Phase 0) — delegate to real BrowserFactory ──
   // Real implementation in Phase 1 (#47). These throw "not implemented" via the real factory.
 
-  act(page: Page, instruction: string): Promise<import('../domain/ports/browser.port.js').LLMActionResult> {
+  act(
+    page: Page,
+    instruction: string,
+  ): Promise<import("../domain/ports/browser.port.js").LLMActionResult> {
     return this.real.act(page, instruction);
   }
 
-  extract<T>(page: Page, schema: import('zod').ZodSchema<T>): Promise<T | null> {
+  extract<T>(page: Page, schema: import("zod").ZodSchema<T>): Promise<T | null> {
     return this.real.extract(page, schema);
   }
 
-  observe(page: Page): Promise<import('../domain/ports/browser.port.js').ObservableElement[]> {
+  observe(page: Page): Promise<import("../domain/ports/browser.port.js").ObservableElement[]> {
     return this.real.observe(page);
   }
 

@@ -1,19 +1,29 @@
-import { Inject, Injectable, Logger, Optional, type OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { ChatOpenAI } from '@langchain/openai';
-import type IORedis from 'ioredis';
-import type { BaseCallbackHandler } from '../../domain/ports/llm-primitives.js';
-import { AsyncLocalStorage } from 'node:async_hooks';
-import { createHash } from 'node:crypto';
-import type { ILlmPort, GenerateOptions, LlmResponse, LlmRole, ProviderStatus } from '../../domain/ports/llm.port.js';
-import { LlmProviderRateLimit } from './llm-provider-rate-limit.js';
-import { IPromptPort } from '../../domain/ports/prompt.port.js';
-import { SHARED_REDIS } from '../redis/redis.module.js';
-import { parseBool } from '../config/parse-bool.js';
-import { InMemoryLlmCache, RedisLlmCache, type LlmCache } from './llm-cache.js';
-import { combineSignals, signalToPromise } from '../util/abort-signal.js';
-import { getErrorMessage } from '../common/error-utils.js';
-import { TokenBudgetService, TokenBudgetExceeded, type BudgetScope } from './token-budget.service.js';
+import { Inject, Injectable, Logger, Optional, type OnModuleInit } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { ChatOpenAI } from "@langchain/openai";
+import type IORedis from "ioredis";
+import type { BaseCallbackHandler } from "../../domain/ports/llm-primitives.js";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash } from "node:crypto";
+import type {
+  ILlmPort,
+  GenerateOptions,
+  LlmResponse,
+  LlmRole,
+  ProviderStatus,
+} from "../../domain/ports/llm.port.js";
+import { LlmProviderRateLimit } from "./llm-provider-rate-limit.js";
+import { IPromptPort } from "../../domain/ports/prompt.port.js";
+import { SHARED_REDIS } from "../redis/redis.module.js";
+import { parseBool } from "../config/parse-bool.js";
+import { InMemoryLlmCache, RedisLlmCache, type LlmCache } from "./llm-cache.js";
+import { combineSignals, signalToPromise } from "../util/abort-signal.js";
+import { getErrorMessage } from "../common/error-utils.js";
+import {
+  TokenBudgetService,
+  TokenBudgetExceeded,
+  type BudgetScope,
+} from "./token-budget.service.js";
 
 /**
  * Provider definition — each provider is tried in order until one succeeds.
@@ -74,7 +84,7 @@ interface ProviderSpec {
     config: ConfigService,
     model: string,
     defaultTimeout: number,
-  ) => Partial<Pick<LlmProviderConfig, 'supportsTemperature' | 'timeout'>>;
+  ) => Partial<Pick<LlmProviderConfig, "supportsTemperature" | "timeout">>;
 }
 
 const REASONING_MODEL_PATTERN = /^(gpt-5(\.\d+)?|o1|o3|o4-mini|codex-mini)/;
@@ -86,74 +96,74 @@ const REASONING_MODEL_PATTERN = /^(gpt-5(\.\d+)?|o1|o3|o4-mini|codex-mini)/;
 const PROVIDER_DEFINITIONS: ProviderSpec[] = [
   // 1. Groq — FREE, fast inference (rate-limits under burst traffic)
   {
-    name: 'groq',
-    keyEnv: 'GROQ_API_KEY',
-    modelEnv: 'GROQ_MODEL',
-    defaultModel: 'meta-llama/llama-4-scout-17b-16e-instruct',
+    name: "groq",
+    keyEnv: "GROQ_API_KEY",
+    modelEnv: "GROQ_MODEL",
+    defaultModel: "meta-llama/llama-4-scout-17b-16e-instruct",
     free: true,
-    baseURL: 'https://api.groq.com/openai/v1',
+    baseURL: "https://api.groq.com/openai/v1",
   },
   // 2. SambaNova — FREE 20M tokens/day, no credit card, OpenAI-compatible
   // Best free-tier quota available (200x Groq's 100K TPD). Llama 3.3 70B, DeepSeek, Qwen.
   // Positioned 2nd so it's the primary fallback when Groq rate-limits — its
   // massive free quota means it almost never 429s.
   {
-    name: 'sambanova',
-    keyEnv: 'SAMBANOVA_API_KEY',
-    modelEnv: 'SAMBANOVA_MODEL',
-    defaultModel: 'Meta-Llama-3.3-70B-Instruct',
+    name: "sambanova",
+    keyEnv: "SAMBANOVA_API_KEY",
+    modelEnv: "SAMBANOVA_MODEL",
+    defaultModel: "Meta-Llama-3.3-70B-Instruct",
     free: true,
-    baseURL: 'https://api.sambanova.ai/v1',
+    baseURL: "https://api.sambanova.ai/v1",
   },
   // 3. Cerebras — FREE, fast (~3000 tok/s)
   // NOTE: llama-3.3-70b was deprecated/removed from Cerebras on Feb 16, 2026.
   // gpt-oss-120b is the current production model (120B params).
   {
-    name: 'cerebras',
-    keyEnv: 'CEREBRAS_API_KEY',
-    modelEnv: 'CEREBRAS_MODEL',
-    defaultModel: 'gpt-oss-120b',
+    name: "cerebras",
+    keyEnv: "CEREBRAS_API_KEY",
+    modelEnv: "CEREBRAS_MODEL",
+    defaultModel: "gpt-oss-120b",
     free: true,
-    baseURL: 'https://api.cerebras.ai/v1',
+    baseURL: "https://api.cerebras.ai/v1",
   },
   // 4. OpenRouter — FREE models available (intermittent empty content on some free models)
   {
-    name: 'openrouter',
-    keyEnv: 'OPENROUTER_API_KEY',
-    modelEnv: 'OPENROUTER_MODEL',
-    defaultModel: 'meta-llama/llama-4-maverick:free',
+    name: "openrouter",
+    keyEnv: "OPENROUTER_API_KEY",
+    modelEnv: "OPENROUTER_MODEL",
+    defaultModel: "meta-llama/llama-4-maverick:free",
     free: true,
-    baseURL: 'https://openrouter.ai/api/v1',
+    baseURL: "https://openrouter.ai/api/v1",
   },
   // 5. DeepSeek — cheap (may hit 402 Insufficient Balance if credits run out)
   {
-    name: 'deepseek',
-    keyEnv: 'DEEPSEEK_API_KEY',
-    modelEnv: 'DEEPSEEK_MODEL',
-    defaultModel: 'deepseek-chat',
+    name: "deepseek",
+    keyEnv: "DEEPSEEK_API_KEY",
+    modelEnv: "DEEPSEEK_MODEL",
+    defaultModel: "deepseek-chat",
     free: false,
-    baseURL: 'https://api.deepseek.com',
+    baseURL: "https://api.deepseek.com",
   },
   // 6. Anthropic — strong creative/multilingual backstop via the
   // OpenAI-compatible endpoint. Previously advertised in .env.example but
   // never wired into the chain (dead config — fixed in the quality pass).
   {
-    name: 'anthropic',
-    keyEnv: 'ANTHROPIC_API_KEY',
-    modelEnv: 'ANTHROPIC_MODEL',
-    defaultModel: 'claude-haiku-4-5',
+    name: "anthropic",
+    keyEnv: "ANTHROPIC_API_KEY",
+    modelEnv: "ANTHROPIC_MODEL",
+    defaultModel: "claude-haiku-4-5",
     free: false,
-    baseURL: 'https://api.anthropic.com/v1/',
+    baseURL: "https://api.anthropic.com/v1/",
   },
   // 7. OpenAI — paid overflow (may be quota-limited)
   // gpt-5-nano, gpt-5.4-nano, gpt-5-mini and other reasoning models (o1, o3, o4-mini) do NOT accept
   // `temperature` — only the default (1) is supported. We detect reasoning
   // models by name and set supportsTemperature=false so the caller skips it.
   {
-    name: 'openai',
-    keyEnv: 'OPENAI_API_KEY',
-    modelEnv: 'OPENAI_MODEL',
-    defaultModel: 'gpt-5-nano',
+    name: "openai",
+    keyEnv: "OPENAI_API_KEY",
+    modelEnv: "OPENAI_MODEL",
+    defaultModel: "gpt-5-nano",
     free: false,
     customize: (_config, model, defaultTimeout) => {
       const isReasoningModel = REASONING_MODEL_PATTERN.test(model);
@@ -165,81 +175,81 @@ const PROVIDER_DEFINITIONS: ProviderSpec[] = [
   },
   // 8. Google Gemini — free tier (1500 RPD), strong multilingual (OpenAI-compatible endpoint)
   {
-    name: 'google',
-    keyEnv: 'GOOGLE_API_KEY',
-    modelEnv: 'GOOGLE_MODEL',
-    defaultModel: 'gemini-2.5-flash',
+    name: "google",
+    keyEnv: "GOOGLE_API_KEY",
+    modelEnv: "GOOGLE_MODEL",
+    defaultModel: "gemini-2.5-flash",
     free: true,
-    baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai",
   },
   // 9. NVIDIA NIM — free ~40 req/min, general multilingual (OpenAI-compatible)
   {
-    name: 'nvidia',
-    keyEnv: 'NVIDIA_API_KEY',
-    modelEnv: 'NVIDIA_MODEL',
-    defaultModel: 'meta/llama-4-scout-17b-16e-instruct',
+    name: "nvidia",
+    keyEnv: "NVIDIA_API_KEY",
+    modelEnv: "NVIDIA_MODEL",
+    defaultModel: "meta/llama-4-scout-17b-16e-instruct",
     free: true,
-    baseURL: 'https://integrate.api.nvidia.com/v1',
+    baseURL: "https://integrate.api.nvidia.com/v1",
   },
   // 10. GitHub Models — FREE 150 RPD, no credit card, OpenAI-compatible
   // Access to GPT-5, Llama, DeepSeek, Mistral via one key. Needs GitHub PAT with models:read.
   {
-    name: 'github',
-    keyEnv: 'GITHUB_TOKEN',
-    modelEnv: 'GITHUB_MODEL',
-    defaultModel: 'meta-llama/Llama-4-Scout-17B-16E-Instruct',
+    name: "github",
+    keyEnv: "GITHUB_TOKEN",
+    modelEnv: "GITHUB_MODEL",
+    defaultModel: "meta-llama/Llama-4-Scout-17B-16E-Instruct",
     free: true,
-    baseURL: 'https://models.inference.ai.azure.com',
+    baseURL: "https://models.inference.ai.azure.com",
   },
   // 10. Mistral AI — Free mode, no credit card, OpenAI-compatible
   // EU-hosted, strong multilingual (good for uk/es/it).
   {
-    name: 'mistral',
-    keyEnv: 'MISTRAL_API_KEY',
-    modelEnv: 'MISTRAL_MODEL',
-    defaultModel: 'mistral-small-latest',
+    name: "mistral",
+    keyEnv: "MISTRAL_API_KEY",
+    modelEnv: "MISTRAL_MODEL",
+    defaultModel: "mistral-small-latest",
     free: true,
-    baseURL: 'https://api.mistral.ai/v1',
+    baseURL: "https://api.mistral.ai/v1",
   },
   // 11. Hugging Face Inference Providers — $0.10/mo free, auto-failover, OpenAI-compatible
   // Routes to 15+ inference partners automatically.
   {
-    name: 'huggingface',
-    keyEnv: 'HF_TOKEN',
-    modelEnv: 'HF_MODEL',
-    defaultModel: 'meta-llama/Llama-4-Scout-17B-16E-Instruct',
+    name: "huggingface",
+    keyEnv: "HF_TOKEN",
+    modelEnv: "HF_MODEL",
+    defaultModel: "meta-llama/Llama-4-Scout-17B-16E-Instruct",
     free: true,
-    baseURL: 'https://router.huggingface.co/v1',
+    baseURL: "https://router.huggingface.co/v1",
   },
   // 12. Together AI — $25 free credits, no credit card, OpenAI-compatible
   // 68 free models including Llama 3.3 70B free variant. Credits don't expire.
   {
-    name: 'together',
-    keyEnv: 'TOGETHER_API_KEY',
-    modelEnv: 'TOGETHER_MODEL',
-    defaultModel: 'meta-llama/Llama-3.3-70B-Instruct-Turbo-Free',
+    name: "together",
+    keyEnv: "TOGETHER_API_KEY",
+    modelEnv: "TOGETHER_MODEL",
+    defaultModel: "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
     free: true,
-    baseURL: 'https://api.together.ai/v1',
+    baseURL: "https://api.together.ai/v1",
   },
   // 13. Cohere — Trial key: 1000 calls/mo, 20 RPM, no credit card
   // Not for production use (TOS). Good for prototyping.
   {
-    name: 'cohere',
-    keyEnv: 'COHERE_API_KEY',
-    modelEnv: 'COHERE_MODEL',
-    defaultModel: 'command-r7b',
+    name: "cohere",
+    keyEnv: "COHERE_API_KEY",
+    modelEnv: "COHERE_MODEL",
+    defaultModel: "command-r7b",
     free: true,
-    baseURL: 'https://api.cohere.ai/v1',
+    baseURL: "https://api.cohere.ai/v1",
   },
   // 14. Ollama — local, last resort (no API key needed)
   {
-    name: 'ollama',
-    modelEnv: 'OLLAMA_DEFAULT_MODEL',
-    defaultModel: 'gemma4',
+    name: "ollama",
+    modelEnv: "OLLAMA_DEFAULT_MODEL",
+    defaultModel: "gemma4",
     free: true,
-    baseURL: (config) => `${config.get<string>('OLLAMA_URL', 'http://localhost:11434')}/v1`,
+    baseURL: (config) => `${config.get<string>("OLLAMA_URL", "http://localhost:11434")}/v1`,
     alwaysInclude: true,
-    defaultApiKey: 'ollama',
+    defaultApiKey: "ollama",
   },
 ];
 
@@ -263,7 +273,7 @@ interface LlmContext {
   callbacks: BaseCallbackHandler[];
   signal?: AbortSignal;
   /** P0: ambient token/cost budget scope for all LLM calls in the context. */
-  budgetScope?: 'orchestrator' | 'generation';
+  budgetScope?: "orchestrator" | "generation";
   /** P0: generation run ID for per-run budget tracking. */
   budgetRunId?: string;
   /** F3: ambient provider/model override for all LLM calls in the context. */
@@ -287,7 +297,10 @@ export function withLlmContext<T>(context: LlmContext, fn: () => Promise<T>): Pr
 }
 
 /** Backward-compatible wrapper: callbacks only. */
-export function withLlmCallbacks<T>(callbacks: BaseCallbackHandler[], fn: () => Promise<T>): Promise<T> {
+export function withLlmCallbacks<T>(
+  callbacks: BaseCallbackHandler[],
+  fn: () => Promise<T>,
+): Promise<T> {
   return withLlmContext({ callbacks }, fn);
 }
 
@@ -342,7 +355,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
 
   // Sprint J: Prompt version — bumped when prompts change, stored in llmMetadata
   // Sprint P: Now sourced from PromptRegistry when available, falls back to static constant
-  static readonly PROMPT_VERSION = '0.5.0-quality-pass';
+  static readonly PROMPT_VERSION = "0.5.0-quality-pass";
 
   // Q1: Per-role provider chains — parsed from LLM_ROLE_CHAINS env.
   // Format: "draft=google,deepseek;judge=groq,ollama" (role=comma-separated provider names).
@@ -364,44 +377,47 @@ export class LlmService implements ILlmPort, OnModuleInit {
     @Optional() private readonly promptPort?: IPromptPort,
     @Optional() private readonly tokenBudget?: TokenBudgetService,
   ) {
-    this.cbThreshold = this.configService.get<number>('LLM_CB_THRESHOLD', 3);
-    this.cbCooldownMs = this.configService.get<number>('LLM_CB_COOLDOWN_MS', 60_000);
+    this.cbThreshold = this.configService.get<number>("LLM_CB_THRESHOLD", 3);
+    this.cbCooldownMs = this.configService.get<number>("LLM_CB_COOLDOWN_MS", 60_000);
     // Auth/billing errors (401/402/403) are permanent until a human acts (rotate a key, top up
     // balance) — retrying every cbCooldownMs just repeats the same failure. Default 6h.
-    this.cbTerminalCooldownMs = this.configService.get<number>('LLM_CB_TERMINAL_COOLDOWN_MS', 6 * 60 * 60 * 1000);
-    this.cacheTtlMs = this.configService.get<number>('LLM_CACHE_TTL_MS', 300_000); // 5 min
-    this.cacheMaxSize = this.configService.get<number>('LLM_CACHE_MAX_SIZE', 100);
-    this.cacheShared = parseBool(this.configService.get<string>('LLM_CACHE_SHARED', 'true'), true);
+    this.cbTerminalCooldownMs = this.configService.get<number>(
+      "LLM_CB_TERMINAL_COOLDOWN_MS",
+      6 * 60 * 60 * 1000,
+    );
+    this.cacheTtlMs = this.configService.get<number>("LLM_CACHE_TTL_MS", 300_000); // 5 min
+    this.cacheMaxSize = this.configService.get<number>("LLM_CACHE_MAX_SIZE", 100);
+    this.cacheShared = parseBool(this.configService.get<string>("LLM_CACHE_SHARED", "true"), true);
     this.cacheBackend = this.buildCacheBackend();
-    this.maxConcurrent = Number(this.configService.get<string | number>('LLM_MAX_CONCURRENT', 4)) || 4;
-    this.rateLimitRetryMs = Number(this.configService.get<string | number>('LLM_RATE_LIMIT_RETRY_MS', 2_500)) || 2_500;
+    this.maxConcurrent =
+      Number(this.configService.get<string | number>("LLM_MAX_CONCURRENT", 4)) || 4;
+    this.rateLimitRetryMs =
+      Number(this.configService.get<string | number>("LLM_RATE_LIMIT_RETRY_MS", 2_500)) || 2_500;
     this.rateLimitBackoff = new LlmProviderRateLimit(this.configService);
   }
 
   onModuleInit(): void {
     this.providers = this.buildProviderChain();
-    this.roleChains = this.parseRoleChains(
-      this.configService.get<string>('LLM_ROLE_CHAINS', ''),
-    );
+    this.roleChains = this.parseRoleChains(this.configService.get<string>("LLM_ROLE_CHAINS", ""));
 
     if (this.providers.length === 0) {
-      this.logger.warn('No LLM providers configured — LLM generation will fail');
+      this.logger.warn("No LLM providers configured — LLM generation will fail");
       return;
     }
 
-    const summary = this.providers
-      .map((p) => `${p.name}/${p.model}`)
-      .join(' → ');
+    const summary = this.providers.map((p) => `${p.name}/${p.model}`).join(" → ");
     this.logger.log(`LLM provider chain (${this.providers.length}): ${summary}`);
-    this.logger.log(`LLM cache: ${this.cacheShared ? 'Redis shared' : 'in-memory'} (prefix=${this.configService.get<string>('LLM_CACHE_KEY_PREFIX', 'spa:cache:llm')})`);
+    this.logger.log(
+      `LLM cache: ${this.cacheShared ? "Redis shared" : "in-memory"} (prefix=${this.configService.get<string>("LLM_CACHE_KEY_PREFIX", "spa:cache:llm")})`,
+    );
 
     // Log OpenAI configuration for debugging (never log the key)
-    const openaiModel = this.configService.get<string>('OPENAI_MODEL', 'gpt-5-nano');
-    const hasOpenAiKey = !!this.configService.get<string>('OPENAI_API_KEY', '');
+    const openaiModel = this.configService.get<string>("OPENAI_MODEL", "gpt-5-nano");
+    const hasOpenAiKey = !!this.configService.get<string>("OPENAI_API_KEY", "");
     if (hasOpenAiKey) {
       this.logger.log(`OpenAI configured: model=${openaiModel}`);
     } else {
-      this.logger.warn('OpenAI API key not configured');
+      this.logger.warn("OpenAI API key not configured");
     }
   }
 
@@ -427,14 +443,15 @@ export class LlmService implements ILlmPort, OnModuleInit {
     const chain: LlmProviderConfig[] = [];
 
     for (const def of PROVIDER_DEFINITIONS) {
-      const key = def.keyEnv ? this.configService.get<string>(def.keyEnv, '') : '';
+      const key = def.keyEnv ? this.configService.get<string>(def.keyEnv, "") : "";
       if (!def.alwaysInclude && !key) continue;
 
       const model = this.configService.get<string>(def.modelEnv, def.defaultModel);
-      const apiKey = def.alwaysInclude ? (def.defaultApiKey ?? key ?? '') : (key || '');
+      const apiKey = def.alwaysInclude ? (def.defaultApiKey ?? key ?? "") : key || "";
       if (!def.alwaysInclude && !apiKey) continue;
 
-      const baseURL = typeof def.baseURL === 'function' ? def.baseURL(this.configService) : def.baseURL;
+      const baseURL =
+        typeof def.baseURL === "function" ? def.baseURL(this.configService) : def.baseURL;
       const custom = def.customize ? def.customize(this.configService, model, defaultTimeout) : {};
 
       chain.push({
@@ -459,9 +476,9 @@ export class LlmService implements ILlmPort, OnModuleInit {
   private buildCacheBackend(): LlmCache {
     if (this.cacheShared) {
       if (!this.redis) {
-        throw new Error('LLM_CACHE_SHARED=true but SHARED_REDIS is not available');
+        throw new Error("LLM_CACHE_SHARED=true but SHARED_REDIS is not available");
       }
-      const prefix = this.configService.get<string>('LLM_CACHE_KEY_PREFIX', 'spa:cache:llm');
+      const prefix = this.configService.get<string>("LLM_CACHE_KEY_PREFIX", "spa:cache:llm");
       return new RedisLlmCache(prefix, this.redis);
     }
     return new InMemoryLlmCache(this.cacheMaxSize, this.cacheTtlMs);
@@ -489,14 +506,14 @@ export class LlmService implements ILlmPort, OnModuleInit {
     // For reasoning models, use max_completion_tokens when the caller provides
     // a maxTokens value; otherwise omit it. For normal models, default to -1
     // (no explicit limit) when maxTokens is not provided.
-    const isOpenAIReasoning = provider.name === 'openai' && !provider.supportsTemperature;
+    const isOpenAIReasoning = provider.name === "openai" && !provider.supportsTemperature;
     const maxTokens = isOpenAIReasoning
       ? options?.maxTokens
       : provider.supportsTemperature
         ? (options?.maxTokens ?? -1)
         : undefined;
 
-    const key = `${provider.name}:${provider.model}:t${temperature ?? 'na'}:m${maxTokens ?? 'na'}:to${provider.timeout}`;
+    const key = `${provider.name}:${provider.model}:t${temperature ?? "na"}:m${maxTokens ?? "na"}:to${provider.timeout}`;
     let model = this.models.get(key);
     if (!model) {
       const ctorArgs: Record<string, unknown> = {
@@ -506,7 +523,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
         timeout: provider.timeout,
         maxRetries: 0, // we handle fallback ourselves
       };
-      
+
       if (isOpenAIReasoning && maxTokens !== undefined) {
         // OpenAI reasoning models (gpt-5, o1, o3, o4-mini) reject `max_tokens` and require `max_completion_tokens`.
         // Use modelKwargs to force the correct API body parameter and avoid ChatOpenAI
@@ -516,12 +533,12 @@ export class LlmService implements ILlmPort, OnModuleInit {
         // Use maxTokens for other models
         ctorArgs.maxTokens = maxTokens;
       }
-      
+
       // Only add temperature if the provider supports it
       if (temperature !== undefined) {
         ctorArgs.temperature = temperature;
       }
-      
+
       model = new ChatOpenAI(ctorArgs as ConstructorParameters<typeof ChatOpenAI>[0]);
       this.models.set(key, model);
     }
@@ -536,10 +553,13 @@ export class LlmService implements ILlmPort, OnModuleInit {
   private parseRoleChains(raw: string): Map<string, string[]> {
     const map = new Map<string, string[]>();
     if (!raw || !raw.trim()) return map;
-    for (const entry of raw.split(';')) {
-      const [role, names] = entry.split('=');
+    for (const entry of raw.split(";")) {
+      const [role, names] = entry.split("=");
       if (!role || !names) continue;
-      const list = names.split(',').map((n) => n.trim().toLowerCase()).filter(Boolean);
+      const list = names
+        .split(",")
+        .map((n) => n.trim().toLowerCase())
+        .filter(Boolean);
       if (list.length > 0) map.set(role.trim().toLowerCase(), list);
     }
     return map;
@@ -590,8 +610,8 @@ export class LlmService implements ILlmPort, OnModuleInit {
     const ordered = this.orderedProviders(options?.role);
     if (!options?.model) return ordered;
 
-    const [providerName, ...modelParts] = options.model.split('/');
-    const requestedModel = modelParts.join('/');
+    const [providerName, ...modelParts] = options.model.split("/");
+    const requestedModel = modelParts.join("/");
     if (!providerName || !requestedModel) {
       this.logger.warn(`Invalid model override format: ${options.model} — expected provider/model`);
       return ordered;
@@ -599,7 +619,9 @@ export class LlmService implements ILlmPort, OnModuleInit {
 
     const baseProvider = this.providers.find((p) => p.name === providerName);
     if (!baseProvider) {
-      this.logger.warn(`Requested provider ${providerName} not in configured chain — using default chain`);
+      this.logger.warn(
+        `Requested provider ${providerName} not in configured chain — using default chain`,
+      );
       return ordered;
     }
 
@@ -609,7 +631,8 @@ export class LlmService implements ILlmPort, OnModuleInit {
     const spec = PROVIDER_DEFINITIONS.find((d) => d.name === providerName);
     if (spec?.customize) {
       const custom = spec.customize(this.configService, requestedModel, baseProvider.timeout);
-      forcedProvider.supportsTemperature = custom.supportsTemperature ?? forcedProvider.supportsTemperature;
+      forcedProvider.supportsTemperature =
+        custom.supportsTemperature ?? forcedProvider.supportsTemperature;
       forcedProvider.timeout = custom.timeout ?? forcedProvider.timeout;
     }
 
@@ -621,10 +644,10 @@ export class LlmService implements ILlmPort, OnModuleInit {
   private isRateLimitError(err: unknown): boolean {
     const status = LlmProviderRateLimit.extractStatusCode(err);
     if (status === 429) return true;
-    if (typeof err === 'object' && err !== null) {
-      const code = Reflect.get(err, 'code');
-      const lcErrorCode = Reflect.get(err, 'lc_error_code');
-      if (code === 'rate_limit_exceeded' || lcErrorCode === 'MODEL_RATE_LIMIT') return true;
+    if (typeof err === "object" && err !== null) {
+      const code = Reflect.get(err, "code");
+      const lcErrorCode = Reflect.get(err, "lc_error_code");
+      if (code === "rate_limit_exceeded" || lcErrorCode === "MODEL_RATE_LIMIT") return true;
     }
     const message = LlmProviderRateLimit.extractErrorMessage(err);
     return /\b429\b|rate[ _]?limit|rate_limit_exceeded|too many requests/i.test(message);
@@ -666,7 +689,12 @@ export class LlmService implements ILlmPort, OnModuleInit {
    * When token usage is unavailable (0), returns 0 — the cost is tracked
    * only when we have real usage data.
    */
-  private estimateCost(providerName: string, _model: string, inputTokens: number, outputTokens: number): number {
+  private estimateCost(
+    providerName: string,
+    _model: string,
+    inputTokens: number,
+    outputTokens: number,
+  ): number {
     if (inputTokens === 0 && outputTokens === 0) return 0;
     // Pricing per 1M tokens: [input, output]. 0 = free tier.
     // Sources: provider pricing pages, 2026-07. Rounded to 2 decimals.
@@ -675,9 +703,9 @@ export class LlmService implements ILlmPort, OnModuleInit {
       sambanova: [0, 0],
       cerebras: [0, 0],
       openrouter: [0, 0], // free models only in the chain
-      deepseek: [0.27, 1.10],
-      anthropic: [1.00, 5.00], // claude-haiku-4-5
-      openai: [0.05, 0.40], // gpt-5-nano
+      deepseek: [0.27, 1.1],
+      anthropic: [1.0, 5.0], // claude-haiku-4-5
+      openai: [0.05, 0.4], // gpt-5-nano
       google: [0, 0], // free tier
       nvidia: [0, 0],
       github: [0, 0],
@@ -689,24 +717,35 @@ export class LlmService implements ILlmPort, OnModuleInit {
     };
     const [inputPer1M, outputPer1M] = PRICING[providerName] ?? [0, 0];
     if (inputPer1M === 0 && outputPer1M === 0) return 0;
-    return Number(((inputTokens / 1_000_000) * inputPer1M + (outputTokens / 1_000_000) * outputPer1M).toFixed(6));
+    return Number(
+      ((inputTokens / 1_000_000) * inputPer1M + (outputTokens / 1_000_000) * outputPer1M).toFixed(
+        6,
+      ),
+    );
   }
 
   /**
    * Q3: Extract token usage from a LangChain response without type assertions.
    */
-  private extractUsageMetadata(response: unknown): { total: number | undefined; input: number; output: number } {
-    const usage = response && typeof response === 'object' ? Reflect.get(response, 'usage_metadata') : undefined;
-    if (!usage || typeof usage !== 'object') {
+  private extractUsageMetadata(response: unknown): {
+    total: number | undefined;
+    input: number;
+    output: number;
+  } {
+    const usage =
+      response && typeof response === "object"
+        ? Reflect.get(response, "usage_metadata")
+        : undefined;
+    if (!usage || typeof usage !== "object") {
       return { total: undefined, input: 0, output: 0 };
     }
-    const total = Reflect.get(usage, 'total_tokens');
-    const input = Reflect.get(usage, 'input_tokens');
-    const output = Reflect.get(usage, 'output_tokens');
+    const total = Reflect.get(usage, "total_tokens");
+    const input = Reflect.get(usage, "input_tokens");
+    const output = Reflect.get(usage, "output_tokens");
     return {
-      total: typeof total === 'number' ? total : undefined,
-      input: typeof input === 'number' ? input : 0,
-      output: typeof output === 'number' ? output : 0,
+      total: typeof total === "number" ? total : undefined,
+      input: typeof input === "number" ? input : 0,
+      output: typeof output === "number" ? output : 0,
     };
   }
 
@@ -744,7 +783,6 @@ export class LlmService implements ILlmPort, OnModuleInit {
     return /^\s*(401|402|403)\b/.test(message);
   }
 
-
   /**
    * Sprint J: Record a provider failure in the circuit breaker.
    * Terminal (auth/billing) failures trip the breaker immediately (no point waiting for
@@ -765,7 +803,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
       cb.tripped = true;
       const cooldownMs = terminal ? this.cbTerminalCooldownMs : this.cbCooldownMs;
       this.logger.warn(
-        `Circuit breaker TRIPPED for ${providerName} (${cb.failures} failures${terminal ? ', terminal' : ''}) — cooldown ${cooldownMs}ms`,
+        `Circuit breaker TRIPPED for ${providerName} (${cb.failures} failures${terminal ? ", terminal" : ""}) — cooldown ${cooldownMs}ms`,
       );
     }
     this.circuitBreakers.set(providerName, cb);
@@ -794,24 +832,24 @@ export class LlmService implements ILlmPort, OnModuleInit {
     imageBase64?: string,
   ): string {
     const temp = options?.temperature;
-    const tempKey = temp === undefined ? 'undef' : String(temp);
+    const tempKey = temp === undefined ? "undef" : String(temp);
     const parts = [
       systemPrompt,
       userPrompt,
       `provider=${provider.name}`,
       `model=${provider.model}`,
       `t=${tempKey}`,
-      `maxTokens=${options?.maxTokens ?? 'undef'}`,
-      `role=${options?.role ?? 'none'}`,
+      `maxTokens=${options?.maxTokens ?? "undef"}`,
+      `role=${options?.role ?? "none"}`,
     ];
     // Vision calls: include image hash in cache key to avoid collisions
     // between different screenshots with the same text prompt
     if (imageBase64) {
-      const imgHash = createHash('sha256').update(imageBase64).digest('hex').slice(0, 16);
+      const imgHash = createHash("sha256").update(imageBase64).digest("hex").slice(0, 16);
       parts.push(`img=${imgHash}`);
     }
-    const input = parts.join('||');
-    return createHash('sha256').update(input).digest('hex').slice(0, 32);
+    const input = parts.join("||");
+    return createHash("sha256").update(input).digest("hex").slice(0, 32);
   }
 
   /**
@@ -826,7 +864,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
     imageBase64?: string,
   ): Promise<LlmResponse> {
     if (this.providers.length === 0) {
-      throw new Error('No LLM providers configured');
+      throw new Error("No LLM providers configured");
     }
 
     // Sprint J: Check cache first.
@@ -836,9 +874,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
     // Vision calls also bypass the cache — screenshots are unique per capture
     // and caching them would return stale actions for changed page states.
     const cacheable =
-      options?.role !== 'draft' &&
-      options?.role !== 'hook' &&
-      options?.role !== 'vision';
+      options?.role !== "draft" && options?.role !== "hook" && options?.role !== "vision";
 
     // Q1: role-aware provider ordering (falls back to sticky default)
     // F3: if options.model is set, try that provider/model first, then the rest of the chain
@@ -892,33 +928,33 @@ export class LlmService implements ILlmPort, OnModuleInit {
 
         const messages = imageBase64
           ? // Vision/multimodal call — content is an array of text + image blocks
-            (systemPrompt
-              ? [
-                  { role: 'system' as const, content: systemPrompt },
-                  {
-                    role: 'user' as const,
-                    content: [
-                      { type: 'text' as const, text: userPrompt },
-                      { type: 'image_url' as const, image_url: { url: imageBase64 } },
-                    ],
-                  },
-                ]
-              : [
-                  {
-                    role: 'user' as const,
-                    content: [
-                      { type: 'text' as const, text: userPrompt },
-                      { type: 'image_url' as const, image_url: { url: imageBase64 } },
-                    ],
-                  },
-                ])
+            systemPrompt
+            ? [
+                { role: "system" as const, content: systemPrompt },
+                {
+                  role: "user" as const,
+                  content: [
+                    { type: "text" as const, text: userPrompt },
+                    { type: "image_url" as const, image_url: { url: imageBase64 } },
+                  ],
+                },
+              ]
+            : [
+                {
+                  role: "user" as const,
+                  content: [
+                    { type: "text" as const, text: userPrompt },
+                    { type: "image_url" as const, image_url: { url: imageBase64 } },
+                  ],
+                },
+              ]
           : // Text-only call — content is a plain string
-            (systemPrompt
-              ? [
-                  { role: 'system' as const, content: systemPrompt },
-                  { role: 'user' as const, content: userPrompt },
-                ]
-              : [{ role: 'user' as const, content: userPrompt }]);
+            systemPrompt
+            ? [
+                { role: "system" as const, content: systemPrompt },
+                { role: "user" as const, content: userPrompt },
+              ]
+            : [{ role: "user" as const, content: userPrompt }];
 
         // Langfuse tracing: merge callbacks from GenerateOptions (explicit)
         // and AsyncLocalStorage (ambient — set by GenerationService around
@@ -943,7 +979,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
           let reservedCost = 0;
           try {
             if (options?.signal?.aborted) {
-              throw new Error('Abort');
+              throw new Error("Abort");
             }
 
             // P0: token/cost budget — reserve an upper-bound estimate before the call.
@@ -951,7 +987,12 @@ export class LlmService implements ILlmPort, OnModuleInit {
               const inputTokens = this.estimateTokens(systemPrompt + userPrompt);
               const outputTokens = options?.maxTokens ?? 0;
               reservedTokens = inputTokens + outputTokens;
-              reservedCost = this.estimateCost(provider.name, provider.model, inputTokens, outputTokens);
+              reservedCost = this.estimateCost(
+                provider.name,
+                provider.model,
+                inputTokens,
+                outputTokens,
+              );
               const { allowed } = await this.tokenBudget.reserve(
                 options.budgetScope,
                 options.budgetRunId,
@@ -959,7 +1000,11 @@ export class LlmService implements ILlmPort, OnModuleInit {
                 reservedCost,
               );
               if (!allowed) {
-                throw new TokenBudgetExceeded(options.budgetScope, options.budgetRunId, 'pre-call reserve over budget');
+                throw new TokenBudgetExceeded(
+                  options.budgetScope,
+                  options.budgetRunId,
+                  "pre-call reserve over budget",
+                );
               }
             }
 
@@ -971,7 +1016,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
               Object.keys(invokeConfig).length > 0 ? invokeConfig : undefined,
             );
             const content =
-              typeof response.content === 'string'
+              typeof response.content === "string"
                 ? response.content
                 : JSON.stringify(response.content);
 
@@ -986,10 +1031,11 @@ export class LlmService implements ILlmPort, OnModuleInit {
             // Q3: Prefer REAL token usage from the provider (usage_metadata),
             // fall back to the chars/4 estimate only when absent.
             const usage = this.extractUsageMetadata(response);
-            const usageTokens = usage.total ?? (usage.input + usage.output);
-            const tokens = usageTokens > 0
-              ? usageTokens
-              : this.estimateTokens(systemPrompt + userPrompt) + this.estimateTokens(content);
+            const usageTokens = usage.total ?? usage.input + usage.output;
+            const tokens =
+              usageTokens > 0
+                ? usageTokens
+                : this.estimateTokens(systemPrompt + userPrompt) + this.estimateTokens(content);
             const llmResponse: LlmResponse = {
               content,
               model: `${provider.name}/${provider.model}`,
@@ -1007,12 +1053,14 @@ export class LlmService implements ILlmPort, OnModuleInit {
                   (llmResponse.cost ?? 0) - reservedCost,
                 );
               } catch (budgetErr) {
-                this.logger.warn(`Failed to record LLM budget usage: ${getErrorMessage(budgetErr)}`);
+                this.logger.warn(
+                  `Failed to record LLM budget usage: ${getErrorMessage(budgetErr)}`,
+                );
               }
             }
 
             if (options?.signal?.aborted) {
-              throw new Error('Abort');
+              throw new Error("Abort");
             }
 
             // Sprint J: Cache the response (non-creative roles only)
@@ -1025,9 +1073,16 @@ export class LlmService implements ILlmPort, OnModuleInit {
             // P0: release the budget reservation on any failure before trying next provider.
             if (this.tokenBudget && options?.budgetScope && reservedTokens > 0) {
               try {
-                await this.tokenBudget.release(options.budgetScope, options.budgetRunId, reservedTokens, reservedCost);
+                await this.tokenBudget.release(
+                  options.budgetScope,
+                  options.budgetRunId,
+                  reservedTokens,
+                  reservedCost,
+                );
               } catch (budgetErr) {
-                this.logger.warn(`Failed to release LLM budget reservation: ${getErrorMessage(budgetErr)}`);
+                this.logger.warn(
+                  `Failed to release LLM budget reservation: ${getErrorMessage(budgetErr)}`,
+                );
               }
             }
             lastErr = err;
@@ -1046,7 +1101,10 @@ export class LlmService implements ILlmPort, OnModuleInit {
             const isLastAttempt = attempt === maxAttempts - 1;
             if (!isLastAttempt) {
               let retryDelayMs: number | undefined;
-              if (retryAfterMs !== undefined && retryAfterMs <= this.rateLimitBackoff.retryAfterMaxMs) {
+              if (
+                retryAfterMs !== undefined &&
+                retryAfterMs <= this.rateLimitBackoff.retryAfterMaxMs
+              ) {
                 retryDelayMs = retryAfterMs;
               } else if (retryAfterMs === undefined) {
                 retryDelayMs = this.rateLimitRetryMs + Math.floor(Math.random() * 1_500);
@@ -1081,27 +1139,25 @@ export class LlmService implements ILlmPort, OnModuleInit {
           // on the next call instead of wasting time retrying it. This prevents
           // the cascade where multiple providers return empty content in quick
           // succession and the caller times out before reaching a working one.
-          if (msg.includes('empty content')) {
+          if (msg.includes("empty content")) {
             this.emptyContentCooldowns.set(provider.name, Date.now() + this.emptyContentCooldownMs);
             this.logger.debug(
               `${provider.name} empty-content cooldown set for ${this.emptyContentCooldownMs}ms`,
             );
           }
         } else {
-          this.logger.debug(`${provider.name} rate-limited (429) — not counting as circuit breaker failure`);
+          this.logger.debug(
+            `${provider.name} rate-limited (429) — not counting as circuit breaker failure`,
+          );
         }
-        this.logger.warn(
-          `LLM provider ${provider.name} failed: ${msg.slice(0, 120)}`,
-        );
+        this.logger.warn(`LLM provider ${provider.name} failed: ${msg.slice(0, 120)}`);
         // Continue to next provider
       }
     } finally {
       this.releaseSlot();
     }
 
-    throw new Error(
-      `All LLM providers failed:\n${errors.join('\n')}`,
-    );
+    throw new Error(`All LLM providers failed:\n${errors.join("\n")}`);
   }
 
   async generateChat(
@@ -1126,7 +1182,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
     }
 
     if (effectiveSignal?.aborted) {
-      throw new Error('Abort');
+      throw new Error("Abort");
     }
 
     if (!effectiveSignal) {
@@ -1140,7 +1196,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
   }
 
   async generate(prompt: string, options?: GenerateOptions): Promise<LlmResponse> {
-    return this.generateChat('', prompt, options);
+    return this.generateChat("", prompt, options);
   }
 
   /**
@@ -1164,12 +1220,12 @@ export class LlmService implements ILlmPort, OnModuleInit {
     options?: GenerateOptions,
   ): Promise<LlmResponse> {
     // Validate image format — must be a PNG data URL
-    if (!imageBase64.startsWith('data:image/png;base64,')) {
-      throw new Error('generateVision: imageBase64 must be a data:image/png;base64 URL');
+    if (!imageBase64.startsWith("data:image/png;base64,")) {
+      throw new Error("generateVision: imageBase64 must be a data:image/png;base64 URL");
     }
     // Reject images larger than 10MB (safety — avoids token explosion / OOM)
     if (imageBase64.length > 10_000_000) {
-      throw new Error('generateVision: image too large — max 10MB');
+      throw new Error("generateVision: image too large — max 10MB");
     }
 
     const alsContext = llmContextStorage.getStore();
@@ -1183,13 +1239,13 @@ export class LlmService implements ILlmPort, OnModuleInit {
     // Default role to 'vision' for provider routing
     const visionOptions: GenerateOptions = {
       ...options,
-      role: options?.role ?? 'vision',
+      role: options?.role ?? "vision",
       // Vision tasks need deterministic output — temperature=0 when not explicitly set
       temperature: options?.temperature ?? 0,
     };
 
     if (effectiveSignal?.aborted) {
-      throw new Error('Abort');
+      throw new Error("Abort");
     }
 
     if (!effectiveSignal) {
@@ -1255,7 +1311,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
       this.circuitBreakers.clear();
       this.rateLimitBackoff.reset();
       this.emptyContentCooldowns.clear();
-      this.logger.log('All circuit breakers and rate-limit cooldowns reset');
+      this.logger.log("All circuit breakers and rate-limit cooldowns reset");
     }
   }
 
@@ -1266,5 +1322,4 @@ export class LlmService implements ILlmPort, OnModuleInit {
     const { size } = await this.cacheBackend.stats();
     return { size, maxSize: this.cacheMaxSize, ttlMs: this.cacheTtlMs };
   }
-
 }

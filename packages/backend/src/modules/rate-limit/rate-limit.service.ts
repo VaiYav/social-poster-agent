@@ -1,8 +1,14 @@
-import { Injectable, Logger, Inject, type OnModuleInit, type OnModuleDestroy } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import IORedis from 'ioredis';
-import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
-import { parseBool } from '../../infrastructure/config/parse-bool.js';
+import {
+  Injectable,
+  Logger,
+  Inject,
+  type OnModuleInit,
+  type OnModuleDestroy,
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import IORedis from "ioredis";
+import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
+import { parseBool } from "../../infrastructure/config/parse-bool.js";
 
 /**
  * Rate limiter — Redis-based sliding window per network.
@@ -100,19 +106,28 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     private readonly configService: ConfigService,
     @Inject(SHARED_REDIS) private readonly redis: IORedis,
   ) {
-    this.prefix = this.configService.get<string>('RATE_LIMIT_PREFIX', 'spa:ratelimit');
-    this.failClosed = parseBool(this.configService.get<string>('RATE_LIMIT_FAIL_CLOSED', 'false'));
+    this.prefix = this.configService.get<string>("RATE_LIMIT_PREFIX", "spa:ratelimit");
+    this.failClosed = parseBool(this.configService.get<string>("RATE_LIMIT_FAIL_CLOSED", "false"));
 
     // Global min delay between posts (env: RATE_LIMIT_MIN_DELAY_MS, default 5 min)
-    const globalMinDelay = this.parseNumericConfig('RATE_LIMIT_MIN_DELAY_MS', 300_000);
+    const globalMinDelay = this.parseNumericConfig("RATE_LIMIT_MIN_DELAY_MS", 300_000);
 
     // P1-09: All networks — original 3 + 11 new syndication platforms
     const networks = [
-      'X', 'THREADS', 'FACEBOOK',
-      'DEVTO', 'HASHNODE', 'LINKEDIN',
-      'BLUESKY', 'MASTODON', 'TELEGRAM',
-      'MEDIUM', 'SUBSTACK',
-      'REDDIT', 'QUORA', 'PINTEREST',
+      "X",
+      "THREADS",
+      "FACEBOOK",
+      "DEVTO",
+      "HASHNODE",
+      "LINKEDIN",
+      "BLUESKY",
+      "MASTODON",
+      "TELEGRAM",
+      "MEDIUM",
+      "SUBSTACK",
+      "REDDIT",
+      "QUORA",
+      "PINTEREST",
     ] as const;
 
     this.dailyLimits = {};
@@ -122,7 +137,7 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     for (const net of networks) {
       // Original 3 networks: RATE_LIMIT_{NET}_MAX_PER_DAY (default: 1 — constitution §8)
       // New syndication platforms: RATE_LIMIT_DAILY_{NET} (default: 3 — articles, not micro-posts)
-      const isNewPlatform = !['X', 'THREADS', 'FACEBOOK'].includes(net);
+      const isNewPlatform = !["X", "THREADS", "FACEBOOK"].includes(net);
       const dailyDefault = isNewPlatform ? 3 : 1;
       const weeklyDefault = isNewPlatform ? 10 : 5;
 
@@ -151,23 +166,25 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     const intWeekly = (action: string, def: number) =>
       this.parseNumericConfig(`RATE_LIMIT_INTERACTION_${action.toUpperCase()}_MAX_PER_WEEK`, def);
     this.interactionDailyLimits = {
-      like: intDaily('like', 60),
-      comment: intDaily('comment', 20),
-      follow: intDaily('follow', 15),
-      reply: intDaily('reply', 20),
-      repost: intDaily('repost', 10),
-      quote: intDaily('quote', 5),
+      like: intDaily("like", 60),
+      comment: intDaily("comment", 20),
+      follow: intDaily("follow", 15),
+      reply: intDaily("reply", 20),
+      repost: intDaily("repost", 10),
+      quote: intDaily("quote", 5),
     };
     this.interactionWeeklyLimits = {
-      like: intWeekly('like', 300),
-      comment: intWeekly('comment', 100),
-      follow: intWeekly('follow', 75),
-      reply: intWeekly('reply', 100),
-      repost: intWeekly('repost', 50),
-      quote: intWeekly('quote', 25),
+      like: intWeekly("like", 300),
+      comment: intWeekly("comment", 100),
+      follow: intWeekly("follow", 75),
+      reply: intWeekly("reply", 100),
+      repost: intWeekly("repost", 50),
+      quote: intWeekly("quote", 25),
     };
-    this.interactionMinIntervalMs =
-      this.parseNumericConfig('RATE_LIMIT_INTERACTION_MIN_DELAY_MS', 0);
+    this.interactionMinIntervalMs = this.parseNumericConfig(
+      "RATE_LIMIT_INTERACTION_MIN_DELAY_MS",
+      0,
+    );
   }
 
   /**
@@ -198,7 +215,7 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
   onModuleInit(): void {
     const summary = Object.entries(this.dailyLimits)
       .map(([net, daily]) => `${net}=${daily}/day ${this.weeklyLimits[net]}/week`)
-      .join(', ');
+      .join(", ");
     this.logger.log(`Rate limiter initialized (shared Redis) — ${summary}`);
   }
 
@@ -211,7 +228,7 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
    * otherwise falls back to parallel GETs (for older test mocks).
    */
   private async getMultiple(keys: string[]): Promise<(string | null)[]> {
-    if (typeof this.redis?.mget === 'function') {
+    if (typeof this.redis?.mget === "function") {
       return this.redis.mget(keys);
     }
     const values = await Promise.all(keys.map((k) => this.redis!.get(k)));
@@ -224,7 +241,7 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
    */
   private parseNumericConfig(key: string, fallback: number): number {
     const raw = this.configService.get<string>(key);
-    if (raw === undefined || raw === '') return fallback;
+    if (raw === undefined || raw === "") return fallback;
     const parsed = Number(raw);
     return Number.isNaN(parsed) ? fallback : parsed;
   }
@@ -247,11 +264,11 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
       if (this.failClosed) {
         return {
           allowed: false,
-          reason: 'Redis unavailable — rate limit check failed closed',
+          reason: "Redis unavailable — rate limit check failed closed",
           retryAfterMs: 300_000,
         };
       }
-      return { allowed: true, reason: 'Redis not connected — rate limit bypassed' };
+      return { allowed: true, reason: "Redis not connected — rate limit bypassed" };
     }
 
     const now = Date.now();
@@ -264,7 +281,11 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     const intervalKey = `${this.prefix}:${keySuffix}:interval`;
     const lastPostAtKey = `${this.prefix}:${keySuffix}:lastPostAt`;
 
-    const { daily: dailyLimit, weekly: weeklyLimit, intervalMs } = this.resolveLimits(network, action);
+    const {
+      daily: dailyLimit,
+      weekly: weeklyLimit,
+      intervalMs,
+    } = this.resolveLimits(network, action);
 
     // 2.7.1: use a single MGET so daily/weekly/interval are read atomically.
     // Fall back to individual GETs for older test mocks that don't expose mget.
@@ -276,7 +297,7 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     ]);
 
     // Check daily limit (read-only — don't increment yet). A limit of 0 means unlimited.
-    const dailyCount = parseInt(dailyStr ?? '0', 10);
+    const dailyCount = parseInt(dailyStr ?? "0", 10);
     if (dailyLimit > 0 && dailyCount >= dailyLimit) {
       const nextDayStart = new Date(`${today}T00:00:00.000Z`).getTime() + 86_400_000;
       const label = action ? `${network} ${action}` : network;
@@ -288,7 +309,7 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Check weekly limit. A limit of 0 means unlimited.
-    const weeklyCount = parseInt(weeklyStr ?? '0', 10);
+    const weeklyCount = parseInt(weeklyStr ?? "0", 10);
     if (weeklyLimit > 0 && weeklyCount >= weeklyLimit) {
       const nextWeekStart = weekStartDate.getTime() + 7 * 86_400_000;
       const label = action ? `${network} ${action}` : network;
@@ -339,7 +360,11 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     const weeklyKey = `${this.prefix}:${keySuffix}:weekly:${weekStart}`;
     const intervalKey = `${this.prefix}:${keySuffix}:interval`;
     const lastPostAtKey = `${this.prefix}:${keySuffix}:lastPostAt`;
-    const { daily: dailyLimit, weekly: weeklyLimit, intervalMs } = this.resolveLimits(network, action);
+    const {
+      daily: dailyLimit,
+      weekly: weeklyLimit,
+      intervalMs,
+    } = this.resolveLimits(network, action);
     const now = Date.now();
 
     const result = (await this.redis.eval(
@@ -358,7 +383,9 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     )) as unknown as [number, number, number] | undefined;
 
     if (!result || !Array.isArray(result)) {
-      this.logger.warn(`Redis eval returned unexpected result for ${network} — rate limit not recorded`);
+      this.logger.warn(
+        `Redis eval returned unexpected result for ${network} — rate limit not recorded`,
+      );
       return empty;
     }
 
@@ -410,7 +437,11 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     lastPostAt: number | null;
     minIntervalMs: number;
   }> {
-    const { daily: dailyLimit, weekly: weeklyLimit, intervalMs } = this.resolveLimits(network, action);
+    const {
+      daily: dailyLimit,
+      weekly: weeklyLimit,
+      intervalMs,
+    } = this.resolveLimits(network, action);
 
     if (!this.redis) {
       return {
@@ -460,7 +491,7 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     const parts = [network];
     if (accountId) parts.push(accountId);
     if (action) parts.push(action);
-    return parts.join(':');
+    return parts.join(":");
   }
 
   /**
@@ -471,7 +502,9 @@ export class RateLimitService implements OnModuleInit, OnModuleDestroy {
     const now = new Date();
     const day = now.getUTCDay(); // 0 = Sunday (UTC)
     const diff = day === 0 ? -6 : 1 - day; // adjust to Monday
-    const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + diff));
+    const monday = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + diff),
+    );
     return monday;
   }
 }

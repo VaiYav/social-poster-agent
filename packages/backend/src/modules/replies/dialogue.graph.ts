@@ -11,22 +11,32 @@
  * graph itself is short-lived and can be compiled with or without a checkpointer.
  */
 
-import { StateGraph, START, END, Annotation } from '@langchain/langgraph';
-import type { ILlmPort, LlmResponse } from '../../domain/ports/llm.port.js';
-import { IPromptPort } from '../../domain/ports/prompt.port.js';
-import { sanitizeUntrustedInput } from '../../infrastructure/llm/sanitize-untrusted-input.js';
-import { matchesScript, normalizeLanguage, type SupportedLanguage } from '../../infrastructure/util/script-check.js';
-import { detectLanguage, isLanguageDetectable } from '../../infrastructure/util/language-detector.js';
-import { extractFirstJsonObject } from '../../infrastructure/util/extract-json.js';
-import { interpolate } from '../../domain/prompt-interpolation.js';
-import { REPLY_DECISION_PROMPT } from './prompts/reply-decision.prompt.js';
-import type { QuestionClassification, QuestionClassifierService } from './question-classifier.service.js';
-import type { CommentTone, ToneAnalyzerService } from './tone-analyzer.service.js';
+import { StateGraph, START, END, Annotation } from "@langchain/langgraph";
+import type { ILlmPort, LlmResponse } from "../../domain/ports/llm.port.js";
+import { IPromptPort } from "../../domain/ports/prompt.port.js";
+import { sanitizeUntrustedInput } from "../../infrastructure/llm/sanitize-untrusted-input.js";
+import {
+  matchesScript,
+  normalizeLanguage,
+  type SupportedLanguage,
+} from "../../infrastructure/util/script-check.js";
+import {
+  detectLanguage,
+  isLanguageDetectable,
+} from "../../infrastructure/util/language-detector.js";
+import { extractFirstJsonObject } from "../../infrastructure/util/extract-json.js";
+import { interpolate } from "../../domain/prompt-interpolation.js";
+import { REPLY_DECISION_PROMPT } from "./prompts/reply-decision.prompt.js";
+import type {
+  QuestionClassification,
+  QuestionClassifierService,
+} from "./question-classifier.service.js";
+import type { CommentTone, ToneAnalyzerService } from "./tone-analyzer.service.js";
 
 // ── State Definition ───────────────────────────────────────────────────────
 
 export interface DialogueMessage {
-  role: 'user' | 'assistant';
+  role: "user" | "assistant";
   author: string;
   text: string;
   commentId: string;
@@ -37,7 +47,7 @@ export interface DialogueMessage {
 }
 
 export interface DialogueDecision {
-  action: 'auto_reply' | 'human_review' | 'skip';
+  action: "auto_reply" | "human_review" | "skip";
   reason: string;
   replyText?: string;
   reviewReason?: string;
@@ -49,27 +59,27 @@ export interface DialogueDecision {
 export const DialogueState = Annotation.Root({
   conversationId: Annotation<string>({
     reducer: (_, next) => next,
-    default: () => '',
+    default: () => "",
   }),
   postId: Annotation<string>({
     reducer: (_, next) => next,
-    default: () => '',
+    default: () => "",
   }),
   commentDbId: Annotation<string>({
     reducer: (_, next) => next,
-    default: () => '',
+    default: () => "",
   }),
   network: Annotation<string>({
     reducer: (_, next) => next,
-    default: () => '',
+    default: () => "",
   }),
   postContent: Annotation<string>({
     reducer: (_, next) => next,
-    default: () => '',
+    default: () => "",
   }),
   detectedLanguage: Annotation<string>({
     reducer: (_, next) => next,
-    default: () => 'en',
+    default: () => "en",
   }),
   maxDepth: Annotation<number>({
     reducer: (_, next) => next,
@@ -77,7 +87,7 @@ export const DialogueState = Annotation.Root({
   }),
   autoReplyComplexity: Annotation<string>({
     reducer: (_, next) => next,
-    default: () => 'medium',
+    default: () => "medium",
   }),
   messages: Annotation<DialogueMessage[]>({
     reducer: (_, next) => next,
@@ -97,7 +107,7 @@ export const DialogueState = Annotation.Root({
   }),
   tone: Annotation<CommentTone>({
     reducer: (_, next) => next,
-    default: () => 'neutral',
+    default: () => "neutral",
   }),
 });
 
@@ -116,24 +126,24 @@ export interface DialogueGraphDeps {
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function formatConversationContext(messages: DialogueMessage[]): string {
-  if (messages.length === 0) return 'No previous messages.';
+  if (messages.length === 0) return "No previous messages.";
   return messages
     .map((m) => {
-      const prefix = m.role === 'assistant' ? 'You' : `@${sanitizeUntrustedInput(m.author, 40)}`;
+      const prefix = m.role === "assistant" ? "You" : `@${sanitizeUntrustedInput(m.author, 40)}`;
       return `${prefix}: "${sanitizeUntrustedInput(m.text, 280)}"`;
     })
-    .join('\n');
+    .join("\n");
 }
 
 function findLastUserMessage(messages: DialogueMessage[]): DialogueMessage | null {
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i]!.role === 'user') return messages[i]!;
+    if (messages[i]!.role === "user") return messages[i]!;
   }
   return null;
 }
 
 function getCurrentDepth(messages: DialogueMessage[]): number {
-  return messages.filter((m) => m.role === 'assistant').length;
+  return messages.filter((m) => m.role === "assistant").length;
 }
 
 async function getCompiledText(
@@ -158,7 +168,7 @@ function classifyNode(deps: DialogueGraphDeps) {
   return async (state: DialogueStateType): Promise<Partial<DialogueStateType>> => {
     const lastUser = findLastUserMessage(state.messages);
     if (!lastUser) {
-      return { error: 'No user message to classify' };
+      return { error: "No user message to classify" };
     }
     const [classification, tone] = await Promise.all([
       deps.questionClassifier.classify(lastUser.text, state.detectedLanguage),
@@ -171,12 +181,12 @@ function classifyNode(deps: DialogueGraphDeps) {
 function decideNode(deps: DialogueGraphDeps) {
   return async (state: DialogueStateType): Promise<Partial<DialogueStateType>> => {
     if (state.error) {
-      return { decision: { action: 'skip', reason: `Dialogue error: ${state.error}` } };
+      return { decision: { action: "skip", reason: `Dialogue error: ${state.error}` } };
     }
 
     const lastUser = findLastUserMessage(state.messages);
     if (!lastUser) {
-      return { decision: { action: 'skip', reason: 'No user message to reply to' } };
+      return { decision: { action: "skip", reason: "No user message to reply to" } };
     }
 
     const currentDepth = getCurrentDepth(state.messages);
@@ -185,7 +195,7 @@ function decideNode(deps: DialogueGraphDeps) {
     if (currentDepth >= state.maxDepth) {
       return {
         decision: {
-          action: 'skip',
+          action: "skip",
           reason: `Max conversation depth reached (${currentDepth}/${state.maxDepth})`,
         },
       };
@@ -194,21 +204,21 @@ function decideNode(deps: DialogueGraphDeps) {
     const classification = state.classification;
     const systemPrompt = await getCompiledText(
       deps.promptPort,
-      'reply-decision',
+      "reply-decision",
       {
         postContent: state.postContent.slice(0, 400),
         conversationContext: formatConversationContext(state.messages),
         depth: String(currentDepth),
         maxDepth: String(state.maxDepth),
         isQuestion: String(classification?.isQuestion ?? false),
-        questionType: classification?.questionType ?? 'none',
+        questionType: classification?.questionType ?? "none",
         // Original comment language is passed as context only. The reply must
         // always be in English, so we also provide the old variable as 'en'
         // for any prompt versions that still reference it.
         commentLanguage: state.detectedLanguage,
-        detectedLanguage: 'en',
+        detectedLanguage: "en",
         network: state.network,
-        tone: state.tone ?? 'neutral',
+        tone: state.tone ?? "neutral",
       },
       REPLY_DECISION_PROMPT,
     );
@@ -223,12 +233,12 @@ Return JSON only.`;
     try {
       response = await deps.llm.generateChat(systemPrompt, userPrompt, {
         temperature: deps.repliesTemperature,
-        role: 'utility',
+        role: "utility",
       });
     } catch (err) {
       return {
         decision: {
-          action: 'skip',
+          action: "skip",
           reason: `LLM reply decision failed: ${(err as Error).message}`,
         },
       };
@@ -238,35 +248,38 @@ Return JSON only.`;
     if (!parsed) {
       return {
         decision: {
-          action: 'skip',
-          reason: 'LLM reply decision returned no valid JSON',
+          action: "skip",
+          reason: "LLM reply decision returned no valid JSON",
         },
       };
     }
 
     // Normalize and validate action
     let action = parsed.action;
-    if (action !== 'auto_reply' && action !== 'human_review' && action !== 'skip') {
-      action = 'human_review';
-      parsed.reviewReason = parsed.reviewReason ?? 'LLM returned invalid action';
+    if (action !== "auto_reply" && action !== "human_review" && action !== "skip") {
+      action = "human_review";
+      parsed.reviewReason = parsed.reviewReason ?? "LLM returned invalid action";
     }
 
     // Validate replyText exists for auto_reply
-    if (action === 'auto_reply' && (!parsed.replyText || typeof parsed.replyText !== 'string')) {
-      action = 'human_review';
-      parsed.reviewReason = parsed.reviewReason ?? 'LLM auto_reply missing replyText';
+    if (action === "auto_reply" && (!parsed.replyText || typeof parsed.replyText !== "string")) {
+      action = "human_review";
+      parsed.reviewReason = parsed.reviewReason ?? "LLM auto_reply missing replyText";
     }
 
     // Post-validation: all replies must be in English, regardless of the
     // original comment language. We trust the deterministic script check and
     // the language detector to catch non-English output.
-    if (action === 'auto_reply' && parsed.replyText) {
-      const englishLang: SupportedLanguage = 'en';
+    if (action === "auto_reply" && parsed.replyText) {
+      const englishLang: SupportedLanguage = "en";
       if (!matchesScript(parsed.replyText, englishLang)) {
-        action = 'human_review';
+        action = "human_review";
         parsed.reviewReason = `Reply is not in English — requires human review`;
-      } else if (isLanguageDetectable(parsed.replyText) && detectLanguage(parsed.replyText) !== englishLang) {
-        action = 'human_review';
+      } else if (
+        isLanguageDetectable(parsed.replyText) &&
+        detectLanguage(parsed.replyText) !== englishLang
+      ) {
+        action = "human_review";
         parsed.reviewReason = `Reply language detector returned non-English — requires human review`;
       } else {
         // The reply is in English; lock the recorded language to en.
@@ -275,20 +288,19 @@ Return JSON only.`;
     }
 
     // Complexity threshold check (matches legacy RepliesMonitor logic)
-    if (action === 'auto_reply' && state.autoReplyComplexity !== 'high') {
-      const isComplex =
-        lastUser.text.length > 200 || (lastUser.text.match(/\?/g)?.length ?? 0) > 1;
-      if (isComplex && state.autoReplyComplexity === 'low') {
-        action = 'human_review';
+    if (action === "auto_reply" && state.autoReplyComplexity !== "high") {
+      const isComplex = lastUser.text.length > 200 || (lastUser.text.match(/\?/g)?.length ?? 0) > 1;
+      if (isComplex && state.autoReplyComplexity === "low") {
+        action = "human_review";
         parsed.reviewReason = `Complex comment exceeds auto-reply threshold (${state.autoReplyComplexity})`;
       }
     }
 
     const decision: DialogueDecision = {
       action,
-      reason: parsed.reason ?? 'no reason given',
-      replyText: action === 'auto_reply' ? parsed.replyText : undefined,
-      reviewReason: action === 'human_review' ? parsed.reviewReason ?? parsed.reason : undefined,
+      reason: parsed.reason ?? "no reason given",
+      replyText: action === "auto_reply" ? parsed.replyText : undefined,
+      reviewReason: action === "human_review" ? (parsed.reviewReason ?? parsed.reason) : undefined,
       detectedLanguage: normalizeLanguage(parsed.detectedLanguage ?? state.detectedLanguage),
       targetCommentId: lastUser.commentId,
       targetCommentDbId: state.commentDbId,
@@ -302,11 +314,11 @@ Return JSON only.`;
 
 export function buildDialogueGraph(deps: DialogueGraphDeps) {
   const graph = new StateGraph(DialogueState)
-    .addNode('classify', classifyNode(deps))
-    .addNode('decide', decideNode(deps))
-    .addEdge(START, 'classify')
-    .addEdge('classify', 'decide')
-    .addEdge('decide', END);
+    .addNode("classify", classifyNode(deps))
+    .addNode("decide", decideNode(deps))
+    .addEdge(START, "classify")
+    .addEdge("classify", "decide")
+    .addEdge("decide", END);
 
   return graph;
 }
@@ -332,14 +344,14 @@ export function createDialogueState(input: {
   postContent: string;
   detectedLanguage: string;
   maxDepth: number;
-  autoReplyComplexity: 'low' | 'medium' | 'high';
+  autoReplyComplexity: "low" | "medium" | "high";
   messages: DialogueMessage[];
   tone?: CommentTone;
 }): DialogueStateType {
   return {
     conversationId: input.conversationId,
     postId: input.postId,
-    commentDbId: input.commentDbId ?? '',
+    commentDbId: input.commentDbId ?? "",
     network: input.network,
     postContent: input.postContent,
     detectedLanguage: input.detectedLanguage,
@@ -349,6 +361,6 @@ export function createDialogueState(input: {
     classification: null,
     decision: null,
     error: null,
-    tone: input.tone ?? 'neutral',
+    tone: input.tone ?? "neutral",
   };
 }

@@ -1,4 +1,4 @@
-import { AsyncLocalStorage } from 'node:async_hooks';
+import { AsyncLocalStorage } from "node:async_hooks";
 
 /**
  * Per-generation-run prompt label context.
@@ -31,11 +31,7 @@ export function withPromptLabelContext<T>(fn: () => Promise<T>): Promise<T> {
  * Record the resolved label for a prompt. If the same prompt is fetched
  * multiple times (e.g. judge retry), the last resolved label wins.
  */
-export function recordPromptLabel(
-  name: string,
-  label: string,
-  isFallback?: boolean,
-): void {
+export function recordPromptLabel(name: string, label: string, isFallback?: boolean): void {
   const store = promptLabelStorage.getStore();
   if (!store) return;
 

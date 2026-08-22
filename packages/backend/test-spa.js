@@ -1,4 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
+const { PrismaClient } = require('./src/generated/prisma/client');
 const { EncryptionService } = require('./dist/infrastructure/crypto/encryption.service.js');
 const { Camoufox } = require('camoufox-js');
 (async () => {

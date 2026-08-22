@@ -1,145 +1,145 @@
-import 'reflect-metadata';
-import { ModuleRef, Reflector } from '@nestjs/core';
-import { ConfigService } from '@nestjs/config';
-import { SchedulerRegistry } from '@nestjs/schedule';
-import { JwtService } from '@nestjs/jwt';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import "reflect-metadata";
+import { ModuleRef, Reflector } from "@nestjs/core";
+import { ConfigService } from "@nestjs/config";
+import { SchedulerRegistry } from "@nestjs/schedule";
+import { JwtService } from "@nestjs/jwt";
+import { EventEmitter2 } from "@nestjs/event-emitter";
 
-import { PrismaService } from '../../src/infrastructure/prisma/prisma.service';
+import { PrismaService } from "../../src/infrastructure/prisma/prisma.service";
 
 // Infrastructure
-import { BrowserFactory } from '../../src/infrastructure/browser/browser.factory';
-import { LlmService } from '../../src/infrastructure/llm/llm.service';
-import { LlmController } from '../../src/infrastructure/llm/llm.controller';
-import { TokenBudgetService } from '../../src/infrastructure/llm/token-budget.service.js';
-import { ContentReader } from '../../src/infrastructure/content/content-reader.js';
-import { DbContentReader } from '../../src/infrastructure/content/db-content-reader.js';
-import { ContentAdapterRegistry } from '../../src/infrastructure/content/adapters/content-adapter.registry.js';
-import { SseService } from '../../src/infrastructure/sse/sse.service';
-import { EncryptionService } from '../../src/infrastructure/crypto/encryption.service.js';
-import { MetricsPublisher } from '../../src/modules/monitoring/metrics-publisher.js';
-import { MonitoringController } from '../../src/modules/monitoring/monitoring.controller';
-import { SseModule } from '../../src/infrastructure/sse/sse.module';
-import { QueueFactory } from '../../src/infrastructure/queue/queue.factory';
-import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint.js';
-import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service.js';
-import { IndexNowService } from '../../src/infrastructure/indexnow/indexnow.service.js';
-import { TelegramAdapter } from '../../src/infrastructure/telegram/telegram.adapter.js';
-import { TopicGenerationService } from '../../src/infrastructure/content/topic-generation.service';
-import { EmailReaderService } from '../../src/infrastructure/email/email-reader.service.js';
-import { LangfuseService } from '../../src/infrastructure/langfuse/langfuse.service.js';
-import { DistributedLockService } from '../../src/infrastructure/multi-instance/distributed-lock.service.js';
-import { InstanceHeartbeatService } from '../../src/infrastructure/multi-instance/instance-heartbeat.service.js';
+import { BrowserFactory } from "../../src/infrastructure/browser/browser.factory";
+import { LlmService } from "../../src/infrastructure/llm/llm.service";
+import { LlmController } from "../../src/infrastructure/llm/llm.controller";
+import { TokenBudgetService } from "../../src/infrastructure/llm/token-budget.service.js";
+import { ContentReader } from "../../src/infrastructure/content/content-reader.js";
+import { DbContentReader } from "../../src/infrastructure/content/db-content-reader.js";
+import { ContentAdapterRegistry } from "../../src/infrastructure/content/adapters/content-adapter.registry.js";
+import { SseService } from "../../src/infrastructure/sse/sse.service";
+import { EncryptionService } from "../../src/infrastructure/crypto/encryption.service.js";
+import { MetricsPublisher } from "../../src/modules/monitoring/metrics-publisher.js";
+import { MonitoringController } from "../../src/modules/monitoring/monitoring.controller";
+import { SseModule } from "../../src/infrastructure/sse/sse.module";
+import { QueueFactory } from "../../src/infrastructure/queue/queue.factory";
+import { RedisCheckpointSaver } from "../../src/infrastructure/checkpoint/redis-checkpoint.js";
+import { DiscordNotificationService } from "../../src/infrastructure/notifications/discord-notification.service.js";
+import { IndexNowService } from "../../src/infrastructure/indexnow/indexnow.service.js";
+import { TelegramAdapter } from "../../src/infrastructure/telegram/telegram.adapter.js";
+import { TopicGenerationService } from "../../src/infrastructure/content/topic-generation.service";
+import { EmailReaderService } from "../../src/infrastructure/email/email-reader.service.js";
+import { LangfuseService } from "../../src/infrastructure/langfuse/langfuse.service.js";
+import { DistributedLockService } from "../../src/infrastructure/multi-instance/distributed-lock.service.js";
+import { InstanceHeartbeatService } from "../../src/infrastructure/multi-instance/instance-heartbeat.service.js";
 
 // Modules
-import { QueueModule } from '../../src/modules/queue/queue.module';
-import { QueueService } from '../../src/modules/queue/queue.service';
-import { QueueController } from '../../src/modules/queue/queue.controller';
-import { QueueTriageService } from '../../src/modules/queue/queue-triage.service.js';
+import { QueueModule } from "../../src/modules/queue/queue.module";
+import { QueueService } from "../../src/modules/queue/queue.service";
+import { QueueController } from "../../src/modules/queue/queue.controller";
+import { QueueTriageService } from "../../src/modules/queue/queue-triage.service.js";
 
 // Accounts
-import { AccountsService } from '../../src/modules/accounts/accounts.service';
-import { AccountsController } from '../../src/modules/accounts/accounts.controller';
+import { AccountsService } from "../../src/modules/accounts/accounts.service";
+import { AccountsController } from "../../src/modules/accounts/accounts.controller";
 
 // Content source
-import { ContentSourceService } from '../../src/modules/content-source/content-source.service';
-import { ContentSourceController } from '../../src/modules/content-source/content-source.controller';
+import { ContentSourceService } from "../../src/modules/content-source/content-source.service";
+import { ContentSourceController } from "../../src/modules/content-source/content-source.controller";
 
 // Generation
-import { GenerationService } from '../../src/modules/generation/generation.service';
-import { GenerationController } from '../../src/modules/generation/generation.controller';
-import { CronService } from '../../src/modules/generation/cron.service';
+import { GenerationService } from "../../src/modules/generation/generation.service";
+import { GenerationController } from "../../src/modules/generation/generation.controller";
+import { CronService } from "../../src/modules/generation/cron.service";
 
 // Posts
-import { PostsService } from '../../src/modules/posts/posts.service';
-import { PostsController } from '../../src/modules/posts/posts.controller';
+import { PostsService } from "../../src/modules/posts/posts.service";
+import { PostsController } from "../../src/modules/posts/posts.controller";
 
 // Posting
-import { PostingService } from '../../src/modules/posting/posting.service';
-import { PostingController } from '../../src/modules/posting/posting.controller';
-import { ThreadProgressService } from '../../src/modules/posting/thread-progress.service';
+import { PostingService } from "../../src/modules/posting/posting.service";
+import { PostingController } from "../../src/modules/posting/posting.controller";
+import { ThreadProgressService } from "../../src/modules/posting/thread-progress.service";
 
-import { XPoster } from '../../src/modules/posting/posters/x.poster';
-import { ThreadsPoster } from '../../src/modules/posting/posters/threads.poster';
-import { FacebookPoster } from '../../src/modules/posting/posters/facebook.poster';
-import { BlueskyPoster } from '../../src/modules/posting/posters/bluesky.poster.js';
-import { MastodonPoster } from '../../src/modules/posting/posters/mastodon.poster.js';
-import { LinkedinSocialPoster } from '../../src/modules/posting/posters/linkedin-social.poster.js';
+import { XPoster } from "../../src/modules/posting/posters/x.poster";
+import { ThreadsPoster } from "../../src/modules/posting/posters/threads.poster";
+import { FacebookPoster } from "../../src/modules/posting/posters/facebook.poster";
+import { BlueskyPoster } from "../../src/modules/posting/posters/bluesky.poster.js";
+import { MastodonPoster } from "../../src/modules/posting/posters/mastodon.poster.js";
+import { LinkedinSocialPoster } from "../../src/modules/posting/posters/linkedin-social.poster.js";
 
 // Sessions
-import { SessionsService } from '../../src/modules/sessions/sessions.service';
-import { WarmupService } from '../../src/modules/sessions/warmup.service';
-import { SessionsController } from '../../src/modules/sessions/sessions.controller';
+import { SessionsService } from "../../src/modules/sessions/sessions.service";
+import { WarmupService } from "../../src/modules/sessions/warmup.service";
+import { SessionsController } from "../../src/modules/sessions/sessions.controller";
 
 // Rate limit
-import { RateLimitService } from '../../src/modules/rate-limit/rate-limit.service';
+import { RateLimitService } from "../../src/modules/rate-limit/rate-limit.service";
 
 // Engagement
-import { EngagementService } from '../../src/modules/engagement/engagement.service';
-import { EngagementController } from '../../src/modules/engagement/engagement.controller';
-import { EngagementDecisionService } from '../../src/modules/engagement/engagement-decision.service';
-import { EngagementSafetyService } from '../../src/modules/engagement/engagement-safety.service';
-import { BrowsingSessionService } from '../../src/modules/engagement/browsing-session.service';
-import { XEngager } from '../../src/modules/engagement/engagers/x.engager';
-import { ThreadsEngager } from '../../src/modules/engagement/engagers/threads.engager';
-import { FacebookEngager } from '../../src/modules/engagement/engagers/facebook.engager';
-import { HumanBehaviorEngine } from '../../src/modules/engagement/human-behavior-engine.js';
-import { TargetingService } from '../../src/modules/engagement/targeting.service';
-import { EngagementSchedulerService } from '../../src/modules/engagement/engagement-scheduler.service';
+import { EngagementService } from "../../src/modules/engagement/engagement.service";
+import { EngagementController } from "../../src/modules/engagement/engagement.controller";
+import { EngagementDecisionService } from "../../src/modules/engagement/engagement-decision.service";
+import { EngagementSafetyService } from "../../src/modules/engagement/engagement-safety.service";
+import { BrowsingSessionService } from "../../src/modules/engagement/browsing-session.service";
+import { XEngager } from "../../src/modules/engagement/engagers/x.engager";
+import { ThreadsEngager } from "../../src/modules/engagement/engagers/threads.engager";
+import { FacebookEngager } from "../../src/modules/engagement/engagers/facebook.engager";
+import { HumanBehaviorEngine } from "../../src/modules/engagement/human-behavior-engine.js";
+import { TargetingService } from "../../src/modules/engagement/targeting.service";
+import { EngagementSchedulerService } from "../../src/modules/engagement/engagement-scheduler.service";
 
 // Flow control / Autonomy
-import { FlowControlService } from '../../src/modules/flow-control/flow-control.service';
-import { FlowControlController } from '../../src/modules/flow-control/flow-control.controller';
-import { AutoCheckService } from '../../src/modules/autonomy/auto-check.service';
-import { AutoApproveService } from '../../src/modules/autonomy/auto-approve.service';
-import { AutonomousRunnerService } from '../../src/modules/autonomy/autonomous-runner.service';
+import { FlowControlService } from "../../src/modules/flow-control/flow-control.service";
+import { FlowControlController } from "../../src/modules/flow-control/flow-control.controller";
+import { AutoCheckService } from "../../src/modules/autonomy/auto-check.service";
+import { AutoApproveService } from "../../src/modules/autonomy/auto-approve.service";
+import { AutonomousRunnerService } from "../../src/modules/autonomy/autonomous-runner.service";
 
 // Events
-import { SseController } from '../../src/modules/sse/sse.controller';
-import { AutoApproveListener } from '../../src/modules/autonomy/auto-approve.listener';
-import { SseEventListener } from '../../src/events/listeners/sse-event.listener';
-import { IndexNowListener } from '../../src/events/listeners/indexnow.listener.js';
-import { SocialPromoListener } from '../../src/events/listeners/social-promo.listener.js';
-import { BrowserAgentService } from '../../src/modules/browser-agent/browser-agent.service.js';
-import { CanonicalUrlService } from '../../src/modules/canonical/canonical-url.service.js';
-import { DomainConfigService } from '../../src/domain/domain-config/domain-config.service.js';
-import { ArticleGenerationCron } from '../../src/modules/syndication/article-generation.cron.js';
+import { SseController } from "../../src/modules/sse/sse.controller";
+import { AutoApproveListener } from "../../src/modules/autonomy/auto-approve.listener";
+import { SseEventListener } from "../../src/events/listeners/sse-event.listener";
+import { IndexNowListener } from "../../src/events/listeners/indexnow.listener.js";
+import { SocialPromoListener } from "../../src/events/listeners/social-promo.listener.js";
+import { BrowserAgentService } from "../../src/modules/browser-agent/browser-agent.service.js";
+import { CanonicalUrlService } from "../../src/modules/canonical/canonical-url.service.js";
+import { DomainConfigService } from "../../src/domain/domain-config/domain-config.service.js";
+import { ArticleGenerationCron } from "../../src/modules/syndication/article-generation.cron.js";
 
 // Health
-import { HealthController } from '../../src/modules/health/health.controller';
-import { HealthMonitorService } from '../../src/modules/health-monitor/health-monitor.service.js';
-import { HealthMonitorController } from '../../src/modules/health-monitor/health-monitor.controller.js';
+import { HealthController } from "../../src/modules/health/health.controller";
+import { HealthMonitorService } from "../../src/modules/health-monitor/health-monitor.service.js";
+import { HealthMonitorController } from "../../src/modules/health-monitor/health-monitor.controller.js";
 
 // Trending
-import { TrendingService } from '../../src/modules/trending/trending.service';
-import { TrendingScraperService } from '../../src/modules/trending/trending-scraper.service';
-import { TrendingController } from '../../src/modules/trending/trending.controller';
+import { TrendingService } from "../../src/modules/trending/trending.service";
+import { TrendingScraperService } from "../../src/modules/trending/trending-scraper.service";
+import { TrendingController } from "../../src/modules/trending/trending.controller";
 
 // Replies
-import { RepliesMonitorService } from '../../src/modules/replies/replies-monitor.service';
-import { RepliesController } from '../../src/modules/replies/replies.controller';
-import { QuestionClassifierService } from '../../src/modules/replies/question-classifier.service.js';
-import { DialogueService } from '../../src/modules/replies/dialogue.service.js';
-import { CommentSafetyClassifierService } from '../../src/modules/replies/comment-safety-classifier.service.js';
-import { ToneAnalyzerService } from '../../src/modules/replies/tone-analyzer.service.js';
+import { RepliesMonitorService } from "../../src/modules/replies/replies-monitor.service";
+import { RepliesController } from "../../src/modules/replies/replies.controller";
+import { QuestionClassifierService } from "../../src/modules/replies/question-classifier.service.js";
+import { DialogueService } from "../../src/modules/replies/dialogue.service.js";
+import { CommentSafetyClassifierService } from "../../src/modules/replies/comment-safety-classifier.service.js";
+import { ToneAnalyzerService } from "../../src/modules/replies/tone-analyzer.service.js";
 
 // Content enhancements
-import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service.js';
-import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator.js';
-import { ABVariantService } from '../../src/modules/content-enhancements/ab-variant.service.js';
-import { ThreadDepthService } from '../../src/modules/content-enhancements/thread-depth.service.js';
-import { ContentPillarTracker } from '../../src/modules/content-enhancements/content-pillar.tracker.js';
-import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook-performance-bank.js';
+import { VisualConceptService } from "../../src/modules/content-enhancements/visual-concept.service.js";
+import { ABVariantGenerator } from "../../src/modules/content-enhancements/ab-variant.generator.js";
+import { ABVariantService } from "../../src/modules/content-enhancements/ab-variant.service.js";
+import { ThreadDepthService } from "../../src/modules/content-enhancements/thread-depth.service.js";
+import { ContentPillarTracker } from "../../src/modules/content-enhancements/content-pillar.tracker.js";
+import { HookPerformanceBank } from "../../src/modules/content-enhancements/hook-performance-bank.js";
 
 // Orchestrator
-import { HardRulesService } from '../../src/modules/orchestrator/hard-rules.service.js';
-import { GuardrailsService } from '../../src/modules/orchestrator/guardrails.service.js';
-import { NetworkSelector } from '../../src/modules/orchestrator/network-selector.js';
-import { LlmDecisionService } from '../../src/modules/orchestrator/llm-decision.service.js';
-import { PostingWindowService } from '../../src/modules/orchestrator/posting-window.service.js';
-import { RulesEngine } from '../../src/modules/orchestrator/rules-engine.js';
-import { DecisionEngineService } from '../../src/modules/orchestrator/decision-engine.service.js';
-import { ActionExecutorService } from '../../src/modules/orchestrator/action-executor.service.js';
+import { HardRulesService } from "../../src/modules/orchestrator/hard-rules.service.js";
+import { GuardrailsService } from "../../src/modules/orchestrator/guardrails.service.js";
+import { NetworkSelector } from "../../src/modules/orchestrator/network-selector.js";
+import { LlmDecisionService } from "../../src/modules/orchestrator/llm-decision.service.js";
+import { PostingWindowService } from "../../src/modules/orchestrator/posting-window.service.js";
+import { RulesEngine } from "../../src/modules/orchestrator/rules-engine.js";
+import { DecisionEngineService } from "../../src/modules/orchestrator/decision-engine.service.js";
+import { ActionExecutorService } from "../../src/modules/orchestrator/action-executor.service.js";
 import {
   GenerateTopicsHandler,
   GeneratePostsHandler,
@@ -153,27 +153,27 @@ import {
   ScrapeMetricsHandler,
   RecycleContentHandler,
   AggregateHooksHandler,
-} from '../../src/modules/orchestrator/action-handlers.js';
+} from "../../src/modules/orchestrator/action-handlers.js";
 
 // Sprint O / New features
-import { CaptchaSolverService } from '../../src/infrastructure/captcha/captcha-solver.service';
-import { ProxyRotationService } from '../../src/infrastructure/proxy/proxy-rotation.service';
-import { AnalyticsService } from '../../src/modules/analytics/analytics.service';
-import { AnalyticsController } from '../../src/modules/analytics/analytics.controller';
-import { MetricsScraperService } from '../../src/modules/analytics/metrics-scraper.service';
-import { ABTestService } from '../../src/modules/analytics/ab-test.service';
-import { RecyclingService } from '../../src/modules/recycling/recycling.service';
-import { RecyclingController } from '../../src/modules/recycling/recycling.controller';
-import { QuoteCardService } from '../../src/modules/quote-cards/quote-card.service';
-import { QuoteCardController } from '../../src/modules/quote-cards/quote-card.controller';
+import { CaptchaSolverService } from "../../src/infrastructure/captcha/captcha-solver.service";
+import { ProxyRotationService } from "../../src/infrastructure/proxy/proxy-rotation.service";
+import { AnalyticsService } from "../../src/modules/analytics/analytics.service";
+import { AnalyticsController } from "../../src/modules/analytics/analytics.controller";
+import { MetricsScraperService } from "../../src/modules/analytics/metrics-scraper.service";
+import { ABTestService } from "../../src/modules/analytics/ab-test.service";
+import { RecyclingService } from "../../src/modules/recycling/recycling.service";
+import { RecyclingController } from "../../src/modules/recycling/recycling.controller";
+import { QuoteCardService } from "../../src/modules/quote-cards/quote-card.service";
+import { QuoteCardController } from "../../src/modules/quote-cards/quote-card.controller";
 
 // Auth
-import { AuthService } from '../../src/modules/auth/auth.service';
-import { AuthController } from '../../src/modules/auth/auth.controller';
-import { JwtAuthGuard } from '../../src/modules/auth/jwt-auth.guard';
-import { AdminGuard } from '../../src/modules/auth/admin.guard';
-import { LoginRateLimitGuard } from '../../src/modules/auth/login-rate-limit.guard';
-import { LocalhostGuard } from '../../src/infrastructure/guards/localhost.guard';
+import { AuthService } from "../../src/modules/auth/auth.service";
+import { AuthController } from "../../src/modules/auth/auth.controller";
+import { JwtAuthGuard } from "../../src/modules/auth/jwt-auth.guard";
+import { AdminGuard } from "../../src/modules/auth/admin.guard";
+import { LoginRateLimitGuard } from "../../src/modules/auth/login-rate-limit.guard";
+import { LocalhostGuard } from "../../src/infrastructure/guards/localhost.guard";
 
 /**
  * Set `design:paramtypes` metadata for a class. Vitest transforms source with
@@ -186,7 +186,7 @@ import { LocalhostGuard } from '../../src/infrastructure/guards/localhost.guard'
  * only for length/sparse slots and are overridden by the decorator metadata.
  */
 export function defineParamtypes(target: unknown, types: unknown[]): void {
-  Reflect.defineMetadata('design:paramtypes', types, target);
+  Reflect.defineMetadata("design:paramtypes", types, target);
 }
 
 /**
@@ -216,7 +216,13 @@ export function restoreAllDesignParamtypes(): void {
   defineParamtypes(DiscordNotificationService, [ConfigService]);
   defineParamtypes(IndexNowService, [ConfigService]);
   defineParamtypes(TelegramAdapter, [ConfigService]);
-  defineParamtypes(TopicGenerationService, [PrismaService, ConfigService, SchedulerRegistry, LlmService, Object]); // Object = @Optional() @Inject(IPromptPort)
+  defineParamtypes(TopicGenerationService, [
+    PrismaService,
+    ConfigService,
+    SchedulerRegistry,
+    LlmService,
+    Object,
+  ]); // Object = @Optional() @Inject(IPromptPort)
   defineParamtypes(EmailReaderService, [ConfigService]);
   defineParamtypes(LangfuseService, [Object, ConfigService]); // Object = LANGFUSE_PROMPT_BREAKER
   defineParamtypes(DistributedLockService, [Object]); // Object = SHARED_REDIS
@@ -224,7 +230,13 @@ export function restoreAllDesignParamtypes(): void {
 
   // ── Module classes with constructor DI ───────────────────────────────────
   defineParamtypes(SseModule, [SseService]);
-  defineParamtypes(QueueModule, [QueueFactory, PostingService, PostingWindowService, ModuleRef, ConfigService]);
+  defineParamtypes(QueueModule, [
+    QueueFactory,
+    PostingService,
+    PostingWindowService,
+    ModuleRef,
+    ConfigService,
+  ]);
 
   // ── Accounts ─────────────────────────────────────────────────────────────
   defineParamtypes(AccountsService, [PrismaService, ConfigService, Object]); // Object = @Optional() WarmupService
@@ -351,8 +363,19 @@ export function restoreAllDesignParamtypes(): void {
     BrowsingSessionService,
     EngagementSchedulerService,
   ]);
-  defineParamtypes(HumanBehaviorEngine, [PrismaService, Object, SseService, RateLimitService, Object]); // Object = IBrowserPort, IEngagementDecisionPort
-  defineParamtypes(EngagementDecisionService, [Object, ConfigService, Object, EngagementSafetyService]); // Object = @Inject(ILlmPort), Object = @Optional() @Inject(IPromptPort)
+  defineParamtypes(HumanBehaviorEngine, [
+    PrismaService,
+    Object,
+    SseService,
+    RateLimitService,
+    Object,
+  ]); // Object = IBrowserPort, IEngagementDecisionPort
+  defineParamtypes(EngagementDecisionService, [
+    Object,
+    ConfigService,
+    Object,
+    EngagementSafetyService,
+  ]); // Object = @Inject(ILlmPort), Object = @Optional() @Inject(IPromptPort)
   defineParamtypes(TargetingService, [ConfigService]);
   defineParamtypes(EngagementSchedulerService, [ConfigService, QueueFactory, SchedulerRegistry]);
 
@@ -360,7 +383,12 @@ export function restoreAllDesignParamtypes(): void {
   defineParamtypes(FlowControlService, [Object, SseService]); // Object = @Inject(SHARED_REDIS)
   defineParamtypes(FlowControlController, [FlowControlService]);
   defineParamtypes(AutoCheckService, [PrismaService]);
-  defineParamtypes(AutoApproveService, [ConfigService, PrismaService, SseService, AutoCheckService]);
+  defineParamtypes(AutoApproveService, [
+    ConfigService,
+    PrismaService,
+    SseService,
+    AutoCheckService,
+  ]);
   defineParamtypes(AutonomousRunnerService, [
     ConfigService,
     PrismaService,
@@ -398,7 +426,15 @@ export function restoreAllDesignParamtypes(): void {
 
   // ── Health ───────────────────────────────────────────────────────────────
   defineParamtypes(HealthController, [PrismaService, Object, ConfigService, QueueFactory]); // Object = @Inject(SHARED_REDIS)
-  defineParamtypes(HealthMonitorService, [PrismaService, SseService, DiscordNotificationService, QueueService, QueueFactory, ConfigService, SchedulerRegistry]);
+  defineParamtypes(HealthMonitorService, [
+    PrismaService,
+    SseService,
+    DiscordNotificationService,
+    QueueService,
+    QueueFactory,
+    ConfigService,
+    SchedulerRegistry,
+  ]);
   defineParamtypes(HealthMonitorController, [HealthMonitorService]);
 
   // ── Trending ─────────────────────────────────────────────────────────────
@@ -501,9 +537,27 @@ export function restoreAllDesignParamtypes(): void {
   defineParamtypes(ProxyRotationService, [ConfigService]);
   defineParamtypes(AnalyticsService, [PrismaService]);
   defineParamtypes(ABTestService, [PrismaService]);
-  defineParamtypes(AnalyticsController, [AnalyticsService, MetricsScraperService, ABTestService, Object]); // Object = @Optional() HookPerformanceBank
-  defineParamtypes(MetricsScraperService, [ConfigService, PrismaService, SseService, SchedulerRegistry, Object, Object, Object]); // Object = @Optional() @Inject(IBrowserPort), Object = @Optional() ABVariantService, Object = @Optional() @Inject(SHARED_REDIS)
-  defineParamtypes(RecyclingService, [ConfigService, PrismaService, GenerationService, SchedulerRegistry]);
+  defineParamtypes(AnalyticsController, [
+    AnalyticsService,
+    MetricsScraperService,
+    ABTestService,
+    Object,
+  ]); // Object = @Optional() HookPerformanceBank
+  defineParamtypes(MetricsScraperService, [
+    ConfigService,
+    PrismaService,
+    SseService,
+    SchedulerRegistry,
+    Object,
+    Object,
+    Object,
+  ]); // Object = @Optional() @Inject(IBrowserPort), Object = @Optional() ABVariantService, Object = @Optional() @Inject(SHARED_REDIS)
+  defineParamtypes(RecyclingService, [
+    ConfigService,
+    PrismaService,
+    GenerationService,
+    SchedulerRegistry,
+  ]);
   defineParamtypes(RecyclingController, [RecyclingService]);
   defineParamtypes(QuoteCardService, [ConfigService]);
   defineParamtypes(QuoteCardController, [QuoteCardService]);

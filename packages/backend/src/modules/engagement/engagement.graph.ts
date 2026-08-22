@@ -19,18 +19,18 @@
 // The graph is invoked by BrowsingSessionService (replacing the old
 // Math.random() loop). Warmup gating happens inside the graph, not outside.
 
-import { StateGraph, END, START, Annotation } from '@langchain/langgraph';
-import type { Page } from '../../domain/ports/browser-primitives.js';
-import { SocialNetwork } from '@prisma/client';
-import { Logger } from '@nestjs/common';
-import type { EngagementSource } from '../../domain/ports/engagement-decision.port.js';
-import type { BaseEngager } from './engagers/base.engager.js';
-import type { TargetingService } from './targeting.service.js';
-import type { WarmupService, WarmupStatus } from '../sessions/warmup.service.js';
-import type { HumanBehaviorEngine } from './human-behavior-engine.js';
-import { withTimeout } from '../../infrastructure/util/with-timeout.js';
+import { StateGraph, END, START, Annotation } from "@langchain/langgraph";
+import type { Page } from "../../domain/ports/browser-primitives.js";
+import { SocialNetwork } from "../../generated/prisma/client";
+import { Logger } from "@nestjs/common";
+import type { EngagementSource } from "../../domain/ports/engagement-decision.port.js";
+import type { BaseEngager } from "./engagers/base.engager.js";
+import type { TargetingService } from "./targeting.service.js";
+import type { WarmupService, WarmupStatus } from "../sessions/warmup.service.js";
+import type { HumanBehaviorEngine } from "./human-behavior-engine.js";
+import { withTimeout } from "../../infrastructure/util/with-timeout.js";
 
-const logger = new Logger('EngagementGraph');
+const logger = new Logger("EngagementGraph");
 
 // ============================================================
 // Types
@@ -134,31 +134,31 @@ function makeCheckWarmupNode(warmupService?: WarmupService) {
       let commentsBudget = state.commentsMaxPerSession;
       let repostsBudget = state.repostsMaxPerSession;
       let quotesBudget = state.quotesMaxPerSession;
-      let discussionsBudget = state.discussionsMaxPerSession ?? (repostsBudget + quotesBudget);
+      let discussionsBudget = state.discussionsMaxPerSession ?? repostsBudget + quotesBudget;
 
       switch (phase) {
-        case 'browse-only':
+        case "browse-only":
           likesBudget = 0;
           commentsBudget = 0;
           repostsBudget = 0;
           quotesBudget = 0;
           discussionsBudget = 0;
           break;
-        case 'light':
+        case "light":
           likesBudget = Math.min(likesBudget, warmupStatus.maxInteractionsPerDay);
           commentsBudget = 0;
           repostsBudget = 0;
           quotesBudget = 0;
           discussionsBudget = 0;
           break;
-        case 'moderate':
+        case "moderate":
           likesBudget = Math.min(likesBudget, warmupStatus.maxInteractionsPerDay);
           commentsBudget = Math.min(commentsBudget, 1);
           repostsBudget = 0;
           quotesBudget = 0;
           discussionsBudget = 0;
           break;
-        case 'full':
+        case "full":
           // No reduction
           break;
       }
@@ -177,12 +177,13 @@ function makeCheckWarmupNode(warmupService?: WarmupService) {
     // Not in warmup — use configured budgets
     return {
       warmupStatus: null,
-      warmupPhase: 'none',
+      warmupPhase: "none",
       likesBudget: state.likesMaxPerSession,
       commentsBudget: state.commentsMaxPerSession,
       repostsBudget: state.repostsMaxPerSession,
       quotesBudget: state.quotesMaxPerSession,
-      discussionsBudget: state.discussionsMaxPerSession ?? (state.repostsMaxPerSession + state.quotesMaxPerSession),
+      discussionsBudget:
+        state.discussionsMaxPerSession ?? state.repostsMaxPerSession + state.quotesMaxPerSession,
     };
   };
 }
@@ -192,15 +193,15 @@ function makeCheckWarmupNode(warmupService?: WarmupService) {
  * Delegates to TargetingService for weighted random selection.
  */
 function makePickSourceNode(targetingService: TargetingService) {
-  return function pickSourceNode(
-    state: EngagementStateType,
-  ): Partial<EngagementStateType> {
-    const target = targetingService.pickSource(state.network, { conversationReady: state.conversationReady });
+  return function pickSourceNode(state: EngagementStateType): Partial<EngagementStateType> {
+    const target = targetingService.pickSource(state.network, {
+      conversationReady: state.conversationReady,
+    });
     logger.debug(`pick_source: ${target.label} for ${state.network}`);
 
     return {
       source: target.source,
-      sourceUrl: target.url ?? '',
+      sourceUrl: target.url ?? "",
       sourceLabel: target.label,
     };
   };
@@ -215,7 +216,7 @@ function makeScrollFeedNode(engager: BaseEngager) {
     state: EngagementStateWithPageType,
   ): Promise<Partial<EngagementStateWithPageType>> {
     if (!state.page) {
-      return { error: 'No page available for scroll_feed', postUrls: [] };
+      return { error: "No page available for scroll_feed", postUrls: [] };
     }
     // Respect the overall session budget: scroll can only consume time left in the session,
     // and we cap it at 1/3 of the total duration so the remaining 2/3 is available for
@@ -230,7 +231,7 @@ function makeScrollFeedNode(engager: BaseEngager) {
     // fall back to the home feed so the session doesn't do nothing.
     let sourceUrl = state.sourceUrl?.trim();
     let postUrls: string[] = [];
-    let sourceLabel = state.sourceLabel?.trim() || 'home-feed';
+    let sourceLabel = state.sourceLabel?.trim() || "home-feed";
 
     // The first navigation/scroll is a common hang point if the page/context is dead.
     // Cap the whole scroll step at scroll budget + 60s so the graph cannot block here.
@@ -244,9 +245,11 @@ function makeScrollFeedNode(engager: BaseEngager) {
           `scroll_feed ${sourceUrl}`,
         );
         if (postUrls.length === 0) {
-          logger.warn(`scroll_feed: source ${sourceUrl} returned 0 posts for ${state.network} — falling back to home feed`);
-          sourceUrl = '';
-          sourceLabel = 'home-feed';
+          logger.warn(
+            `scroll_feed: source ${sourceUrl} returned 0 posts for ${state.network} — falling back to home feed`,
+          );
+          sourceUrl = "";
+          sourceLabel = "home-feed";
           postUrls = await withTimeout(
             engager.scrollFeed(state.page as Page, scrollSec),
             scrollTimeoutMs,
@@ -266,21 +269,23 @@ function makeScrollFeedNode(engager: BaseEngager) {
       // Other scroll failures (e.g. timeout, navigation blocked) are non-fatal — we just
       // return an empty post list and let the session continue/short-circuit.
       if (
-        errorMessage.includes('Target page, context or browser has been closed') ||
-        errorMessage.includes('Connection closed') ||
-        errorMessage.includes('Browser has been closed') ||
-        errorMessage.includes('Browser crashed') ||
-        errorMessage.includes('Context has been closed') ||
-        errorMessage.includes('Page has been closed')
+        errorMessage.includes("Target page, context or browser has been closed") ||
+        errorMessage.includes("Connection closed") ||
+        errorMessage.includes("Browser has been closed") ||
+        errorMessage.includes("Browser crashed") ||
+        errorMessage.includes("Context has been closed") ||
+        errorMessage.includes("Page has been closed")
       ) {
         throw err;
       }
       logger.warn(`scroll_feed failed for ${state.network}: ${errorMessage}`);
       postUrls = [];
     }
-    logger.debug(`scroll_feed: collected ${postUrls.length} posts for ${state.network} (scroll budget ${scrollSec}s, source: ${sourceLabel})`);
+    logger.debug(
+      `scroll_feed: collected ${postUrls.length} posts for ${state.network} (scroll budget ${scrollSec}s, source: ${sourceLabel})`,
+    );
 
-    return { postUrls, source: sourceUrl ? undefined : 'home-feed', sourceUrl, sourceLabel };
+    return { postUrls, source: sourceUrl ? undefined : "home-feed", sourceUrl, sourceLabel };
   };
 }
 
@@ -306,43 +311,43 @@ export type EngagementStateWithPageType = typeof EngagementStateWithPage.State;
  * The graph passes the warmup-adjusted budget to HumanBehaviorEngine.
  * This node processes ALL posts in a single invocation.
  */
-function makeDecidePerPostNode(
-  engager: BaseEngager,
-  humanBehaviorEngine: HumanBehaviorEngine,
-) {
+function makeDecidePerPostNode(engager: BaseEngager, humanBehaviorEngine: HumanBehaviorEngine) {
   return async function decidePerPostNode(
     state: EngagementStateWithPageType,
   ): Promise<Partial<EngagementStateWithPageType>> {
     if (!state.page) {
-      return { error: 'No page available for engagement' };
+      return { error: "No page available for engagement" };
     }
 
     // Delegate to HumanBehaviorEngine — it handles the full per-post loop:
     // extract → decide → execute → record to DB → rate limit → SSE
-    const results = await humanBehaviorEngine.processPosts(
-      state.page,
-      state.postUrls,
-      engager,
-      {
-        network: state.network,
-        accountId: state.accountId,
-        browsingSessionId: state.browsingSessionId,
-        source: state.source,
-        likesMaxPerSession: state.likesBudget,
-        commentsMaxPerSession: state.commentsBudget,
-        repostsMaxPerSession: state.repostsBudget,
-        quotesMaxPerSession: state.quotesBudget,
-        discussionsMaxPerSession: state.discussionsBudget,
-        maxPosts: state.maxPosts,
-        durationSec: state.durationSec,
-        sessionStartMs: state.sessionStartMs,
-      },
-    );
+    const results = await humanBehaviorEngine.processPosts(state.page, state.postUrls, engager, {
+      network: state.network,
+      accountId: state.accountId,
+      browsingSessionId: state.browsingSessionId,
+      source: state.source,
+      likesMaxPerSession: state.likesBudget,
+      commentsMaxPerSession: state.commentsBudget,
+      repostsMaxPerSession: state.repostsBudget,
+      quotesMaxPerSession: state.quotesBudget,
+      discussionsMaxPerSession: state.discussionsBudget,
+      maxPosts: state.maxPosts,
+      durationSec: state.durationSec,
+      sessionStartMs: state.sessionStartMs,
+    });
 
-    const likesThisSession = results.filter((r) => r.decision.action === 'like' && r.success).length;
-    const commentsThisSession = results.filter((r) => r.decision.action === 'comment' && r.success).length;
-    const repostsThisSession = results.filter((r) => r.decision.action === 'repost' && r.success).length;
-    const quotesThisSession = results.filter((r) => r.decision.action === 'quote' && r.success).length;
+    const likesThisSession = results.filter(
+      (r) => r.decision.action === "like" && r.success,
+    ).length;
+    const commentsThisSession = results.filter(
+      (r) => r.decision.action === "comment" && r.success,
+    ).length;
+    const repostsThisSession = results.filter(
+      (r) => r.decision.action === "repost" && r.success,
+    ).length;
+    const quotesThisSession = results.filter(
+      (r) => r.decision.action === "quote" && r.success,
+    ).length;
 
     // Convert to graph state format
     const graphResults: PostInteractionResult[] = results.map((r) => ({
@@ -371,10 +376,10 @@ function makeDecidePerPostNode(
  */
 function recordNode(state: EngagementStateType): Partial<EngagementStateType> {
   const successCount = state.results.filter((r) => r.success).length;
-  const likeCount = state.results.filter((r) => r.action === 'like' && r.success).length;
-  const commentCount = state.results.filter((r) => r.action === 'comment' && r.success).length;
-  const repostCount = state.results.filter((r) => r.action === 'repost' && r.success).length;
-  const quoteCount = state.results.filter((r) => r.action === 'quote' && r.success).length;
+  const likeCount = state.results.filter((r) => r.action === "like" && r.success).length;
+  const commentCount = state.results.filter((r) => r.action === "comment" && r.success).length;
+  const repostCount = state.results.filter((r) => r.action === "repost" && r.success).length;
+  const quoteCount = state.results.filter((r) => r.action === "quote" && r.success).length;
   const discussionCount = repostCount + quoteCount;
 
   logger.log(
@@ -406,22 +411,19 @@ export interface EngagementGraphDeps {
  * happens inside the decide_per_post node (which delegates to
  * HumanBehaviorEngine for the per-post LLM decision loop + DB tracking).
  */
-export function buildEngagementGraph(
-  engager: BaseEngager,
-  deps: EngagementGraphDeps,
-) {
+export function buildEngagementGraph(engager: BaseEngager, deps: EngagementGraphDeps) {
   const graph = new StateGraph(EngagementStateWithPage)
-    .addNode('check_warmup', makeCheckWarmupNode(deps.warmupService))
-    .addNode('pick_source', makePickSourceNode(deps.targetingService))
-    .addNode('scroll_feed', makeScrollFeedNode(engager))
-    .addNode('decide_per_post', makeDecidePerPostNode(engager, deps.humanBehaviorEngine))
-    .addNode('record', recordNode)
-    .addEdge(START, 'check_warmup')
-    .addEdge('check_warmup', 'pick_source')
-    .addEdge('pick_source', 'scroll_feed')
-    .addEdge('scroll_feed', 'decide_per_post')
-    .addEdge('decide_per_post', 'record')
-    .addEdge('record', END);
+    .addNode("check_warmup", makeCheckWarmupNode(deps.warmupService))
+    .addNode("pick_source", makePickSourceNode(deps.targetingService))
+    .addNode("scroll_feed", makeScrollFeedNode(engager))
+    .addNode("decide_per_post", makeDecidePerPostNode(engager, deps.humanBehaviorEngine))
+    .addNode("record", recordNode)
+    .addEdge(START, "check_warmup")
+    .addEdge("check_warmup", "pick_source")
+    .addEdge("pick_source", "scroll_feed")
+    .addEdge("scroll_feed", "decide_per_post")
+    .addEdge("decide_per_post", "record")
+    .addEdge("record", END);
 
   return graph;
 }
@@ -443,7 +445,8 @@ export function createEngagementInitialState(opts: {
   conversationReady?: boolean;
   page: Page | null;
 }): EngagementStateWithPageType {
-  const discussionsMax = opts.discussionsMaxPerSession ?? (opts.repostsMaxPerSession + opts.quotesMaxPerSession);
+  const discussionsMax =
+    opts.discussionsMaxPerSession ?? opts.repostsMaxPerSession + opts.quotesMaxPerSession;
   return {
     network: opts.network,
     accountId: opts.accountId,
@@ -457,15 +460,15 @@ export function createEngagementInitialState(opts: {
     quotesMaxPerSession: opts.quotesMaxPerSession,
     discussionsMaxPerSession: discussionsMax,
     warmupStatus: null,
-    warmupPhase: 'none',
+    warmupPhase: "none",
     likesBudget: opts.likesMaxPerSession,
     commentsBudget: opts.commentsMaxPerSession,
     repostsBudget: opts.repostsMaxPerSession,
     quotesBudget: opts.quotesMaxPerSession,
     discussionsBudget: discussionsMax,
-    source: 'home-feed',
-    sourceUrl: '',
-    sourceLabel: '',
+    source: "home-feed",
+    sourceUrl: "",
+    sourceLabel: "",
     conversationReady: opts.conversationReady ?? false,
     postUrls: [],
     results: [],

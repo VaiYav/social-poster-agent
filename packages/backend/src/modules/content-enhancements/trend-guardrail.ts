@@ -20,7 +20,7 @@
  * guardrail — they are already brand-safe (CAP pipeline vetted them).
  */
 
-import type { ILlmPort } from '../../domain/ports/llm.port.js';
+import type { ILlmPort } from "../../domain/ports/llm.port.js";
 
 /**
  * Result of the trend-jacking guardrail check.
@@ -35,7 +35,7 @@ export interface TrendGuardrailResult {
   /** Human-readable reason for the decision. */
   reason: string;
   /** Which layer made the decision: 'blocklist' | 'llm' | 'not_trending' */
-  decidedBy: 'blocklist' | 'llm' | 'not_trending';
+  decidedBy: "blocklist" | "llm" | "not_trending";
 }
 
 /**
@@ -45,24 +45,91 @@ export interface TrendGuardrailResult {
  */
 const BLOCKLIST_KEYWORDS: readonly string[] = [
   // Scandal / drama
-  'scandal', 'drama', 'controversy', 'controversial', 'exposed', 'exposé',
-  'lawsuit', 'sued', 'arrested', 'charged', 'crime', 'criminal', 'victim',
-  'abuse', 'assault', 'harassment', 'allegation', 'accused',
+  "scandal",
+  "drama",
+  "controversy",
+  "controversial",
+  "exposed",
+  "exposé",
+  "lawsuit",
+  "sued",
+  "arrested",
+  "charged",
+  "crime",
+  "criminal",
+  "victim",
+  "abuse",
+  "assault",
+  "harassment",
+  "allegation",
+  "accused",
   // Death / violence
-  'dead', 'death', 'killed', 'murder', 'shooting', 'attack', 'bombing',
-  'war', 'casualt', 'fatal', 'tragedy', 'disaster', 'massacre',
+  "dead",
+  "death",
+  "killed",
+  "murder",
+  "shooting",
+  "attack",
+  "bombing",
+  "war",
+  "casualt",
+  "fatal",
+  "tragedy",
+  "disaster",
+  "massacre",
   // Politics
-  'election', 'politician', 'political', 'congress', 'senate', 'president',
-  'parliament', 'democrat', 'republican', 'tory', 'labour', 'putin', 'trump',
-  'biden', 'macron', 'netanyahu', 'zelensky', 'regime', 'coup',
+  "election",
+  "politician",
+  "political",
+  "congress",
+  "senate",
+  "president",
+  "parliament",
+  "democrat",
+  "republican",
+  "tory",
+  "labour",
+  "putin",
+  "trump",
+  "biden",
+  "macron",
+  "netanyahu",
+  "zelensky",
+  "regime",
+  "coup",
   // Medical claims (brand voice forbids medical advice)
-  'cancer', 'tumor', 'tumour', 'disease', 'pandemic', 'covid', 'vaccine',
-  'overdose', 'addiction', 'depression', 'suicide', 'mental illness',
+  "cancer",
+  "tumor",
+  "tumour",
+  "disease",
+  "pandemic",
+  "covid",
+  "vaccine",
+  "overdose",
+  "addiction",
+  "depression",
+  "suicide",
+  "mental illness",
   // Hate / discrimination
-  'racist', 'racism', 'sexist', 'sexism', 'homophob', 'transphob', 'islamophob',
-  'antisemit', 'nazi', 'fascist', 'white supremacist',
+  "racist",
+  "racism",
+  "sexist",
+  "sexism",
+  "homophob",
+  "transphob",
+  "islamophob",
+  "antisemit",
+  "nazi",
+  "fascist",
+  "white supremacist",
   // Celebrity gossip (low-value, off-brand)
-  'divorce', 'breakup', 'cheating', 'affair', 'leaked', 'nude', 'onlyfans',
+  "divorce",
+  "breakup",
+  "cheating",
+  "affair",
+  "leaked",
+  "nude",
+  "onlyfans",
 ];
 
 /**
@@ -81,7 +148,7 @@ const MIN_OPPORTUNITY_SCORE = 4;
  * getTrendingTopics(). The path prefix is the reliable identifier.
  */
 export function isTrendingSource(sourceType: string, path: string): boolean {
-  return /(^|\/)trending\//.test(path ?? '');
+  return /(^|\/)trending\//.test(path ?? "");
 }
 
 /**
@@ -90,11 +157,15 @@ export function isTrendingSource(sourceType: string, path: string): boolean {
  * no longer false-positive inside "forward"/"warm"/"reward" (B11).
  */
 const STEM_KEYWORDS: ReadonlySet<string> = new Set([
-  'casualt', 'homophob', 'transphob', 'islamophob', 'antisemit',
+  "casualt",
+  "homophob",
+  "transphob",
+  "islamophob",
+  "antisemit",
 ]);
 
 function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**
@@ -104,7 +175,7 @@ function escapeRegExp(s: string): string {
  */
 const BLOCKLIST_MATCHERS: readonly RegExp[] = BLOCKLIST_KEYWORDS.map((kw) => {
   const trailing = !STEM_KEYWORDS.has(kw) && /[a-z0-9]$/i.test(kw);
-  return new RegExp(`\\b${escapeRegExp(kw)}${trailing ? '\\b' : ''}`, 'i');
+  return new RegExp(`\\b${escapeRegExp(kw)}${trailing ? "\\b" : ""}`, "i");
 });
 
 /**
@@ -161,8 +232,8 @@ Evaluate:`;
     });
 
     const jsonStr = response.content
-      .replace(/^```(?:json)?\s*/i, '')
-      .replace(/\s*```$/i, '')
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/i, "")
       .trim();
     const parsed = JSON.parse(jsonStr) as {
       safe?: boolean;
@@ -174,17 +245,17 @@ Evaluate:`;
     return {
       safe: Boolean(parsed.safe),
       opportunityScore: Math.max(0, Math.min(10, Number(parsed.opportunityScore) || 0)),
-      suggestedAngle: String(parsed.suggestedAngle ?? ''),
-      reason: String(parsed.reason ?? 'LLM evaluation completed'),
-      decidedBy: 'llm',
+      suggestedAngle: String(parsed.suggestedAngle ?? ""),
+      reason: String(parsed.reason ?? "LLM evaluation completed"),
+      decidedBy: "llm",
     };
   } catch (err) {
     return {
       safe: false,
       opportunityScore: 0,
-      suggestedAngle: '',
+      suggestedAngle: "",
       reason: `LLM evaluation failed (${(err as Error).message}) — failing closed (topic rejected)`,
-      decidedBy: 'llm',
+      decidedBy: "llm",
     };
   }
 }
@@ -211,9 +282,9 @@ export async function checkTrendSafety(
     return {
       safe: true,
       opportunityScore: 10,
-      suggestedAngle: '',
-      reason: 'Non-trending source — already brand-safe (CAP-vetted)',
-      decidedBy: 'not_trending',
+      suggestedAngle: "",
+      reason: "Non-trending source — already brand-safe (CAP-vetted)",
+      decidedBy: "not_trending",
     };
   }
 
@@ -221,9 +292,9 @@ export async function checkTrendSafety(
     return {
       safe: false,
       opportunityScore: 0,
-      suggestedAngle: '',
+      suggestedAngle: "",
       reason: `Blocklisted keyword detected in topic — brand-unsafe territory`,
-      decidedBy: 'blocklist',
+      decidedBy: "blocklist",
     };
   }
 

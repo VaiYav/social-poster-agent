@@ -1,20 +1,26 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { readFile, readdir, access, stat as fsStat } from 'node:fs/promises';
-import { join } from 'node:path';
-import matter from 'gray-matter';
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { readFile, readdir, access, stat as fsStat } from "node:fs/promises";
+import { join } from "node:path";
+import matter from "gray-matter";
 import {
   BriefSchema,
   ArticleFrontmatterSchema,
   TopicQueueSchema,
   CreateRunReportSchema,
   type ContentTopic,
-} from '@spa/shared';
-import { extractFactsFromMarkdown } from './extract-facts.js';
-import type { IContentAdapter } from './adapters/content-adapter.interface.js';
+} from "@spa/shared";
+import { extractFactsFromMarkdown } from "./extract-facts.js";
+import type { IContentAdapter } from "./adapters/content-adapter.interface.js";
 
 // Re-export for backward compatibility (other modules may import from here)
-export { BriefSchema, ArticleFrontmatterSchema, TopicQueueSchema, CreateRunReportSchema, type ContentTopic };
+export {
+  BriefSchema,
+  ArticleFrontmatterSchema,
+  TopicQueueSchema,
+  CreateRunReportSchema,
+  type ContentTopic,
+};
 
 // ============================================================
 // Content Reader — reads content-agent-platform runs + blog
@@ -22,7 +28,7 @@ export { BriefSchema, ArticleFrontmatterSchema, TopicQueueSchema, CreateRunRepor
 
 @Injectable()
 export class ContentReader implements IContentAdapter {
-  readonly sourceType = 'cap_file';
+  readonly sourceType = "cap_file";
   lastError: string | null = null;
 
   private readonly logger = new Logger(ContentReader.name);
@@ -35,17 +41,17 @@ export class ContentReader implements IContentAdapter {
 
   constructor(private readonly configService: ConfigService) {
     this.capPath = this.configService.get<string>(
-      'CONTENT_AGENT_PLATFORM_PATH',
-      '../content-agent-platform',
+      "CONTENT_AGENT_PLATFORM_PATH",
+      "../content-agent-platform",
     );
-    this.blogPath = this.configService.get<string>('SITE_BLOG_PATH', '../content/blog/en');
-    this.cacheTtlMs = this.configService.get<number>('CONTENT_CACHE_TTL_MS', 120_000); // 2 min
+    this.blogPath = this.configService.get<string>("SITE_BLOG_PATH", "../content/blog/en");
+    this.cacheTtlMs = this.configService.get<number>("CONTENT_CACHE_TTL_MS", 120_000); // 2 min
   }
 
   // Read briefs from content-agent-platform/runs/brief-*/brief.json
   // Priority source — SERP-grounded, SEO-optimized.
   async readBriefs(limit = 10): Promise<ContentTopic[]> {
-    const runsDir = join(this.capPath, 'runs');
+    const runsDir = join(this.capPath, "runs");
     try {
       await access(runsDir);
     } catch {
@@ -55,7 +61,7 @@ export class ContentReader implements IContentAdapter {
 
     const entries = await readdir(runsDir, { withFileTypes: true });
     const briefDirs = entries
-      .filter((e) => e.isDirectory() && e.name.startsWith('brief-'))
+      .filter((e) => e.isDirectory() && e.name.startsWith("brief-"))
       .map((e) => e.name)
       .sort()
       .reverse() // newest first
@@ -65,22 +71,22 @@ export class ContentReader implements IContentAdapter {
     for (const dir of briefDirs) {
       if (topics.length >= limit) break;
       try {
-        const briefPath = join(runsDir, dir, 'brief.json');
-        const raw = await readFile(briefPath, 'utf-8');
+        const briefPath = join(runsDir, dir, "brief.json");
+        const raw = await readFile(briefPath, "utf-8");
         const parsed = BriefSchema.parse(JSON.parse(raw));
         // Use file modification time for freshness prioritization (B5)
         const fileStat = await fsStat(briefPath);
         topics.push({
-          sourceType: 'brief',
+          sourceType: "brief",
           path: briefPath,
           topic: parsed.topic,
           keywords: parsed.target_queries.slice(0, 5),
           facts: parsed.outline.flatMap((o) => o.entities.slice(0, 3)),
           outline: parsed.outline.map((o) => ({ heading: o.heading, entities: o.entities })),
           // B5: category + freshness for topic prioritization
-          category: parsed.outline[0]?.heading ?? 'general',
+          category: parsed.outline[0]?.heading ?? "general",
           publishedAt: fileStat.mtime,
-          language: 'en',
+          language: "en",
         });
       } catch (err) {
         this.logger.debug(`Skipping ${dir}: ${(err as Error).message}`);
@@ -104,7 +110,7 @@ export class ContentReader implements IContentAdapter {
     }
 
     const files = (await readdir(this.blogPath, { withFileTypes: true }))
-      .filter((e) => e.isFile() && e.name.endsWith('.md'))
+      .filter((e) => e.isFile() && e.name.endsWith(".md"))
       .map((e) => e.name)
       .slice(0, limit * 2);
 
@@ -113,7 +119,7 @@ export class ContentReader implements IContentAdapter {
       if (topics.length >= limit) break;
       try {
         const filePath = join(this.blogPath, file);
-        const raw = await readFile(filePath, 'utf-8');
+        const raw = await readFile(filePath, "utf-8");
         const { data: frontmatter, content } = matter(raw);
         const parsed = ArticleFrontmatterSchema.parse(frontmatter);
 
@@ -131,16 +137,16 @@ export class ContentReader implements IContentAdapter {
         this.logger.debug(`F10: Extracted ${facts.length} facts from ${file}`);
 
         topics.push({
-          sourceType: 'article',
+          sourceType: "article",
           path: filePath,
           topic: parsed.title,
           keywords: parsed.seo?.keywords ?? parsed.tags.slice(0, 5),
           facts,
           // B5: category + freshness for topic prioritization.
           // F10: prefer explicit `category` frontmatter, then first tag.
-          category: parsed.category ?? parsed.tags[0] ?? 'general',
+          category: parsed.category ?? parsed.tags[0] ?? "general",
           publishedAt: parsed.date ? new Date(parsed.date) : undefined,
-          language: 'en',
+          language: "en",
         });
       } catch (err) {
         this.logger.debug(`Skipping ${file}: ${(err as Error).message}`);
@@ -156,7 +162,7 @@ export class ContentReader implements IContentAdapter {
    * Source 2 (§10.1): ranked topic clusters for topic diversity.
    */
   async readTopicQueues(limit = 10): Promise<ContentTopic[]> {
-    const runsDir = join(this.capPath, 'runs');
+    const runsDir = join(this.capPath, "runs");
     try {
       await access(runsDir);
     } catch {
@@ -166,7 +172,7 @@ export class ContentReader implements IContentAdapter {
 
     const entries = await readdir(runsDir, { withFileTypes: true });
     const topicDirs = entries
-      .filter((e) => e.isDirectory() && e.name.startsWith('topics-'))
+      .filter((e) => e.isDirectory() && e.name.startsWith("topics-"))
       .map((e) => e.name)
       .sort()
       .reverse()
@@ -176,8 +182,8 @@ export class ContentReader implements IContentAdapter {
     for (const dir of topicDirs) {
       if (topics.length >= limit) break;
       try {
-        const queuePath = join(runsDir, dir, 'topic-queue.json');
-        const raw = await readFile(queuePath, 'utf-8');
+        const queuePath = join(runsDir, dir, "topic-queue.json");
+        const raw = await readFile(queuePath, "utf-8");
         const parsed = TopicQueueSchema.parse(JSON.parse(raw));
         const fileStat = await fsStat(queuePath);
 
@@ -185,14 +191,14 @@ export class ContentReader implements IContentAdapter {
         for (const cluster of parsed.clusters) {
           if (topics.length >= limit) break;
           topics.push({
-            sourceType: 'topic',
+            sourceType: "topic",
             path: queuePath,
             topic: cluster.representative,
             keywords: parsed.seeds.slice(0, 5),
             facts: [],
-            category: cluster.status === 'new' ? 'trending' : 'general',
+            category: cluster.status === "new" ? "trending" : "general",
             publishedAt: fileStat.mtime,
-            language: 'en',
+            language: "en",
           });
         }
       } catch (err) {
@@ -210,7 +216,7 @@ export class ContentReader implements IContentAdapter {
    * Extracts topic from file path (slug → human-readable topic).
    */
   async readCreateRuns(limit = 10): Promise<ContentTopic[]> {
-    const runsDir = join(this.capPath, 'runs');
+    const runsDir = join(this.capPath, "runs");
     try {
       await access(runsDir);
     } catch {
@@ -220,7 +226,7 @@ export class ContentReader implements IContentAdapter {
 
     const entries = await readdir(runsDir, { withFileTypes: true });
     const createDirs = entries
-      .filter((e) => e.isDirectory() && e.name.startsWith('create-'))
+      .filter((e) => e.isDirectory() && e.name.startsWith("create-"))
       .map((e) => e.name)
       .sort()
       .reverse()
@@ -230,8 +236,8 @@ export class ContentReader implements IContentAdapter {
     for (const dir of createDirs) {
       if (topics.length >= limit) break;
       try {
-        const reportPath = join(runsDir, dir, 'report.json');
-        const raw = await readFile(reportPath, 'utf-8');
+        const reportPath = join(runsDir, dir, "report.json");
+        const raw = await readFile(reportPath, "utf-8");
         const parsed = CreateRunReportSchema.parse(JSON.parse(raw));
         const fileStat = await fsStat(reportPath);
 
@@ -240,21 +246,21 @@ export class ContentReader implements IContentAdapter {
         const firstFile = parsed.files[0];
         if (!firstFile) continue;
 
-        const slug = firstFile.split('/').pop()?.replace(/\.md$/, '') ?? '';
+        const slug = firstFile.split("/").pop()?.replace(/\.md$/, "") ?? "";
         const topic = slug
-          .replace(/-\d{4}$/, '')
-          .replace(/-/g, ' ')
+          .replace(/-\d{4}$/, "")
+          .replace(/-/g, " ")
           .replace(/\b\w/g, (c) => c.toUpperCase());
 
         topics.push({
-          sourceType: 'create_run',
+          sourceType: "create_run",
           path: reportPath,
           topic,
           keywords: [],
           facts: [],
-          category: 'fresh',
+          category: "fresh",
           publishedAt: fileStat.mtime,
-          language: 'en',
+          language: "en",
         });
       } catch (err) {
         this.logger.debug(`Skipping ${dir}: ${(err as Error).message}`);
@@ -276,7 +282,11 @@ export class ContentReader implements IContentAdapter {
    */
   async getTopics(limit = 5): Promise<ContentTopic[]> {
     // Sprint J: Check cache — return cached if fresh and covers the requested limit
-    if (this.topicsCache && Date.now() < this.topicsCache.expiresAt && this.topicsCache.limit >= limit) {
+    if (
+      this.topicsCache &&
+      Date.now() < this.topicsCache.expiresAt &&
+      this.topicsCache.limit >= limit
+    ) {
       this.logger.debug(`Content cache hit (limit: ${limit})`);
       return this.topicsCache.topics.slice(0, limit);
     }
@@ -325,7 +335,7 @@ export class ContentReader implements IContentAdapter {
   }
 
   canHandle(sourceType: string): boolean {
-    return ['brief', 'article', 'topic', 'create_run'].includes(sourceType);
+    return ["brief", "article", "topic", "create_run"].includes(sourceType);
   }
 
   async fetchTopics(limit = 5, since?: Date): Promise<ContentTopic[]> {
@@ -335,8 +345,8 @@ export class ContentReader implements IContentAdapter {
 
   async fetchArticle(path: string): Promise<ContentTopic | null> {
     try {
-      if (path.endsWith('.md')) {
-        const raw = await readFile(path, 'utf-8');
+      if (path.endsWith(".md")) {
+        const raw = await readFile(path, "utf-8");
         const { data: frontmatter, content } = matter(raw);
         const parsed = ArticleFrontmatterSchema.parse(frontmatter);
         const facts = extractFactsFromMarkdown(
@@ -349,30 +359,30 @@ export class ContentReader implements IContentAdapter {
           { maxFacts: 10 },
         );
         return {
-          sourceType: 'article',
+          sourceType: "article",
           path,
           topic: parsed.title,
           keywords: parsed.seo?.keywords ?? parsed.tags.slice(0, 5),
           facts,
-          category: parsed.category ?? parsed.tags[0] ?? 'general',
+          category: parsed.category ?? parsed.tags[0] ?? "general",
           publishedAt: parsed.date ? new Date(parsed.date) : undefined,
-          language: 'en',
+          language: "en",
         };
       }
-      if (path.endsWith('brief.json')) {
-        const raw = await readFile(path, 'utf-8');
+      if (path.endsWith("brief.json")) {
+        const raw = await readFile(path, "utf-8");
         const parsed = BriefSchema.parse(JSON.parse(raw));
         const fileStat = await fsStat(path);
         return {
-          sourceType: 'brief',
+          sourceType: "brief",
           path,
           topic: parsed.topic,
           keywords: parsed.target_queries.slice(0, 5),
           facts: parsed.outline.flatMap((o) => o.entities.slice(0, 3)),
           outline: parsed.outline.map((o) => ({ heading: o.heading, entities: o.entities })),
-          category: parsed.outline[0]?.heading ?? 'general',
+          category: parsed.outline[0]?.heading ?? "general",
           publishedAt: fileStat.mtime,
-          language: 'en',
+          language: "en",
         };
       }
       this.lastError = `Unsupported article path: ${path}`;
@@ -385,7 +395,7 @@ export class ContentReader implements IContentAdapter {
 
   async healthCheck(): Promise<{ ok: boolean; error?: string }> {
     try {
-      const runsDir = join(this.capPath, 'runs');
+      const runsDir = join(this.capPath, "runs");
       await access(runsDir);
       return { ok: true };
     } catch (err) {

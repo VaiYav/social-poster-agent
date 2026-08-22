@@ -20,7 +20,7 @@
  */
 
 /** Site base URL — env-configurable for staging vs production. */
-export const DEFAULT_SITE_BASE_URL = '';
+export const DEFAULT_SITE_BASE_URL = "";
 
 /**
  * Extract a blog slug from a content-source path.
@@ -32,7 +32,7 @@ export const DEFAULT_SITE_BASE_URL = '';
  *   extractBlogSlug('../content-agent-platform/runs/brief-1/brief.json') → null
  */
 export function extractBlogSlug(sourcePath: string): string | null {
-  if (!sourcePath || typeof sourcePath !== 'string') return null;
+  if (!sourcePath || typeof sourcePath !== "string") return null;
 
   const match = sourcePath.match(/blog\/(?:[a-z]{2}\/)?([^/]+)\.md$/i);
   return match?.[1] ?? null;
@@ -54,14 +54,17 @@ export function extractBlogSlug(sourcePath: string): string | null {
  *   buildSourceUrl('../content-agent-platform/runs/brief-1/brief.json')
  *     → null
  */
-export function buildSourceUrl(sourcePath: string, siteBaseUrl = DEFAULT_SITE_BASE_URL): string | null {
+export function buildSourceUrl(
+  sourcePath: string,
+  siteBaseUrl = DEFAULT_SITE_BASE_URL,
+): string | null {
   const slug = extractBlogSlug(sourcePath);
   if (!slug) return null;
 
   const localeMatch = sourcePath.match(/blog\/([a-z]{2})\//i);
   const locale = localeMatch?.[1]?.toLowerCase();
 
-  if (locale && locale !== 'en') {
+  if (locale && locale !== "en") {
     return `${siteBaseUrl}/${locale}/blog/${slug}`;
   }
   return `${siteBaseUrl}/blog/${slug}`;
@@ -118,18 +121,18 @@ export function buildDirectUtmUrl(destinationUrl: string, params: DirectUtmParam
   } catch {
     throw new TypeError(`buildDirectUtmUrl: destinationUrl is not a valid URL: ${destinationUrl}`);
   }
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
     throw new TypeError(`buildDirectUtmUrl: destinationUrl must use http/https: ${destinationUrl}`);
   }
-  if (!params?.utmSource || typeof params.utmSource !== 'string') {
-    throw new TypeError('buildDirectUtmUrl: params.utmSource is required');
+  if (!params?.utmSource || typeof params.utmSource !== "string") {
+    throw new TypeError("buildDirectUtmUrl: params.utmSource is required");
   }
 
   const utm: ReadonlyArray<readonly [string, string]> = [
-    ['utm_source', params.utmSource],
-    ['utm_medium', params.utmMedium ?? 'social'],
-    ...(params.utmCampaign ? ([['utm_campaign', params.utmCampaign]] as const) : []),
-    ...(params.utmContent ? ([['utm_content', params.utmContent]] as const) : []),
+    ["utm_source", params.utmSource],
+    ["utm_medium", params.utmMedium ?? "social"],
+    ...(params.utmCampaign ? ([["utm_campaign", params.utmCampaign]] as const) : []),
+    ...(params.utmContent ? ([["utm_content", params.utmContent]] as const) : []),
   ];
   for (const [key, value] of utm) {
     if (!url.searchParams.has(key)) url.searchParams.set(key, value);

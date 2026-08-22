@@ -1,6 +1,6 @@
-import { defineStore } from 'pinia';
-import { ref } from 'vue';
-import api from '../composables/useApi';
+import { defineStore } from "pinia";
+import { ref } from "vue";
+import api from "../composables/useApi";
 
 interface QueueStats {
   waiting: number;
@@ -21,7 +21,7 @@ interface FailedJob {
  * Queue store — BullMQ job stats and failed jobs per network.
  * Used by Queue view.
  */
-export const useQueueStore = defineStore('queue', () => {
+export const useQueueStore = defineStore("queue", () => {
   const stats = ref<Record<string, QueueStats>>({});
   const failedJobs = ref<Record<string, FailedJob[]>>({});
   const paused = ref<Record<string, boolean>>({});
@@ -92,9 +92,22 @@ export const useQueueStore = defineStore('queue', () => {
   }
 
   async function fetchAll() {
-    const networks = ['X', 'THREADS', 'FACEBOOK'];
+    const networks = ["X", "THREADS", "FACEBOOK"];
     await Promise.all(networks.flatMap((n) => [fetchStats(n), fetchFailed(n)]));
   }
 
-  return { stats, failedJobs, paused, loading, error, fetchStats, fetchFailed, fetchAll, pauseQueue, resumeQueue, retryFailed, clearCompleted };
+  return {
+    stats,
+    failedJobs,
+    paused,
+    loading,
+    error,
+    fetchStats,
+    fetchFailed,
+    fetchAll,
+    pauseQueue,
+    resumeQueue,
+    retryFailed,
+    clearCompleted,
+  };
 });

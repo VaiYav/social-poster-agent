@@ -1,6 +1,6 @@
-import { Global, Module } from '@nestjs/common';
-import { APP_INTERCEPTOR } from '@nestjs/core';
-import { RedactInterceptor } from './redact.interceptor';
+import { Global, Module } from "@nestjs/common";
+import { APP_INTERCEPTOR } from "@nestjs/core";
+import { RedactInterceptor } from "./redact.interceptor";
 
 /**
  * Logging module — registers RedactInterceptor globally.

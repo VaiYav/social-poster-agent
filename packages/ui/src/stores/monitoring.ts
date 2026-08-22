@@ -6,10 +6,10 @@
  * - REST API (/api/v1/health-monitor/dashboard, /api/v1/queue/stats)
  * - Agent control endpoints (pause/resume/stop/restart)
  */
-import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
-import api from '../composables/useApi';
-import type { SSEvent } from '@spa/shared';
+import { defineStore } from "pinia";
+import { ref, computed } from "vue";
+import api from "../composables/useApi";
+import type { SSEvent } from "@spa/shared";
 
 export interface QueueStats {
   network: string;
@@ -22,15 +22,15 @@ export interface QueueStats {
 }
 
 export interface HealthAlert {
-  severity: 'critical' | 'warning' | 'info';
+  severity: "critical" | "warning" | "info";
   message: string;
   timestamp: number;
 }
 
 export interface AgentStatus {
   name: string;
-  type: 'cron' | 'worker' | 'scheduler';
-  status: 'running' | 'stopped' | 'paused' | 'error';
+  type: "cron" | "worker" | "scheduler";
+  status: "running" | "stopped" | "paused" | "error";
   lastRun?: string;
   nextRun?: string;
 }
@@ -46,7 +46,7 @@ export interface ReplyPendingItem {
   scrapedAt: string;
 }
 
-export const useMonitoringStore = defineStore('monitoring', () => {
+export const useMonitoringStore = defineStore("monitoring", () => {
   // ── State ──
   const queueStats = ref<QueueStats[]>([]);
   const healthAlerts = ref<HealthAlert[]>([]);
@@ -59,16 +59,12 @@ export const useMonitoringStore = defineStore('monitoring', () => {
   const eventFeed = ref<{ type: string; timestamp: number; data: Record<string, unknown> }[]>([]);
 
   // ── Computed ──
-  const totalFailedJobs = computed(() =>
-    queueStats.value.reduce((sum, q) => sum + q.failed, 0),
-  );
+  const totalFailedJobs = computed(() => queueStats.value.reduce((sum, q) => sum + q.failed, 0));
 
-  const totalWaitingJobs = computed(() =>
-    queueStats.value.reduce((sum, q) => sum + q.waiting, 0),
-  );
+  const totalWaitingJobs = computed(() => queueStats.value.reduce((sum, q) => sum + q.waiting, 0));
 
   const criticalAlerts = computed(() =>
-    healthAlerts.value.filter((a) => a.severity === 'critical'),
+    healthAlerts.value.filter((a) => a.severity === "critical"),
   );
 
   const pausedQueues = computed(() =>
@@ -79,7 +75,7 @@ export const useMonitoringStore = defineStore('monitoring', () => {
 
   async function fetchQueueStats() {
     try {
-      const { data } = await api.get('/queue/stats');
+      const { data } = await api.get("/queue/stats");
       queueStats.value = data;
     } catch (err) {
       error.value = (err as Error).message;
@@ -88,11 +84,11 @@ export const useMonitoringStore = defineStore('monitoring', () => {
 
   async function fetchHealthDashboard() {
     try {
-      const { data } = await api.get('/health-monitor/dashboard');
+      const { data } = await api.get("/health-monitor/dashboard");
       // Extract alerts from health dashboard
       if (data.alerts) {
         healthAlerts.value = data.alerts.map((a: { severity: string; message: string }) => ({
-          severity: a.severity as 'critical' | 'warning' | 'info',
+          severity: a.severity as "critical" | "warning" | "info",
           message: a.message,
           timestamp: Date.now(),
         }));
@@ -104,7 +100,7 @@ export const useMonitoringStore = defineStore('monitoring', () => {
 
   async function fetchPendingReplies() {
     try {
-      const { data } = await api.get('/replies/pending');
+      const { data } = await api.get("/replies/pending");
       pendingReplies.value = data;
     } catch {
       // Replies endpoint may not be available if REPLIES_ENABLED=false
@@ -142,7 +138,7 @@ export const useMonitoringStore = defineStore('monitoring', () => {
 
   async function triggerGeneration(count = 3) {
     try {
-      await api.post('/generation/run', { count });
+      await api.post("/generation/run", { count });
     } catch (err) {
       error.value = (err as Error).message;
     }
@@ -150,7 +146,7 @@ export const useMonitoringStore = defineStore('monitoring', () => {
 
   async function triggerRepliesCycle() {
     try {
-      await api.post('/replies/run');
+      await api.post("/replies/run");
     } catch {
       // Replies endpoint may not be available
     }
@@ -179,7 +175,7 @@ export const useMonitoringStore = defineStore('monitoring', () => {
    */
   function handleSseEvent(data: SSEvent) {
     // Metrics snapshots are handled by the agents store; do not spam the live feed.
-    if (data.type === 'metrics_snapshot') {
+    if (data.type === "metrics_snapshot") {
       return;
     }
 
@@ -192,7 +188,7 @@ export const useMonitoringStore = defineStore('monitoring', () => {
     if (eventFeed.value.length > 50) eventFeed.value.pop();
 
     // Handle specific event types
-    if (data.type === 'health_alert') {
+    if (data.type === "health_alert") {
       healthAlerts.value.unshift({
         severity: data.severity,
         message: data.error,
@@ -200,7 +196,7 @@ export const useMonitoringStore = defineStore('monitoring', () => {
       });
     }
 
-    if (data.type === 'replies_monitor') {
+    if (data.type === "replies_monitor") {
       // Refresh pending replies when a monitoring cycle completes
       void fetchPendingReplies();
     }
@@ -210,11 +206,7 @@ export const useMonitoringStore = defineStore('monitoring', () => {
     loading.value = true;
     error.value = null;
     try {
-      await Promise.allSettled([
-        fetchQueueStats(),
-        fetchHealthDashboard(),
-        fetchPendingReplies(),
-      ]);
+      await Promise.allSettled([fetchQueueStats(), fetchHealthDashboard(), fetchPendingReplies()]);
     } finally {
       loading.value = false;
     }

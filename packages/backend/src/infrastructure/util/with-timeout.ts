@@ -7,7 +7,7 @@
  * half-open socket to a down dependency can otherwise hang the request
  * indefinitely, tripping the k8s liveness probe into a pod-restart loop.
  */
-export function withTimeout<T>(p: Promise<T>, ms: number, label = 'operation'): Promise<T> {
+export function withTimeout<T>(p: Promise<T>, ms: number, label = "operation"): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);

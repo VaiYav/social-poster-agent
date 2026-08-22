@@ -70,3 +70,10 @@ packages/backend/tmp-*.cjs
 # Sentry Config File
 .sentryclirc
 .vercel
+
+# Prisma generated client (created by postinstall / prisma generate)
+packages/backend/src/generated/
+
+# UI test artifacts
+packages/ui/test-results/
+packages/ui/playwright-report/

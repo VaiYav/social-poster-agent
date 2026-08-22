@@ -13,23 +13,29 @@
  *
  * Crisis mode: pauseAll() sets all flags at once.
  */
-import { Injectable, Logger, Inject } from '@nestjs/common';
-import IORedis from 'ioredis';
-import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
-import { SseService } from '../../infrastructure/sse/sse.service.js';
+import { Injectable, Logger, Inject } from "@nestjs/common";
+import IORedis from "ioredis";
+import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
+import { SseService } from "../../infrastructure/sse/sse.service.js";
 
-export type FlowName = 'generation' | 'posting' | 'engagement' | 'replies' | 'llm_triage' | 'auto_approve';
+export type FlowName =
+  | "generation"
+  | "posting"
+  | "engagement"
+  | "replies"
+  | "llm_triage"
+  | "auto_approve";
 
 const FLOW_KEYS: Record<FlowName, string> = {
-  generation: 'flow:pause_generation',
-  posting: 'flow:pause_posting',
-  engagement: 'flow:pause_engagement',
-  replies: 'flow:pause_replies',
-  llm_triage: 'flow:pause_llm_triage',
-  auto_approve: 'flow:pause_auto_approve',
+  generation: "flow:pause_generation",
+  posting: "flow:pause_posting",
+  engagement: "flow:pause_engagement",
+  replies: "flow:pause_replies",
+  llm_triage: "flow:pause_llm_triage",
+  auto_approve: "flow:pause_auto_approve",
 };
 
-const PAUSE_ALL_KEY = 'flow:pause_all';
+const PAUSE_ALL_KEY = "flow:pause_all";
 
 @Injectable()
 export class FlowControlService {
@@ -46,7 +52,7 @@ export class FlowControlService {
    */
   async isPaused(flow: FlowName): Promise<boolean> {
     const [allPaused, flowPaused] = await this.redis.mget([PAUSE_ALL_KEY, FLOW_KEYS[flow]]);
-    return allPaused === '1' || flowPaused === '1';
+    return allPaused === "1" || flowPaused === "1";
   }
 
   /**
@@ -63,9 +69,9 @@ export class FlowControlService {
    * Pause a specific flow.
    */
   async pause(flow: FlowName, reason?: string): Promise<void> {
-    await this.redis.set(FLOW_KEYS[flow], '1');
-    this.logger.warn(`Flow '${flow}' paused${reason ? `: ${reason}` : ''}`);
-    await this.notifySse('paused', flow, reason);
+    await this.redis.set(FLOW_KEYS[flow], "1");
+    this.logger.warn(`Flow '${flow}' paused${reason ? `: ${reason}` : ""}`);
+    await this.notifySse("paused", flow, reason);
   }
 
   /**
@@ -74,19 +80,19 @@ export class FlowControlService {
   async resume(flow: FlowName): Promise<void> {
     await this.redis.del(FLOW_KEYS[flow]);
     this.logger.log(`Flow '${flow}' resumed`);
-    await this.notifySse('resumed', flow);
+    await this.notifySse("resumed", flow);
   }
 
   /**
    * Crisis mode: pause ALL flows at once.
    */
   async pauseAll(reason?: string): Promise<void> {
-    await this.redis.set(PAUSE_ALL_KEY, '1');
-    this.logger.error(`CRISIS MODE: All flows paused${reason ? `: ${reason}` : ''}`);
+    await this.redis.set(PAUSE_ALL_KEY, "1");
+    this.logger.error(`CRISIS MODE: All flows paused${reason ? `: ${reason}` : ""}`);
     await this.sseService.publish({
-      type: 'flow_control',
-      action: 'pause_all',
-      reason: reason ?? 'Crisis mode activated',
+      type: "flow_control",
+      action: "pause_all",
+      reason: reason ?? "Crisis mode activated",
     });
   }
 
@@ -98,10 +104,10 @@ export class FlowControlService {
     for (const flow of Object.keys(FLOW_KEYS) as FlowName[]) {
       await this.redis.del(FLOW_KEYS[flow]);
     }
-    this.logger.log('All flows resumed — crisis mode deactivated');
+    this.logger.log("All flows resumed — crisis mode deactivated");
     await this.sseService.publish({
-      type: 'flow_control',
-      action: 'resume_all',
+      type: "flow_control",
+      action: "resume_all",
     });
   }
 
@@ -114,18 +120,22 @@ export class FlowControlService {
   }> {
     const flowNames = Object.keys(FLOW_KEYS) as FlowName[];
     const values = await this.redis.mget([PAUSE_ALL_KEY, ...flowNames.map((f) => FLOW_KEYS[f])]);
-    const allPaused = values[0] === '1';
+    const allPaused = values[0] === "1";
     const flows = {} as Record<FlowName, boolean>;
     for (let i = 0; i < flowNames.length; i++) {
       const flow = flowNames[i]!;
-      flows[flow] = allPaused || values[i + 1] === '1';
+      flows[flow] = allPaused || values[i + 1] === "1";
     }
     return { pauseAll: allPaused, flows };
   }
 
-  private async notifySse(action: 'paused' | 'resumed', flow: FlowName, reason?: string): Promise<void> {
+  private async notifySse(
+    action: "paused" | "resumed",
+    flow: FlowName,
+    reason?: string,
+  ): Promise<void> {
     await this.sseService.publish({
-      type: 'flow_control',
+      type: "flow_control",
       action,
       flow,
       reason: reason ?? null,

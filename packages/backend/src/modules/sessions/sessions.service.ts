@@ -1,27 +1,33 @@
-import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
-import { SchedulerRegistry } from '@nestjs/schedule';
-import { CronJob } from 'cron';
-import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { AccountsService } from '../accounts/accounts.service';
-import { IBrowserPort } from '../../domain/ports/browser.port.js';
-import { EncryptionService } from '../../infrastructure/crypto/encryption.service.js';
-import { DiscordNotificationService } from '../../infrastructure/notifications/discord-notification.service.js';
-import { Session, SessionStatus, SocialAccount, SocialNetwork, type Prisma } from '@prisma/client';
-import { navigateWithRetry } from '../../domain/retry.js';
-import { CircuitBreakerRegistry, CircuitOpenError } from '../../domain/circuit-breaker.js';
-import { parseBool } from '../../infrastructure/config/parse-bool.js';
-import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
-import { getEnabledNetworks, isNetworkEnabled } from '../../domain/enabled-networks.js';
-import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
-import { EmailReaderService } from '../../infrastructure/email/email-reader.service.js';
-import type { Locator, Page } from '../../domain/ports/browser-primitives.js';
+import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { SchedulerRegistry } from "@nestjs/schedule";
+import { CronJob } from "cron";
+import { ConfigService } from "@nestjs/config";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service";
+import { AccountsService } from "../accounts/accounts.service";
+import { IBrowserPort } from "../../domain/ports/browser.port.js";
+import { EncryptionService } from "../../infrastructure/crypto/encryption.service.js";
+import { DiscordNotificationService } from "../../infrastructure/notifications/discord-notification.service.js";
+import {
+  Session,
+  SessionStatus,
+  SocialAccount,
+  SocialNetwork,
+  type Prisma,
+} from "../../generated/prisma/client";
+import { navigateWithRetry } from "../../domain/retry.js";
+import { CircuitBreakerRegistry, CircuitOpenError } from "../../domain/circuit-breaker.js";
+import { parseBool } from "../../infrastructure/config/parse-bool.js";
+import { isOrchestratorEnabled } from "../orchestrator/feature-flag.js";
+import { getEnabledNetworks, isNetworkEnabled } from "../../domain/enabled-networks.js";
+import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
+import { EmailReaderService } from "../../infrastructure/email/email-reader.service.js";
+import type { Locator, Page } from "../../domain/ports/browser-primitives.js";
 
 /** Thrown when an auto-login attempt fails in an expected way (wrong credentials, captcha, 2FA, etc.). */
 class AutoLoginFailedError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'AutoLoginFailedError';
+    this.name = "AutoLoginFailedError";
   }
 }
 
@@ -47,70 +53,88 @@ export class SessionsService implements OnModuleInit {
   // only network with a multi-step onboarding wizard + 2FA (stealth-x Step 1.5/3).
   // Phase 0: Partial — new syndication networks will get login selectors in Phase 1+
   // when LLM-in-the-loop browser engine (#47) is implemented.
-  private readonly LOGIN_SELECTORS: Partial<Record<SocialNetwork, {
-    url: string;
-    usernameInput: string;
-    passwordInput: string;
-    nextButton: string;
-    submitButton: string;
-    twoFactorInput: string;
-    twoFactorConfirm: string;
-    accountSwitcher: string;
-    successIndicator: string;
-  }>> = {
+  private readonly LOGIN_SELECTORS: Partial<
+    Record<
+      SocialNetwork,
+      {
+        url: string;
+        usernameInput: string;
+        passwordInput: string;
+        nextButton: string;
+        submitButton: string;
+        twoFactorInput: string;
+        twoFactorConfirm: string;
+        accountSwitcher: string;
+        successIndicator: string;
+      }
+    >
+  > = {
     X: {
       // X uses onboarding wizard (/i/flow/login → /i/jf/onboarding/web?mode=login)
       // Multi-step wizard: Step 1 = username → Next → Step 2 = password → Log in → /home
       // Selectors aligned with stealth-x (Youhai020616/stealth-x) — same Camoufox + Playwright stack.
-      url: 'https://x.com/i/flow/login',
-      usernameInput: 'input[name="text"][autocomplete="username"], input[autocomplete="username"], input[name="text"], input[name="username_or_email"], #jf-input-username_or_email',
-      passwordInput: 'input[name="password"], input[type="password"], input[autocomplete="current-password"]',
+      url: "https://x.com/i/flow/login",
+      usernameInput:
+        'input[name="text"][autocomplete="username"], input[autocomplete="username"], input[name="text"], input[name="username_or_email"], #jf-input-username_or_email',
+      passwordInput:
+        'input[name="password"], input[type="password"], input[autocomplete="current-password"]',
       // "Next" button — submits the username step (stealth-x separates Next from Log in)
-      nextButton: '[data-testid="LoginForm_Login_Button"], button[role="button"]:has-text("Next"), div[role="button"]:has-text("Next"), button[type="submit"]:has-text("Continue")',
+      nextButton:
+        '[data-testid="LoginForm_Login_Button"], button[role="button"]:has-text("Next"), div[role="button"]:has-text("Next"), button[type="submit"]:has-text("Continue")',
       // "Log in" button — submits the password step
-      submitButton: '[data-testid="LoginForm_Login_Button"], button[role="button"]:has-text("Log in"), div[role="button"]:has-text("Log in"), button[type="submit"]',
+      submitButton:
+        '[data-testid="LoginForm_Login_Button"], button[role="button"]:has-text("Log in"), div[role="button"]:has-text("Log in"), button[type="submit"]',
       // 2FA / identity verification input (stealth-x Step 1.5 / Step 3)
       // Confirmed via production DOM dump on the real verify_code screen: the actual field is
       // input[name="code"][type="text"] — neither ocfEnterTextTextInput nor name="text" matched
       // anything (the page still has the prior step's now-hidden username_or_email/password
       // inputs mounted, but none named "text"), which is why fill() timed out despite has2FA
       // correctly detecting the challenge via URL.
-      twoFactorInput: 'input[name="code"][type="text"], input[data-testid="ocfEnterTextTextInput"], input[name="text"][type="text"]',
-      twoFactorConfirm: '[data-testid="ocfEnterTextNextButton"], button[role="button"]:has-text("Next"), div[role="button"]:has-text("Next")',
+      twoFactorInput:
+        'input[name="code"][type="text"], input[data-testid="ocfEnterTextTextInput"], input[name="text"][type="text"]',
+      twoFactorConfirm:
+        '[data-testid="ocfEnterTextNextButton"], button[role="button"]:has-text("Next"), div[role="button"]:has-text("Next")',
       // Account switcher — most reliable logged-in indicator (stealth-x checkLoggedIn)
       // aria-label format: "Account menu, Accounts: @username"
       accountSwitcher: '[data-testid="SideNav_AccountSwitcher_Button"]',
       // After login, X shows the home timeline
-      successIndicator: '[data-testid="AppTabBar_Home_Link"], [data-testid="SideNav_NewTweet_Button"], a[href="/home"], [data-testid="primaryColumn"], [data-testid="AppTabBar_Profile_Link"]',
+      successIndicator:
+        '[data-testid="AppTabBar_Home_Link"], [data-testid="SideNav_NewTweet_Button"], a[href="/home"], [data-testid="primaryColumn"], [data-testid="AppTabBar_Profile_Link"]',
     },
     THREADS: {
-      url: 'https://www.threads.com/login',
-      usernameInput: 'input[aria-label*="Username"], input[aria-label*="username"], input[placeholder*="Username"], input[placeholder*="username"]',
-      passwordInput: 'input[aria-label*="Password"], input[aria-label*="password"], input[type="password"]',
-      nextButton: '',
-      submitButton: 'div[role="button"]:has-text("Log in"):not(:has-text("Instagram")), button:has-text("Log in"):not(:has-text("Instagram"))',
-      twoFactorInput: '',
-      twoFactorConfirm: '',
-      accountSwitcher: '',
+      url: "https://www.threads.com/login",
+      usernameInput:
+        'input[aria-label*="Username"], input[aria-label*="username"], input[placeholder*="Username"], input[placeholder*="username"]',
+      passwordInput:
+        'input[aria-label*="Password"], input[aria-label*="password"], input[type="password"]',
+      nextButton: "",
+      submitButton:
+        'div[role="button"]:has-text("Log in"):not(:has-text("Instagram")), button:has-text("Log in"):not(:has-text("Instagram"))',
+      twoFactorInput: "",
+      twoFactorConfirm: "",
+      accountSwitcher: "",
       // After login, Threads shows "New thread" button in the nav
-      successIndicator: 'button:has-text("New thread"), div[role="button"]:has-text("New thread"), a[href="/compose"], button[aria-label="Create"], button:has-text("Create")',
+      successIndicator:
+        'button:has-text("New thread"), div[role="button"]:has-text("New thread"), a[href="/compose"], button[aria-label="Create"], button:has-text("Create")',
     },
     FACEBOOK: {
       // Use mbasic.facebook.com (basic mobile) for login — simplest HTML, stable IDs,
       // least anti-automation detection. Cookies work on www.facebook.com (same domain).
       // Reference: tas33n/fb-login-bot (m.facebook.com), ramasedang/facebook-page-scraper (mbasic)
-      url: 'https://mbasic.facebook.com/login',
+      url: "https://mbasic.facebook.com/login",
       // mbasic login page has stable IDs: #m_login_email, #m_login_password
       usernameInput: '#m_login_email, input[name="email"], input#email, input[aria-label*="Email"]',
       passwordInput: '#m_login_password, input[name="pass"], input#pass, input[type="password"]',
-      nextButton: '',
+      nextButton: "",
       // mbasic uses <input type="submit" value="Log In"> or <button value="Log In">
-      submitButton: 'input[value="Log In"], button[value="Log In"], button:has-text("Log in"), button[name="login"], button[type="submit"]',
-      twoFactorInput: '',
-      twoFactorConfirm: '',
-      accountSwitcher: '',
+      submitButton:
+        'input[value="Log In"], button[value="Log In"], button:has-text("Log in"), button[name="login"], button[type="submit"]',
+      twoFactorInput: "",
+      twoFactorConfirm: "",
+      accountSwitcher: "",
       // After login, mbasic FB shows navigation links
-      successIndicator: 'a[href*="/home"], a[href*="/profile"], a[href*="/settings"], nav, [role="navigation"]',
+      successIndicator:
+        'a[href*="/home"], a[href*="/profile"], a[href*="/settings"], nav, [role="navigation"]',
     },
   };
 
@@ -130,19 +154,24 @@ export class SessionsService implements OnModuleInit {
     private readonly configService: ConfigService,
     private readonly encryptionService: EncryptionService,
     private readonly discord: DiscordNotificationService,
-    @Inject(SHARED_REDIS) private readonly redis: InstanceType<typeof import('ioredis').default>,
+    @Inject(SHARED_REDIS) private readonly redis: InstanceType<typeof import("ioredis").default>,
     private readonly emailReader: EmailReaderService,
     private readonly schedulerRegistry: SchedulerRegistry,
   ) {
     // Default 0 = cooldown disabled (opt-in). Operators set FORM_LOGIN_COOLDOWN_MS in prod
     // (e.g. 1800000 = 30 min) to throttle the riskiest action; keeping it off by default
     // avoids surprising the inline-login path and keeps tests deterministic.
-    const rawCooldown = Number(this.configService.get<string>('FORM_LOGIN_COOLDOWN_MS', '0'));
+    const rawCooldown = Number(this.configService.get<string>("FORM_LOGIN_COOLDOWN_MS", "0"));
     this.formLoginCooldownMs = Number.isFinite(rawCooldown) && rawCooldown >= 0 ? rawCooldown : 0;
-    this.deferredLogin = parseBool(this.configService.get<string>('SESSION_DEFERRED_LOGIN', 'false'));
+    this.deferredLogin = parseBool(
+      this.configService.get<string>("SESSION_DEFERRED_LOGIN", "false"),
+    );
   }
 
-  async getOrCreateSession(network: SocialNetwork, opts?: { deferFormLogin?: boolean }): Promise<Session | null>;
+  async getOrCreateSession(
+    network: SocialNetwork,
+    opts?: { deferFormLogin?: boolean },
+  ): Promise<Session | null>;
   async getOrCreateSession(
     accountId: string,
     network: SocialNetwork,
@@ -157,7 +186,7 @@ export class SessionsService implements OnModuleInit {
     let network: SocialNetwork;
     let opts: { deferFormLogin?: boolean } = {};
 
-    if (typeof arg1 === 'string' && typeof arg2 === 'string') {
+    if (typeof arg1 === "string" && typeof arg2 === "string") {
       // New per-account signature: getOrCreateSession(accountId, network, opts?)
       const fullAccount = await this.accountsService.findById(arg1);
       if (!fullAccount || fullAccount.network !== arg2) {
@@ -186,7 +215,7 @@ export class SessionsService implements OnModuleInit {
     // Find active session — fast path, no lock needed
     const session = await this.prisma.session.findFirst({
       where: { accountId, status: SessionStatus.ACTIVE },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
     });
 
     if (session) {
@@ -204,7 +233,7 @@ export class SessionsService implements OnModuleInit {
       // Re-check: the other call may have created a session
       const newSession = await this.prisma.session.findFirst({
         where: { accountId, status: SessionStatus.ACTIVE },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
       });
       if (newSession) {
         this.logger.debug(`Session created by concurrent call for ${network} @${accountId}`);
@@ -215,17 +244,21 @@ export class SessionsService implements OnModuleInit {
 
     // Acquire lock for session creation
     let resolveLock!: () => void;
-    const lockPromise = new Promise<void>((resolve) => { resolveLock = resolve; });
+    const lockPromise = new Promise<void>((resolve) => {
+      resolveLock = resolve;
+    });
     this.sessionLocks.set(lockKey, lockPromise);
 
     try {
       // Double-check after acquiring lock (another call may have created a session)
       const existingSession = await this.prisma.session.findFirst({
         where: { accountId, status: SessionStatus.ACTIVE },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
       });
       if (existingSession) {
-        this.logger.debug(`Session created by concurrent call for ${network} @${accountId} (after lock)`);
+        this.logger.debug(
+          `Session created by concurrent call for ${network} @${accountId} (after lock)`,
+        );
         return existingSession;
       }
 
@@ -278,7 +311,7 @@ export class SessionsService implements OnModuleInit {
         // and must never block login (and discord.warning may be a no-op in some setups/tests).
         try {
           await this.discord.warning(
-            'Form Login Performed',
+            "Form Login Performed",
             `Falling back to username/password form login for **${network} @${accountId}** — the highest "suspicious login" risk. Cookie auth is preferred; check the session/cookie config.`,
           );
         } catch {
@@ -322,19 +355,21 @@ export class SessionsService implements OnModuleInit {
    */
   onModuleInit(): void {
     if (isOrchestratorEnabled()) {
-      this.logger.log('Orchestrator is enabled — session relogin cron NOT registered');
+      this.logger.log("Orchestrator is enabled — session relogin cron NOT registered");
       return;
     }
     if (!this.deferredLogin) return;
 
-    const cronExpr = this.configService.get<string>('SESSION_RELOGIN_CRON', '*/15 * * * *');
-    const job = new CronJob(cronExpr, async () => { await this.refreshSessions(); });
+    const cronExpr = this.configService.get<string>("SESSION_RELOGIN_CRON", "*/15 * * * *");
+    const job = new CronJob(cronExpr, async () => {
+      await this.refreshSessions();
+    });
     try {
-      this.schedulerRegistry.addCronJob('session-relogin', job);
+      this.schedulerRegistry.addCronJob("session-relogin", job);
       job.start();
       this.logger.log(`Session relogin cron registered: ${cronExpr}`);
     } catch {
-      this.logger.warn('SchedulerRegistry not available — session relogin cron will not run');
+      this.logger.warn("SchedulerRegistry not available — session relogin cron will not run");
     }
   }
 
@@ -344,7 +379,9 @@ export class SessionsService implements OnModuleInit {
       try {
         await this.getOrCreateSession(account.id, account.network); // no deferFormLogin → controlled form login allowed here
       } catch (err) {
-        this.logger.warn(`Out-of-band session refresh failed for ${account.network} @${account.handle}: ${(err as Error).message}`);
+        this.logger.warn(
+          `Out-of-band session refresh failed for ${account.network} @${account.handle}: ${(err as Error).message}`,
+        );
       }
     }
   }
@@ -369,11 +406,13 @@ export class SessionsService implements OnModuleInit {
     const network = account.network;
     const { cookies: cookieStr } = this.accountsService.getCredentials(account);
 
-    if (!cookieStr || cookieStr.trim() === '') {
+    if (!cookieStr || cookieStr.trim() === "") {
       return null;
     }
 
-    this.logger.log(`Found ${network} cookies for account @${account.handle} — attempting cookie-based auth`);
+    this.logger.log(
+      `Found ${network} cookies for account @${account.handle} — attempting cookie-based auth`,
+    );
 
     // Parse cookie string: "name1=value1; name2=value2"
     const cookies = this.parseCookieString(cookieStr, network);
@@ -389,12 +428,12 @@ export class SessionsService implements OnModuleInit {
     );
     if (missingRequired.length > 0) {
       this.logger.warn(
-        `Cookie auth for ${network}: missing required cookies: ${missingRequired.map((c) => c.name).join(', ')}`,
+        `Cookie auth for ${network}: missing required cookies: ${missingRequired.map((c) => c.name).join(", ")}`,
       );
       return null;
     }
 
-    let context: Awaited<ReturnType<IBrowserPort['createContext']>> | null = null;
+    let context: Awaited<ReturnType<IBrowserPort["createContext"]>> | null = null;
     let page: Page | null = null;
     try {
       context = await this.browser.createContext(network, undefined, account.id);
@@ -404,11 +443,14 @@ export class SessionsService implements OnModuleInit {
       await context.addCookies(cookies);
 
       // Navigate to the network's home page to verify cookies are valid
-      const checkUrl = network === 'X' ? 'https://x.com/home' :
-        network === 'THREADS' ? 'https://www.threads.com/' :
-        'https://www.facebook.com/';
+      const checkUrl =
+        network === "X"
+          ? "https://x.com/home"
+          : network === "THREADS"
+            ? "https://www.threads.com/"
+            : "https://www.facebook.com/";
       await navigateWithRetry(page, checkUrl, {
-        waitUntil: 'domcontentloaded',
+        waitUntil: "domcontentloaded",
         timeoutMs: 30000,
         maxRetries: 2,
       });
@@ -416,7 +458,7 @@ export class SessionsService implements OnModuleInit {
 
       // Check if we're logged in (not redirected to login)
       const currentUrl = page.url();
-      if (currentUrl.includes('/login') || currentUrl.includes('/auth')) {
+      if (currentUrl.includes("/login") || currentUrl.includes("/auth")) {
         this.logger.warn(`Cookie auth for ${network} failed — redirected to login (${currentUrl})`);
         await page.close();
         return null;
@@ -435,7 +477,7 @@ export class SessionsService implements OnModuleInit {
 
       // Success — save session
       this.logger.log(`Cookie auth successful for ${network} (URL: ${currentUrl})`);
-      await this.browser.screenshot(page, network, 'after-login');
+      await this.browser.screenshot(page, network, "after-login");
       const storageState = await this.browser.saveStorageState(context);
       await page.close();
 
@@ -455,7 +497,7 @@ export class SessionsService implements OnModuleInit {
       try {
         if (context) {
           const page = context.pages()[0];
-          if (page) await this.browser.screenshot(page, network, 'on-error');
+          if (page) await this.browser.screenshot(page, network, "on-error");
         }
       } catch {}
       return null;
@@ -478,21 +520,20 @@ export class SessionsService implements OnModuleInit {
     cookieStr: string,
     network: SocialNetwork,
   ): Array<{ name: string; value: string; domain: string; path: string }> {
-    const domain = network === 'X' ? '.x.com' :
-      network === 'THREADS' ? '.threads.com' :
-      '.facebook.com';
+    const domain =
+      network === "X" ? ".x.com" : network === "THREADS" ? ".threads.com" : ".facebook.com";
 
     const cookies: Array<{ name: string; value: string; domain: string; path: string }> = [];
 
-    for (const part of cookieStr.split(';')) {
+    for (const part of cookieStr.split(";")) {
       const trimmed = part.trim();
       if (!trimmed) continue;
-      const eqIdx = trimmed.indexOf('=');
+      const eqIdx = trimmed.indexOf("=");
       if (eqIdx === -1) continue;
       const name = trimmed.slice(0, eqIdx).trim();
       const value = trimmed.slice(eqIdx + 1).trim();
       if (!name || !value) continue;
-      cookies.push({ name, value, domain, path: '/' });
+      cookies.push({ name, value, domain, path: "/" });
     }
 
     return cookies;
@@ -523,7 +564,7 @@ export class SessionsService implements OnModuleInit {
 
     this.logger.log(`Auto-login ${network} @${account.handle} as ${username}`);
 
-    let context: Awaited<ReturnType<IBrowserPort['createContext']>> | null = null;
+    let context: Awaited<ReturnType<IBrowserPort["createContext"]>> | null = null;
     let page: Page | null = null;
     try {
       context = await this.browser.createContext(network, undefined, account.id);
@@ -531,27 +572,31 @@ export class SessionsService implements OnModuleInit {
 
       // Facebook: persistent context may already have valid cookies from previous run.
       // Check for c_user cookie before attempting login — skip login if already authenticated.
-      if (network === 'FACEBOOK') {
+      if (network === "FACEBOOK") {
         const existingCookies = await context.cookies();
         const cUser = existingCookies.find(
-          (c) => c.name === 'c_user' && c.domain.includes('facebook.com'),
+          (c) => c.name === "c_user" && c.domain.includes("facebook.com"),
         );
         if (cUser) {
           this.logger.log(
             `Facebook: found existing c_user cookie (user ID: ${cUser.value}) — checking if session is still valid`,
           );
           // Navigate to Facebook home to verify session
-          await navigateWithRetry(page, 'https://www.facebook.com/', {
-            waitUntil: 'domcontentloaded',
+          await navigateWithRetry(page, "https://www.facebook.com/", {
+            waitUntil: "domcontentloaded",
             timeoutMs: 30000,
             maxRetries: 2,
           });
           await this.browser.randomDelay(3000, 5000);
           const currentUrl = page.url();
           // If we're NOT redirected to login, session is valid
-          if (!currentUrl.includes('/login') && !currentUrl.includes('two_step') && !currentUrl.includes('checkpoint')) {
+          if (
+            !currentUrl.includes("/login") &&
+            !currentUrl.includes("two_step") &&
+            !currentUrl.includes("checkpoint")
+          ) {
             this.logger.log(`Facebook: session still valid (URL: ${currentUrl}) — skipping login`);
-            await this.browser.screenshot(page, network, 'after-login');
+            await this.browser.screenshot(page, network, "after-login");
             const storageState = await this.browser.saveStorageState(context);
             await page.close();
             const encrypted = this.encryptionService.encrypt(JSON.parse(storageState));
@@ -563,10 +608,14 @@ export class SessionsService implements OnModuleInit {
                 lastHealthCheck: new Date(),
               },
             });
-            this.logger.log(`Auto-login successful for ${network}, session ${session.id} created (persistent cookies)`);
+            this.logger.log(
+              `Auto-login successful for ${network}, session ${session.id} created (persistent cookies)`,
+            );
             return session;
           }
-          this.logger.warn(`Facebook: c_user cookie found but session invalid (URL: ${currentUrl}) — proceeding with login`);
+          this.logger.warn(
+            `Facebook: c_user cookie found but session invalid (URL: ${currentUrl}) — proceeding with login`,
+          );
         } else {
           this.logger.log(`Facebook: no c_user cookie found — proceeding with login`);
         }
@@ -574,7 +623,7 @@ export class SessionsService implements OnModuleInit {
 
       // Navigate to login page — with retry on network/timeout errors
       await navigateWithRetry(page, selectors.url, {
-        waitUntil: 'domcontentloaded',
+        waitUntil: "domcontentloaded",
         timeoutMs: 30000,
         maxRetries: 3,
         onRetry: (attempt, delayMs, err) => {
@@ -588,22 +637,24 @@ export class SessionsService implements OnModuleInit {
       this.logger.log(`Login page loaded for ${network}: ${page.url()}`);
 
       // DEBUG: dump page HTML for login troubleshooting (only in dry-run mode)
-      if (parseBool(this.configService.get<string>('SPA_DRY_RUN', 'false'))) {
+      if (parseBool(this.configService.get<string>("SPA_DRY_RUN", "false"))) {
         try {
           const html = await page.content();
-          const fs = await import('node:fs/promises');
-          const debugDir = '/tmp/spa-debug';
+          const fs = await import("node:fs/promises");
+          const debugDir = "/tmp/spa-debug";
           await fs.mkdir(debugDir, { recursive: true });
           await fs.writeFile(`${debugDir}/${network.toLowerCase()}-login-page.html`, html);
-          this.logger.debug(`Login page HTML dumped to ${debugDir}/${network.toLowerCase()}-login-page.html (${html.length} bytes)`);
+          this.logger.debug(
+            `Login page HTML dumped to ${debugDir}/${network.toLowerCase()}-login-page.html (${html.length} bytes)`,
+          );
         } catch {
           // non-blocking
         }
       }
 
       // Facebook mobile may show a welcome page with "I already have an account" button
-      if (network === 'FACEBOOK') {
-        const welcomeBtn = page.locator('text=I already have an account').first();
+      if (network === "FACEBOOK") {
+        const welcomeBtn = page.locator("text=I already have an account").first();
         if (await welcomeBtn.isVisible().catch(() => false)) {
           this.logger.debug(`Facebook welcome page — clicking "I already have an account"`);
           await welcomeBtn.click().catch(() => {});
@@ -614,8 +665,10 @@ export class SessionsService implements OnModuleInit {
       // Fill username — use pressSequentially for React-controlled inputs
       // (fill() doesn't trigger React onChange in some apps like Threads/Instagram)
       let usernameInput: Locator | null = null;
-      this.logger.debug(`Login: looking for username input with selector: ${selectors.usernameInput}`);
-      if (network === 'X') {
+      this.logger.debug(
+        `Login: looking for username input with selector: ${selectors.usernameInput}`,
+      );
+      if (network === "X") {
         // X's onboarding wizard keeps several hidden username clones; `first()` often
         // resolves to an opacity:0 duplicate, so pick the actually rendered one.
         usernameInput = await this.getVisibleUsernameInput(page, 15000);
@@ -624,14 +677,18 @@ export class SessionsService implements OnModuleInit {
         // Fallback: try getByLabel if CSS selector fails
         if (!(await usernameInput.isVisible().catch(() => false))) {
           // Facebook mobile uses "Phone or email" label; desktop uses "Email or mobile number"
-          const label = network === 'FACEBOOK' ? 'Phone or email' :
-            network === 'THREADS' ? 'Username, phone number or email address' : '';
+          const label =
+            network === "FACEBOOK"
+              ? "Phone or email"
+              : network === "THREADS"
+                ? "Username, phone number or email address"
+                : "";
           if (label) {
             this.logger.debug(`Login: CSS selector failed, trying getByLabel("${label}")`);
             usernameInput = page.getByLabel(label).first();
           }
         }
-        await usernameInput.waitFor({ state: 'visible', timeout: 15000 });
+        await usernameInput.waitFor({ state: "visible", timeout: 15000 });
       }
       if (!usernameInput) {
         this.logger.error(`Login: username input not found for ${network}`);
@@ -642,7 +699,7 @@ export class SessionsService implements OnModuleInit {
       // X onboarding React inputs: fill() and pressSequentially() set DOM value but don't
       // trigger React's internal state. Use nativeInputValueSetter to set value through React.
       // Reference: https://stackoverflow.com/questions/40894637/how-to-programmatically-fill-input-elements-with-react-onchange-handlers
-      if (network === 'X') {
+      if (network === "X") {
         // ── Step 1: Username (stealth-x approach — typeHuman first, React setter fallback) ──
         // typeHuman: per-character keyboard.type with randomized 40-120ms delay + 5% "thinking"
         // pauses. More human-like than pressSequentially with fixed delay — X's anti-bot
@@ -658,18 +715,25 @@ export class SessionsService implements OnModuleInit {
         await this.browser.randomDelay(500, 1000);
 
         // Verify value was set
-        let usernameVal = await usernameInput.inputValue().catch(() => '');
-        this.logger.debug(`X: username value after typeHuman: "${usernameVal ? '***' : '(empty)'}" (${usernameVal.length} chars)`);
+        let usernameVal = await usernameInput.inputValue().catch(() => "");
+        this.logger.debug(
+          `X: username value after typeHuman: "${usernameVal ? "***" : "(empty)"}" (${usernameVal.length} chars)`,
+        );
 
         // Strategy 2: React-native value setter (fallback if typeHuman didn't trigger onChange)
         if (!usernameVal) {
           this.logger.warn(`X: typeHuman didn't set value — trying React-native setter`);
-          await usernameInput.evaluate((el: HTMLInputElement, val: string) => {
-            const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-            nativeSetter?.call(el, val);
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-          }, username).catch(() => {});
-          usernameVal = await usernameInput.inputValue().catch(() => '');
+          await usernameInput
+            .evaluate((el: HTMLInputElement, val: string) => {
+              const nativeSetter = Object.getOwnPropertyDescriptor(
+                HTMLInputElement.prototype,
+                "value",
+              )?.set;
+              nativeSetter?.call(el, val);
+              el.dispatchEvent(new Event("input", { bubbles: true }));
+            }, username)
+            .catch(() => {});
+          usernameVal = await usernameInput.inputValue().catch(() => "");
         }
 
         // Strategy 3: fill() (last resort)
@@ -691,9 +755,9 @@ export class SessionsService implements OnModuleInit {
       //   Step 3: (optional) 2FA — enter code → click Next → /home
       // The password input exists in DOM from the start but is hidden (opacity:0, aria-hidden).
       // NOT disabled — so :not([disabled]) matches it even in step 1. Need to check visibility instead.
-      if (network === 'X') {
+      if (network === "X") {
         // Verify username was actually filled
-        const usernameVal = await usernameInput.inputValue().catch(() => '');
+        const usernameVal = await usernameInput.inputValue().catch(() => "");
         if (!usernameVal) {
           this.logger.error(`X login: username field is empty after all strategies`);
           await page.close();
@@ -702,7 +766,10 @@ export class SessionsService implements OnModuleInit {
         this.logger.debug(`X: username filled (${usernameVal.length} chars), submitting step 1`);
 
         // ── Step 1 submit: Click visible "Continue"/"Next" button (stealth-x) ──
-        await this.clickVisibleWizardButton(page, ['Continue', 'Next'], { fallbackInput: usernameInput, scopeInput: usernameInput });
+        await this.clickVisibleWizardButton(page, ["Continue", "Next"], {
+          fallbackInput: usernameInput,
+          scopeInput: usernameInput,
+        });
         await this.browser.randomDelay(2000, 4000);
 
         // ── Step 1.5: Identity verification challenge (stealth-x Step 1.5) ──
@@ -711,28 +778,36 @@ export class SessionsService implements OnModuleInit {
         const verifyUsernameInput = await this.getVisibleUsernameInput(page, 3000);
         const hasPasswordField = await this.hasVisiblePasswordInput(page);
         if (verifyUsernameInput && !hasPasswordField) {
-          this.logger.warn(`X: identity verification challenge detected (Step 1.5) — username input reappeared without password field`);
-          const isHeaded = this.configService.get<string>('CAMOUFOX_HEADLESS', 'true') === 'false';
+          this.logger.warn(
+            `X: identity verification challenge detected (Step 1.5) — username input reappeared without password field`,
+          );
+          const isHeaded = this.configService.get<string>("CAMOUFOX_HEADLESS", "true") === "false";
           if (isHeaded) {
             this.logger.warn(
               `X: identity verification required — waiting up to 120s for manual completion (headed mode).\n` +
-              `Please complete the verification in the browser window (enter phone/email, solve challenge).`,
+                `Please complete the verification in the browser window (enter phone/email, solve challenge).`,
             );
             // Wait for password field to appear (user completes verification)
             await this.getVisiblePasswordInput(page, 120000);
             await this.browser.randomDelay(1000, 2000);
           } else {
-            this.logger.error(`X: identity verification challenge — manual intervention needed (re-run with CAMOUFOX_HEADLESS=false)`);
-            await this.browser.screenshot(page, network, 'on-error');
+            this.logger.error(
+              `X: identity verification challenge — manual intervention needed (re-run with CAMOUFOX_HEADLESS=false)`,
+            );
+            await this.browser.screenshot(page, network, "on-error");
             await page.close();
             void this.discord
               .critical(
-                'X Login Verification Challenge — Manual Intervention Needed',
+                "X Login Verification Challenge — Manual Intervention Needed",
                 `Auto-login for **X** hit an identity verification challenge after username. The account cannot be logged in automatically.`,
                 [
-                  { name: 'Network', value: 'X', inline: true },
-                  { name: 'Challenge', value: 'Identity verification (phone/email)' },
-                  { name: 'Action Needed', value: 'Re-run with CAMOUFOX_HEADLESS=false and complete the verification in the browser window.' },
+                  { name: "Network", value: "X", inline: true },
+                  { name: "Challenge", value: "Identity verification (phone/email)" },
+                  {
+                    name: "Action Needed",
+                    value:
+                      "Re-run with CAMOUFOX_HEADLESS=false and complete the verification in the browser window.",
+                  },
                 ],
               )
               .catch(() => void 0);
@@ -744,30 +819,37 @@ export class SessionsService implements OnModuleInit {
         // The password input becomes visible (opacity:1, pointer-events:auto) in step 2.
         const passwordInput = await this.getVisiblePasswordInput(page, 15000);
         if (!passwordInput) {
-          const bodyText = await page.locator('body').innerText().catch(() => '');
-          this.logger.warn(`X: password input not visible after step 1 submit. Page text: ${bodyText.slice(0, 500)}`);
+          const bodyText = await page
+            .locator("body")
+            .innerText()
+            .catch(() => "");
+          this.logger.warn(
+            `X: password input not visible after step 1 submit. Page text: ${bodyText.slice(0, 500)}`,
+          );
         } else {
           await this.browser.randomDelay(1000, 2000);
         }
-        this.logger.debug(`X: step 1 done, URL: ${page.url()}, password visible: ${passwordInput !== null}`);
+        this.logger.debug(
+          `X: step 1 done, URL: ${page.url()}, password visible: ${passwordInput !== null}`,
+        );
 
         // ── Step 2: Password (stealth-x approach — typeHuman, with fill fallback) ──
         if (!passwordInput) {
-          throw new AutoLoginFailedError('X password input never became visible');
+          throw new AutoLoginFailedError("X password input never became visible");
         }
         this.logger.debug(`X: password field enabled, filling`);
         await passwordInput.click({ force: true }).catch(() => {});
         await this.browser.randomDelay(300, 800);
         // Clear any existing value first
-        await passwordInput.fill('').catch(() => {});
+        await passwordInput.fill("").catch(() => {});
         await this.browser.randomDelay(200, 500);
 
-        let pwVal = '';
+        let pwVal = "";
         try {
           // typeHuman: per-character with randomized delay (stealth-x)
           await this.browser.typeHuman(page, password, passwordInput);
           await this.browser.randomDelay(200, 500);
-          pwVal = await passwordInput.inputValue().catch(() => '');
+          pwVal = await passwordInput.inputValue().catch(() => "");
         } catch {
           this.logger.warn(`X: typeHuman failed for password — falling back to fill()`);
         }
@@ -776,30 +858,42 @@ export class SessionsService implements OnModuleInit {
         if (!pwVal) {
           this.logger.warn(`X: typeHuman didn't set password value — trying fill()`);
           await passwordInput.fill(password).catch(() => {});
-          pwVal = await passwordInput.inputValue().catch(() => '');
+          pwVal = await passwordInput.inputValue().catch(() => "");
         }
 
         // Fallback 2: React-native value setter
         if (!pwVal) {
           this.logger.warn(`X: fill didn't work — trying React-native setter`);
-          await passwordInput.evaluate((el: HTMLInputElement, val: string) => {
-            const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-            nativeSetter?.call(el, val);
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-            el.dispatchEvent(new Event('change', { bubbles: true }));
-          }, password).catch(() => {});
-          pwVal = await passwordInput.inputValue().catch(() => '');
+          await passwordInput
+            .evaluate((el: HTMLInputElement, val: string) => {
+              const nativeSetter = Object.getOwnPropertyDescriptor(
+                HTMLInputElement.prototype,
+                "value",
+              )?.set;
+              nativeSetter?.call(el, val);
+              el.dispatchEvent(new Event("input", { bubbles: true }));
+              el.dispatchEvent(new Event("change", { bubbles: true }));
+            }, password)
+            .catch(() => {});
+          pwVal = await passwordInput.inputValue().catch(() => "");
         }
 
-        this.logger.debug(`X: password value after fill: "${pwVal ? '***' : '(empty)'}" (${pwVal.length} chars)`);
+        this.logger.debug(
+          `X: password value after fill: "${pwVal ? "***" : "(empty)"}" (${pwVal.length} chars)`,
+        );
         if (!pwVal) {
-          throw new AutoLoginFailedError('X password field remained empty after all fill strategies');
+          throw new AutoLoginFailedError(
+            "X password field remained empty after all fill strategies",
+          );
         }
         await this.browser.randomDelay(1000, 2000);
 
         // ── Step 2 submit: Click visible "Log in"/"Continue" button (stealth-x) ──
         this.logger.debug(`X: submitting password step 2`);
-        await this.clickVisibleWizardButton(page, ['Log in', 'Continue'], { fallbackInput: passwordInput, scopeInput: passwordInput });
+        await this.clickVisibleWizardButton(page, ["Log in", "Continue"], {
+          fallbackInput: passwordInput,
+          scopeInput: passwordInput,
+        });
         await this.browser.randomDelay(3000, 5000);
 
         // ── Step 3: 2FA check (stealth-x Step 3) ──
@@ -819,11 +913,11 @@ export class SessionsService implements OnModuleInit {
           /verify_code|two_factor/.test(page.url());
         if (has2FA) {
           this.logger.warn(`X: two-factor authentication detected (Step 3)`);
-          const isHeaded = this.configService.get<string>('CAMOUFOX_HEADLESS', 'true') === 'false';
+          const isHeaded = this.configService.get<string>("CAMOUFOX_HEADLESS", "true") === "false";
           if (isHeaded) {
             this.logger.warn(
               `X: 2FA required — waiting up to 120s for manual completion (headed mode).\n` +
-              `Please enter the 2FA code in the browser window.`,
+                `Please enter the 2FA code in the browser window.`,
             );
             // Wait for 2FA to be completed — detect by URL change to /home or account switcher appearing
             const maxWaitMs = 120000;
@@ -833,13 +927,17 @@ export class SessionsService implements OnModuleInit {
             while (Date.now() - startTime < maxWaitMs) {
               await this.browser.randomDelay(pollIntervalMs, pollIntervalMs + 500);
               const currentUrl = page.url();
-              if (currentUrl.includes('/home') || currentUrl === 'https://x.com/') {
+              if (currentUrl.includes("/home") || currentUrl === "https://x.com/") {
                 this.logger.log(`X: 2FA likely completed — URL changed to ${currentUrl}`);
                 twoFaResolved = true;
                 break;
               }
               // Also check for account switcher (logged-in indicator)
-              const hasSwitcher = await page.locator(selectors.accountSwitcher).first().isVisible({ timeout: 500 }).catch(() => false);
+              const hasSwitcher = await page
+                .locator(selectors.accountSwitcher)
+                .first()
+                .isVisible({ timeout: 500 })
+                .catch(() => false);
               if (hasSwitcher) {
                 this.logger.log(`X: 2FA likely completed — account switcher detected`);
                 twoFaResolved = true;
@@ -848,16 +946,20 @@ export class SessionsService implements OnModuleInit {
             }
             if (!twoFaResolved) {
               this.logger.error(`X: 2FA timed out — not completed within 120s`);
-              await this.browser.screenshot(page, network, 'on-error');
+              await this.browser.screenshot(page, network, "on-error");
               await page.close();
               void this.discord
                 .critical(
-                  'X Login 2FA Timeout — Manual Completion Required',
+                  "X Login 2FA Timeout — Manual Completion Required",
                   `Auto-login for **X** hit a 2FA challenge and it was not completed within 120 seconds.`,
                   [
-                    { name: 'Network', value: 'X', inline: true },
-                    { name: 'Challenge', value: 'Two-factor authentication' },
-                    { name: 'Action Needed', value: 'Re-run with CAMOUFOX_HEADLESS=false and enter the 2FA code in the browser window.' },
+                    { name: "Network", value: "X", inline: true },
+                    { name: "Challenge", value: "Two-factor authentication" },
+                    {
+                      name: "Action Needed",
+                      value:
+                        "Re-run with CAMOUFOX_HEADLESS=false and enter the 2FA code in the browser window.",
+                    },
                   ],
                 )
                 .catch(() => void 0);
@@ -870,7 +972,9 @@ export class SessionsService implements OnModuleInit {
             //   1. Poll email via IMAP (if configured) — fully automatic
             //   2. Fall back to manual API submission (POST /sessions/verify-code)
             //   3. Also check API while polling email (race — first code wins)
-            this.logger.warn(`X: 2FA challenge in headless mode — attempting automatic email code retrieval`);
+            this.logger.warn(
+              `X: 2FA challenge in headless mode — attempting automatic email code retrieval`,
+            );
 
             // Try email first (up to 60s), then fall back to API (remaining time)
             let code: string | null = null;
@@ -886,11 +990,11 @@ export class SessionsService implements OnModuleInit {
               this.logger.warn(`X: email code not found — waiting for manual submission via API`);
               void this.discord
                 .warning(
-                  'X Login 2FA — Verification Code Needed',
+                  "X Login 2FA — Verification Code Needed",
                   `Auto-login for **X** hit a 2FA challenge. Email retrieval failed or not configured.\n` +
-                    'Submit the code manually via:\n' +
-                    '`POST /api/v1/sessions/verify-code?network=X&code=<CODE>`\n' +
-                    'The login flow will wait up to 60 seconds for the code.',
+                    "Submit the code manually via:\n" +
+                    "`POST /api/v1/sessions/verify-code?network=X&code=<CODE>`\n" +
+                    "The login flow will wait up to 60 seconds for the code.",
                 )
                 .catch(() => void 0);
 
@@ -899,7 +1003,7 @@ export class SessionsService implements OnModuleInit {
 
             if (!code) {
               this.logger.error(`X: 2FA timed out — no verification code obtained within 120s`);
-              await this.browser.screenshot(page, network, 'on-error');
+              await this.browser.screenshot(page, network, "on-error");
               await page.close();
               return null;
             }
@@ -913,14 +1017,14 @@ export class SessionsService implements OnModuleInit {
             this.logger.log(`X: entering verification code into 2FA field`);
             try {
               const inputs = await page
-                .locator('input')
+                .locator("input")
                 .evaluateAll((els) =>
                   els.map((e) => ({
-                    testid: (e as HTMLElement).getAttribute('data-testid'),
+                    testid: (e as HTMLElement).getAttribute("data-testid"),
                     name: (e as HTMLInputElement).name,
                     type: (e as HTMLInputElement).type,
                     inputMode: (e as HTMLInputElement).inputMode,
-                    ariaLabel: e.getAttribute('aria-label'),
+                    ariaLabel: e.getAttribute("aria-label"),
                     placeholder: (e as HTMLInputElement).placeholder,
                   })),
                 )
@@ -939,16 +1043,25 @@ export class SessionsService implements OnModuleInit {
               await twoFAConfirm.click();
             } else {
               // Fallback: press Enter
-              await twoFAInput.press('Enter');
+              await twoFAInput.press("Enter");
             }
             await this.browser.randomDelay(3000, 5000);
 
             // Verify login succeeded
             const postLoginUrl = page.url();
-            const hasSwitcher = await page.locator(selectors.accountSwitcher).first().isVisible({ timeout: 5000 }).catch(() => false);
-            if (!hasSwitcher && (postLoginUrl.includes('/login') || postLoginUrl.includes('/onboarding'))) {
-              this.logger.error(`X: 2FA code entered but login did not succeed — URL: ${postLoginUrl}`);
-              await this.browser.screenshot(page, network, 'on-error');
+            const hasSwitcher = await page
+              .locator(selectors.accountSwitcher)
+              .first()
+              .isVisible({ timeout: 5000 })
+              .catch(() => false);
+            if (
+              !hasSwitcher &&
+              (postLoginUrl.includes("/login") || postLoginUrl.includes("/onboarding"))
+            ) {
+              this.logger.error(
+                `X: 2FA code entered but login did not succeed — URL: ${postLoginUrl}`,
+              );
+              await this.browser.screenshot(page, network, "on-error");
               await page.close();
               return null;
             }
@@ -962,14 +1075,14 @@ export class SessionsService implements OnModuleInit {
         const passwordVisible = await passwordInput.isVisible().catch(() => false);
 
         if (!passwordVisible) {
-          passwordInput = page.getByLabel('Password').first();
+          passwordInput = page.getByLabel("Password").first();
         }
 
         // Fill password
         if (!(await passwordInput.isVisible().catch(() => false))) {
-          passwordInput = page.getByLabel('Password').first();
+          passwordInput = page.getByLabel("Password").first();
         }
-        await passwordInput.waitFor({ state: 'visible', timeout: 15000 });
+        await passwordInput.waitFor({ state: "visible", timeout: 15000 });
         await passwordInput.focus();
         await this.browser.randomDelay(500, 1500);
         await passwordInput.pressSequentially(password, { delay: 50 });
@@ -977,13 +1090,19 @@ export class SessionsService implements OnModuleInit {
 
         // Submit
         let submitBtn = page.locator(selectors.submitButton).first();
-        this.logger.debug(`Login: looking for submit button with selector: ${selectors.submitButton}`);
+        this.logger.debug(
+          `Login: looking for submit button with selector: ${selectors.submitButton}`,
+        );
         if (!(await submitBtn.isVisible().catch(() => false))) {
           // Mobile FB uses <button value="Log In">; desktop uses <div aria-label="Log In">
-          submitBtn = page.locator('button[value="Log In"], input[value="Log In"], div[aria-label="Log In"], button:has-text("Log in"), button:has-text("Continue"), button[type="submit"]').first();
+          submitBtn = page
+            .locator(
+              'button[value="Log In"], input[value="Log In"], div[aria-label="Log In"], button:has-text("Log in"), button:has-text("Continue"), button[type="submit"]',
+            )
+            .first();
           this.logger.debug(`Login: primary submit selector failed, trying fallback`);
         }
-        await submitBtn.waitFor({ state: 'visible', timeout: 15000 });
+        await submitBtn.waitFor({ state: "visible", timeout: 15000 });
         this.logger.debug(`Login: submit button found, clicking`);
         await this.browser.randomDelay(2000, 4000);
         await submitBtn.click({ force: true });
@@ -994,7 +1113,13 @@ export class SessionsService implements OnModuleInit {
       // Check if login succeeded — first by URL (not on login page), then by success indicator
       await this.browser.randomDelay(3000, 5000);
       const pageUrl = page.url();
-      const isOnChallengePage = pageUrl.includes('challenge') || pageUrl.includes('checkpoint') || pageUrl.includes('two_factor') || pageUrl.includes('two_step_verification') || pageUrl.includes('captcha') || pageUrl.includes('/2fa');
+      const isOnChallengePage =
+        pageUrl.includes("challenge") ||
+        pageUrl.includes("checkpoint") ||
+        pageUrl.includes("two_factor") ||
+        pageUrl.includes("two_step_verification") ||
+        pageUrl.includes("captcha") ||
+        pageUrl.includes("/2fa");
 
       if (isOnChallengePage) {
         // 2FA / captcha / checkpoint — Facebook "suspicious login" challenge.
@@ -1002,30 +1127,48 @@ export class SessionsService implements OnModuleInit {
         // the challenge manually. We detect success by checking for the `c_user`
         // cookie (Facebook's authenticated user ID cookie) — same approach as
         // tas33n/fb-login-bot's waitForCUserCookie().
-        const isHeaded = this.configService.get<string>('CAMOUFOX_HEADLESS', 'true') === 'false';
+        const isHeaded = this.configService.get<string>("CAMOUFOX_HEADLESS", "true") === "false";
 
         if (isHeaded) {
           this.logger.warn(
             `Login challenge for ${network} — waiting up to 600s for manual completion (headed mode).\n` +
-            `Please complete the challenge in the browser window (enter code, approve login, etc.).`,
+              `Please complete the challenge in the browser window (enter code, approve login, etc.).`,
           );
 
           // Dump challenge page HTML for debugging
           try {
             const html = await page.content();
-            const fs = await import('node:fs/promises');
-            const debugDir = '/tmp/spa-debug';
+            const fs = await import("node:fs/promises");
+            const debugDir = "/tmp/spa-debug";
             await fs.mkdir(debugDir, { recursive: true });
             await fs.writeFile(`${debugDir}/${network.toLowerCase()}-challenge-page.html`, html);
-            this.logger.debug(`Challenge page HTML dumped to ${debugDir}/${network.toLowerCase()}-challenge-page.html (${html.length} bytes)`);
+            this.logger.debug(
+              `Challenge page HTML dumped to ${debugDir}/${network.toLowerCase()}-challenge-page.html (${html.length} bytes)`,
+            );
             // Wait for React to render, then get visible text
             await page.waitForTimeout(10000);
-            const bodyText = await page.locator('body').innerText().catch(() => '');
+            const bodyText = await page
+              .locator("body")
+              .innerText()
+              .catch(() => "");
             this.logger.warn(`Challenge page visible text:\n${bodyText.slice(0, 2000)}`);
             // Log all buttons and inputs
-            const buttons = await page.locator('button, div[role="button"], input[type="submit"], a[role="button"]').allTextContents().catch(() => []);
+            const buttons = await page
+              .locator('button, div[role="button"], input[type="submit"], a[role="button"]')
+              .allTextContents()
+              .catch(() => []);
             this.logger.warn(`Challenge page buttons: ${JSON.stringify(buttons.slice(0, 15))}`);
-            const inputs = await page.locator('input').evaluateAll((els) => els.map((e) => ({ name: (e as HTMLInputElement).name, type: (e as HTMLInputElement).type, ariaLabel: e.getAttribute('aria-label'), placeholder: (e as HTMLInputElement).placeholder }))).catch(() => []);
+            const inputs = await page
+              .locator("input")
+              .evaluateAll((els) =>
+                els.map((e) => ({
+                  name: (e as HTMLInputElement).name,
+                  type: (e as HTMLInputElement).type,
+                  ariaLabel: e.getAttribute("aria-label"),
+                  placeholder: (e as HTMLInputElement).placeholder,
+                })),
+              )
+              .catch(() => []);
             this.logger.warn(`Challenge page inputs: ${JSON.stringify(inputs.slice(0, 10))}`);
           } catch {
             // non-blocking
@@ -1042,7 +1185,7 @@ export class SessionsService implements OnModuleInit {
             await this.browser.randomDelay(pollIntervalMs, pollIntervalMs + 500);
             const cookies = await context.cookies();
             const cUserCookie = cookies.find(
-              (c) => c.name === 'c_user' && c.domain.includes('facebook.com'),
+              (c) => c.name === "c_user" && c.domain.includes("facebook.com"),
             );
             if (cUserCookie) {
               challengeResolved = true;
@@ -1054,31 +1197,38 @@ export class SessionsService implements OnModuleInit {
             // Also check if URL changed away from challenge pages
             const currentUrl = page.url();
             const stillOnChallenge =
-              currentUrl.includes('two_step_verification') ||
-              currentUrl.includes('two_factor') ||
-              currentUrl.includes('checkpoint') ||
-              currentUrl.includes('challenge');
-            if (!stillOnChallenge && !currentUrl.includes('/login')) {
+              currentUrl.includes("two_step_verification") ||
+              currentUrl.includes("two_factor") ||
+              currentUrl.includes("checkpoint") ||
+              currentUrl.includes("challenge");
+            if (!stillOnChallenge && !currentUrl.includes("/login")) {
               // URL changed to non-challenge, non-login page — likely success
-              this.logger.log(`Login challenge likely completed for ${network} — URL changed to ${currentUrl}`);
+              this.logger.log(
+                `Login challenge likely completed for ${network} — URL changed to ${currentUrl}`,
+              );
               challengeResolved = true;
               break;
             }
           }
 
           if (!challengeResolved) {
-            this.logger.error(`Login challenge timed out for ${network} — not completed within 600s`);
-            await this.browser.screenshot(page, network, 'on-error');
+            this.logger.error(
+              `Login challenge timed out for ${network} — not completed within 600s`,
+            );
+            await this.browser.screenshot(page, network, "on-error");
             await page.close();
 
             void this.discord
               .critical(
-                'Login Challenge Timeout — Manual Completion Required',
+                "Login Challenge Timeout — Manual Completion Required",
                 `Auto-login for **${network}** hit a challenge page and it was not completed within 600 seconds.`,
                 [
-                  { name: 'Network', value: network, inline: true },
-                  { name: 'Challenge URL', value: pageUrl.slice(0, 1024) },
-                  { name: 'Action Needed', value: 'Re-run with --headed and complete the challenge in the browser window.' },
+                  { name: "Network", value: network, inline: true },
+                  { name: "Challenge URL", value: pageUrl.slice(0, 1024) },
+                  {
+                    name: "Action Needed",
+                    value: "Re-run with --headed and complete the challenge in the browser window.",
+                  },
                 ],
               )
               .catch(() => void 0);
@@ -1090,18 +1240,23 @@ export class SessionsService implements OnModuleInit {
           await this.browser.randomDelay(3000, 5000);
         } else {
           // Headless mode — can't auto-solve challenges
-          this.logger.error(`Login challenge/captcha for ${network} — manual intervention needed (${pageUrl})`);
-          await this.browser.screenshot(page, network, 'on-error');
+          this.logger.error(
+            `Login challenge/captcha for ${network} — manual intervention needed (${pageUrl})`,
+          );
+          await this.browser.screenshot(page, network, "on-error");
           await page.close();
 
           void this.discord
             .critical(
-              'Login Challenge Detected — Manual Intervention Needed',
+              "Login Challenge Detected — Manual Intervention Needed",
               `Auto-login for **${network}** hit a captcha/2FA/challenge page. The account cannot be logged in automatically.`,
               [
-                { name: 'Network', value: network, inline: true },
-                { name: 'Challenge URL', value: pageUrl.slice(0, 1024) },
-                { name: 'Action Needed', value: 'Re-run with --headed and complete the challenge in the browser window.' },
+                { name: "Network", value: network, inline: true },
+                { name: "Challenge URL", value: pageUrl.slice(0, 1024) },
+                {
+                  name: "Action Needed",
+                  value: "Re-run with --headed and complete the challenge in the browser window.",
+                },
               ],
             )
             .catch(() => void 0);
@@ -1113,14 +1268,14 @@ export class SessionsService implements OnModuleInit {
       // Re-check URL after challenge resolution
       const postChallengeUrl = page.url();
       const stillOnChallengePost =
-        postChallengeUrl.includes('two_step_verification') ||
-        postChallengeUrl.includes('two_factor') ||
-        postChallengeUrl.includes('checkpoint') ||
-        postChallengeUrl.includes('challenge');
+        postChallengeUrl.includes("two_step_verification") ||
+        postChallengeUrl.includes("two_factor") ||
+        postChallengeUrl.includes("checkpoint") ||
+        postChallengeUrl.includes("challenge");
       const isOnLoginPagePost =
-        postChallengeUrl.includes('/login') ||
-        postChallengeUrl.includes('/auth') ||
-        postChallengeUrl.includes('/onboarding');
+        postChallengeUrl.includes("/login") ||
+        postChallengeUrl.includes("/auth") ||
+        postChallengeUrl.includes("/onboarding");
 
       // If the network's auth cookies are present, login succeeded regardless of URL.
       // Needed because SPA-routed onboarding flows (e.g. X's /i/jf/onboarding/web) can
@@ -1139,7 +1294,7 @@ export class SessionsService implements OnModuleInit {
       if (hasAuthCookies) {
         this.logger.log(`Login verified for ${network} — auth cookies present`);
         // Take post-login screenshot for debugging
-        await this.browser.screenshot(page, network, 'after-login');
+        await this.browser.screenshot(page, network, "after-login");
         // Save storageState
         const storageState = await this.browser.saveStorageState(context);
         await page.close();
@@ -1160,33 +1315,47 @@ export class SessionsService implements OnModuleInit {
 
       if (stillOnChallengePost || isOnLoginPagePost) {
         // DEBUG: dump error messages and page text for X login troubleshooting
-        if (network === 'X') {
+        if (network === "X") {
           try {
-            const bodyText = await page.locator('body').innerText().catch(() => '');
+            const bodyText = await page
+              .locator("body")
+              .innerText()
+              .catch(() => "");
             this.logger.warn(`X login page text after submit:\n${bodyText.slice(0, 2000)}`);
             // Look for error messages
-            const errorEls = await page.locator('[role="alert"], [data-testid="toast"], .error, [class*="error" i]').allTextContents().catch(() => []);
+            const errorEls = await page
+              .locator('[role="alert"], [data-testid="toast"], .error, [class*="error" i]')
+              .allTextContents()
+              .catch(() => []);
             this.logger.warn(`X login error elements: ${JSON.stringify(errorEls.slice(0, 5))}`);
           } catch {
             // non-blocking
           }
         }
-        this.logger.error(`Login failed for ${network} — still on ${stillOnChallengePost ? 'challenge' : 'login'} page (${postChallengeUrl})`);
-        await this.browser.screenshot(page, network, 'on-error');
+        this.logger.error(
+          `Login failed for ${network} — still on ${stillOnChallengePost ? "challenge" : "login"} page (${postChallengeUrl})`,
+        );
+        await this.browser.screenshot(page, network, "on-error");
         await page.close();
         return null;
       }
 
       // Facebook may show a "Save" browser info dialog after login — dismiss it
-      if (network === 'FACEBOOK') {
-        const saveBtn = page.locator('[role="button"][aria-label="Save"], button:has-text("Save"), input[value="Save"]').first();
+      if (network === "FACEBOOK") {
+        const saveBtn = page
+          .locator(
+            '[role="button"][aria-label="Save"], button:has-text("Save"), input[value="Save"]',
+          )
+          .first();
         if (await saveBtn.isVisible().catch(() => false)) {
           this.logger.debug(`Facebook "Save" dialog — clicking Save`);
           await saveBtn.click().catch(() => {});
           await this.browser.randomDelay(2000, 4000);
         }
         // Also handle "Continue" checkpoint button if present
-        const continueBtn = page.locator('button:has-text("Continue"), input[value="Continue"], a:has-text("Continue")').first();
+        const continueBtn = page
+          .locator('button:has-text("Continue"), input[value="Continue"], a:has-text("Continue")')
+          .first();
         if (await continueBtn.isVisible().catch(() => false)) {
           this.logger.debug(`Facebook checkpoint — clicking Continue`);
           await continueBtn.click().catch(() => {});
@@ -1202,15 +1371,17 @@ export class SessionsService implements OnModuleInit {
       if (!isLoggedIn) {
         // Success indicator not found — login likely failed
         this.logger.error(`Login failed for ${network} — no success indicator found (${pageUrl})`);
-        await this.browser.screenshot(page, network, 'on-error');
+        await this.browser.screenshot(page, network, "on-error");
         // Debug: dump page HTML and visible buttons to help update selectors
         try {
           const html = await page.content();
-          const buttons = await page.locator('button, div[role="button"], a[href]').allTextContents();
+          const buttons = await page
+            .locator('button, div[role="button"], a[href]')
+            .allTextContents();
           this.logger.debug(`Login debug for ${network} — URL: ${pageUrl}`);
           this.logger.debug(`Visible buttons/links: ${JSON.stringify(buttons.slice(0, 20))}`);
           // Save HTML for manual inspection
-          const { writeFileSync } = await import('node:fs');
+          const { writeFileSync } = await import("node:fs");
           const debugPath = `/tmp/spa-screenshots/${network.toLowerCase()}/login-debug-${Date.now()}.html`;
           writeFileSync(debugPath, html);
           this.logger.debug(`Login debug HTML saved: ${debugPath}`);
@@ -1222,7 +1393,7 @@ export class SessionsService implements OnModuleInit {
       }
 
       // Take post-login screenshot for debugging
-      await this.browser.screenshot(page, network, 'after-login');
+      await this.browser.screenshot(page, network, "after-login");
 
       // Save storageState
       const storageState = await this.browser.saveStorageState(context);
@@ -1248,7 +1419,7 @@ export class SessionsService implements OnModuleInit {
         if (context) {
           const page = context.pages()[0];
           if (page) {
-            await this.browser.screenshot(page, network, 'on-error');
+            await this.browser.screenshot(page, network, "on-error");
           }
         }
       } catch {}
@@ -1277,7 +1448,9 @@ export class SessionsService implements OnModuleInit {
         lastHealthCheck: new Date(),
       },
     });
-    this.logger.debug(`Updated storage state for session ${sessionId} (encrypted: ${this.encryptionService.isEnabled()})`);
+    this.logger.debug(
+      `Updated storage state for session ${sessionId} (encrypted: ${this.encryptionService.isEnabled()})`,
+    );
   }
 
   /**
@@ -1300,7 +1473,9 @@ export class SessionsService implements OnModuleInit {
         lastHealthCheck: new Date(),
       },
     });
-    this.logger.log(`Created new session for ${network} (encrypted: ${this.encryptionService.isEnabled()})`);
+    this.logger.log(
+      `Created new session for ${network} (encrypted: ${this.encryptionService.isEnabled()})`,
+    );
   }
 
   /**
@@ -1314,7 +1489,7 @@ export class SessionsService implements OnModuleInit {
    */
   decryptStorageState(session: { storageState: unknown }): string {
     const raw = session.storageState;
-    if (typeof raw === 'string') {
+    if (typeof raw === "string") {
       // Encrypted string — decrypt it
       if (this.encryptionService.isEncrypted(raw)) {
         const decrypted = this.encryptionService.decrypt(raw);
@@ -1332,17 +1507,17 @@ export class SessionsService implements OnModuleInit {
    * Used for deep health check — validates cookies, not just URL.
    * Reference: facebook-scraper validates c_user + xs, twscrape validates ct0 + auth_token.
    */
-  private readonly AUTH_COOKIES: Partial<Record<SocialNetwork, Array<{ name: string; domain: string }>>> = {
+  private readonly AUTH_COOKIES: Partial<
+    Record<SocialNetwork, Array<{ name: string; domain: string }>>
+  > = {
     X: [
-      { name: 'auth_token', domain: 'x.com' },
-      { name: 'ct0', domain: 'x.com' },
+      { name: "auth_token", domain: "x.com" },
+      { name: "ct0", domain: "x.com" },
     ],
-    THREADS: [
-      { name: 'sessionid', domain: 'threads.com' },
-    ],
+    THREADS: [{ name: "sessionid", domain: "threads.com" }],
     FACEBOOK: [
-      { name: 'c_user', domain: 'facebook.com' },
-      { name: 'xs', domain: 'facebook.com' },
+      { name: "c_user", domain: "facebook.com" },
+      { name: "xs", domain: "facebook.com" },
     ],
   };
 
@@ -1356,38 +1531,41 @@ export class SessionsService implements OnModuleInit {
    *
    * Reference: facebook-scraper validates c_user + xs; twscrape validates ct0 + auth_token.
    */
-  async healthCheck(network: SocialNetwork, accountId?: string): Promise<{ healthy: boolean; message: string }> {
+  async healthCheck(
+    network: SocialNetwork,
+    accountId?: string,
+  ): Promise<{ healthy: boolean; message: string }> {
     if (!isNetworkEnabled(network)) {
-      return { healthy: false, message: 'Network is disabled' };
+      return { healthy: false, message: "Network is disabled" };
     }
 
     let account: SocialAccount | null = null;
     if (accountId) {
       account = await this.accountsService.findById(accountId);
       if (account && account.network !== network) {
-        return { healthy: false, message: 'Account network mismatch' };
+        return { healthy: false, message: "Account network mismatch" };
       }
     }
     if (!account) {
       account = await this.accountsService.findFirstActiveByNetwork(network);
     }
     if (!account) {
-      return { healthy: false, message: 'No account found' };
+      return { healthy: false, message: "No account found" };
     }
 
     const session = await this.prisma.session.findFirst({
       where: { accountId: account.id, status: SessionStatus.ACTIVE },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
     });
 
     if (!session) {
-      return { healthy: false, message: 'No active session' };
+      return { healthy: false, message: "No active session" };
     }
 
     // Open browser with saved storageState and check if still logged in
     const storageStateStr = this.decryptStorageState(session);
     // Use acquireContext (pool) instead of createContext (new context each time)
-    let context: Awaited<ReturnType<IBrowserPort['acquireContext']>> | null = null;
+    let context: Awaited<ReturnType<IBrowserPort["acquireContext"]>> | null = null;
     let page = null;
 
     try {
@@ -1395,11 +1573,14 @@ export class SessionsService implements OnModuleInit {
       page = await context.newPage();
 
       // Navigate to the network's home page — with retry on network errors
-      const checkUrl = network === 'X' ? 'https://x.com/home' :
-        network === 'THREADS' ? 'https://www.threads.com/' :
-        'https://www.facebook.com/';
+      const checkUrl =
+        network === "X"
+          ? "https://x.com/home"
+          : network === "THREADS"
+            ? "https://www.threads.com/"
+            : "https://www.facebook.com/";
       await navigateWithRetry(page, checkUrl, {
-        waitUntil: 'networkidle',
+        waitUntil: "networkidle",
         timeoutMs: 30000,
         maxRetries: 2,
       });
@@ -1407,7 +1588,7 @@ export class SessionsService implements OnModuleInit {
 
       // Deep check 1: If redirected to login, session is definitely expired
       const currentUrl = page.url();
-      const isExpired = currentUrl.includes('/login') || currentUrl.includes('/auth');
+      const isExpired = currentUrl.includes("/login") || currentUrl.includes("/auth");
 
       // Deep check 2: Validate auth cookies are present and not expired
       const cookies = await context.cookies();
@@ -1434,12 +1615,12 @@ export class SessionsService implements OnModuleInit {
           where: { id: session.id },
           data: { status: SessionStatus.EXPIRED },
         });
-        return { healthy: false, message: 'Session expired (redirected to login)' };
+        return { healthy: false, message: "Session expired (redirected to login)" };
       }
 
       if (missingCookies.length > 0) {
         this.logger.warn(
-          `Health check for ${network}: missing auth cookies: ${missingCookies.join(', ')}`,
+          `Health check for ${network}: missing auth cookies: ${missingCookies.join(", ")}`,
         );
         await this.prisma.session.update({
           where: { id: session.id },
@@ -1447,13 +1628,13 @@ export class SessionsService implements OnModuleInit {
         });
         return {
           healthy: false,
-          message: `Session expired (missing auth cookies: ${missingCookies.join(', ')})`,
+          message: `Session expired (missing auth cookies: ${missingCookies.join(", ")})`,
         };
       }
 
       if (expiredCookies.length > 0) {
         this.logger.warn(
-          `Health check for ${network}: expired auth cookies: ${expiredCookies.join(', ')}`,
+          `Health check for ${network}: expired auth cookies: ${expiredCookies.join(", ")}`,
         );
         await this.prisma.session.update({
           where: { id: session.id },
@@ -1461,7 +1642,7 @@ export class SessionsService implements OnModuleInit {
         });
         return {
           healthy: false,
-          message: `Session expired (cookies expired: ${expiredCookies.join(', ')})`,
+          message: `Session expired (cookies expired: ${expiredCookies.join(", ")})`,
         };
       }
 
@@ -1471,7 +1652,7 @@ export class SessionsService implements OnModuleInit {
         data: { lastHealthCheck: new Date() },
       });
 
-      return { healthy: true, message: 'Session active' };
+      return { healthy: true, message: "Session active" };
     } catch (err) {
       this.logger.error(`Health check failed for ${network}: ${(err as Error).message}`);
       // 2.4.2: navigation errors (e.g. timeout, net::ERR_*) should expire the session
@@ -1489,14 +1670,22 @@ export class SessionsService implements OnModuleInit {
       return { healthy: false, message: `Health check error: ${(err as Error).message}` };
     } finally {
       // Always close page and release context back to pool
-      try { if (page) await page.close(); } catch { /* best-effort */ }
-      try { if (context) this.browser.releaseContext(network, context, account.id); } catch { /* best-effort */ }
+      try {
+        if (page) await page.close();
+      } catch {
+        /* best-effort */
+      }
+      try {
+        if (context) this.browser.releaseContext(network, context, account.id);
+      } catch {
+        /* best-effort */
+      }
     }
   }
 
   async findAll() {
     return this.prisma.session.findMany({
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
       include: { account: true },
       take: 20,
     });
@@ -1515,9 +1704,7 @@ export class SessionsService implements OnModuleInit {
       });
       this.logger.log(`Marked session ${sessionId} for ${network} as EXPIRED (self-recovery)`);
     } catch (err) {
-      this.logger.warn(
-        `Failed to mark session ${sessionId} as EXPIRED: ${(err as Error).message}`,
-      );
+      this.logger.warn(`Failed to mark session ${sessionId} as EXPIRED: ${(err as Error).message}`);
     }
   }
 
@@ -1528,17 +1715,21 @@ export class SessionsService implements OnModuleInit {
    * responsible for determining the restriction is permanent; this is a
    * terminal state until a human re-activates the session.
    */
-  async markSessionBanned(network: SocialNetwork, sessionId: string, reason?: string): Promise<void> {
+  async markSessionBanned(
+    network: SocialNetwork,
+    sessionId: string,
+    reason?: string,
+  ): Promise<void> {
     try {
       await this.prisma.session.update({
         where: { id: sessionId },
         data: { status: SessionStatus.BANNED },
       });
-      this.logger.log(`Marked session ${sessionId} for ${network} as BANNED: ${reason ?? 'no reason provided'}`);
-    } catch (err) {
-      this.logger.warn(
-        `Failed to mark session ${sessionId} as BANNED: ${(err as Error).message}`,
+      this.logger.log(
+        `Marked session ${sessionId} for ${network} as BANNED: ${reason ?? "no reason provided"}`,
       );
+    } catch (err) {
+      this.logger.warn(`Failed to mark session ${sessionId} as BANNED: ${(err as Error).message}`);
     }
   }
 
@@ -1554,7 +1745,7 @@ export class SessionsService implements OnModuleInit {
       // Find all expired sessions grouped by account
       const expiredSessions = await this.prisma.session.findMany({
         where: { status: SessionStatus.EXPIRED },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
         select: { id: true, accountId: true },
       });
 
@@ -1610,7 +1801,7 @@ export class SessionsService implements OnModuleInit {
     }
     const key = this.verifyCodeKey(network);
     const encrypted = this.encryptionService.encrypt({ code: trimmed });
-    await this.redis.set(key, encrypted, 'EX', 300); // 5 min TTL
+    await this.redis.set(key, encrypted, "EX", 300); // 5 min TTL
     this.logger.log(`Verification code stored for ${network} (expires in 5 min)`);
   }
 
@@ -1639,7 +1830,9 @@ export class SessionsService implements OnModuleInit {
           this.logger.log(`Verification code received for ${network}`);
           return code;
         } catch (err) {
-          this.logger.error(`Failed to decrypt verification code for ${network}: ${(err as Error).message}`);
+          this.logger.error(
+            `Failed to decrypt verification code for ${network}: ${(err as Error).message}`,
+          );
           return null;
         }
       }
@@ -1667,36 +1860,56 @@ export class SessionsService implements OnModuleInit {
   }
 
   private async isActuallyRendered(locator: Locator): Promise<boolean> {
-    const evaluated = await locator.evaluate((el) => {
-      const isRendered = (e: Element) => {
-        const s = window.getComputedStyle(e as HTMLElement);
-        if (s.display === 'none' || s.visibility === 'hidden' || s.contentVisibility === 'hidden' || parseFloat(s.opacity) === 0 || e.getAttribute('aria-hidden') === 'true' || (e as HTMLElement).inert) return false;
-        return e.getClientRects().length > 0;
-      };
-      if (!isRendered(el)) return false;
-      for (let p = el.parentElement; p; p = p.parentElement) {
-        if (!isRendered(p)) return false;
-      }
-      return true;
-    }).catch(() => undefined as unknown as boolean);
-    return typeof evaluated === 'boolean' ? evaluated : locator.isVisible().catch(() => false);
+    const evaluated = await locator
+      .evaluate((el) => {
+        const isRendered = (e: Element) => {
+          const s = window.getComputedStyle(e as HTMLElement);
+          if (
+            s.display === "none" ||
+            s.visibility === "hidden" ||
+            s.contentVisibility === "hidden" ||
+            parseFloat(s.opacity) === 0 ||
+            e.getAttribute("aria-hidden") === "true" ||
+            (e as HTMLElement).inert
+          )
+            return false;
+          return e.getClientRects().length > 0;
+        };
+        if (!isRendered(el)) return false;
+        for (let p = el.parentElement; p; p = p.parentElement) {
+          if (!isRendered(p)) return false;
+        }
+        return true;
+      })
+      .catch(() => undefined as unknown as boolean);
+    return typeof evaluated === "boolean" ? evaluated : locator.isVisible().catch(() => false);
   }
 
   private async isPasswordInputVisible(locator: Locator): Promise<boolean> {
-    const evaluated = await locator.evaluate((el) => {
-      const isRendered = (e: Element) => {
-        const s = window.getComputedStyle(e as HTMLElement);
-        if (s.display === 'none' || s.visibility === 'hidden' || s.contentVisibility === 'hidden' || parseFloat(s.opacity) === 0 || e.getAttribute('aria-hidden') === 'true' || (e as HTMLElement).inert) return false;
-        return e.getClientRects().length > 0;
-      };
-      const s = window.getComputedStyle(el as HTMLElement);
-      if (!isRendered(el) || s.pointerEvents === 'none') return false;
-      for (let p = el.parentElement; p; p = p.parentElement) {
-        if (!isRendered(p)) return false;
-      }
-      return true;
-    }).catch(() => undefined as unknown as boolean);
-    return typeof evaluated === 'boolean' ? evaluated : locator.isVisible().catch(() => false);
+    const evaluated = await locator
+      .evaluate((el) => {
+        const isRendered = (e: Element) => {
+          const s = window.getComputedStyle(e as HTMLElement);
+          if (
+            s.display === "none" ||
+            s.visibility === "hidden" ||
+            s.contentVisibility === "hidden" ||
+            parseFloat(s.opacity) === 0 ||
+            e.getAttribute("aria-hidden") === "true" ||
+            (e as HTMLElement).inert
+          )
+            return false;
+          return e.getClientRects().length > 0;
+        };
+        const s = window.getComputedStyle(el as HTMLElement);
+        if (!isRendered(el) || s.pointerEvents === "none") return false;
+        for (let p = el.parentElement; p; p = p.parentElement) {
+          if (!isRendered(p)) return false;
+        }
+        return true;
+      })
+      .catch(() => undefined as unknown as boolean);
+    return typeof evaluated === "boolean" ? evaluated : locator.isVisible().catch(() => false);
   }
 
   /**
@@ -1710,7 +1923,9 @@ export class SessionsService implements OnModuleInit {
     labels: string[],
     opts?: { fallbackInput?: Locator; scopeInput?: Locator },
   ): Promise<boolean> {
-    const scopeBox = opts?.scopeInput ? await opts.scopeInput.boundingBox().catch(() => null) : null;
+    const scopeBox = opts?.scopeInput
+      ? await opts.scopeInput.boundingBox().catch(() => null)
+      : null;
     for (const label of labels) {
       const candidates = await page.getByText(label, { exact: true }).all();
       const visible = await Promise.all(candidates.map((l) => l.isVisible().catch(() => false)));
@@ -1744,10 +1959,10 @@ export class SessionsService implements OnModuleInit {
       }
     }
     if (opts?.fallbackInput) {
-      this.logger.debug(`X: no visible ${labels.join('/')} button — pressing Enter on input`);
+      this.logger.debug(`X: no visible ${labels.join("/")} button — pressing Enter on input`);
       await opts.fallbackInput.focus().catch(() => {});
       await this.browser.randomDelay(200, 500);
-      await opts.fallbackInput.press('Enter');
+      await opts.fallbackInput.press("Enter");
     }
     return false;
   }
@@ -1759,7 +1974,7 @@ export class SessionsService implements OnModuleInit {
   private async getVisibleUsernameInput(page: Page, timeoutMs = 15000): Promise<Locator | null> {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      const all = await page.locator(this.LOGIN_SELECTORS.X?.usernameInput ?? '').all();
+      const all = await page.locator(this.LOGIN_SELECTORS.X?.usernameInput ?? "").all();
       for (const input of all) {
         if (await this.isActuallyRendered(input)) return input;
       }

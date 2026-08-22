@@ -1,12 +1,12 @@
-import { Module, type DynamicModule } from '@nestjs/common';
-import { CanonicalModule } from '../canonical/canonical.module.js';
-import { GenerationModule } from '../generation/generation.module.js';
-import { BrowserAgentModule } from '../browser-agent/browser-agent.module.js';
-import { ArticleGenerationCron } from './article-generation.cron.js';
-import { DevtoPoster } from '../posting/posters/devto.poster.js';
-import { HashnodePoster } from '../posting/posters/hashnode.poster.js';
-import { LinkedinPoster } from '../posting/posters/linkedin.poster.js';
-import { BrowserModule } from '../../infrastructure/browser/browser.module.js';
+import { Module, type DynamicModule } from "@nestjs/common";
+import { CanonicalModule } from "../canonical/canonical.module.js";
+import { GenerationModule } from "../generation/generation.module.js";
+import { BrowserAgentModule } from "../browser-agent/browser-agent.module.js";
+import { ArticleGenerationCron } from "./article-generation.cron.js";
+import { DevtoPoster } from "../posting/posters/devto.poster.js";
+import { HashnodePoster } from "../posting/posters/hashnode.poster.js";
+import { LinkedinPoster } from "../posting/posters/linkedin.poster.js";
+import { BrowserModule } from "../../infrastructure/browser/browser.module.js";
 
 /**
  * SyndicationModule — wrapper module for the cross-platform content syndication
@@ -51,12 +51,7 @@ export class SyndicationModule {
         HashnodePoster,
         LinkedinPoster,
       ],
-      exports: [
-        CanonicalModule,
-        DevtoPoster,
-        HashnodePoster,
-        LinkedinPoster,
-      ],
+      exports: [CanonicalModule, DevtoPoster, HashnodePoster, LinkedinPoster],
     };
   }
 }

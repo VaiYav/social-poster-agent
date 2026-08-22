@@ -11,18 +11,18 @@
 //   pnpm dry-run -- --headed                  # show browser (CAMOUFOX_HEADLESS=false)
 //   pnpm dry-run -- --cleanup                 # delete generated posts after verification
 
-import 'reflect-metadata';
-import { NestFactory } from '@nestjs/core';
-import { Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { SocialNetwork } from '@prisma/client';
-import { AppModule } from '../app.module';
-import { LlmService } from '../infrastructure/llm/llm.service';
-import { DryRunReporter } from './dry-run.reporter';
-import { DryRunRunner, type DryRunOptions } from './dry-run.runner';
+import "reflect-metadata";
+import { NestFactory } from "@nestjs/core";
+import { Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { SocialNetwork } from "../generated/prisma/client";
+import { AppModule } from "../app.module";
+import { LlmService } from "../infrastructure/llm/llm.service";
+import { DryRunReporter } from "./dry-run.reporter";
+import { DryRunRunner, type DryRunOptions } from "./dry-run.runner";
 
 interface ParsedArgs {
-  feature: 'generation' | 'posting' | 'engagement' | 'trending' | 'replies' | 'all';
+  feature: "generation" | "posting" | "engagement" | "trending" | "replies" | "all";
   network: SocialNetwork;
   count: number;
   postId?: string;
@@ -36,7 +36,7 @@ interface ParsedArgs {
 
 function parseArgs(argv: string[]): ParsedArgs {
   const args: ParsedArgs = {
-    feature: 'all',
+    feature: "all",
     network: SocialNetwork.X,
     count: 1,
     headed: false,
@@ -47,44 +47,44 @@ function parseArgs(argv: string[]): ParsedArgs {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     switch (arg) {
-      case '--feature':
-        args.feature = argv[++i] as ParsedArgs['feature'] ?? args.feature;
+      case "--feature":
+        args.feature = (argv[++i] as ParsedArgs["feature"]) ?? args.feature;
         break;
-      case '--network':
-        args.network = (argv[++i] ?? 'X') as SocialNetwork;
+      case "--network":
+        args.network = (argv[++i] ?? "X") as SocialNetwork;
         break;
-      case '--count':
-        args.count = parseInt(argv[++i] ?? '1', 10);
+      case "--count":
+        args.count = parseInt(argv[++i] ?? "1", 10);
         break;
-      case '--post-id':
+      case "--post-id":
         args.postId = argv[++i];
         break;
-      case '--post-url':
+      case "--post-url":
         args.postUrl = argv[++i];
         break;
-      case '--target-handle':
+      case "--target-handle":
         args.targetHandle = argv[++i];
         break;
-      case '--scroll-duration':
-        args.scrollDuration = parseInt(argv[++i] ?? '15', 10);
+      case "--scroll-duration":
+        args.scrollDuration = parseInt(argv[++i] ?? "15", 10);
         break;
-      case '--headed':
+      case "--headed":
         args.headed = true;
         break;
-      case '--cleanup':
+      case "--cleanup":
         args.cleanup = true;
         break;
-      case '--yes':
-      case '-y':
+      case "--yes":
+      case "-y":
         args.yes = true;
         break;
-      case '--help':
-      case '-h':
+      case "--help":
+      case "-h":
         printHelp();
         process.exit(0);
         break;
       default:
-        if (!arg.startsWith('--')) {
+        if (!arg.startsWith("--")) {
           if (!args.postId) args.postId = arg;
         }
     }
@@ -141,11 +141,11 @@ async function confirm(prompt: string): Promise<boolean> {
 
   process.stdout.write(`${prompt} [y/N] `);
   return new Promise((resolve) => {
-    process.stdin.setEncoding('utf8');
+    process.stdin.setEncoding("utf8");
     process.stdin.resume();
-    process.stdin.once('data', (data: string) => {
+    process.stdin.once("data", (data: string) => {
       process.stdin.pause();
-      resolve(data.trim().toLowerCase().startsWith('y'));
+      resolve(data.trim().toLowerCase().startsWith("y"));
     });
   });
 }
@@ -156,54 +156,58 @@ async function main(): Promise<void> {
 
   // Real runs should always use a headless browser to keep Camoufox's memory
   // footprint as small as possible. --headed may still override for debugging.
-  process.env.CAMOUFOX_HEADLESS = 'true';
+  process.env.CAMOUFOX_HEADLESS = "true";
 
   // Set dry-run env flag — BrowserModule checks this to wrap BrowserFactory
-  process.env.SPA_DRY_RUN = 'true';
+  process.env.SPA_DRY_RUN = "true";
   if (args.headed) {
-    process.env.CAMOUFOX_HEADLESS = 'false';
+    process.env.CAMOUFOX_HEADLESS = "false";
   }
 
-  reporter.banner('SPA Dry-Run Verification');
+  reporter.banner("SPA Dry-Run Verification");
   reporter.info(`Feature: ${args.feature} | Network: ${args.network} | Count: ${args.count}`);
-  if (args.headed) reporter.info('Browser: HEADED (visible)');
-  if (args.cleanup) reporter.info('Cleanup: enabled (generated posts will be deleted)');
-  reporter.info('');
+  if (args.headed) reporter.info("Browser: HEADED (visible)");
+  if (args.cleanup) reporter.info("Cleanup: enabled (generated posts will be deleted)");
+  reporter.info("");
 
   // Warn about real LLM calls and browser
-  if (args.feature === 'generation' || args.feature === 'all') {
-    reporter.info('WARNING: Real LLM API calls will be made (may cost tokens).');
+  if (args.feature === "generation" || args.feature === "all") {
+    reporter.info("WARNING: Real LLM API calls will be made (may cost tokens).");
   }
-  if (args.feature === 'posting' || args.feature === 'engagement' || args.feature === 'all') {
-    reporter.info('WARNING: Real browser will open and navigate to social networks.');
-    reporter.info('         Submit will be intercepted — NO posts/comments/likes will be published.');
+  if (args.feature === "posting" || args.feature === "engagement" || args.feature === "all") {
+    reporter.info("WARNING: Real browser will open and navigate to social networks.");
+    reporter.info(
+      "         Submit will be intercepted — NO posts/comments/likes will be published.",
+    );
   }
-  if (args.feature === 'trending' || args.feature === 'all') {
-    reporter.info('WARNING: Trending scraper will fetch Google Trends RSS and (for X) scrape X trends.');
+  if (args.feature === "trending" || args.feature === "all") {
+    reporter.info(
+      "WARNING: Trending scraper will fetch Google Trends RSS and (for X) scrape X trends.",
+    );
   }
-  if (args.feature === 'replies' || args.feature === 'all') {
-    reporter.info('WARNING: Replies monitor will scrape comments on recent posts.');
+  if (args.feature === "replies" || args.feature === "all") {
+    reporter.info("WARNING: Replies monitor will scrape comments on recent posts.");
   }
-  reporter.info('');
+  reporter.info("");
 
   if (!args.yes) {
-    const ok = await confirm('Proceed with dry-run?');
+    const ok = await confirm("Proceed with dry-run?");
     if (!ok) {
-      reporter.info('Dry-run cancelled.');
+      reporter.info("Dry-run cancelled.");
       process.exit(0);
     }
   }
 
-  const logger = new Logger('DryRunCLI');
+  const logger = new Logger("DryRunCLI");
 
   try {
-    logger.log('Bootstrapping NestJS application (SPA_DRY_RUN=true → DryRunBrowserPort active)...');
+    logger.log("Bootstrapping NestJS application (SPA_DRY_RUN=true → DryRunBrowserPort active)...");
 
     // Bootstrap real app — BrowserModule checks SPA_DRY_RUN env var
     // and wraps BrowserFactory with DryRunBrowserPort automatically
     const app = await NestFactory.create(AppModule, {
       rawBody: true,
-      logger: ['error', 'warn', 'log', 'debug'],
+      logger: ["error", "warn", "log", "debug"],
     });
     app.enableShutdownHooks();
 
@@ -211,17 +215,21 @@ async function main(): Promise<void> {
     // onModuleInit() hooks (including LlmService.buildProviderChain) only run after init().
     await app.init();
 
-    logger.log('Application bootstrapped — starting dry-run scenarios...');
+    logger.log("Application bootstrapped — starting dry-run scenarios...");
 
     // Debug: check if ConfigService loaded env vars
     const configService = app.get(ConfigService);
-    const groqKey = configService.get<string>('GROQ_API_KEY', '');
-    logger.log(`ConfigService GROQ_API_KEY: ${groqKey ? `SET (${groqKey.slice(0, 10)}...)` : 'NOT SET'}`);
+    const groqKey = configService.get<string>("GROQ_API_KEY", "");
+    logger.log(
+      `ConfigService GROQ_API_KEY: ${groqKey ? `SET (${groqKey.slice(0, 10)}...)` : "NOT SET"}`,
+    );
 
     // Debug: check LlmService directly
     const llm = app.get(LlmService);
     const status = llm.getProviderStatus();
-    logger.log(`LlmService providers: ${status.length}, names: ${status.map((p) => p.name).join(', ')}`);
+    logger.log(
+      `LlmService providers: ${status.length}, names: ${status.map((p) => p.name).join(", ")}`,
+    );
 
     const runner = new DryRunRunner(app, reporter);
     const opts: DryRunOptions = {
@@ -251,6 +259,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error('Fatal error:', err);
+  console.error("Fatal error:", err);
   process.exit(1);
 });

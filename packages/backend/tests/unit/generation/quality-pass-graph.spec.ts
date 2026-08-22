@@ -8,42 +8,50 @@
  * All LLM calls are dispatched by GenerateOptions.role — deterministic under
  * LangGraph's parallel fan-out (call ORDER is not).
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { MemorySaver, Command } from '@langchain/langgraph';
-import { SocialNetwork } from '@prisma/client';
-import type { ContentTopic } from '@spa/shared';
-import type { ILlmPort, LlmResponse, GenerateOptions } from '../../../src/domain/ports/llm.port';
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { MemorySaver, Command } from "@langchain/langgraph";
+import { SocialNetwork } from "../../../src/generated/prisma/client";
+import type { ContentTopic } from "@spa/shared";
+import type { ILlmPort, LlmResponse, GenerateOptions } from "../../../src/domain/ports/llm.port";
 import {
   buildGenerationGraph,
   createInitialState,
   clearHookCache,
   type GeneratedPost,
-} from '../../../src/modules/generation/generation.graph';
-import { detectLanguage } from '../../../src/infrastructure/util/language-detector.js';
+} from "../../../src/modules/generation/generation.graph";
+import { detectLanguage } from "../../../src/infrastructure/util/language-detector.js";
 
 // Passes the humanizer gate: varied sentence lengths, no slop, no em dashes.
 const CLEAN_DRAFT =
-  'Product cycle again. I spent forty minutes staring at my plan last night and the coffee started tasting like regret. Fine.';
+  "Product cycle again. I spent forty minutes staring at my plan last night and the coffee started tasting like regret. Fine.";
 
 const JUDGE_HIGH_SCORE = {
-  anti_ai_tone: 0.9, anti_ai_tone_reason: 'sounds human',
-  hook_strength: 0.8, hook_strength_reason: 'stops the scroll',
-  factual_accuracy: 0.9, factual_accuracy_reason: 'matches facts',
-  character_limit: 1.0, character_limit_reason: 'within limit',
+  anti_ai_tone: 0.9,
+  anti_ai_tone_reason: "sounds human",
+  hook_strength: 0.8,
+  hook_strength_reason: "stops the scroll",
+  factual_accuracy: 0.9,
+  factual_accuracy_reason: "matches facts",
+  character_limit: 1.0,
+  character_limit_reason: "within limit",
 };
 
 const JUDGE_LOW_SCORE = {
-  anti_ai_tone: 0.2, anti_ai_tone_reason: 'sterile certainty, no personal voice',
-  hook_strength: 0.4, hook_strength_reason: 'generic opener',
-  factual_accuracy: 0.9, factual_accuracy_reason: 'ok',
-  character_limit: 1.0, character_limit_reason: 'within limit',
+  anti_ai_tone: 0.2,
+  anti_ai_tone_reason: "sterile certainty, no personal voice",
+  hook_strength: 0.4,
+  hook_strength_reason: "generic opener",
+  factual_accuracy: 0.9,
+  factual_accuracy_reason: "ok",
+  character_limit: 1.0,
+  character_limit_reason: "within limit",
 };
 
 // Stage 2: the batched judge returns all network judgments in one JSON object.
 const JUDGE_HIGH = JSON.stringify({ judgments: [JUDGE_HIGH_SCORE] });
 const JUDGE_LOW = JSON.stringify({ judgments: [JUDGE_LOW_SCORE] });
 
-type RoleName = 'facts' | 'hook' | 'draft' | 'refine' | 'critique' | 'judge';
+type RoleName = "facts" | "hook" | "draft" | "refine" | "critique" | "judge";
 
 interface ScriptedLlm extends ILlmPort {
   counts: Record<RoleName, number>;
@@ -53,42 +61,69 @@ interface ScriptedLlm extends ILlmPort {
 
 /** Role-dispatched mock LLM — handlers receive the per-role call index. */
 function makeLlm(handlers: Partial<Record<RoleName, (idx: number) => string>> = {}): ScriptedLlm {
-  const counts: Record<RoleName, number> = { facts: 0, hook: 0, draft: 0, refine: 0, critique: 0, judge: 0 };
-  const maxTokens: Record<RoleName, number | undefined> = { facts: undefined, hook: undefined, draft: undefined, refine: undefined, critique: undefined, judge: undefined };
-  const lastPrompt: Record<RoleName, { system: string; user: string } | undefined> = { facts: undefined, hook: undefined, draft: undefined, refine: undefined, critique: undefined, judge: undefined };
+  const counts: Record<RoleName, number> = {
+    facts: 0,
+    hook: 0,
+    draft: 0,
+    refine: 0,
+    critique: 0,
+    judge: 0,
+  };
+  const maxTokens: Record<RoleName, number | undefined> = {
+    facts: undefined,
+    hook: undefined,
+    draft: undefined,
+    refine: undefined,
+    critique: undefined,
+    judge: undefined,
+  };
+  const lastPrompt: Record<RoleName, { system: string; user: string } | undefined> = {
+    facts: undefined,
+    hook: undefined,
+    draft: undefined,
+    refine: undefined,
+    critique: undefined,
+    judge: undefined,
+  };
   const defaults: Record<RoleName, string> = {
-    facts: '1. Workflow Trends happens 3-4 times a year',
-    hook: '1. hook alpha\n2. hook beta\n3. hook gamma',
+    facts: "1. Workflow Trends happens 3-4 times a year",
+    hook: "1. hook alpha\n2. hook beta\n3. hook gamma",
     draft: CLEAN_DRAFT,
-    refine: 'refined text v1',
-    critique: 'Solid, specific, human.\nSCORE: 8\nVERDICT: GOOD',
+    refine: "refined text v1",
+    critique: "Solid, specific, human.\nSCORE: 8\nVERDICT: GOOD",
     judge: JUDGE_HIGH,
   };
 
-  const generateChat = vi.fn(async (systemPrompt: string, _userPrompt: string, options?: GenerateOptions): Promise<LlmResponse> => {
-    const role = options?.role;
-    let type: RoleName;
-    if (role === 'facts' || role === 'hook' || role === 'critique' || role === 'judge') {
-      type = role;
-    } else if (role === 'refine') {
-      type = 'refine';
-    } else if (role === 'draft') {
-      type = 'draft';
-    } else {
-      type = 'draft';
-    }
-    const idx = counts[type];
-    counts[type] += 1;
-    maxTokens[type] = options?.maxTokens;
-    lastPrompt[type] = { system: systemPrompt, user: _userPrompt };
-    const content = handlers[type]?.(idx) ?? defaults[type];
-    return { content, model: 'mock/llm', tokens: 10 };
-  });
+  const generateChat = vi.fn(
+    async (
+      systemPrompt: string,
+      _userPrompt: string,
+      options?: GenerateOptions,
+    ): Promise<LlmResponse> => {
+      const role = options?.role;
+      let type: RoleName;
+      if (role === "facts" || role === "hook" || role === "critique" || role === "judge") {
+        type = role;
+      } else if (role === "refine") {
+        type = "refine";
+      } else if (role === "draft") {
+        type = "draft";
+      } else {
+        type = "draft";
+      }
+      const idx = counts[type];
+      counts[type] += 1;
+      maxTokens[type] = options?.maxTokens;
+      lastPrompt[type] = { system: systemPrompt, user: _userPrompt };
+      const content = handlers[type]?.(idx) ?? defaults[type];
+      return { content, model: "mock/llm", tokens: 10 };
+    },
+  );
 
   return {
-    generate: vi.fn(async () => ({ content: '', model: 'mock/llm' })),
+    generate: vi.fn(async () => ({ content: "", model: "mock/llm" })),
     generateChat,
-    getPromptVersion: vi.fn(() => 'test'),
+    getPromptVersion: vi.fn(() => "test"),
     counts,
     maxTokens,
     lastPrompt,
@@ -98,12 +133,12 @@ function makeLlm(handlers: Partial<Record<RoleName, (idx: number) => string>> = 
 function createTopic(overrides: Partial<ContentTopic> = {}): ContentTopic {
   return {
     topic: `Workflow Trends ${Math.random().toString(36).slice(2, 8)}`,
-    keywords: ['workflow', 'slowdown'],
-    category: 'productivity',
-    facts: ['Workflow Trends happens 3-4 times a year'],
+    keywords: ["workflow", "slowdown"],
+    category: "productivity",
+    facts: ["Workflow Trends happens 3-4 times a year"],
     outline: [],
-    path: '/blog/workflow-slowdown',
-    sourceType: 'article',
+    path: "/blog/workflow-slowdown",
+    sourceType: "article",
   } as unknown as ContentTopic;
 }
 
@@ -111,32 +146,33 @@ function postsOf(state: unknown): GeneratedPost[] {
   return (state as { posts?: GeneratedPost[] }).posts ?? [];
 }
 
-describe('Quality pass — generation graph', () => {
+describe("Quality pass — generation graph", () => {
   beforeEach(() => {
     clearHookCache();
   });
 
-  it('QP-001: critique containing the word "good" but VERDICT: REVISE still triggers refine (regression for includes(\'good\'))', async () => {
+  it("QP-001: critique containing the word \"good\" but VERDICT: REVISE still triggers refine (regression for includes('good'))", async () => {
     const llm = makeLlm({
-      critique: () => 'The hook is good, but the rest is robotic and generic.\nSCORE: 5\nVERDICT: REVISE',
-      refine: () => 'rewritten like a human',
+      critique: () =>
+        "The hook is good, but the rest is robotic and generic.\nSCORE: 5\nVERDICT: REVISE",
+      refine: () => "rewritten like a human",
     });
     const compiled = buildGenerationGraph(llm).compile();
     const state = await compiled.invoke(
-      createInitialState(createTopic(), [SocialNetwork.X], 'brand voice'),
-      { configurable: { thread_id: 'qp-001' } },
+      createInitialState(createTopic(), [SocialNetwork.X], "brand voice"),
+      { configurable: { thread_id: "qp-001" } },
     );
 
     expect(llm.counts.refine).toBe(1);
-    expect(postsOf(state)[0]?.content).toBe('rewritten like a human');
+    expect(postsOf(state)[0]?.content).toBe("rewritten like a human");
   });
 
-  it('QP-002: VERDICT: GOOD on a clean draft skips refine entirely', async () => {
+  it("QP-002: VERDICT: GOOD on a clean draft skips refine entirely", async () => {
     const llm = makeLlm(); // default critique = VERDICT: GOOD, default draft passes the gate
     const compiled = buildGenerationGraph(llm).compile();
     const state = await compiled.invoke(
-      createInitialState(createTopic(), [SocialNetwork.X], 'brand voice'),
-      { configurable: { thread_id: 'qp-002' } },
+      createInitialState(createTopic(), [SocialNetwork.X], "brand voice"),
+      { configurable: { thread_id: "qp-002" } },
     );
 
     expect(llm.counts.refine).toBe(0);
@@ -144,11 +180,11 @@ describe('Quality pass — generation graph', () => {
   });
 
   it('QP-003: legacy "GOOD — no changes needed" (line start) is still accepted', async () => {
-    const llm = makeLlm({ critique: () => 'GOOD — no changes needed.\nSCORE: 9' });
+    const llm = makeLlm({ critique: () => "GOOD — no changes needed.\nSCORE: 9" });
     const compiled = buildGenerationGraph(llm).compile();
     const state = await compiled.invoke(
-      createInitialState(createTopic(), [SocialNetwork.X], 'brand voice'),
-      { configurable: { thread_id: 'qp-003' } },
+      createInitialState(createTopic(), [SocialNetwork.X], "brand voice"),
+      { configurable: { thread_id: "qp-003" } },
     );
 
     expect(llm.counts.refine).toBe(0);
@@ -156,11 +192,11 @@ describe('Quality pass — generation graph', () => {
   });
 
   it('QP-004: hook padding uses facts deadpan, never the banned "Discover..." filler', async () => {
-    const llm = makeLlm({ hook: () => 'Only one hook came back from the model' });
+    const llm = makeLlm({ hook: () => "Only one hook came back from the model" });
     const compiled = buildGenerationGraph(llm).compile();
     const state = await compiled.invoke(
-      createInitialState(createTopic(), [SocialNetwork.X], 'brand voice'),
-      { configurable: { thread_id: 'qp-004' } },
+      createInitialState(createTopic(), [SocialNetwork.X], "brand voice"),
+      { configurable: { thread_id: "qp-004" } },
     );
 
     const hooks = (state as { hooks?: string[] }).hooks ?? [];
@@ -169,107 +205,127 @@ describe('Quality pass — generation graph', () => {
       expect(hook).not.toMatch(/discover/i);
     }
     // Padded from the topic facts
-    expect(hooks).toContain('Workflow Trends happens 3-4 times a year');
+    expect(hooks).toContain("Workflow Trends happens 3-4 times a year");
   });
 
-  it('QP-005: judge below threshold routes back through refine exactly ONCE', async () => {
+  it("QP-005: judge below threshold routes back through refine exactly ONCE", async () => {
     const llm = makeLlm({
-      critique: () => 'Bland and lifeless.\nSCORE: 4\nVERDICT: REVISE',
+      critique: () => "Bland and lifeless.\nSCORE: 4\nVERDICT: REVISE",
       refine: (idx) => `refined pass ${idx + 1}`,
       judge: (idx) => (idx === 0 ? JUDGE_LOW : JUDGE_LOW), // low BOTH times — retry must still stop after 1
     });
-    const compiled = buildGenerationGraph(llm, undefined, undefined, undefined, undefined, undefined, undefined, {
-      judgeRefineThreshold: 0.6,
-      judgeHardFailThreshold: 0.1, // keep below JUDGE_LOW so the retry loop can be tested
-    }).compile();
+    const compiled = buildGenerationGraph(
+      llm,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        judgeRefineThreshold: 0.6,
+        judgeHardFailThreshold: 0.1, // keep below JUDGE_LOW so the retry loop can be tested
+      },
+    ).compile();
     const state = await compiled.invoke(
-      createInitialState(createTopic(), [SocialNetwork.X], 'brand voice'),
-      { configurable: { thread_id: 'qp-005' }, recursionLimit: 50 },
+      createInitialState(createTopic(), [SocialNetwork.X], "brand voice"),
+      { configurable: { thread_id: "qp-005" }, recursionLimit: 50 },
     );
 
     expect(llm.counts.refine).toBe(2); // critique-refine + ONE judge retry
     expect(llm.counts.judge).toBe(2); // judged the retry output too
-    expect(postsOf(state)[0]?.content).toBe('refined pass 2');
+    expect(postsOf(state)[0]?.content).toBe("refined pass 2");
     // judgeScores still persisted despite the retry
     expect(postsOf(state)[0]?.judgeScores?.anti_ai_tone).toBe(0.2);
   });
 
-  it('QP-005b: judgeRefineThreshold=0 disables the retry loop', async () => {
+  it("QP-005b: judgeRefineThreshold=0 disables the retry loop", async () => {
     const llm = makeLlm({
-      critique: () => 'Meh.\nSCORE: 5\nVERDICT: REVISE',
+      critique: () => "Meh.\nSCORE: 5\nVERDICT: REVISE",
       judge: () => JUDGE_LOW,
     });
-    const compiled = buildGenerationGraph(llm, undefined, undefined, undefined, undefined, undefined, undefined, {
-      judgeRefineThreshold: 0,
-    }).compile();
-    await compiled.invoke(
-      createInitialState(createTopic(), [SocialNetwork.X], 'brand voice'),
-      { configurable: { thread_id: 'qp-005b' } },
-    );
+    const compiled = buildGenerationGraph(
+      llm,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        judgeRefineThreshold: 0,
+      },
+    ).compile();
+    await compiled.invoke(createInitialState(createTopic(), [SocialNetwork.X], "brand voice"), {
+      configurable: { thread_id: "qp-005b" },
+    });
 
     expect(llm.counts.refine).toBe(1);
     expect(llm.counts.judge).toBe(1);
   });
 
-  it('QP-006: human_review shows the REFINED text and reviewer edits reach the saved post', async () => {
+  it("QP-006: human_review shows the REFINED text and reviewer edits reach the saved post", async () => {
     const llm = makeLlm({
-      critique: () => 'Robotic.\nSCORE: 4\nVERDICT: REVISE',
-      refine: () => 'refined for review',
+      critique: () => "Robotic.\nSCORE: 4\nVERDICT: REVISE",
+      refine: () => "refined for review",
     });
     const compiled = buildGenerationGraph(llm).compile({ checkpointer: new MemorySaver() });
-    const config = { configurable: { thread_id: 'qp-006' }, recursionLimit: 50 };
+    const config = { configurable: { thread_id: "qp-006" }, recursionLimit: 50 };
 
     // Run until the interrupt
     await compiled.invoke(
-      createInitialState(createTopic(), [SocialNetwork.X], 'brand voice', true),
+      createInitialState(createTopic(), [SocialNetwork.X], "brand voice", true),
       config,
     );
     // LangGraph 0.2.x: the interrupt payload lives in the checkpointed state's
     // pending tasks, not in the invoke() return value.
     const graphState = await compiled.getState(config);
     const interrupts = graphState.tasks.flatMap(
-      (t) => (t as { interrupts?: Array<{ value: { drafts: Record<string, string> } }> }).interrupts ?? [],
+      (t) =>
+        (t as { interrupts?: Array<{ value: { drafts: Record<string, string> } }> }).interrupts ??
+        [],
     );
     expect(interrupts.length).toBe(1);
     // BUG-FIX assertion: reviewer sees the refined text, not the stale draft
-    expect(interrupts[0]?.value.drafts[SocialNetwork.X]).toBe('refined for review');
+    expect(interrupts[0]?.value.drafts[SocialNetwork.X]).toBe("refined for review");
 
     // Resume with an edit — the edit must be what gets persisted
     const resumed = await compiled.invoke(
-      new Command({ resume: { approved: true, edits: { [SocialNetwork.X]: 'edited by a human reviewer' } } }),
+      new Command({
+        resume: { approved: true, edits: { [SocialNetwork.X]: "edited by a human reviewer" } },
+      }),
       config,
     );
-    expect(postsOf(resumed)[0]?.content).toBe('edited by a human reviewer');
+    expect(postsOf(resumed)[0]?.content).toBe("edited by a human reviewer");
   });
 
-  it('QP-007: critique maxTokens is at least 512 so the SCORE/VERDICT lines are not truncated', async () => {
+  it("QP-007: critique maxTokens is at least 512 so the SCORE/VERDICT lines are not truncated", async () => {
     const llm = makeLlm();
     const compiled = buildGenerationGraph(llm).compile();
-    await compiled.invoke(
-      createInitialState(createTopic(), [SocialNetwork.X], 'brand voice'),
-      { configurable: { thread_id: 'qp-007' } },
-    );
+    await compiled.invoke(createInitialState(createTopic(), [SocialNetwork.X], "brand voice"), {
+      configurable: { thread_id: "qp-007" },
+    });
 
     expect(llm.maxTokens.critique).toBeGreaterThanOrEqual(512);
   });
 
-  it('QP-008: qualityScore is parsed from critique response and stored on the generated post', async () => {
-    const llm = makeLlm({ critique: () => 'Solid, specific, human.\nSCORE: 7\nVERDICT: GOOD' });
+  it("QP-008: qualityScore is parsed from critique response and stored on the generated post", async () => {
+    const llm = makeLlm({ critique: () => "Solid, specific, human.\nSCORE: 7\nVERDICT: GOOD" });
     const compiled = buildGenerationGraph(llm).compile();
     const state = await compiled.invoke(
-      createInitialState(createTopic(), [SocialNetwork.X], 'brand voice'),
-      { configurable: { thread_id: 'qp-008' } },
+      createInitialState(createTopic(), [SocialNetwork.X], "brand voice"),
+      { configurable: { thread_id: "qp-008" } },
     );
 
     expect(postsOf(state)[0]?.qualityScore).toBe(7);
   });
 
-  it('QP-009: critique response without a SCORE falls back to judge-derived score', async () => {
-    const llm = makeLlm({ critique: () => 'Solid, specific, human. No score line here.' });
+  it("QP-009: critique response without a SCORE falls back to judge-derived score", async () => {
+    const llm = makeLlm({ critique: () => "Solid, specific, human. No score line here." });
     const compiled = buildGenerationGraph(llm).compile();
     const state = await compiled.invoke(
-      createInitialState(createTopic(), [SocialNetwork.X], 'brand voice'),
-      { configurable: { thread_id: 'qp-009' } },
+      createInitialState(createTopic(), [SocialNetwork.X], "brand voice"),
+      { configurable: { thread_id: "qp-009" } },
     );
 
     // JUDGE_HIGH average is 0.9, mapped to a 1-10 score => 9
@@ -277,16 +333,25 @@ describe('Quality pass — generation graph', () => {
   });
 
   it.each([
-    ['en', 'Product cycle again. I spent forty minutes staring at my plan last night and the coffee started tasting like regret. Fine.'],
-    ['es', 'Un ciclo de producto tarda 18 meses en dar la vuelta. Anoche miré mi plan y entendí que todo se desmorona.'],
-    ['it', 'Un ciclo di prodotto impiega 18 mesi per fare il giro. Ieri sera ho guardato il mio piano e ho capito che tutto crolla.'],
-  ] as [string, string][]) (
-    'QP-012: final post content is detected in the requested language (%s)',
+    [
+      "en",
+      "Product cycle again. I spent forty minutes staring at my plan last night and the coffee started tasting like regret. Fine.",
+    ],
+    [
+      "es",
+      "Un ciclo de producto tarda 18 meses en dar la vuelta. Anoche miré mi plan y entendí que todo se desmorona.",
+    ],
+    [
+      "it",
+      "Un ciclo di prodotto impiega 18 mesi per fare il giro. Ieri sera ho guardato il mio piano e ho capito che tutto crolla.",
+    ],
+  ] as [string, string][])(
+    "QP-012: final post content is detected in the requested language (%s)",
     async (lang, draft) => {
       const llm = makeLlm({ draft: () => draft });
       const compiled = buildGenerationGraph(llm).compile();
       const state = await compiled.invoke(
-        createInitialState(createTopic(), [SocialNetwork.X], 'brand voice', false, lang),
+        createInitialState(createTopic(), [SocialNetwork.X], "brand voice", false, lang),
         { configurable: { thread_id: `qp-012-${lang}` } },
       );
 
@@ -296,23 +361,23 @@ describe('Quality pass — generation graph', () => {
     },
   );
 
-  it('QP-013: refine output in wrong language is detected and not blindly persisted', async () => {
+  it("QP-013: refine output in wrong language is detected and not blindly persisted", async () => {
     const llm = makeLlm({
-      draft: () => 'Un ciclo de producto tarda 18 meses. Miré mi plan anoche.',
-      critique: () => 'SCORE: 5\nVERDICT: REVISE',
-      refine: () => 'A product cycle takes 18 months. I looked at the plan.',
+      draft: () => "Un ciclo de producto tarda 18 meses. Miré mi plan anoche.",
+      critique: () => "SCORE: 5\nVERDICT: REVISE",
+      refine: () => "A product cycle takes 18 months. I looked at the plan.",
     });
     const compiled = buildGenerationGraph(llm).compile();
     const state = await compiled.invoke(
-      createInitialState(createTopic(), [SocialNetwork.X], 'brand voice', false, 'es'),
-      { configurable: { thread_id: 'qp-013' } },
+      createInitialState(createTopic(), [SocialNetwork.X], "brand voice", false, "es"),
+      { configurable: { thread_id: "qp-013" } },
     );
 
     const content = postsOf(state)[0]?.content;
-    expect(detectLanguage(content!)).not.toBe('es');
+    expect(detectLanguage(content!)).not.toBe("es");
     // The current implementation does not auto-fix; the regression test documents
     // that the final persisted content is still whatever the LLM returned, so the
     // language mismatch is visible to the operator.
-    expect(content).toContain('A product cycle takes 18 months');
+    expect(content).toContain("A product cycle takes 18 months");
   });
 });

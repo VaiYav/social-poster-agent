@@ -1,7 +1,7 @@
-import { Global, Module } from '@nestjs/common';
-import { ClsModule } from 'nestjs-cls';
-import { APP_INTERCEPTOR } from '@nestjs/core';
-import { CorrelationIdInterceptor } from './correlation-id.interceptor';
+import { Global, Module } from "@nestjs/common";
+import { ClsModule } from "nestjs-cls";
+import { APP_INTERCEPTOR } from "@nestjs/core";
+import { CorrelationIdInterceptor } from "./correlation-id.interceptor";
 
 /**
  * CLS (Continuation-Local Storage) module — provides request-scoped context.

@@ -5,16 +5,16 @@
  * and returns a simple winner (highest average engagement). This is the
  * backend for the `/analytics/ab-tests` dashboard endpoint.
  */
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { PostStatus } from '@prisma/client';
-import type { ABTest, ABTestQuery, ABTestVariant } from '@spa/shared';
+import { Injectable } from "@nestjs/common";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service";
+import { PostStatus } from "../../generated/prisma/client";
+import type { ABTest, ABTestQuery, ABTestVariant } from "@spa/shared";
 import {
   type VariantStatsRow,
   computeVariantStats,
   extractTopic,
   pickWinner,
-} from '../content-enhancements/ab-test.utils.js';
+} from "../content-enhancements/ab-test.utils.js";
 
 @Injectable()
 export class ABTestService {
@@ -30,7 +30,7 @@ export class ABTestService {
     const rows = await this.prisma.postVariant.findMany({
       where: {
         selected: true,
-        label: { in: ['a', 'b'] },
+        label: { in: ["a", "b"] },
         post: {
           status: PostStatus.POSTED,
           postedAt: { gte: since },
@@ -48,7 +48,7 @@ export class ABTestService {
           },
         },
       },
-      orderBy: { post: { postedAt: 'desc' } },
+      orderBy: { post: { postedAt: "desc" } },
     });
 
     const typedRows = rows as VariantStatsRow[];

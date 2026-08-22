@@ -1,13 +1,13 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
-import IORedis from 'ioredis';
-import { ConfigService } from '@nestjs/config';
-import { SHARED_REDIS } from '../redis/redis.module.js';
+import { Inject, Injectable, Logger } from "@nestjs/common";
+import IORedis from "ioredis";
+import { ConfigService } from "@nestjs/config";
+import { SHARED_REDIS } from "../redis/redis.module.js";
 
-export type BudgetScope = 'orchestrator' | 'generation';
+export type BudgetScope = "orchestrator" | "generation";
 
 interface BudgetConfig {
   tokenBudget: number; // 0 = unlimited
-  costBudget: number;  // 0 = unlimited
+  costBudget: number; // 0 = unlimited
 }
 
 export class TokenBudgetExceeded extends Error {
@@ -16,8 +16,8 @@ export class TokenBudgetExceeded extends Error {
     public readonly runId: string | undefined,
     public readonly reason: string,
   ) {
-    super(`Token budget exceeded for ${scope}${runId ? ` run ${runId}` : ''}: ${reason}`);
-    this.name = 'TokenBudgetExceeded';
+    super(`Token budget exceeded for ${scope}${runId ? ` run ${runId}` : ""}: ${reason}`);
+    this.name = "TokenBudgetExceeded";
   }
 }
 
@@ -42,12 +42,12 @@ export class TokenBudgetService {
   ) {
     this.budgets = {
       orchestrator: {
-        tokenBudget: this.readNumber('ORCHESTRATOR_TOKEN_BUDGET_PER_HOUR'),
-        costBudget: this.readNumber('ORCHESTRATOR_COST_BUDGET_PER_HOUR'),
+        tokenBudget: this.readNumber("ORCHESTRATOR_TOKEN_BUDGET_PER_HOUR"),
+        costBudget: this.readNumber("ORCHESTRATOR_COST_BUDGET_PER_HOUR"),
       },
       generation: {
-        tokenBudget: this.readNumber('GENERATION_TOKEN_BUDGET_PER_RUN'),
-        costBudget: this.readNumber('GENERATION_COST_BUDGET_PER_RUN'),
+        tokenBudget: this.readNumber("GENERATION_TOKEN_BUDGET_PER_RUN"),
+        costBudget: this.readNumber("GENERATION_COST_BUDGET_PER_RUN"),
       },
     };
   }
@@ -139,8 +139,8 @@ export class TokenBudgetService {
 
     if (enforce && (!tokenAllowed || !costAllowed)) {
       this.logger.warn(
-        `${scope}${runId ? ` run ${runId}` : ''} budget exceeded ` +
-        `(tokens ${tokenAfter}/${config.tokenBudget}, cost ${costAfter.toFixed(4)}/${config.costBudget.toFixed(4)})`,
+        `${scope}${runId ? ` run ${runId}` : ""} budget exceeded ` +
+          `(tokens ${tokenAfter}/${config.tokenBudget}, cost ${costAfter.toFixed(4)}/${config.costBudget.toFixed(4)})`,
       );
       return {
         allowed: false,
@@ -156,8 +156,11 @@ export class TokenBudgetService {
     };
   }
 
-  private makeKeys(scope: BudgetScope, runId: string | undefined): { tokenKey: string; costKey: string; ttl: number } {
-    if (scope === 'generation' && runId) {
+  private makeKeys(
+    scope: BudgetScope,
+    runId: string | undefined,
+  ): { tokenKey: string; costKey: string; ttl: number } {
+    if (scope === "generation" && runId) {
       return {
         tokenKey: `spa:llm:run:${runId}:tokens`,
         costKey: `spa:llm:run:${runId}:cost`,
@@ -174,7 +177,7 @@ export class TokenBudgetService {
   }
 
   private readNumber(key: string): number {
-    const raw = Number(this.configService.get<string>(key, '0'));
+    const raw = Number(this.configService.get<string>(key, "0"));
     return Number.isFinite(raw) && raw > 0 ? raw : 0;
   }
 }

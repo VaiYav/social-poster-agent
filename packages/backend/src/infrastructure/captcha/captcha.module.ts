@@ -1,8 +1,8 @@
 /**
  * Sprint O: Captcha Module — provides CaptchaSolverService.
  */
-import { Module } from '@nestjs/common';
-import { CaptchaSolverService } from './captcha-solver.service';
+import { Module } from "@nestjs/common";
+import { CaptchaSolverService } from "./captcha-solver.service";
 
 @Module({
   providers: [CaptchaSolverService],

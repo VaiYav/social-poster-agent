@@ -17,10 +17,10 @@
 // When a selector becomes DEGRADED or BROKEN, a warning is logged and an SSE
 // event is published so the UI can alert the operator.
 
-import { Injectable, Logger } from '@nestjs/common';
-import type { SocialNetwork } from '@prisma/client';
+import { Injectable, Logger } from "@nestjs/common";
+import type { SocialNetwork } from "../../generated/prisma/client";
 
-export type SelectorHealthStatus = 'HEALTHY' | 'DEGRADED' | 'BROKEN';
+export type SelectorHealthStatus = "HEALTHY" | "DEGRADED" | "BROKEN";
 
 export interface SelectorStats {
   selectorKey: string;
@@ -97,7 +97,7 @@ export class SelectorHealthService {
     this.records.set(k, record);
     const newStatus = this.computeStatus(record);
 
-    if (newStatus !== prevStatus && newStatus !== 'HEALTHY') {
+    if (newStatus !== prevStatus && newStatus !== "HEALTHY") {
       this.fireAlert(selectorKey, network, newStatus, record);
     }
   }
@@ -120,7 +120,7 @@ export class SelectorHealthService {
     this.records.set(k, record);
     const newStatus = this.computeStatus(record);
 
-    if (newStatus !== prevStatus && newStatus !== 'HEALTHY') {
+    if (newStatus !== prevStatus && newStatus !== "HEALTHY") {
       this.fireAlert(selectorKey, network, newStatus, record);
     }
 
@@ -132,7 +132,7 @@ export class SelectorHealthService {
   /** Get the current health status of a selector. */
   getStatus(network: SocialNetwork, selectorKey: string): SelectorHealthStatus {
     const record = this.records.get(this.key(network, selectorKey));
-    if (!record) return 'HEALTHY';
+    if (!record) return "HEALTHY";
     return this.computeStatus(record);
   }
 
@@ -140,7 +140,7 @@ export class SelectorHealthService {
   getAllStats(): SelectorStats[] {
     const stats: SelectorStats[] = [];
     for (const [k, record] of this.records) {
-      const [network, selectorKey] = k.split(':') as [SocialNetwork, string];
+      const [network, selectorKey] = k.split(":") as [SocialNetwork, string];
       stats.push({
         selectorKey,
         network,
@@ -162,7 +162,7 @@ export class SelectorHealthService {
 
   /** Get all selectors that are DEGRADED or BROKEN. */
   getUnhealthySelectors(): SelectorStats[] {
-    return this.getAllStats().filter((s) => s.status !== 'HEALTHY');
+    return this.getAllStats().filter((s) => s.status !== "HEALTHY");
   }
 
   /** Reset all stats (useful for testing). */
@@ -197,11 +197,11 @@ export class SelectorHealthService {
   }
 
   private computeStatus(record: SelectorRecord): SelectorHealthStatus {
-    if (record.totalAttempts < 5) return 'HEALTHY'; // Not enough data
+    if (record.totalAttempts < 5) return "HEALTHY"; // Not enough data
     const successRate = record.successes / record.totalAttempts;
-    if (successRate >= HEALTHY_THRESHOLD) return 'HEALTHY';
-    if (successRate >= DEGRADED_THRESHOLD) return 'DEGRADED';
-    return 'BROKEN';
+    if (successRate >= HEALTHY_THRESHOLD) return "HEALTHY";
+    if (successRate >= DEGRADED_THRESHOLD) return "DEGRADED";
+    return "BROKEN";
   }
 
   private fireAlert(

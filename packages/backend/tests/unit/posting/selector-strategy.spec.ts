@@ -7,68 +7,71 @@
  *
  * Source: packages/backend/src/modules/posting/posters/selector-strategy.ts
  */
-import { describe, it, expect, vi } from 'vitest';
-import { resolveSelector, waitForSelector } from '../../../src/modules/posting/posters/selector-strategy.js';
-import { createMockPage } from '../../mocks/index.js';
+import { describe, it, expect, vi } from "vitest";
+import {
+  resolveSelector,
+  waitForSelector,
+} from "../../../src/modules/posting/posters/selector-strategy.js";
+import { createMockPage } from "../../mocks/index.js";
 
-describe('Selector Strategy', () => {
-  describe('resolveSelector', () => {
-    it('resolves via getByRole when role is specified', async () => {
+describe("Selector Strategy", () => {
+  describe("resolveSelector", () => {
+    it("resolves via getByRole when role is specified", async () => {
       const page = createMockPage();
-      const strategy = { role: { role: 'button', name: 'Post' } };
+      const strategy = { role: { role: "button", name: "Post" } };
 
       const result = await resolveSelector(page as unknown, strategy);
 
-      expect(result.method).toBe('role');
+      expect(result.method).toBe("role");
       expect(result.locator).toBeDefined();
     });
 
-    it('resolves via getByLabel when label is specified', async () => {
+    it("resolves via getByLabel when label is specified", async () => {
       const page = createMockPage();
-      const strategy = { label: { label: 'Email' } };
+      const strategy = { label: { label: "Email" } };
 
       const result = await resolveSelector(page as unknown, strategy);
 
-      expect(result.method).toBe('label');
+      expect(result.method).toBe("label");
       expect(result.locator).toBeDefined();
     });
 
-    it('resolves via getByText when text is specified', async () => {
+    it("resolves via getByText when text is specified", async () => {
       const page = createMockPage();
-      const strategy = { text: { text: 'Publish', exact: true } };
+      const strategy = { text: { text: "Publish", exact: true } };
 
       const result = await resolveSelector(page as unknown, strategy);
 
-      expect(result.method).toBe('text');
+      expect(result.method).toBe("text");
       expect(result.locator).toBeDefined();
     });
 
-    it('resolves via CSS when css array is specified', async () => {
+    it("resolves via CSS when css array is specified", async () => {
       const page = createMockPage();
       const strategy = { css: ['button:has-text("Post")', '[data-testid="tweetButton"]'] };
 
       const result = await resolveSelector(page as unknown, strategy);
 
-      expect(result.method).toBe('css');
+      expect(result.method).toBe("css");
       expect(result.selector).toBe('button:has-text("Post")');
     });
 
-    it('tries methods in order: role → label → text → css', async () => {
+    it("tries methods in order: role → label → text → css", async () => {
       const page = createMockPage();
       const strategy = {
-        role: { role: 'button', name: 'Post' },
-        label: { label: 'Post' },
-        text: { text: 'Post' },
+        role: { role: "button", name: "Post" },
+        label: { label: "Post" },
+        text: { text: "Post" },
         css: ['button:has-text("Post")'],
       };
 
       const result = await resolveSelector(page as unknown, strategy);
 
       // Should use role first
-      expect(result.method).toBe('role');
+      expect(result.method).toBe("role");
     });
 
-    it('throws when no selector method is provided', async () => {
+    it("throws when no selector method is provided", async () => {
       const page = createMockPage();
       const strategy = {};
 
@@ -76,25 +79,25 @@ describe('Selector Strategy', () => {
     });
   });
 
-  describe('waitForSelector', () => {
-    it('resolves and waits for the locator to be visible', async () => {
+  describe("waitForSelector", () => {
+    it("resolves and waits for the locator to be visible", async () => {
       const page = createMockPage();
-      const strategy = { role: { role: 'button', name: 'Post' } };
+      const strategy = { role: { role: "button", name: "Post" } };
 
       const result = await waitForSelector(page as unknown, strategy, 5000);
 
       expect(result.locator).toBeDefined();
-      expect(result.method).toBe('role');
+      expect(result.method).toBe("role");
     });
 
-    it('throws on timeout if element not found', async () => {
+    it("throws on timeout if element not found", async () => {
       const page = createMockPage();
       // Make the locator's waitFor throw a timeout error AND isVisible return false
-      page._locator.waitFor.mockRejectedValue(new Error('Timeout 1000ms exceeded'));
+      page._locator.waitFor.mockRejectedValue(new Error("Timeout 1000ms exceeded"));
       page._locator.isVisible.mockResolvedValue(false);
       page._locator.count.mockResolvedValue(0);
 
-      const strategy = { css: ['nonexistent'] };
+      const strategy = { css: ["nonexistent"] };
 
       await expect(waitForSelector(page as unknown, strategy, 100)).rejects.toThrow();
     });

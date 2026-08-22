@@ -1,7 +1,7 @@
-import { defineStore } from 'pinia';
-import { ref } from 'vue';
-import api from '../composables/useApi';
-import type { SessionWithAccount } from '@spa/shared';
+import { defineStore } from "pinia";
+import { ref } from "vue";
+import api from "../composables/useApi";
+import type { SessionWithAccount } from "@spa/shared";
 
 export interface RateLimitStatus {
   dailyCount: number;
@@ -17,7 +17,7 @@ export interface RateLimitStatus {
  * Used by Sessions view. Includes account relation with warm-up fields.
  * Also fetches rate limit status per network.
  */
-export const useSessionsStore = defineStore('sessions', () => {
+export const useSessionsStore = defineStore("sessions", () => {
   const sessions = ref<SessionWithAccount[]>([]);
   const loading = ref(false);
   const error = ref<string | null>(null);
@@ -27,10 +27,12 @@ export const useSessionsStore = defineStore('sessions', () => {
     loading.value = true;
     error.value = null;
     try {
-      const res = await api.get('/sessions');
+      const res = await api.get("/sessions");
       sessions.value = res.data;
       // Fetch rate limit status for each network
-      const networks = [...new Set(sessions.value.map((s) => s.account?.network).filter(Boolean))] as string[];
+      const networks = [
+        ...new Set(sessions.value.map((s) => s.account?.network).filter(Boolean)),
+      ] as string[];
       await Promise.all(networks.map((n) => fetchRateLimit(n)));
     } catch (e: unknown) {
       error.value = (e as Error).message;
@@ -50,7 +52,7 @@ export const useSessionsStore = defineStore('sessions', () => {
 
   async function healthCheck(network: string) {
     try {
-      await api.post('/sessions/health-check', null, { params: { network } });
+      await api.post("/sessions/health-check", null, { params: { network } });
       await fetchAll();
     } catch (e: unknown) {
       error.value = (e as Error).message;

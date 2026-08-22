@@ -16,7 +16,7 @@ export interface CompiledChatPrompt {
   isFallback?: boolean;
 }
 
-export const IPromptPort = Symbol('IPromptPort');
+export const IPromptPort = Symbol("IPromptPort");
 
 /**
  * Optional intermediate fallback source for prompts.
@@ -32,14 +32,11 @@ export interface IPromptFallbackProvider {
     name: string,
     variables: Record<string, string>,
   ): Promise<CompiledChatPrompt | null>;
-  tryGetTextPrompt(
-    name: string,
-    variables: Record<string, string>,
-  ): Promise<string | null>;
+  tryGetTextPrompt(name: string, variables: Record<string, string>): Promise<string | null>;
 }
 
 /** DI token for the optional array of intermediate fallback providers. */
-export const PROMPT_FALLBACK_PROVIDERS = Symbol('PROMPT_FALLBACK_PROVIDERS');
+export const PROMPT_FALLBACK_PROVIDERS = Symbol("PROMPT_FALLBACK_PROVIDERS");
 
 /**
  * Port for fetching and compiling prompts from a prompt management system

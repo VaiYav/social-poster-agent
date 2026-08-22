@@ -1,5 +1,5 @@
-import { Module, Global } from '@nestjs/common';
-import { EmailReaderService } from './email-reader.service';
+import { Module, Global } from "@nestjs/common";
+import { EmailReaderService } from "./email-reader.service";
 
 @Global()
 @Module({

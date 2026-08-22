@@ -12,41 +12,48 @@
  * to Redis before every sleep so the watchdog can detect hangs.
  */
 
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
-import type IORedis from 'ioredis';
-import { RedisCheckpointSaver } from '../../infrastructure/checkpoint/redis-checkpoint.js';
-import { parseBool } from '../../infrastructure/config/parse-bool.js';
-import { StateCollectorService } from './state-collector.service.js';
-import { DecisionEngineService } from './decision-engine.service.js';
-import { ActionExecutorService } from './action-executor.service.js';
-import { OrchestratorHistoryService } from './orchestrator-history.service.js';
-import { buildOrchestratorGraph, createInitialOrchestratorState } from './orchestrator.graph.js';
-import type { OrchestratorStateType } from './orchestrator.graph.js';
-import type { CompiledStateGraph } from '@langchain/langgraph';
-import type { ActionResult, WorldState } from './types.js';
-import type { OrchestratorCycleEndEvent } from '@spa/shared';
-import { OrchestratorEvents } from '../../events/enums/post-events.enum.js';
-import { EngagementSchedulerService } from '../engagement/engagement-scheduler.service.js';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+  Inject,
+  Optional,
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { EventEmitter2 } from "@nestjs/event-emitter";
+import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
+import type IORedis from "ioredis";
+import { RedisCheckpointSaver } from "../../infrastructure/checkpoint/redis-checkpoint.js";
+import { parseBool } from "../../infrastructure/config/parse-bool.js";
+import { StateCollectorService } from "./state-collector.service.js";
+import { DecisionEngineService } from "./decision-engine.service.js";
+import { ActionExecutorService } from "./action-executor.service.js";
+import { OrchestratorHistoryService } from "./orchestrator-history.service.js";
+import { buildOrchestratorGraph, createInitialOrchestratorState } from "./orchestrator.graph.js";
+import type { OrchestratorStateType } from "./orchestrator.graph.js";
+import type { CompiledStateGraph } from "@langchain/langgraph";
+import type { ActionResult, WorldState } from "./types.js";
+import type { OrchestratorCycleEndEvent } from "@spa/shared";
+import { OrchestratorEvents } from "../../events/enums/post-events.enum.js";
+import { EngagementSchedulerService } from "../engagement/engagement-scheduler.service.js";
 import {
   DISTRIBUTED_LOCK_SERVICE,
   DistributedLockService,
   type DistributedLock,
-} from '../../infrastructure/multi-instance/distributed-lock.service.js';
+} from "../../infrastructure/multi-instance/distributed-lock.service.js";
 
 // LangGraph's CompiledStateGraph generics are complex (state type + config type).
 // We type the state parameter properly and use the SDK's Record-based config default.
 type AnyCompiledGraph = CompiledStateGraph<OrchestratorStateType, Record<string, unknown>>;
 
-const THREAD_ID = 'orchestrator';
-const HEARTBEAT_KEY_DEFAULT = 'spa:orchestrator:heartbeat';
+const THREAD_ID = "orchestrator";
+const HEARTBEAT_KEY_DEFAULT = "spa:orchestrator:heartbeat";
 const HEARTBEAT_TTL_MS_DEFAULT = 1_800_000;
-const LEADER_KEY_DEFAULT = 'spa:orchestrator:leader';
+const LEADER_KEY_DEFAULT = "spa:orchestrator:leader";
 const LEADER_TTL_MS_DEFAULT = 30_000;
 const LEADER_RENEW_MS_DEFAULT = 10_000;
-const CHECKPOINT_KEY_PREFIX = 'spa:checkpoint'; // must match RedisCheckpointSaver.prefix
+const CHECKPOINT_KEY_PREFIX = "spa:checkpoint"; // must match RedisCheckpointSaver.prefix
 
 @Injectable()
 export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
@@ -85,12 +92,21 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly eventEmitter: EventEmitter2,
     @Optional() private readonly engagementScheduler?: EngagementSchedulerService,
   ) {
-    this.enabled = parseBool(this.configService.get<string>('ORCHESTRATOR_ENABLED') ?? 'false');
-    this.heartbeatKey = this.configService.get<string>('ORCHESTRATOR_HEARTBEAT_KEY') ?? HEARTBEAT_KEY_DEFAULT;
-    this.heartbeatTtlMs = Number(this.configService.get<string>('ORCHESTRATOR_HEARTBEAT_TTL_MS') ?? HEARTBEAT_TTL_MS_DEFAULT);
-    this.leaderKey = this.configService.get<string>('ORCHESTRATOR_LEADER_KEY') ?? LEADER_KEY_DEFAULT;
-    this.leaderTtlMs = Number(this.configService.get<string>('ORCHESTRATOR_LEADER_TTL_MS') ?? LEADER_TTL_MS_DEFAULT);
-    this.leaderRenewMs = Number(this.configService.get<string>('ORCHESTRATOR_LEADER_RENEW_INTERVAL_MS') ?? LEADER_RENEW_MS_DEFAULT);
+    this.enabled = parseBool(this.configService.get<string>("ORCHESTRATOR_ENABLED") ?? "false");
+    this.heartbeatKey =
+      this.configService.get<string>("ORCHESTRATOR_HEARTBEAT_KEY") ?? HEARTBEAT_KEY_DEFAULT;
+    this.heartbeatTtlMs = Number(
+      this.configService.get<string>("ORCHESTRATOR_HEARTBEAT_TTL_MS") ?? HEARTBEAT_TTL_MS_DEFAULT,
+    );
+    this.leaderKey =
+      this.configService.get<string>("ORCHESTRATOR_LEADER_KEY") ?? LEADER_KEY_DEFAULT;
+    this.leaderTtlMs = Number(
+      this.configService.get<string>("ORCHESTRATOR_LEADER_TTL_MS") ?? LEADER_TTL_MS_DEFAULT,
+    );
+    this.leaderRenewMs = Number(
+      this.configService.get<string>("ORCHESTRATOR_LEADER_RENEW_INTERVAL_MS") ??
+        LEADER_RENEW_MS_DEFAULT,
+    );
   }
 
   async onModuleInit(): Promise<void> {
@@ -110,11 +126,11 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
 
   async start(): Promise<void> {
     if (this.lifecycleLock) {
-      this.logger.warn('Lifecycle operation in progress — start skipped');
+      this.logger.warn("Lifecycle operation in progress — start skipped");
       return;
     }
     if (this.running || this.graphPromise) {
-      this.logger.warn('Orchestrator already running');
+      this.logger.warn("Orchestrator already running");
       return;
     }
 
@@ -122,7 +138,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     try {
       this.stopRequested = false;
       this.currentCycle = 0;
-      this.logger.log('Orchestrator starting...');
+      this.logger.log("Orchestrator starting...");
 
       // Multi-instance: only one instance may run the orchestrator graph.
       const leaderLock = await this.lockService.tryAcquire(this.leaderKey, this.leaderTtlMs);
@@ -132,7 +148,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
       }
       this.leaderLock = leaderLock;
       this.startLeaderRenewal();
-      this.logger.log('Orchestrator leader lock acquired');
+      this.logger.log("Orchestrator leader lock acquired");
 
       try {
         // Build graph dependencies
@@ -153,8 +169,12 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
             this.onCycleEnd(cycle, result, sleepMs),
           onEngagementCheck: (world: WorldState) => this.onEngagementCheck(world),
           timeoutConfig: {
-            f1BrowsingSessionMinutes: Number(this.configService.get<string>('F1_BROWSING_SESSION_MINUTES', '15')),
-            orchestratorGenerateTimeoutMs: Number(this.configService.get<string>('ORCHESTRATOR_GENERATE_TIMEOUT_MS', '1200000')),
+            f1BrowsingSessionMinutes: Number(
+              this.configService.get<string>("F1_BROWSING_SESSION_MINUTES", "15"),
+            ),
+            orchestratorGenerateTimeoutMs: Number(
+              this.configService.get<string>("ORCHESTRATOR_GENERATE_TIMEOUT_MS", "1200000"),
+            ),
           },
         };
 
@@ -177,14 +197,16 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
         // Use runId to avoid clobbering a new start() that happened while the
         // previous loop was still winding down.
         promise.catch(() => {});
-        promise.finally(() => {
-          if (this.graphRunId === runId) {
-            this.graphPromise = null;
-            this.running = false;
-          }
-        }).catch(() => {});
+        promise
+          .finally(() => {
+            if (this.graphRunId === runId) {
+              this.graphPromise = null;
+              this.running = false;
+            }
+          })
+          .catch(() => {});
 
-        this.logger.log('Orchestrator started');
+        this.logger.log("Orchestrator started");
       } catch (err) {
         this.stopLeaderRenewal();
         await this.releaseLeaderLock();
@@ -197,7 +219,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
 
   async stop(): Promise<void> {
     if (this.lifecycleLock) {
-      this.logger.warn('Lifecycle operation in progress — stop skipped');
+      this.logger.warn("Lifecycle operation in progress — stop skipped");
       return;
     }
     if (!this.running && !this.graphPromise && !this.leaderLock) return;
@@ -205,7 +227,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     this.lifecycleLock = true;
     try {
       this.stopRequested = true;
-      this.logger.log('Orchestrator stop requested...');
+      this.logger.log("Orchestrator stop requested...");
 
       // Stop leader lock renewal before aborting the sleep, so the lock
       // is not extended while we are trying to release it.
@@ -240,7 +262,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
         this.graphPromise = null;
         this.graphAbort = null;
       }
-      this.logger.log('Orchestrator stopped');
+      this.logger.log("Orchestrator stopped");
     } finally {
       this.lifecycleLock = false;
     }
@@ -265,7 +287,10 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
 
   // ── Graph Loop ───────────────────────────────────────────────────────────
 
-  private async runGraphLoop(compiledGraph: AnyCompiledGraph, graphAbort: AbortController): Promise<void> {
+  private async runGraphLoop(
+    compiledGraph: AnyCompiledGraph,
+    graphAbort: AbortController,
+  ): Promise<void> {
     // Check if we have a checkpoint to resume from
     let hasCheckpoint = false;
     try {
@@ -277,7 +302,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
         // passing full state as input), reset the checkpoint and start fresh
         const checkpointState = checkpoint.checkpoint?.channel_values;
         const cycleValue = checkpointState?.cycle as number | undefined;
-        if (typeof cycleValue === 'number' && cycleValue > 1_000_000) {
+        if (typeof cycleValue === "number" && cycleValue > 1_000_000) {
           this.logger.warn(
             `Checkpoint cycle=${cycleValue} is abnormally high (doubling bug) — resetting checkpoint`,
           );
@@ -289,7 +314,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
         }
       }
     } catch {
-      this.logger.warn('Failed to load checkpoint, starting fresh');
+      this.logger.warn("Failed to load checkpoint, starting fresh");
     }
 
     while (!this.stopRequested && !graphAbort.signal.aborted) {
@@ -300,7 +325,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
         // Passing the full previous state would cause the cycle reducer
         // (prev + next) to DOUBLE the cycle counter each iteration.
         const input = hasCheckpoint
-          ? { world: null, action: null, result: null } as Partial<OrchestratorStateType>
+          ? ({ world: null, action: null, result: null } as Partial<OrchestratorStateType>)
           : createInitialOrchestratorState();
 
         const result = await compiledGraph.invoke(input, {
@@ -314,21 +339,21 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
       } catch (err) {
         this.logger.error(`Orchestrator cycle error: ${(err as Error).message}`);
         if (this.stopRequested || graphAbort.signal.aborted) {
-          this.logger.log('Orchestrator stopping after cycle error');
+          this.logger.log("Orchestrator stopping after cycle error");
           return;
         }
         await this.sleep(60_000);
       }
     }
 
-    this.logger.log('Orchestrator loop exited');
+    this.logger.log("Orchestrator loop exited");
   }
 
   // ── Heartbeat ────────────────────────────────────────────────────────────
 
   private async writeHeartbeat(): Promise<void> {
     try {
-      await this.redis.set(this.heartbeatKey, String(Date.now()), 'PX', this.heartbeatTtlMs);
+      await this.redis.set(this.heartbeatKey, String(Date.now()), "PX", this.heartbeatTtlMs);
     } catch (err) {
       this.logger.warn(`Failed to write heartbeat: ${(err as Error).message}`);
     }
@@ -342,7 +367,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
 
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
-        signal.removeEventListener('abort', onAbort);
+        signal.removeEventListener("abort", onAbort);
         resolve();
       }, ms);
 
@@ -355,7 +380,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
         clearTimeout(timer);
         resolve();
       } else {
-        signal.addEventListener('abort', onAbort, { once: true });
+        signal.addEventListener("abort", onAbort, { once: true });
       }
     });
 
@@ -373,10 +398,10 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
    */
   private onEngagementCheck(world: WorldState): void {
     if (!this.engagementScheduler) {
-      this.logger.warn('Engagement check skipped: EngagementSchedulerService not injected');
+      this.logger.warn("Engagement check skipped: EngagementSchedulerService not injected");
       return;
     }
-    this.logger.debug('Engagement check running');
+    this.logger.debug("Engagement check running");
     void this.engagementScheduler.checkStaleAndEnqueue(world).catch((err) => {
       this.logger.warn(`Engagement check failed: ${(err as Error).message}`);
     });
@@ -385,7 +410,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
   // ── Cycle Callbacks ──────────────────────────────────────────────────────
 
   private onCycleEnd(cycle: number, result: ActionResult | null, sleepMs: number): void {
-    this.logger.debug(`Cycle ${cycle} ended: ${result?.type ?? 'N/A'} (sleep ${sleepMs}ms)`);
+    this.logger.debug(`Cycle ${cycle} ended: ${result?.type ?? "N/A"} (sleep ${sleepMs}ms)`);
 
     // Update currentCycle so getStatus() reflects the latest completed cycle
     // while the graph is sleeping between cycles.
@@ -478,7 +503,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     try {
       const ok = await lock.extend(this.leaderTtlMs);
       if (!ok) {
-        this.logger.warn('Lost orchestrator leader lock — stopping');
+        this.logger.warn("Lost orchestrator leader lock — stopping");
         this.stopRequested = true;
         this.sleepAbort?.abort();
       }
@@ -493,7 +518,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     if (!this.leaderLock) return;
     try {
       await this.leaderLock.release();
-      this.logger.log('Orchestrator leader lock released');
+      this.logger.log("Orchestrator leader lock released");
     } catch (err) {
       this.logger.warn(`Failed to release orchestrator leader lock: ${(err as Error).message}`);
     } finally {

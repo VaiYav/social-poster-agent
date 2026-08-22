@@ -1,12 +1,9 @@
-import { Injectable, Inject, Logger, Optional } from '@nestjs/common';
-import { createHash } from 'node:crypto';
-import type { Page } from '../../domain/ports/browser-primitives.js';
-import { ILlmPort } from '../../domain/ports/llm.port.js';
-import type {
-  LLMActionResult,
-  ObservableElement,
-} from '../../domain/ports/browser.port.js';
-import type { ZodSchema } from 'zod';
+import { Injectable, Inject, Logger, Optional } from "@nestjs/common";
+import { createHash } from "node:crypto";
+import type { Page } from "../../domain/ports/browser-primitives.js";
+import { ILlmPort } from "../../domain/ports/llm.port.js";
+import type { LLMActionResult, ObservableElement } from "../../domain/ports/browser.port.js";
+import type { ZodSchema } from "zod";
 
 /**
  * BrowserAgentService — LLM-in-the-loop browser automation engine (#47).
@@ -53,8 +50,8 @@ export class BrowserAgentService {
     @Inject(ILlmPort) private readonly llm: ILlmPort,
     @Optional() configService?: { get: <T = string>(key: string, defaultValue?: T) => T },
   ) {
-    this.maxIterations = Number(configService?.get('BROWSER_AGENT_MAX_ITERATIONS', '10') ?? 10);
-    this.cacheTtlMs = Number(configService?.get('BROWSER_AGENT_CACHE_TTL_MS', '300000') ?? 300000); // 5 min
+    this.maxIterations = Number(configService?.get("BROWSER_AGENT_MAX_ITERATIONS", "10") ?? 10);
+    this.cacheTtlMs = Number(configService?.get("BROWSER_AGENT_CACHE_TTL_MS", "300000") ?? 300000); // 5 min
   }
 
   // ============================================================
@@ -72,7 +69,11 @@ export class BrowserAgentService {
         // Step 1: Screenshot
         const screenshot = await this.captureScreenshot(page);
         if (!screenshot) {
-          return { success: false, action: 'screenshot_failed', error: 'Failed to capture screenshot' };
+          return {
+            success: false,
+            action: "screenshot_failed",
+            error: "Failed to capture screenshot",
+          };
         }
 
         // Step 2: Extract DOM context
@@ -111,7 +112,7 @@ What action should I take next?`;
           response = cached;
         } else {
           const llmResponse = await this.llm.generateVision(systemPrompt, userPrompt, screenshot, {
-            role: 'vision',
+            role: "vision",
             temperature: 0,
             maxTokens: 500,
           });
@@ -122,19 +123,21 @@ What action should I take next?`;
         // Step 4: Parse LLM response
         const parsed = this.parseActionResponse(response);
         if (!parsed) {
-          this.logger.warn(`act: failed to parse LLM response (iteration ${iteration + 1}): ${response.slice(0, 200)}`);
+          this.logger.warn(
+            `act: failed to parse LLM response (iteration ${iteration + 1}): ${response.slice(0, 200)}`,
+          );
           continue;
         }
 
         this.logger.debug(
-          `act: iteration ${iteration + 1}, action=${parsed.action}, target=${parsed.target ?? 'N/A'}`,
+          `act: iteration ${iteration + 1}, action=${parsed.action}, target=${parsed.target ?? "N/A"}`,
         );
 
         // Step 5: Execute action
-        if (parsed.action === 'done') {
+        if (parsed.action === "done") {
           return {
             success: true,
-            action: parsed.reasoning ?? 'task complete',
+            action: parsed.reasoning ?? "task complete",
             iterations: iteration + 1,
           };
         }
@@ -155,7 +158,7 @@ What action should I take next?`;
         if (consecutiveFailures >= maxConsecutiveFailures) {
           return {
             success: false,
-            action: 'consecutive_failures',
+            action: "consecutive_failures",
             error: `${consecutiveFailures} consecutive failures during "${instruction}" — page may be stuck`,
             iterations: iteration + 1,
           };
@@ -166,7 +169,7 @@ What action should I take next?`;
 
     return {
       success: false,
-      action: 'max_iterations_reached',
+      action: "max_iterations_reached",
       error: `Failed to complete "${instruction}" in ${this.maxIterations} iterations`,
       iterations: this.maxIterations,
     };
@@ -177,7 +180,7 @@ What action should I take next?`;
   // ============================================================
 
   async extract<T>(page: Page, schema: ZodSchema<T>): Promise<T | null> {
-    this.logger.debug(`extract: schema=${schema.description ?? 'unnamed'}`);
+    this.logger.debug(`extract: schema=${schema.description ?? "unnamed"}`);
 
     try {
       const screenshot = await this.captureScreenshot(page);
@@ -206,11 +209,11 @@ Respond with JSON matching the schema above:`;
       let response: string;
 
       if (cached) {
-        this.logger.debug('extract: LLM response from cache');
+        this.logger.debug("extract: LLM response from cache");
         response = cached;
       } else {
         const llmResponse = await this.llm.generateVision(systemPrompt, userPrompt, screenshot, {
-          role: 'vision',
+          role: "vision",
           temperature: 0,
           maxTokens: 1000,
         });
@@ -221,7 +224,9 @@ Respond with JSON matching the schema above:`;
       // Parse and validate against schema
       const json = this.extractJson(response);
       if (json === null) {
-        this.logger.warn(`extract: failed to parse JSON from LLM response: ${response.slice(0, 200)}`);
+        this.logger.warn(
+          `extract: failed to parse JSON from LLM response: ${response.slice(0, 200)}`,
+        );
         return null;
       }
 
@@ -243,7 +248,7 @@ Respond with JSON matching the schema above:`;
   // ============================================================
 
   async observe(page: Page): Promise<ObservableElement[]> {
-    this.logger.debug('observe: listing actionable elements');
+    this.logger.debug("observe: listing actionable elements");
 
     try {
       const screenshot = await this.captureScreenshot(page);
@@ -277,11 +282,11 @@ Respond with JSON array:`;
       let response: string;
 
       if (cached) {
-        this.logger.debug('observe: LLM response from cache');
+        this.logger.debug("observe: LLM response from cache");
         response = cached;
       } else {
         const llmResponse = await this.llm.generateVision(systemPrompt, userPrompt, screenshot, {
-          role: 'vision',
+          role: "vision",
           temperature: 0,
           maxTokens: 1500,
         });
@@ -296,9 +301,9 @@ Respond with JSON array:`;
       }
 
       return json.map((el: Record<string, unknown>) => ({
-        description: String(el['description'] ?? ''),
-        type: String(el['type'] ?? 'other'),
-        interactable: Boolean(el['interactable'] ?? true),
+        description: String(el["description"] ?? ""),
+        type: String(el["type"] ?? "other"),
+        interactable: Boolean(el["interactable"] ?? true),
       }));
     } catch (error) {
       this.logger.warn(`observe failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -333,11 +338,11 @@ Respond with true or false:`;
       let response: string;
 
       if (cached) {
-        this.logger.debug('verify: LLM response from cache');
+        this.logger.debug("verify: LLM response from cache");
         response = cached;
       } else {
         const llmResponse = await this.llm.generateVision(systemPrompt, userPrompt, screenshot, {
-          role: 'vision',
+          role: "vision",
           temperature: 0,
           maxTokens: 10,
         });
@@ -347,7 +352,7 @@ Respond with true or false:`;
 
       const normalized = response.trim().toLowerCase();
       // Check if response contains "true" (LLMs may add explanatory text)
-      const result = normalized.includes('true') && !normalized.startsWith('false');
+      const result = normalized.includes("true") && !normalized.startsWith("false");
       this.logger.debug(`verify: "${stateDescription}" → ${result}`);
       return result;
     } catch (error) {
@@ -368,15 +373,17 @@ Respond with true or false:`;
   private async captureScreenshot(page: Page): Promise<string | null> {
     try {
       const buffer = await page.screenshot({
-        type: 'png',
+        type: "png",
         fullPage: false,
         // Scale down for faster LLM processing + lower token cost
-        scale: 'device',
+        scale: "device",
       });
-      const base64 = buffer.toString('base64');
+      const base64 = buffer.toString("base64");
       return `data:image/png;base64,${base64}`;
     } catch (error) {
-      this.logger.warn(`Screenshot failed: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.warn(
+        `Screenshot failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return null;
     }
   }
@@ -401,10 +408,10 @@ Respond with true or false:`;
 
     // Fallback: extract visible text content (truncated for token budget)
     try {
-      const text = await page.innerText('body');
+      const text = await page.innerText("body");
       return text.slice(0, 3000);
     } catch {
-      return '(unable to extract DOM context)';
+      return "(unable to extract DOM context)";
     }
   }
 
@@ -412,17 +419,13 @@ Respond with true or false:`;
    * Format an accessibility snapshot into a readable tree string.
    * Truncates deep trees to keep token budget reasonable.
    */
-  private formatAccessibilityTree(
-    node: AccessibilityNode,
-    depth: number,
-    maxDepth = 4,
-  ): string {
-    if (depth > maxDepth) return '';
+  private formatAccessibilityTree(node: AccessibilityNode, depth: number, maxDepth = 4): string {
+    if (depth > maxDepth) return "";
 
-    const indent = '  '.repeat(depth);
-    const role = node.role ?? 'unknown';
-    const name = node.name ? ` "${node.name.slice(0, 80)}"` : '';
-    const value = node.value ? ` [value: ${String(node.value).slice(0, 50)}]` : '';
+    const indent = "  ".repeat(depth);
+    const role = node.role ?? "unknown";
+    const name = node.name ? ` "${node.name.slice(0, 80)}"` : "";
+    const value = node.value ? ` [value: ${String(node.value).slice(0, 50)}]` : "";
 
     let result = `${indent}[${role}]${name}${value}\n`;
 
@@ -434,7 +437,7 @@ Respond with true or false:`;
 
     // Truncate at ~3000 chars to keep token budget reasonable
     if (result.length > 3000) {
-      result = result.slice(0, 3000) + '\n... (truncated)';
+      result = result.slice(0, 3000) + "\n... (truncated)";
     }
 
     return result;
@@ -443,13 +446,10 @@ Respond with true or false:`;
   /**
    * Execute a parsed LLM action on the page.
    */
-  private async executeAction(
-    page: Page,
-    action: ParsedAction,
-  ): Promise<void> {
+  private async executeAction(page: Page, action: ParsedAction): Promise<void> {
     switch (action.action) {
-      case 'click': {
-        if (!action.target) throw new Error('click action requires target');
+      case "click": {
+        if (!action.target) throw new Error("click action requires target");
         // Try to find element by text first, then by selector
         const locator = await this.findElement(page, action.target);
         if (locator) {
@@ -462,8 +462,8 @@ Respond with true or false:`;
         break;
       }
 
-      case 'type': {
-        if (!action.target || !action.text) throw new Error('type action requires target and text');
+      case "type": {
+        if (!action.target || !action.text) throw new Error("type action requires target and text");
         const locator = await this.findElement(page, action.target);
         if (locator) {
           await locator.fill(action.text, { timeout: 5000 }).catch((e) => {
@@ -475,25 +475,25 @@ Respond with true or false:`;
         break;
       }
 
-      case 'scroll': {
-        const direction = action.direction ?? 'down';
-        await page.keyboard.press(direction === 'up' ? 'PageUp' : 'PageDown');
+      case "scroll": {
+        const direction = action.direction ?? "down";
+        await page.keyboard.press(direction === "up" ? "PageUp" : "PageDown");
         break;
       }
 
-      case 'navigate': {
-        if (!action.url) throw new Error('navigate action requires url');
-        await page.goto(action.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      case "navigate": {
+        if (!action.url) throw new Error("navigate action requires url");
+        await page.goto(action.url, { waitUntil: "domcontentloaded", timeout: 30000 });
         break;
       }
 
-      case 'wait': {
+      case "wait": {
         await page.waitForTimeout(2000);
         break;
       }
 
-      case 'done':
-      case 'extract':
+      case "done":
+      case "extract":
         // No-op — these are signals, not actions
         break;
 
@@ -534,7 +534,7 @@ Respond with true or false:`;
 
     // Strategy 3: getByRole with name
     try {
-      const loc = page.getByRole('button', { name: target, exact: false }).first();
+      const loc = page.getByRole("button", { name: target, exact: false }).first();
       if (await loc.isVisible({ timeout: 1000 }).catch(() => false)) {
         return loc;
       }
@@ -560,17 +560,17 @@ Respond with true or false:`;
    */
   private parseActionResponse(response: string): ParsedAction | null {
     const json = this.extractJson(response);
-    if (!json || typeof json !== 'object') return null;
+    if (!json || typeof json !== "object") return null;
 
     const obj = json as Record<string, unknown>;
-    const direction = obj['direction'];
+    const direction = obj["direction"];
     return {
-      action: String(obj['action'] ?? 'unknown'),
-      target: obj['target'] ? String(obj['target']) : undefined,
-      text: obj['text'] ? String(obj['text']) : undefined,
-      url: obj['url'] ? String(obj['url']) : undefined,
-      direction: direction === 'up' || direction === 'down' ? direction : undefined,
-      reasoning: obj['reasoning'] ? String(obj['reasoning']) : undefined,
+      action: String(obj["action"] ?? "unknown"),
+      target: obj["target"] ? String(obj["target"]) : undefined,
+      text: obj["text"] ? String(obj["text"]) : undefined,
+      url: obj["url"] ? String(obj["url"]) : undefined,
+      direction: direction === "up" || direction === "down" ? direction : undefined,
+      reasoning: obj["reasoning"] ? String(obj["reasoning"]) : undefined,
     };
   }
 
@@ -596,10 +596,10 @@ Respond with true or false:`;
     }
 
     // Try finding first { or [ and last } or ]
-    const firstBrace = response.indexOf('{');
-    const lastBrace = response.lastIndexOf('}');
-    const firstBracket = response.indexOf('[');
-    const lastBracket = response.lastIndexOf(']');
+    const firstBrace = response.indexOf("{");
+    const lastBrace = response.lastIndexOf("}");
+    const firstBracket = response.indexOf("[");
+    const lastBracket = response.lastIndexOf("]");
 
     if (firstBrace >= 0 && lastBrace > firstBrace) {
       try {
@@ -638,7 +638,7 @@ Respond with true or false:`;
       // Schema introspection failed
     }
 
-    return '(schema description unavailable — extract the most relevant data from the page)';
+    return "(schema description unavailable — extract the most relevant data from the page)";
   }
 
   // ============================================================
@@ -646,10 +646,10 @@ Respond with true or false:`;
   // ============================================================
 
   private cacheKey(screenshot: string, prompt: string): string {
-    const hash = createHash('sha256');
+    const hash = createHash("sha256");
     hash.update(screenshot);
     hash.update(prompt);
-    return hash.digest('hex');
+    return hash.digest("hex");
   }
 
   private getCached(key: string): string | null {
@@ -692,7 +692,7 @@ interface ParsedAction {
   target?: string;
   text?: string;
   url?: string;
-  direction?: 'up' | 'down';
+  direction?: "up" | "down";
   reasoning?: string;
 }
 

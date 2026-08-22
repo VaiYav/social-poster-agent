@@ -3,14 +3,14 @@
 // Primary: getByRole/getByLabel (accessibility tree is more stable than CSS).
 // Fallbacks: aria-label CSS, then text-based.
 
-import type { SelectorStrategy } from '../selector-strategy.js';
+import type { SelectorStrategy } from "../selector-strategy.js";
 
 export const THREADS_SELECTORS = {
   // ── Login ──────────────────────────────────────────────────────
   login: {
-    url: 'https://www.threads.com/login',
+    url: "https://www.threads.com/login",
     username: {
-      label: { label: 'Username, phone number or email address' },
+      label: { label: "Username, phone number or email address" },
       css: [
         'input[aria-label*="Username"]',
         'input[aria-label*="username"]',
@@ -20,7 +20,7 @@ export const THREADS_SELECTORS = {
       ],
     } satisfies SelectorStrategy,
     password: {
-      label: { label: 'Password' },
+      label: { label: "Password" },
       css: [
         'input[aria-label*="Password"]',
         'input[aria-label*="password"]',
@@ -30,7 +30,7 @@ export const THREADS_SELECTORS = {
     } satisfies SelectorStrategy,
     // Threads login button — must NOT match "Continue with Instagram" button
     submit: {
-      role: { role: 'button', name: 'Log in' },
+      role: { role: "button", name: "Log in" },
       css: [
         'div[role="button"]:has-text("Log in"):not(:has-text("Instagram"))',
         'button:has-text("Log in"):not(:has-text("Instagram"))',
@@ -38,24 +38,36 @@ export const THREADS_SELECTORS = {
     } satisfies SelectorStrategy,
     // After login, Threads shows a "New thread" button in the nav
     successIndicator: {
-      role: { role: 'button', name: 'New thread' },
-      css: ['button:has-text("New thread")', 'div[role="button"]:has-text("New thread")', 'button[aria-label="Create"]', 'button:has(img[aria-label="Create"])', 'a[href="/compose"]'],
+      role: { role: "button", name: "New thread" },
+      css: [
+        'button:has-text("New thread")',
+        'div[role="button"]:has-text("New thread")',
+        'button[aria-label="Create"]',
+        'button:has(img[aria-label="Create"])',
+        'a[href="/compose"]',
+      ],
     } satisfies SelectorStrategy,
   },
 
   // ── Posting ────────────────────────────────────────────────────
   compose: {
     // Navigate to home, then click New thread button
-    homeUrl: 'https://www.threads.com/',
+    homeUrl: "https://www.threads.com/",
     // New thread button opens a compose dialog (modal)
     composeButton: {
-      role: { role: 'button', name: 'New thread' },
-      css: ['button:has-text("New thread")', 'div[role="button"]:has-text("New thread")', 'button[aria-label="Create"]', 'button:has(img[aria-label="Create"])', 'a[href="/compose"]'],
+      role: { role: "button", name: "New thread" },
+      css: [
+        'button:has-text("New thread")',
+        'div[role="button"]:has-text("New thread")',
+        'button[aria-label="Create"]',
+        'button:has(img[aria-label="Create"])',
+        'a[href="/compose"]',
+      ],
     } satisfies SelectorStrategy,
     // Compose dialog textarea — contenteditable div
     // Note: must be scoped to the dialog, not just any contenteditable on page
     textarea: {
-      role: { role: 'textbox' },
+      role: { role: "textbox" },
       css: [
         'div[role="dialog"] div[contenteditable="true"]',
         'div[contenteditable="true"][data-contents="true"]',
@@ -64,8 +76,8 @@ export const THREADS_SELECTORS = {
     } satisfies SelectorStrategy,
     // Post button in compose dialog
     submitButton: {
-      role: { role: 'button', name: 'Post' },
-      text: { text: 'Post', exact: true },
+      role: { role: "button", name: "Post" },
+      text: { text: "Post", exact: true },
       css: [
         'div[role="dialog"] button:has-text("Post")',
         'div[role="button"]:has-text("Post")',
@@ -85,7 +97,7 @@ export const THREADS_SELECTORS = {
   engagement: {
     like: {
       // Threads like button has a heart SVG with aria-label "Like" or "Liked"
-      role: { role: 'button', name: 'Like' },
+      role: { role: "button", name: "Like" },
       css: [
         'div[role="button"]:has(svg[aria-label="Like"])',
         'button:has(svg[aria-label="Like"])',
@@ -94,7 +106,7 @@ export const THREADS_SELECTORS = {
     } satisfies SelectorStrategy,
     unlike: {
       // Threads may label the liked state as "Liked" or "Unlike" depending on UI variant
-      role: { role: 'button', name: 'Liked' },
+      role: { role: "button", name: "Liked" },
       css: [
         'div[role="button"]:has(svg[aria-label="Liked"])',
         'div[role="button"]:has(svg[aria-label="Unlike"])',
@@ -106,14 +118,14 @@ export const THREADS_SELECTORS = {
     } satisfies SelectorStrategy,
     reply: {
       // Reply button on a post
-      role: { role: 'button', name: 'Reply' },
+      role: { role: "button", name: "Reply" },
       css: [
         'div[role="button"]:has(svg[aria-label*="Reply"])',
         'div[role="button"]:has(svg[aria-label*="reply"])',
       ],
     } satisfies SelectorStrategy,
     repost: {
-      role: { role: 'button', name: 'Repost' },
+      role: { role: "button", name: "Repost" },
       css: [
         'div[role="button"]:has(svg[aria-label*="Repost"])',
         'div[role="button"]:has(svg[aria-label*="repost"])',
@@ -121,27 +133,24 @@ export const THREADS_SELECTORS = {
     } satisfies SelectorStrategy,
     // Items in the Threads repost menu. Threads sometimes calls it "Repost" or "Quote".
     repostMenuRepost: {
-      role: { role: 'menuitem', name: 'Repost' },
-      text: { text: 'Repost', exact: false },
-      css: [
-        '[role="menuitem"]:has-text("Repost")',
-        'div[role="button"]:has-text("Repost")',
-      ],
+      role: { role: "menuitem", name: "Repost" },
+      text: { text: "Repost", exact: false },
+      css: ['[role="menuitem"]:has-text("Repost")', 'div[role="button"]:has-text("Repost")'],
     } satisfies SelectorStrategy,
     repostMenuQuote: {
-      role: { role: 'menuitem', name: 'Quote' },
-      text: { text: 'Quote', exact: false },
-      css: [
-        '[role="menuitem"]:has-text("Quote")',
-        'div[role="button"]:has-text("Quote")',
-      ],
+      role: { role: "menuitem", name: "Quote" },
+      text: { text: "Quote", exact: false },
+      css: ['[role="menuitem"]:has-text("Quote")', 'div[role="button"]:has-text("Quote")'],
     } satisfies SelectorStrategy,
     quoteTextarea: {
-      css: ['div[role="dialog"] div[contenteditable="true"]', 'div[role="dialog"] [contenteditable="true"]'],
+      css: [
+        'div[role="dialog"] div[contenteditable="true"]',
+        'div[role="dialog"] [contenteditable="true"]',
+      ],
     } satisfies SelectorStrategy,
     quoteSubmit: {
-      role: { role: 'button', name: 'Post' },
-      text: { text: 'Post', exact: false },
+      role: { role: "button", name: "Post" },
+      text: { text: "Post", exact: false },
       css: [
         'div[role="dialog"] button:has-text("Post")',
         'div[role="dialog"] div[role="button"]:has-text("Post")',
@@ -150,30 +159,33 @@ export const THREADS_SELECTORS = {
       ],
     } satisfies SelectorStrategy,
     follow: {
-      role: { role: 'button', name: 'Follow' },
-      text: { text: 'Follow', exact: true },
+      role: { role: "button", name: "Follow" },
+      text: { text: "Follow", exact: true },
       css: ['div[role="button"]:has-text("Follow")', 'button:has-text("Follow")'],
     } satisfies SelectorStrategy,
     // Reply dialog textarea — must be inside the dialog to avoid matching
     // the compose box in the sidebar/header
     replyTextarea: {
-      role: { role: 'textbox' },
-      css: ['div[role="dialog"] div[contenteditable="true"]', 'div[role="dialog"] [contenteditable="true"]'],
+      role: { role: "textbox" },
+      css: [
+        'div[role="dialog"] div[contenteditable="true"]',
+        'div[role="dialog"] [contenteditable="true"]',
+      ],
     } satisfies SelectorStrategy,
     // Reply dialog submit button
     replySubmit: {
-      role: { role: 'button', name: 'Post' },
-      text: { text: 'Post', exact: true },
+      role: { role: "button", name: "Post" },
+      text: { text: "Post", exact: true },
       css: ['div[role="dialog"] button:has-text("Post")', 'button:has-text("Post")'],
     } satisfies SelectorStrategy,
   },
 
   // ── Feed ───────────────────────────────────────────────────────
   feed: {
-    url: 'https://www.threads.com/',
+    url: "https://www.threads.com/",
     // Individual post articles in the feed
     postArticle: {
-      css: ['div[role="article"]', 'article'],
+      css: ['div[role="article"]', "article"],
     } satisfies SelectorStrategy,
     // Post link (for extracting post URL)
     postLink: {
@@ -195,7 +207,7 @@ export const THREADS_SELECTORS = {
     urlPattern: /\/@([^/]+)$/,
     // Latest post on profile page
     latestPost: {
-      css: ['div[role="article"]', 'article'],
+      css: ['div[role="article"]', "article"],
     } satisfies SelectorStrategy,
     // Post text content within an article
     postText: {

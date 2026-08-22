@@ -32,121 +32,125 @@
  * for every injectable/controller/module class in the project so that
  * @nestjs/testing DI works as intended with the FULL AppModule.
  */
-import 'reflect-metadata';
-import { restoreAllDesignParamtypes, defineParamtypes } from '../helpers/restore-paramtypes.js';
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import { Test } from '@nestjs/testing';
-import type { TestingModule } from '@nestjs/testing';
-import { INestApplication, Controller, Get, Logger } from '@nestjs/common'
-import { ModuleRef } from '@nestjs/core';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { SchedulerRegistry } from '@nestjs/schedule';
-import request from 'supertest';
-import { ClsService } from 'nestjs-cls';
-import { PostStatus, SessionStatus, SocialNetwork } from '@prisma/client';
+import "reflect-metadata";
+import { restoreAllDesignParamtypes, defineParamtypes } from "../helpers/restore-paramtypes.js";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { Test } from "@nestjs/testing";
+import type { TestingModule } from "@nestjs/testing";
+import { INestApplication, Controller, Get, Logger } from "@nestjs/common";
+import { ModuleRef } from "@nestjs/core";
+import { ConfigModule, ConfigService } from "@nestjs/config";
+import { SchedulerRegistry } from "@nestjs/schedule";
+import request from "supertest";
+import { ClsService } from "nestjs-cls";
+import { PostStatus, SessionStatus, SocialNetwork } from "../../src/generated/prisma/client";
 
-import { AppModule } from '../../src/app.module';
-import { PrismaService } from '../../src/infrastructure/prisma/prisma.service';
-import { ILlmPort } from '../../src/domain/ports/llm.port.js';
-import { IBrowserPort } from '../../src/domain/ports/browser.port.js';
+import { AppModule } from "../../src/app.module";
+import { PrismaService } from "../../src/infrastructure/prisma/prisma.service";
+import { ILlmPort } from "../../src/domain/ports/llm.port.js";
+import { IBrowserPort } from "../../src/domain/ports/browser.port.js";
 
 // Infrastructure
-import { BrowserFactory } from '../../src/infrastructure/browser/browser.factory';
-import { LlmService } from '../../src/infrastructure/llm/llm.service';
-import { ContentReader } from '../../src/infrastructure/content/content-reader.js';
-import { SseService } from '../../src/infrastructure/sse/sse.service';
-import { EncryptionService } from '../../src/infrastructure/crypto/encryption.service.js';
-import { SseModule } from '../../src/infrastructure/sse/sse.module';
-import { SseEventListener } from '../../src/events/listeners/sse-event.listener.js';
-import { QueueFactory } from '../../src/infrastructure/queue/queue.factory';
-import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint.js';
+import { BrowserFactory } from "../../src/infrastructure/browser/browser.factory";
+import { LlmService } from "../../src/infrastructure/llm/llm.service";
+import { ContentReader } from "../../src/infrastructure/content/content-reader.js";
+import { SseService } from "../../src/infrastructure/sse/sse.service";
+import { EncryptionService } from "../../src/infrastructure/crypto/encryption.service.js";
+import { SseModule } from "../../src/infrastructure/sse/sse.module";
+import { SseEventListener } from "../../src/events/listeners/sse-event.listener.js";
+import { QueueFactory } from "../../src/infrastructure/queue/queue.factory";
+import { RedisCheckpointSaver } from "../../src/infrastructure/checkpoint/redis-checkpoint.js";
 
 // Modules (for ITC-020 subset wiring)
-import { PostingModule } from '../../src/modules/posting/posting.module';
-import { BrowserModule } from '../../src/infrastructure/browser/browser.module';
-import { PostsModule } from '../../src/modules/posts/posts.module';
-import { SessionsModule } from '../../src/modules/sessions/sessions.module';
-import { RateLimitModule } from '../../src/modules/rate-limit/rate-limit.module';
-import { PrismaModule } from '../../src/infrastructure/prisma/prisma.module';
-import { ScheduleModule } from '@nestjs/schedule';
+import { PostingModule } from "../../src/modules/posting/posting.module";
+import { BrowserModule } from "../../src/infrastructure/browser/browser.module";
+import { PostsModule } from "../../src/modules/posts/posts.module";
+import { SessionsModule } from "../../src/modules/sessions/sessions.module";
+import { RateLimitModule } from "../../src/modules/rate-limit/rate-limit.module";
+import { PrismaModule } from "../../src/infrastructure/prisma/prisma.module";
+import { ScheduleModule } from "@nestjs/schedule";
 
 // Services
-import { PostingService } from '../../src/modules/posting/posting.service';
-import { ThreadProgressService } from '../../src/modules/posting/thread-progress.service';
-import { EventEmitter2, EventEmitterModule } from '@nestjs/event-emitter';
-import { PostingController } from '../../src/modules/posting/posting.controller';
-import { XPoster } from '../../src/modules/posting/posters/x.poster';
-import { ThreadsPoster } from '../../src/modules/posting/posters/threads.poster';
-import { FacebookPoster } from '../../src/modules/posting/posters/facebook.poster';
-import { PostsService } from '../../src/modules/posts/posts.service';
-import { PostsController } from '../../src/modules/posts/posts.controller';
-import { SessionsService } from '../../src/modules/sessions/sessions.service';
-import { WarmupService } from '../../src/modules/sessions/warmup.service';
-import { SessionsController } from '../../src/modules/sessions/sessions.controller';
-import { AccountsService } from '../../src/modules/accounts/accounts.service';
-import { AccountsController } from '../../src/modules/accounts/accounts.controller';
-import { RateLimitService } from '../../src/modules/rate-limit/rate-limit.service';
-import { GenerationService } from '../../src/modules/generation/generation.service';
-import { GenerationController } from '../../src/modules/generation/generation.controller';
-import { CronService } from '../../src/modules/generation/cron.service';
-import { ContentSourceService } from '../../src/modules/content-source/content-source.service';
-import { ContentSourceController } from '../../src/modules/content-source/content-source.controller';
-import { QueueService } from '../../src/modules/queue/queue.service';
-import { QueueController } from '../../src/modules/queue/queue.controller';
-import { QueueModule } from '../../src/modules/queue/queue.module';
-import { SseController } from '../../src/modules/sse/sse.controller';
-import { AutoApproveListener } from '../../src/modules/autonomy/auto-approve.listener';
-import { HealthController } from '../../src/modules/health/health.controller';
-import { EngagementService } from '../../src/modules/engagement/engagement.service';
-import { EngagementController } from '../../src/modules/engagement/engagement.controller';
-import { BrowsingSessionService } from '../../src/modules/engagement/browsing-session.service';
-import { XEngager } from '../../src/modules/engagement/engagers/x.engager';
-import { ThreadsEngager } from '../../src/modules/engagement/engagers/threads.engager';
-import { FacebookEngager } from '../../src/modules/engagement/engagers/facebook.engager';
+import { PostingService } from "../../src/modules/posting/posting.service";
+import { ThreadProgressService } from "../../src/modules/posting/thread-progress.service";
+import { EventEmitter2, EventEmitterModule } from "@nestjs/event-emitter";
+import { PostingController } from "../../src/modules/posting/posting.controller";
+import { XPoster } from "../../src/modules/posting/posters/x.poster";
+import { ThreadsPoster } from "../../src/modules/posting/posters/threads.poster";
+import { FacebookPoster } from "../../src/modules/posting/posters/facebook.poster";
+import { PostsService } from "../../src/modules/posts/posts.service";
+import { PostsController } from "../../src/modules/posts/posts.controller";
+import { SessionsService } from "../../src/modules/sessions/sessions.service";
+import { WarmupService } from "../../src/modules/sessions/warmup.service";
+import { SessionsController } from "../../src/modules/sessions/sessions.controller";
+import { AccountsService } from "../../src/modules/accounts/accounts.service";
+import { AccountsController } from "../../src/modules/accounts/accounts.controller";
+import { RateLimitService } from "../../src/modules/rate-limit/rate-limit.service";
+import { GenerationService } from "../../src/modules/generation/generation.service";
+import { GenerationController } from "../../src/modules/generation/generation.controller";
+import { CronService } from "../../src/modules/generation/cron.service";
+import { ContentSourceService } from "../../src/modules/content-source/content-source.service";
+import { ContentSourceController } from "../../src/modules/content-source/content-source.controller";
+import { QueueService } from "../../src/modules/queue/queue.service";
+import { QueueController } from "../../src/modules/queue/queue.controller";
+import { QueueModule } from "../../src/modules/queue/queue.module";
+import { SseController } from "../../src/modules/sse/sse.controller";
+import { AutoApproveListener } from "../../src/modules/autonomy/auto-approve.listener";
+import { HealthController } from "../../src/modules/health/health.controller";
+import { EngagementService } from "../../src/modules/engagement/engagement.service";
+import { EngagementController } from "../../src/modules/engagement/engagement.controller";
+import { BrowsingSessionService } from "../../src/modules/engagement/browsing-session.service";
+import { XEngager } from "../../src/modules/engagement/engagers/x.engager";
+import { ThreadsEngager } from "../../src/modules/engagement/engagers/threads.engager";
+import { FacebookEngager } from "../../src/modules/engagement/engagers/facebook.engager";
 
 // Sprint O: New Features
-import { CaptchaSolverService } from '../../src/infrastructure/captcha/captcha-solver.service';
-import { ProxyRotationService } from '../../src/infrastructure/proxy/proxy-rotation.service';
-import { AnalyticsService } from '../../src/modules/analytics/analytics.service';
-import { AnalyticsController } from '../../src/modules/analytics/analytics.controller';
-import { MetricsScraperService } from '../../src/modules/analytics/metrics-scraper.service';
-import { RecyclingService } from '../../src/modules/recycling/recycling.service';
-import { RecyclingController } from '../../src/modules/recycling/recycling.controller';
-import { QuoteCardService } from '../../src/modules/quote-cards/quote-card.service';
-import { QuoteCardController } from '../../src/modules/quote-cards/quote-card.controller';
-import { RepliesMonitorService } from '../../src/modules/replies/replies-monitor.service';
-import { HumanBehaviorEngine } from '../../src/modules/engagement/human-behavior-engine.js';
-import { TargetingService } from '../../src/modules/engagement/targeting.service';
-import { EngagementSchedulerService } from '../../src/modules/engagement/engagement-scheduler.service';
-import { FlowControlService } from '../../src/modules/flow-control/flow-control.service';
-import { FlowControlController } from '../../src/modules/flow-control/flow-control.controller';
-import { AutoCheckService } from '../../src/modules/autonomy/auto-check.service';
-import { AutoApproveService } from '../../src/modules/autonomy/auto-approve.service';
-import { AutonomousRunnerService } from '../../src/modules/autonomy/autonomous-runner.service';
-import { TrendingScraperService } from '../../src/modules/trending/trending-scraper.service';
-import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service';
-import { NotificationsModule } from '../../src/infrastructure/notifications/notifications.module';
-import { TopicGenerationService } from '../../src/infrastructure/content/topic-generation.service';
-import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service';
-import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator';
-import { ThreadDepthService } from '../../src/modules/content-enhancements/thread-depth.service';
-import { ContentPillarTracker } from '../../src/modules/content-enhancements/content-pillar.tracker';
-import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook-performance-bank.js';
-import { AuthService } from '../../src/modules/auth/auth.service';
-import { AuthController } from '../../src/modules/auth/auth.controller';
-import { JwtAuthGuard } from '../../src/modules/auth/jwt-auth.guard';
-import { JwtService } from '@nestjs/jwt';
+import { CaptchaSolverService } from "../../src/infrastructure/captcha/captcha-solver.service";
+import { ProxyRotationService } from "../../src/infrastructure/proxy/proxy-rotation.service";
+import { AnalyticsService } from "../../src/modules/analytics/analytics.service";
+import { AnalyticsController } from "../../src/modules/analytics/analytics.controller";
+import { MetricsScraperService } from "../../src/modules/analytics/metrics-scraper.service";
+import { RecyclingService } from "../../src/modules/recycling/recycling.service";
+import { RecyclingController } from "../../src/modules/recycling/recycling.controller";
+import { QuoteCardService } from "../../src/modules/quote-cards/quote-card.service";
+import { QuoteCardController } from "../../src/modules/quote-cards/quote-card.controller";
+import { RepliesMonitorService } from "../../src/modules/replies/replies-monitor.service";
+import { HumanBehaviorEngine } from "../../src/modules/engagement/human-behavior-engine.js";
+import { TargetingService } from "../../src/modules/engagement/targeting.service";
+import { EngagementSchedulerService } from "../../src/modules/engagement/engagement-scheduler.service";
+import { FlowControlService } from "../../src/modules/flow-control/flow-control.service";
+import { FlowControlController } from "../../src/modules/flow-control/flow-control.controller";
+import { AutoCheckService } from "../../src/modules/autonomy/auto-check.service";
+import { AutoApproveService } from "../../src/modules/autonomy/auto-approve.service";
+import { AutonomousRunnerService } from "../../src/modules/autonomy/autonomous-runner.service";
+import { TrendingScraperService } from "../../src/modules/trending/trending-scraper.service";
+import { DiscordNotificationService } from "../../src/infrastructure/notifications/discord-notification.service";
+import { NotificationsModule } from "../../src/infrastructure/notifications/notifications.module";
+import { TopicGenerationService } from "../../src/infrastructure/content/topic-generation.service";
+import { VisualConceptService } from "../../src/modules/content-enhancements/visual-concept.service";
+import { ABVariantGenerator } from "../../src/modules/content-enhancements/ab-variant.generator";
+import { ThreadDepthService } from "../../src/modules/content-enhancements/thread-depth.service";
+import { ContentPillarTracker } from "../../src/modules/content-enhancements/content-pillar.tracker";
+import { HookPerformanceBank } from "../../src/modules/content-enhancements/hook-performance-bank.js";
+import { AuthService } from "../../src/modules/auth/auth.service";
+import { AuthController } from "../../src/modules/auth/auth.controller";
+import { JwtAuthGuard } from "../../src/modules/auth/jwt-auth.guard";
+import { JwtService } from "@nestjs/jwt";
 
 // Orchestrator services (esbuild strips design:paramtypes; restore below)
-import { HardRulesService } from '../../src/modules/orchestrator/hard-rules.service.js';
-import { GuardrailsService } from '../../src/modules/orchestrator/guardrails.service.js';
-import { LlmDecisionService } from '../../src/modules/orchestrator/llm-decision.service.js';
-import { PostingWindowService } from '../../src/modules/orchestrator/posting-window.service.js';
-import { DecisionEngineService } from '../../src/modules/orchestrator/decision-engine.service.js';
-import { EmailReaderService } from '../../src/infrastructure/email/email-reader.service.js';
+import { HardRulesService } from "../../src/modules/orchestrator/hard-rules.service.js";
+import { GuardrailsService } from "../../src/modules/orchestrator/guardrails.service.js";
+import { LlmDecisionService } from "../../src/modules/orchestrator/llm-decision.service.js";
+import { PostingWindowService } from "../../src/modules/orchestrator/posting-window.service.js";
+import { DecisionEngineService } from "../../src/modules/orchestrator/decision-engine.service.js";
+import { EmailReaderService } from "../../src/infrastructure/email/email-reader.service.js";
 
-import { createMockLlmPort, createMockBrowserPort, createMockPrismaService } from '../mocks/index.js';
-import { RedisModule } from '../../src/infrastructure/redis/redis.module';
+import {
+  createMockLlmPort,
+  createMockBrowserPort,
+  createMockPrismaService,
+} from "../mocks/index.js";
+import { RedisModule } from "../../src/infrastructure/redis/redis.module";
 
 // ── ioredis mock (hoisted) ───────────────────────────────────────────────────
 // A shared Map-backed store so RateLimitService.checkRateLimit / recordPost
@@ -159,7 +163,7 @@ const { sharedRedisStore } = vi.hoisted(() => ({
   sharedRedisStore: new Map<string, string>(),
 }));
 
-vi.mock('ioredis', () => {
+vi.mock("ioredis", () => {
   const createMockRedis = () => {
     const store = sharedRedisStore;
     const listeners: Record<string, Array<(...args: unknown[]) => void>> = {};
@@ -183,7 +187,7 @@ vi.mock('ioredis', () => {
       return inst;
     };
     const inst: Record<string, unknown> = {
-      status: 'ready',
+      status: "ready",
       on,
       off,
       once,
@@ -199,32 +203,32 @@ vi.mock('ioredis', () => {
         let i = 0;
         while (i < args.length) {
           const arg = args[i];
-          if (arg === 'PX' || arg === 'EX' || arg === 'PXAT' || arg === 'EXAT') {
+          if (arg === "PX" || arg === "EX" || arg === "PXAT" || arg === "EXAT") {
             i += 2;
             continue;
           }
-          if (arg === 'NX' && store.has(k)) return Promise.resolve(null);
-          if (arg === 'XX' && !store.has(k)) return Promise.resolve(null);
+          if (arg === "NX" && store.has(k)) return Promise.resolve(null);
+          if (arg === "XX" && !store.has(k)) return Promise.resolve(null);
           i += 1;
         }
         store.set(k, String(v));
-        return Promise.resolve('OK');
+        return Promise.resolve("OK");
       },
       setex: (k: string, _t: number, v: string) => {
         store.set(k, v);
-        return Promise.resolve('OK');
+        return Promise.resolve("OK");
       },
       psetex: (k: string, _t: number, v: string) => {
         store.set(k, v);
-        return Promise.resolve('OK');
+        return Promise.resolve("OK");
       },
       incr: (k: string) => {
-        const v = parseInt(store.get(k) ?? '0', 10) + 1;
+        const v = parseInt(store.get(k) ?? "0", 10) + 1;
         store.set(k, String(v));
         return Promise.resolve(v);
       },
       decr: (k: string) => {
-        const v = parseInt(store.get(k) ?? '0', 10) - 1;
+        const v = parseInt(store.get(k) ?? "0", 10) - 1;
         store.set(k, String(v));
         return Promise.resolve(v);
       },
@@ -239,33 +243,33 @@ vi.mock('ioredis', () => {
         return Promise.resolve(1);
       },
       exists: (k: string) => Promise.resolve(store.has(k) ? 1 : 0),
-      ping: () => Promise.resolve('PONG'),
+      ping: () => Promise.resolve("PONG"),
       // publish emits 'message' on the same instance so SseService broadcast works
       publish: (_ch: string, msg: string) => {
-        emit('message', _ch, msg);
+        emit("message", _ch, msg);
         return Promise.resolve(1);
       },
-      subscribe: () => Promise.resolve('OK'),
-      unsubscribe: () => Promise.resolve('OK'),
-      psubscribe: () => Promise.resolve('OK'),
+      subscribe: () => Promise.resolve("OK"),
+      unsubscribe: () => Promise.resolve("OK"),
+      psubscribe: () => Promise.resolve("OK"),
       connect: () => Promise.resolve(undefined),
       disconnect: () => undefined,
       close: () => Promise.resolve(undefined),
       quit: () => Promise.resolve(undefined),
       duplicate: () => createMockRedis(),
       keys: (pat: string) => {
-        const prefix = pat.replace(/\*$/, '');
+        const prefix = pat.replace(/\*$/, "");
         const out: string[] = [];
         for (const k of store.keys()) if (k.startsWith(prefix)) out.push(k);
         return Promise.resolve(out);
       },
-      scan: () => Promise.resolve(['0', []]),
+      scan: () => Promise.resolve(["0", []]),
       hget: () => Promise.resolve(null),
       hset: () => Promise.resolve(1),
       hgetall: () => Promise.resolve({}),
       hdel: () => Promise.resolve(1),
       hlen: () => Promise.resolve(0),
-      type: () => Promise.resolve('none'),
+      type: () => Promise.resolve("none"),
       eval: () => Promise.resolve(undefined),
       evalsha: () => Promise.resolve(undefined),
       multi: () => createMockRedis(),
@@ -275,16 +279,16 @@ vi.mock('ioredis', () => {
       rpush: () => Promise.resolve(1),
       lrange: () => Promise.resolve([]),
       llen: () => Promise.resolve(0),
-      info: () => Promise.resolve(''),
-      client: () => Promise.resolve('OK'),
+      info: () => Promise.resolve(""),
+      client: () => Promise.resolve("OK"),
       defineCommand: () => undefined,
-      time: () => Promise.resolve(['0', '0']),
+      time: () => Promise.resolve(["0", "0"]),
       wait: () => Promise.resolve(0),
     };
     // Emit 'ready' asynchronously so ioredis clients think they're connected.
     queueMicrotask(() => {
-      inst.status = 'ready';
-      emit('ready');
+      inst.status = "ready";
+      emit("ready");
     });
     return inst;
   };
@@ -298,20 +302,19 @@ vi.mock('ioredis', () => {
 });
 
 // camoufox-js — avoid launching a real browser binary during tests.
-vi.mock('camoufox-js', () => ({
+vi.mock("camoufox-js", () => ({
   Camoufox: vi.fn().mockResolvedValue(null),
   __esModule: true,
 }));
 
 // @langchain/openai — avoid real OpenAI client instantiation.
-vi.mock('@langchain/openai', () => ({
+vi.mock("@langchain/openai", () => ({
   ChatOpenAI: vi.fn().mockImplementation(() => ({
-    invoke: vi.fn().mockResolvedValue({ content: 'mock' }),
+    invoke: vi.fn().mockResolvedValue({ content: "mock" }),
     temperature: 0.7,
   })),
   __esModule: true,
 }));
-
 
 // ── Mock helpers ─────────────────────────────────────────────────────────────
 
@@ -365,29 +368,27 @@ function createMockQueueFactory() {
  * data, so ITC-018 and ITC-035 can verify CLS + RedactInterceptor via HTTP.
  * Registered alongside the full AppModule in the TestingModule.
  */
-@Controller('test')
+@Controller("test")
 class TestController {
   constructor(private readonly cls: ClsService) {}
 
-  @Get('cls-id')
+  @Get("cls-id")
   getClsId() {
     return { correlationId: this.cls.getId() };
   }
 
-  @Get('combined')
+  @Get("combined")
   getCombined() {
     const correlationId = this.cls.getId();
     // Log with the correlationId so ITC-035 can verify it appears in logs.
-    new Logger('TestController').log(
-      `correlationId=${correlationId} GET /test/combined`,
-    );
+    new Logger("TestController").log(`correlationId=${correlationId} GET /test/combined`);
     // Return sensitive fields that RedactInterceptor must redact.
     return {
       correlationId,
-      storageState: 'secret-cookies-and-tokens',
-      password: 'hunter2',
-      apiKey: 'sk-test-123',
-      safe: 'ok',
+      storageState: "secret-cookies-and-tokens",
+      password: "hunter2",
+      apiKey: "sk-test-123",
+      safe: "ok",
     };
   }
 }
@@ -397,41 +398,41 @@ defineParamtypes(TestController, [ClsService]);
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
 const ACCOUNT_X = {
-  id: 'acc-001',
+  id: "acc-001",
   network: SocialNetwork.X,
-  handle: 'exampleco',
-  credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD',
+  handle: "exampleco",
+  credentialsRef: "SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD",
   active: true,
-  createdAt: new Date('2026-07-01T00:00:00Z'),
-  updatedAt: new Date('2026-07-01T00:00:00Z'),
+  createdAt: new Date("2026-07-01T00:00:00Z"),
+  updatedAt: new Date("2026-07-01T00:00:00Z"),
 };
 
 const ACTIVE_SESSION = {
-  id: 'sess-001',
-  accountId: 'acc-001',
-  storageState: { cookies: [{ name: 'auth', value: 'token' }], origins: [] },
+  id: "sess-001",
+  accountId: "acc-001",
+  storageState: { cookies: [{ name: "auth", value: "token" }], origins: [] },
   status: SessionStatus.ACTIVE,
-  lastHealthCheck: new Date('2026-07-15T10:00:00Z'),
-  createdAt: new Date('2026-07-10T00:00:00Z'),
-  updatedAt: new Date('2026-07-15T10:00:00Z'),
+  lastHealthCheck: new Date("2026-07-15T10:00:00Z"),
+  createdAt: new Date("2026-07-10T00:00:00Z"),
+  updatedAt: new Date("2026-07-15T10:00:00Z"),
 };
 
 const APPROVED_POST_X = {
-  id: 'post-020',
+  id: "post-020",
   network: SocialNetwork.X,
-  content: 'Workflow trends are coming! Time to focus, not react.',
+  content: "Workflow trends are coming! Time to focus, not react.",
   status: PostStatus.APPROVED,
   postUrl: null,
   errorMessage: null,
-  accountId: 'acc-001',
+  accountId: "acc-001",
   threadId: null,
   threadPosition: 0,
   generationRunId: null,
   sourceRef: null,
   llmMetadata: null,
-  createdAt: new Date('2026-07-15T10:00:00Z'),
-  updatedAt: new Date('2026-07-15T10:00:00Z'),
-  approvedAt: new Date('2026-07-15T10:00:00Z'),
+  createdAt: new Date("2026-07-15T10:00:00Z"),
+  updatedAt: new Date("2026-07-15T10:00:00Z"),
+  approvedAt: new Date("2026-07-15T10:00:00Z"),
   postedAt: null,
   account: ACCOUNT_X,
   thread: null,
@@ -462,9 +463,9 @@ async function buildFullAppModule(
 
   const mockSharedRedis = {
     get: vi.fn().mockResolvedValue(null),
-    set: vi.fn().mockResolvedValue('OK'),
+    set: vi.fn().mockResolvedValue("OK"),
     del: vi.fn().mockResolvedValue(1),
-    ping: vi.fn().mockResolvedValue('PONG'),
+    ping: vi.fn().mockResolvedValue("PONG"),
     subscribe: vi.fn().mockResolvedValue(1),
     unsubscribe: vi.fn().mockResolvedValue(1),
     on: vi.fn(),
@@ -473,7 +474,7 @@ async function buildFullAppModule(
     rpush: vi.fn().mockResolvedValue(1),
     expire: vi.fn().mockResolvedValue(1),
     incr: vi.fn().mockResolvedValue(1),
-    quit: vi.fn().mockResolvedValue('OK'),
+    quit: vi.fn().mockResolvedValue("OK"),
     disconnect: vi.fn(),
     connect: vi.fn().mockResolvedValue(undefined),
   } as unknown;
@@ -491,7 +492,12 @@ async function buildFullAppModule(
     .overrideProvider(QueueFactory)
     .useValue(queueFactory)
     .overrideProvider(EncryptionService)
-    .useValue({ encrypt: (data: unknown) => JSON.stringify(data), decrypt: (data: string) => JSON.parse(data), isEnabled: () => false, isEncrypted: (s: string) => s.startsWith('v1:') })
+    .useValue({
+      encrypt: (data: unknown) => JSON.stringify(data),
+      decrypt: (data: string) => JSON.parse(data),
+      isEnabled: () => false,
+      isEncrypted: (s: string) => s.startsWith("v1:"),
+    })
     .overrideProvider(TrendingScraperService)
     .useValue({
       getGoogleTrends: vi.fn().mockResolvedValue([]),
@@ -507,14 +513,14 @@ async function buildFullAppModule(
 /** Create an initialized Nest HTTP application with the global API prefix. */
 async function createHttpApp(moduleRef: TestingModule): Promise<INestApplication> {
   const app = moduleRef.createNestApplication();
-  app.setGlobalPrefix('api/v1');
+  app.setGlobalPrefix("api/v1");
   await app.init();
   return app;
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe('Big-Bang Integration: Full AppModule (ITC-017..020, ITC-035)', () => {
+describe("Big-Bang Integration: Full AppModule (ITC-017..020, ITC-035)", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     sharedRedisStore.clear();
@@ -522,367 +528,351 @@ describe('Big-Bang Integration: Full AppModule (ITC-017..020, ITC-035)', () => {
 
   // ── ITC-017: Full AppModule Integration ─────────────────────────────────────
 
-  it(
-    'ITC-017: full AppModule instantiates — all 16 modules wired, DI resolves every dependency (HAZ-005)',
-    async () => {
-      // Arrange + Act: compile the full AppModule with external providers mocked.
-      // compile() triggers onModuleInit/onApplicationBootstrap lifecycle hooks,
-      // so a successful compile proves every module instantiates without error.
-      const { moduleRef } = await buildFullAppModule();
+  it("ITC-017: full AppModule instantiates — all 16 modules wired, DI resolves every dependency (HAZ-005)", async () => {
+    // Arrange + Act: compile the full AppModule with external providers mocked.
+    // compile() triggers onModuleInit/onApplicationBootstrap lifecycle hooks,
+    // so a successful compile proves every module instantiates without error.
+    const { moduleRef } = await buildFullAppModule();
 
-      try {
-        // Assert: key services from every module are resolvable via DI.
-        expect(moduleRef.get(GenerationService)).toBeDefined();
-        expect(moduleRef.get(PostsService)).toBeDefined();
-        expect(moduleRef.get(PostingService)).toBeDefined();
-        expect(moduleRef.get(SessionsService)).toBeDefined();
-        expect(moduleRef.get(AccountsService)).toBeDefined();
-        expect(moduleRef.get(RateLimitService)).toBeDefined();
-        expect(moduleRef.get(SseService)).toBeDefined();
-        expect(moduleRef.get(ContentSourceService)).toBeDefined();
-        expect(moduleRef.get(QueueService)).toBeDefined();
-        expect(moduleRef.get(HealthController)).toBeDefined();
+    try {
+      // Assert: key services from every module are resolvable via DI.
+      expect(moduleRef.get(GenerationService)).toBeDefined();
+      expect(moduleRef.get(PostsService)).toBeDefined();
+      expect(moduleRef.get(PostingService)).toBeDefined();
+      expect(moduleRef.get(SessionsService)).toBeDefined();
+      expect(moduleRef.get(AccountsService)).toBeDefined();
+      expect(moduleRef.get(RateLimitService)).toBeDefined();
+      expect(moduleRef.get(SseService)).toBeDefined();
+      expect(moduleRef.get(ContentSourceService)).toBeDefined();
+      expect(moduleRef.get(QueueService)).toBeDefined();
+      expect(moduleRef.get(HealthController)).toBeDefined();
 
-        // Assert: overridden infrastructure providers resolve to the mocks.
-        const llm = moduleRef.get<ReturnType<typeof createMockLlmPort>>(ILlmPort);
-        const browser = moduleRef.get<ReturnType<typeof createMockBrowserPort>>(IBrowserPort);
-        const prisma = moduleRef.get(PrismaService);
-        const queueFactory = moduleRef.get(QueueFactory);
-        expect(llm).toBeDefined();
-        expect(typeof llm.generateChat).toBe('function');
-        expect(browser).toBeDefined();
-        expect(typeof browser.createContext).toBe('function');
-        expect(prisma).toBeDefined();
-        expect(prisma.post).toBeDefined();
-        expect((prisma as unknown).socialAccount).toBeDefined();
-        expect(queueFactory).toBeDefined();
-        expect(typeof (queueFactory as unknown).registerWorker).toBe('function');
+      // Assert: overridden infrastructure providers resolve to the mocks.
+      const llm = moduleRef.get<ReturnType<typeof createMockLlmPort>>(ILlmPort);
+      const browser = moduleRef.get<ReturnType<typeof createMockBrowserPort>>(IBrowserPort);
+      const prisma = moduleRef.get(PrismaService);
+      const queueFactory = moduleRef.get(QueueFactory);
+      expect(llm).toBeDefined();
+      expect(typeof llm.generateChat).toBe("function");
+      expect(browser).toBeDefined();
+      expect(typeof browser.createContext).toBe("function");
+      expect(prisma).toBeDefined();
+      expect(prisma.post).toBeDefined();
+      expect((prisma as unknown).socialAccount).toBeDefined();
+      expect(queueFactory).toBeDefined();
+      expect(typeof (queueFactory as unknown).registerWorker).toBe("function");
 
-        // Assert: global ClsService is provided by AppClsModule (INT-17).
-        const cls = moduleRef.get(ClsService);
-        expect(cls).toBeDefined();
-        expect(typeof cls.getId).toBe('function');
-      } finally {
-        await moduleRef.close();
-      }
-    },
-    30000,
-  );
+      // Assert: global ClsService is provided by AppClsModule (INT-17).
+      const cls = moduleRef.get(ClsService);
+      expect(cls).toBeDefined();
+      expect(typeof cls.getId).toBe("function");
+    } finally {
+      await moduleRef.close();
+    }
+  }, 30000);
 
   // ── ITC-018: CLS CorrelationId Propagation ──────────────────────────────────
 
-  it(
-    'ITC-018: CLS middleware generates a unique correlationId per request in "spa-" format (INT-17, REQ-037)',
-    async () => {
-      const { moduleRef } = await buildFullAppModule([TestController]);
-      const app = await createHttpApp(moduleRef);
+  it('ITC-018: CLS middleware generates a unique correlationId per request in "spa-" format (INT-17, REQ-037)', async () => {
+    const { moduleRef } = await buildFullAppModule([TestController]);
+    const app = await createHttpApp(moduleRef);
 
-      try {
-        // Act: make two HTTP requests to the test endpoint that reads ClsService.getId().
-        const res1 = await request(app.getHttpServer()).get('/api/v1/test/cls-id');
-        const res2 = await request(app.getHttpServer()).get('/api/v1/test/cls-id');
+    try {
+      // Act: make two HTTP requests to the test endpoint that reads ClsService.getId().
+      const res1 = await request(app.getHttpServer()).get("/api/v1/test/cls-id");
+      const res2 = await request(app.getHttpServer()).get("/api/v1/test/cls-id");
 
-        // Assert: both requests succeed.
-        expect(res1.status).toBe(200);
-        expect(res2.status).toBe(200);
+      // Assert: both requests succeed.
+      expect(res1.status).toBe(200);
+      expect(res2.status).toBe(200);
 
-        const id1 = res1.body.correlationId;
-        const id2 = res2.body.correlationId;
+      const id1 = res1.body.correlationId;
+      const id2 = res2.body.correlationId;
 
-        // Assert: each correlationId is a non-empty string in the 'spa-' format.
-        expect(id1).toEqual(expect.any(String));
-        expect(id1.startsWith('spa-')).toBe(true);
-        expect(id2).toEqual(expect.any(String));
-        expect(id2.startsWith('spa-')).toBe(true);
+      // Assert: each correlationId is a non-empty string in the 'spa-' format.
+      expect(id1).toEqual(expect.any(String));
+      expect(id1.startsWith("spa-")).toBe(true);
+      expect(id2).toEqual(expect.any(String));
+      expect(id2.startsWith("spa-")).toBe(true);
 
-        // Assert: the two correlationIds are different (unique per request).
-        expect(id1).not.toBe(id2);
-      } finally {
-        await app.close();
-        await moduleRef.close();
-      }
-    },
-    30000,
-  );
+      // Assert: the two correlationIds are different (unique per request).
+      expect(id1).not.toBe(id2);
+    } finally {
+      await app.close();
+      await moduleRef.close();
+    }
+  }, 30000);
 
   // ── ITC-019: RedactInterceptor Integration ──────────────────────────────────
 
-  it(
-    'ITC-019: RedactInterceptor redacts sensitive fields (storageState, credentialsRef) in HTTP responses (INT-18, HAZ-012)',
-    async () => {
-      const { moduleRef, prisma } = await buildFullAppModule();
-      const app = await createHttpApp(moduleRef);
+  it("ITC-019: RedactInterceptor redacts sensitive fields (storageState, credentialsRef) in HTTP responses (INT-18, HAZ-012)", async () => {
+    const { moduleRef, prisma } = await buildFullAppModule();
+    const app = await createHttpApp(moduleRef);
 
-      try {
-        // Arrange: mock prisma.session.findMany to return a session with
-        // sensitive storageState + an account with credentialsRef.
-        prisma.session.findMany.mockResolvedValue([
-          {
-            id: 'sess-019',
-            accountId: 'acc-001',
-            storageState: { cookies: [{ name: 'auth', value: 'secret-token' }] },
-            status: 'ACTIVE',
-            lastHealthCheck: new Date('2026-07-15T10:00:00Z'),
-            createdAt: new Date('2026-07-10T00:00:00Z'),
-            updatedAt: new Date('2026-07-15T10:00:00Z'),
-            account: {
-              id: 'acc-001',
-              network: 'X',
-              handle: 'exampleco',
-              credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD',
-              active: true,
-            },
+    try {
+      // Arrange: mock prisma.session.findMany to return a session with
+      // sensitive storageState + an account with credentialsRef.
+      prisma.session.findMany.mockResolvedValue([
+        {
+          id: "sess-019",
+          accountId: "acc-001",
+          storageState: { cookies: [{ name: "auth", value: "secret-token" }] },
+          status: "ACTIVE",
+          lastHealthCheck: new Date("2026-07-15T10:00:00Z"),
+          createdAt: new Date("2026-07-10T00:00:00Z"),
+          updatedAt: new Date("2026-07-15T10:00:00Z"),
+          account: {
+            id: "acc-001",
+            network: "X",
+            handle: "exampleco",
+            credentialsRef: "SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD",
+            active: true,
           },
-        ]);
+        },
+      ]);
 
-        // Act: GET /api/v1/sessions — response passes through the global RedactInterceptor.
-        const res = await request(app.getHttpServer()).get('/api/v1/sessions');
+      // Act: GET /api/v1/sessions — response passes through the global RedactInterceptor.
+      const res = await request(app.getHttpServer()).get("/api/v1/sessions");
 
-        // Assert: request succeeds.
-        expect(res.status).toBe(200);
-        expect(Array.isArray(res.body)).toBe(true);
-        expect(res.body).toHaveLength(1);
+      // Assert: request succeeds.
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body).toHaveLength(1);
 
-        const session = res.body[0];
+      const session = res.body[0];
 
-        // Assert: sensitive fields are redacted in the response body.
-        expect(session.storageState).toBe('[REDACTED]');
-        expect(session.account.credentialsRef).toBe('[REDACTED]');
+      // Assert: sensitive fields are redacted in the response body.
+      expect(session.storageState).toBe("[REDACTED]");
+      expect(session.account.credentialsRef).toBe("[REDACTED]");
 
-        // Assert: non-sensitive fields are intact (redaction is field-specific).
-        expect(session.id).toBe('sess-019');
-        expect(session.status).toBe('ACTIVE');
-        expect(session.account.handle).toBe('exampleco');
-        expect(session.account.network).toBe('X');
-      } finally {
-        await app.close();
-        await moduleRef.close();
-      }
-    },
-    30000,
-  );
+      // Assert: non-sensitive fields are intact (redaction is field-specific).
+      expect(session.id).toBe("sess-019");
+      expect(session.status).toBe("ACTIVE");
+      expect(session.account.handle).toBe("exampleco");
+      expect(session.account.network).toBe("X");
+    } finally {
+      await app.close();
+      await moduleRef.close();
+    }
+  }, 30000);
 
   // ── ITC-020: Posting → Browser + SSE (Full Posting Flow) ────────────────────
 
-  it(
-    'ITC-020: full posting flow — browser context → post → SSE POSTING + POSTED events (INT-05+09, HAZ-008)',
-    async () => {
-      restoreAllDesignParamtypes();
+  it("ITC-020: full posting flow — browser context → post → SSE POSTING + POSTED events (INT-05+09, HAZ-008)", async () => {
+    restoreAllDesignParamtypes();
 
-      const prisma = createIntegrationPrismaService();
-      const browserPort = createMockBrowserPort();
+    const prisma = createIntegrationPrismaService();
+    const browserPort = createMockBrowserPort();
 
-      // Mock browser context (close resolves so PostingService can clean up).
-      const mockContext = {
-        newPage: vi.fn().mockResolvedValue({}),
-        close: vi.fn().mockResolvedValue(undefined),
-        storageState: vi.fn().mockResolvedValue({ cookies: [], origins: [] }),
-      };
-      browserPort.createContext.mockResolvedValue(mockContext);
-      browserPort.saveStorageState.mockResolvedValue(
-        JSON.stringify({ cookies: [], origins: [] }),
+    // Mock browser context (close resolves so PostingService can clean up).
+    const mockContext = {
+      newPage: vi.fn().mockResolvedValue({}),
+      close: vi.fn().mockResolvedValue(undefined),
+      storageState: vi.fn().mockResolvedValue({ cookies: [], origins: [] }),
+    };
+    browserPort.createContext.mockResolvedValue(mockContext);
+    browserPort.saveStorageState.mockResolvedValue(JSON.stringify({ cookies: [], origins: [] }));
+    browserPort.randomDelay.mockResolvedValue(undefined);
+
+    // Override posters with success mocks (browser automation is mocked).
+    const mockXPoster = {
+      post: vi.fn().mockResolvedValue({ url: "https://x.com/user/status/123" }),
+    };
+    const mockThreadsPoster = {
+      post: vi.fn().mockResolvedValue({ url: "https://www.threads.com/@user/post/abc123" }),
+    };
+    const mockFacebookPoster = {
+      post: vi.fn().mockResolvedValue({ url: "https://www.facebook.com/exampleco/posts/789" }),
+    };
+
+    const mockSharedRedis = {
+      get: vi.fn().mockResolvedValue(null),
+      set: vi.fn().mockResolvedValue("OK"),
+      del: vi.fn().mockResolvedValue(1),
+      ping: vi.fn().mockResolvedValue("PONG"),
+      subscribe: vi.fn().mockResolvedValue(1),
+      unsubscribe: vi.fn().mockResolvedValue(1),
+      on: vi.fn(),
+      publish: vi.fn().mockResolvedValue(1),
+      keys: vi.fn().mockResolvedValue([]),
+      rpush: vi.fn().mockResolvedValue(1),
+      expire: vi.fn().mockResolvedValue(1),
+      incr: vi.fn().mockResolvedValue(1),
+      quit: vi.fn().mockResolvedValue("OK"),
+      disconnect: vi.fn(),
+      connect: vi.fn().mockResolvedValue(undefined),
+    } as unknown;
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({ isGlobal: true }),
+        // PrismaModule is @Global — importing it makes the overridden
+        // PrismaService (mock) available to every module in this subset.
+        PrismaModule,
+        RedisModule, // Sprint L: Global module — provides SHARED_REDIS tokens via mocked ioredis
+        NotificationsModule, // Global — provides DiscordNotificationService for QueueFactory
+        EventEmitterModule.forRoot(), // EDA: PostsService emits domain events
+        ScheduleModule.forRoot(), // provides SchedulerRegistry for SessionsService
+        PostingModule,
+        BrowserModule,
+        SseModule,
+        PostsModule,
+        SessionsModule,
+        RateLimitModule,
+      ],
+      providers: [SseEventListener], // bridges PostEvents -> SseService.publish
+    })
+      .overrideProvider(PrismaService)
+      .useValue(prisma)
+      .overrideProvider(IBrowserPort)
+      .useValue(browserPort)
+      .overrideProvider(XPoster)
+      .useValue(mockXPoster)
+      .overrideProvider(ThreadsPoster)
+      .useValue(mockThreadsPoster)
+      .overrideProvider(FacebookPoster)
+      .useValue(mockFacebookPoster)
+      .compile();
+
+    await moduleRef.init(); // trigger EventEmitterModule + SseEvent listener registration
+
+    try {
+      const postingService = moduleRef.get(PostingService);
+      const sseService = moduleRef.get(SseService);
+
+      // Arrange prisma mocks for the posting flow.
+      // Stateful post store: PostsService re-reads the post between status
+      // transitions (POSTING → POSTED → VERIFIED), so updates must persist.
+      const postStore = new Map<string, Record<string, unknown>>();
+      postStore.set("post-020", { ...APPROVED_POST_X });
+
+      prisma.post.findUnique.mockImplementation(({ where }: { where: { id: string } }) =>
+        Promise.resolve(postStore.get(where.id) ?? null),
       );
-      browserPort.randomDelay.mockResolvedValue(undefined);
-
-      // Override posters with success mocks (browser automation is mocked).
-      const mockXPoster = { post: vi.fn().mockResolvedValue({ url: 'https://x.com/user/status/123' }) };
-      const mockThreadsPoster = { post: vi.fn().mockResolvedValue({ url: 'https://www.threads.com/@user/post/abc123' }) };
-      const mockFacebookPoster = { post: vi.fn().mockResolvedValue({ url: 'https://www.facebook.com/exampleco/posts/789' }) };
-
-      const mockSharedRedis = {
-        get: vi.fn().mockResolvedValue(null),
-        set: vi.fn().mockResolvedValue('OK'),
-        del: vi.fn().mockResolvedValue(1),
-        ping: vi.fn().mockResolvedValue('PONG'),
-        subscribe: vi.fn().mockResolvedValue(1),
-        unsubscribe: vi.fn().mockResolvedValue(1),
-        on: vi.fn(),
-        publish: vi.fn().mockResolvedValue(1),
-        keys: vi.fn().mockResolvedValue([]),
-        rpush: vi.fn().mockResolvedValue(1),
-        expire: vi.fn().mockResolvedValue(1),
-        incr: vi.fn().mockResolvedValue(1),
-        quit: vi.fn().mockResolvedValue('OK'),
-        disconnect: vi.fn(),
-        connect: vi.fn().mockResolvedValue(undefined),
-      } as unknown;
-
-      const moduleRef = await Test.createTestingModule({
-        imports: [
-          ConfigModule.forRoot({ isGlobal: true }),
-          // PrismaModule is @Global — importing it makes the overridden
-          // PrismaService (mock) available to every module in this subset.
-          PrismaModule,
-          RedisModule, // Sprint L: Global module — provides SHARED_REDIS tokens via mocked ioredis
-          NotificationsModule, // Global — provides DiscordNotificationService for QueueFactory
-          EventEmitterModule.forRoot(), // EDA: PostsService emits domain events
-          ScheduleModule.forRoot(), // provides SchedulerRegistry for SessionsService
-          PostingModule,
-          BrowserModule,
-          SseModule,
-          PostsModule,
-          SessionsModule,
-          RateLimitModule,
-        ],
-        providers: [SseEventListener], // bridges PostEvents -> SseService.publish
-      })
-        .overrideProvider(PrismaService)
-        .useValue(prisma)
-        .overrideProvider(IBrowserPort)
-        .useValue(browserPort)
-        .overrideProvider(XPoster)
-        .useValue(mockXPoster)
-        .overrideProvider(ThreadsPoster)
-        .useValue(mockThreadsPoster)
-        .overrideProvider(FacebookPoster)
-        .useValue(mockFacebookPoster)
-        .compile();
-
-      await moduleRef.init(); // trigger EventEmitterModule + SseEvent listener registration
-
-      try {
-        const postingService = moduleRef.get(PostingService);
-        const sseService = moduleRef.get(SseService);
-
-        // Arrange prisma mocks for the posting flow.
-        // Stateful post store: PostsService re-reads the post between status
-        // transitions (POSTING → POSTED → VERIFIED), so updates must persist.
-        const postStore = new Map<string, Record<string, unknown>>();
-        postStore.set('post-020', { ...APPROVED_POST_X });
-
-        prisma.post.findUnique.mockImplementation(({ where }: { where: { id: string } }) =>
-          Promise.resolve(postStore.get(where.id) ?? null),
-        );
-        prisma.post.update.mockImplementation(({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+      prisma.post.update.mockImplementation(
+        ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
           const existing = postStore.get(where.id);
           if (!existing) return Promise.resolve(null);
           const updated = { ...existing, ...data };
           postStore.set(where.id, updated);
           return Promise.resolve(updated);
-        });
-        prisma.post.findMany.mockResolvedValue([{ ...APPROVED_POST_X }]);
-        prisma.post.count.mockResolvedValue(1);
-        prisma.socialAccount.findUnique.mockResolvedValue({ ...ACCOUNT_X });
-        prisma.socialAccount.findFirst.mockResolvedValue({ ...ACCOUNT_X });
-        prisma.session.findFirst.mockResolvedValue({ ...ACTIVE_SESSION });
-        prisma.session.update.mockResolvedValue({});
+        },
+      );
+      prisma.post.findMany.mockResolvedValue([{ ...APPROVED_POST_X }]);
+      prisma.post.count.mockResolvedValue(1);
+      prisma.socialAccount.findUnique.mockResolvedValue({ ...ACCOUNT_X });
+      prisma.socialAccount.findFirst.mockResolvedValue({ ...ACCOUNT_X });
+      prisma.session.findFirst.mockResolvedValue({ ...ACTIVE_SESSION });
+      prisma.session.update.mockResolvedValue({});
 
-        // Spy on the real SseService.publish to capture SSE events.
-        const publishSpy = vi.spyOn(sseService, 'publish');
+      // Spy on the real SseService.publish to capture SSE events.
+      const publishSpy = vi.spyOn(sseService, "publish");
 
-        // Act: run the full posting flow.
-        const result = await postingService.postById('post-020');
+      // Act: run the full posting flow.
+      const result = await postingService.postById("post-020");
 
-        // Assert: success returned with the post URL from the mock poster.
-        expect(result.success).toBe(true);
-        expect(result.url).toBe('https://x.com/user/status/123');
+      // Assert: success returned with the post URL from the mock poster.
+      expect(result.success).toBe(true);
+      expect(result.url).toBe("https://x.com/user/status/123");
 
-        // Assert: IBrowserPort.acquireContext called with network + storageState.
-        expect(browserPort.acquireContext).toHaveBeenCalledTimes(1);
-        const [networkArg, storageStateArg] = browserPort.acquireContext.mock.calls[0];
-        expect(networkArg).toBe(SocialNetwork.X);
-        expect(storageStateArg).toBe(JSON.stringify(ACTIVE_SESSION.storageState));
+      // Assert: IBrowserPort.acquireContext called with network + storageState.
+      expect(browserPort.acquireContext).toHaveBeenCalledTimes(1);
+      const [networkArg, storageStateArg] = browserPort.acquireContext.mock.calls[0];
+      expect(networkArg).toBe(SocialNetwork.X);
+      expect(storageStateArg).toBe(JSON.stringify(ACTIVE_SESSION.storageState));
 
-        // Assert: IBrowserPort.saveStorageState called after posting.
-        expect(browserPort.saveStorageState).toHaveBeenCalledTimes(1);
+      // Assert: IBrowserPort.saveStorageState called after posting.
+      expect(browserPort.saveStorageState).toHaveBeenCalledTimes(1);
 
-        // Assert: SSE POSTING event published before the post.
-        const postingEvent = publishSpy.mock.calls.find(
-          (c: unknown[]) => c[0]?.status === 'POSTING',
-        );
-        expect(postingEvent).toBeDefined();
-        expect(postingEvent[0]).toMatchObject({
-          type: 'post_status',
-          postId: 'post-020',
-          status: 'POSTING',
-          network: 'X',
-        });
+      // Assert: SSE POSTING event published before the post.
+      const postingEvent = publishSpy.mock.calls.find((c: unknown[]) => c[0]?.status === "POSTING");
+      expect(postingEvent).toBeDefined();
+      expect(postingEvent[0]).toMatchObject({
+        type: "post_status",
+        postId: "post-020",
+        status: "POSTING",
+        network: "X",
+      });
 
-        // Assert: SSE POSTED event published after success, with the URL.
-        const postedEvent = publishSpy.mock.calls.find(
-          (c: unknown[]) => c[0]?.status === 'POSTED',
-        );
-        expect(postedEvent).toBeDefined();
-        expect(postedEvent[0]).toMatchObject({
-          type: 'post_status',
-          postId: 'post-020',
-          status: 'POSTED',
-          network: 'X',
-          url: 'https://x.com/user/status/123',
-        });
+      // Assert: SSE POSTED event published after success, with the URL.
+      const postedEvent = publishSpy.mock.calls.find((c: unknown[]) => c[0]?.status === "POSTED");
+      expect(postedEvent).toBeDefined();
+      expect(postedEvent[0]).toMatchObject({
+        type: "post_status",
+        postId: "post-020",
+        status: "POSTED",
+        network: "X",
+        url: "https://x.com/user/status/123",
+      });
 
-        // Assert: correct sequence — POSTING event before POSTED event.
-        const postingOrder = publishSpy.mock.invocationCallOrder[
-          publishSpy.mock.calls.findIndex((c: unknown[]) => c[0]?.status === 'POSTING')
+      // Assert: correct sequence — POSTING event before POSTED event.
+      const postingOrder =
+        publishSpy.mock.invocationCallOrder[
+          publishSpy.mock.calls.findIndex((c: unknown[]) => c[0]?.status === "POSTING")
         ];
-        const postedOrder = publishSpy.mock.invocationCallOrder[
-          publishSpy.mock.calls.findIndex((c: unknown[]) => c[0]?.status === 'POSTED')
+      const postedOrder =
+        publishSpy.mock.invocationCallOrder[
+          publishSpy.mock.calls.findIndex((c: unknown[]) => c[0]?.status === "POSTED")
         ];
-        expect(postingOrder).toBeLessThan(postedOrder);
+      expect(postingOrder).toBeLessThan(postedOrder);
 
-        // Assert: post status updated to POSTED in DB with postUrl.
-        const postedUpdate = prisma.post.update.mock.calls.find(
-          (c: unknown[]) => c[0]?.data?.status === PostStatus.POSTED,
-        );
-        expect(postedUpdate).toBeDefined();
-        expect(postedUpdate[0].where.id).toBe('post-020');
-        expect(postedUpdate[0].data.postUrl).toBe('https://x.com/user/status/123');
+      // Assert: post status updated to POSTED in DB with postUrl.
+      const postedUpdate = prisma.post.update.mock.calls.find(
+        (c: unknown[]) => c[0]?.data?.status === PostStatus.POSTED,
+      );
+      expect(postedUpdate).toBeDefined();
+      expect(postedUpdate[0].where.id).toBe("post-020");
+      expect(postedUpdate[0].data.postUrl).toBe("https://x.com/user/status/123");
 
-        // Assert: releaseContext called (context returned to pool, not closed).
-        expect(browserPort.releaseContext).toHaveBeenCalledTimes(1);
-      } finally {
-        await moduleRef.close();
-      }
-    },
-    30000,
-  );
+      // Assert: releaseContext called (context returned to pool, not closed).
+      expect(browserPort.releaseContext).toHaveBeenCalledTimes(1);
+    } finally {
+      await moduleRef.close();
+    }
+  }, 30000);
 
   // ── ITC-035: CLS + RedactInterceptor Together ───────────────────────────────
 
-  it(
-    'ITC-035: CLS + RedactInterceptor together — correlationId in logs AND sensitive data redacted in response (INT-17+18)',
-    async () => {
-      const { moduleRef } = await buildFullAppModule([TestController]);
-      const app = await createHttpApp(moduleRef);
+  it("ITC-035: CLS + RedactInterceptor together — correlationId in logs AND sensitive data redacted in response (INT-17+18)", async () => {
+    const { moduleRef } = await buildFullAppModule([TestController]);
+    const app = await createHttpApp(moduleRef);
 
-      try {
-        // Arrange: spy on Logger.prototype.log to capture log output.
-        const logSpy = vi.spyOn(Logger.prototype, 'log');
+    try {
+      // Arrange: spy on Logger.prototype.log to capture log output.
+      const logSpy = vi.spyOn(Logger.prototype, "log");
 
-        // Act: request the combined endpoint — it logs the correlationId and
-        // returns sensitive fields that RedactInterceptor must redact.
-        const res = await request(app.getHttpServer()).get('/api/v1/test/combined');
+      // Act: request the combined endpoint — it logs the correlationId and
+      // returns sensitive fields that RedactInterceptor must redact.
+      const res = await request(app.getHttpServer()).get("/api/v1/test/combined");
 
-        // Assert: request succeeds.
-        expect(res.status).toBe(200);
+      // Assert: request succeeds.
+      expect(res.status).toBe(200);
 
-        const correlationId = res.body.correlationId;
+      const correlationId = res.body.correlationId;
 
-        // Assert: correlationId is present in the response (CLS context set).
-        expect(correlationId).toEqual(expect.any(String));
-        expect(correlationId.startsWith('spa-')).toBe(true);
+      // Assert: correlationId is present in the response (CLS context set).
+      expect(correlationId).toEqual(expect.any(String));
+      expect(correlationId.startsWith("spa-")).toBe(true);
 
-        // Assert: sensitive fields are redacted in the response body.
-        expect(res.body.storageState).toBe('[REDACTED]');
-        expect(res.body.password).toBe('[REDACTED]');
-        expect(res.body.apiKey).toBe('[REDACTED]');
+      // Assert: sensitive fields are redacted in the response body.
+      expect(res.body.storageState).toBe("[REDACTED]");
+      expect(res.body.password).toBe("[REDACTED]");
+      expect(res.body.apiKey).toBe("[REDACTED]");
 
-        // Assert: non-sensitive fields are intact.
-        expect(res.body.safe).toBe('ok');
-        // correlationId is not a sensitive key, so it passes through.
-        expect(res.body.correlationId).toBe(correlationId);
+      // Assert: non-sensitive fields are intact.
+      expect(res.body.safe).toBe("ok");
+      // correlationId is not a sensitive key, so it passes through.
+      expect(res.body.correlationId).toBe(correlationId);
 
-        // Assert: the correlationId appears in the captured log output.
-        const loggedWithCorrelationId = logSpy.mock.calls.some((call) => {
-          const msg = call[0];
-          return typeof msg === 'string' && msg.includes(`correlationId=${correlationId}`);
-        });
-        expect(loggedWithCorrelationId).toBe(true);
-      } finally {
-        await app.close();
-        await moduleRef.close();
-      }
-    },
-    30000,
-  );
+      // Assert: the correlationId appears in the captured log output.
+      const loggedWithCorrelationId = logSpy.mock.calls.some((call) => {
+        const msg = call[0];
+        return typeof msg === "string" && msg.includes(`correlationId=${correlationId}`);
+      });
+      expect(loggedWithCorrelationId).toBe(true);
+    } finally {
+      await app.close();
+      await moduleRef.close();
+    }
+  }, 30000);
 });

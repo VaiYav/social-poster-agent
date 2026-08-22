@@ -11,26 +11,22 @@
 // The engine is network-agnostic — it delegates to BaseEngager for all
 // browser actions, so the same logic works across X, Threads, and Facebook.
 
-import { Injectable, Logger, Inject } from '@nestjs/common';
-import type { Page } from '../../domain/ports/browser-primitives.js';
-import {
-  InteractionStatus,
-  InteractionType,
-  SocialNetwork,
-} from '@prisma/client';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service.js';
-import { IBrowserPort } from '../../domain/ports/browser.port.js';
-import { SseService, type SseInteractionEvent } from '../../infrastructure/sse/sse.service.js';
-import { RateLimitService } from '../rate-limit/rate-limit.service.js';
+import { Injectable, Logger, Inject } from "@nestjs/common";
+import type { Page } from "../../domain/ports/browser-primitives.js";
+import { InteractionStatus, InteractionType, SocialNetwork } from "../../generated/prisma/client";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { IBrowserPort } from "../../domain/ports/browser.port.js";
+import { SseService, type SseInteractionEvent } from "../../infrastructure/sse/sse.service.js";
+import { RateLimitService } from "../rate-limit/rate-limit.service.js";
 import {
   IEngagementDecisionPort,
   type PostContext,
   type ActionDecision,
   type EngagementSource,
-} from '../../domain/ports/engagement-decision.port.js';
-import type { BaseEngager } from './engagers/base.engager.js';
-import { calculateDwellTimeMs, calculateThreadReadTimeMs } from './dwell-time-calculator.js';
-import { withTimeout } from '../../infrastructure/util/with-timeout.js';
+} from "../../domain/ports/engagement-decision.port.js";
+import type { BaseEngager } from "./engagers/base.engager.js";
+import { calculateDwellTimeMs, calculateThreadReadTimeMs } from "./dwell-time-calculator.js";
+import { withTimeout } from "../../infrastructure/util/with-timeout.js";
 
 /**
  * Result of a single post interaction within a browsing session.
@@ -120,7 +116,7 @@ export class HumanBehaviorEngine {
 
     // Use batched decisions if the port supports it (1 LLM call per batch
     // instead of 1 per post). Falls back to individual calls otherwise.
-    const supportsBatch = typeof this.decisionPort.decideActionsBatch === 'function';
+    const supportsBatch = typeof this.decisionPort.decideActionsBatch === "function";
 
     // Step 2 helper: ensure the decision array has exactly one entry per context.
     // LLM batch responses can return the wrong length and would otherwise crash at decisions[i].
@@ -138,7 +134,11 @@ export class HumanBehaviorEngine {
     const batchSize = supportsBatch ? HumanBehaviorEngine.BATCH_SIZE : 1;
     let urlIndex = 0;
 
-    while (urlIndex < postUrls.length && postsProcessed < config.maxPosts && Date.now() < sessionDeadline) {
+    while (
+      urlIndex < postUrls.length &&
+      postsProcessed < config.maxPosts &&
+      Date.now() < sessionDeadline
+    ) {
       // Determine how many URLs to process in this batch
       const remaining = config.maxPosts - postsProcessed;
       const batchSlice = postUrls.slice(urlIndex, urlIndex + Math.min(batchSize, remaining));
@@ -154,7 +154,7 @@ export class HumanBehaviorEngine {
         // interact with a crashed page just produces more failures.
         if (page.isClosed?.()) {
           this.logger.warn(`Page closed during batch processing — aborting session`);
-          throw new Error('Page was closed during post extraction');
+          throw new Error("Page was closed during post extraction");
         }
         try {
           const extracted = await withTimeout(
@@ -162,7 +162,9 @@ export class HumanBehaviorEngine {
             HumanBehaviorEngine.EXTRACT_TIMEOUT_MS,
             `Extract post text for ${postUrl}`,
           );
-          const discussionsMax = config.discussionsMaxPerSession ?? ((config.repostsMaxPerSession ?? 0) + (config.quotesMaxPerSession ?? 0));
+          const discussionsMax =
+            config.discussionsMaxPerSession ??
+            (config.repostsMaxPerSession ?? 0) + (config.quotesMaxPerSession ?? 0);
           contexts.push({
             network: config.network,
             postUrl,
@@ -186,10 +188,14 @@ export class HumanBehaviorEngine {
           // Fatal browser errors during extraction mean the page/context is dead.
           // Continuing to the next post will just produce more failures — abort the session.
           if (this.isFatalBrowserError(errMsg)) {
-            this.logger.warn(`Fatal browser error during extraction for ${postUrl} — aborting session`);
+            this.logger.warn(
+              `Fatal browser error during extraction for ${postUrl} — aborting session`,
+            );
             throw err;
           }
-          this.logger.debug(`Failed to extract post context for ${postUrl}: ${errMsg.slice(0, 80)}`);
+          this.logger.debug(
+            `Failed to extract post context for ${postUrl}: ${errMsg.slice(0, 80)}`,
+          );
           // Can't extract — just scroll past (no result recorded, matching original behavior)
           await this.browser.randomDelay(1000, 3000);
           postsProcessed++;
@@ -207,26 +213,28 @@ export class HumanBehaviorEngine {
           const raw = await withTimeout(
             this.decisionPort.decideActionsBatch!(contexts),
             HumanBehaviorEngine.DECISION_TIMEOUT_MS,
-            'Batch LLM decision',
+            "Batch LLM decision",
           );
           decisions = normalizeDecisions(contexts, raw);
         } else {
           const raw = await withTimeout(
             Promise.all(contexts.map((ctx) => this.decisionPort.decideAction(ctx))),
             HumanBehaviorEngine.DECISION_TIMEOUT_MS,
-            'Individual LLM decisions',
+            "Individual LLM decisions",
           );
           decisions = normalizeDecisions(contexts, raw);
         }
       } catch (err) {
         const errorMessage = (err as Error).message.slice(0, 80);
         if (supportsBatch && contexts.length > 1) {
-          this.logger.warn(`Batch decision failed/timed out, falling back to individual: ${errorMessage}`);
+          this.logger.warn(
+            `Batch decision failed/timed out, falling back to individual: ${errorMessage}`,
+          );
           try {
             const raw = await withTimeout(
               Promise.all(contexts.map((ctx) => this.decisionPort.decideAction(ctx))),
               HumanBehaviorEngine.DECISION_TIMEOUT_MS,
-              'Individual LLM decisions',
+              "Individual LLM decisions",
             );
             decisions = normalizeDecisions(contexts, raw);
           } catch (err2) {
@@ -236,7 +244,9 @@ export class HumanBehaviorEngine {
             decisions = contexts.map((ctx) => this.fallbackDecision(ctx));
           }
         } else {
-          this.logger.warn(`Decision call failed/timed out, using fallback decisions: ${errorMessage}`);
+          this.logger.warn(
+            `Decision call failed/timed out, using fallback decisions: ${errorMessage}`,
+          );
           decisions = contexts.map((ctx) => this.fallbackDecision(ctx));
         }
       }
@@ -247,7 +257,7 @@ export class HumanBehaviorEngine {
         // during extraction or LLM decision wait.
         if (page.isClosed?.()) {
           this.logger.warn(`Page closed before execution — aborting session`);
-          throw new Error('Page was closed before action execution');
+          throw new Error("Page was closed before action execution");
         }
         postsProcessed++;
         const context = contexts[i]!;
@@ -256,29 +266,54 @@ export class HumanBehaviorEngine {
         // Runtime budget enforcement — the LLM may have decided an action for
         // multiple posts in a batch, but the budget only allows a few.
         // Downgrade to 'read' if the budget was exhausted by earlier posts in this batch.
-        if (decision.action === 'like' && likesThisSession >= config.likesMaxPerSession) {
-          decision = { action: 'read', reason: 'Like budget exhausted mid-batch', confidence: 0.8 };
+        if (decision.action === "like" && likesThisSession >= config.likesMaxPerSession) {
+          decision = { action: "read", reason: "Like budget exhausted mid-batch", confidence: 0.8 };
         }
-        if (decision.action === 'comment' && commentsThisSession >= config.commentsMaxPerSession) {
-          decision = { action: 'read', reason: 'Comment budget exhausted mid-batch', confidence: 0.8 };
+        if (decision.action === "comment" && commentsThisSession >= config.commentsMaxPerSession) {
+          decision = {
+            action: "read",
+            reason: "Comment budget exhausted mid-batch",
+            confidence: 0.8,
+          };
         }
-        if (decision.action === 'repost' && repostsThisSession >= (config.repostsMaxPerSession ?? 0)) {
-          decision = { action: 'read', reason: 'Repost budget exhausted mid-batch', confidence: 0.8 };
+        if (
+          decision.action === "repost" &&
+          repostsThisSession >= (config.repostsMaxPerSession ?? 0)
+        ) {
+          decision = {
+            action: "read",
+            reason: "Repost budget exhausted mid-batch",
+            confidence: 0.8,
+          };
         }
-        if (decision.action === 'quote' && quotesThisSession >= (config.quotesMaxPerSession ?? 0)) {
-          decision = { action: 'read', reason: 'Quote budget exhausted mid-batch', confidence: 0.8 };
+        if (decision.action === "quote" && quotesThisSession >= (config.quotesMaxPerSession ?? 0)) {
+          decision = {
+            action: "read",
+            reason: "Quote budget exhausted mid-batch",
+            confidence: 0.8,
+          };
         }
-        const discussionsMax = config.discussionsMaxPerSession ?? ((config.repostsMaxPerSession ?? 0) + (config.quotesMaxPerSession ?? 0));
-        if ((decision.action === 'repost' || decision.action === 'quote') && discussionsThisSession >= discussionsMax) {
-          decision = { action: 'read', reason: 'Discussion budget exhausted mid-batch', confidence: 0.8 };
+        const discussionsMax =
+          config.discussionsMaxPerSession ??
+          (config.repostsMaxPerSession ?? 0) + (config.quotesMaxPerSession ?? 0);
+        if (
+          (decision.action === "repost" || decision.action === "quote") &&
+          discussionsThisSession >= discussionsMax
+        ) {
+          decision = {
+            action: "read",
+            reason: "Discussion budget exhausted mid-batch",
+            confidence: 0.8,
+          };
         }
 
         // First-interaction quota: if the session has been entirely non-engaging
         // so far, convert a 'read'/'scroll'/'skip' decision into a like on a solid post
         // so the session doesn't finish with zero interactions. This is especially
         // important for feeds where the LLM is too conservative (e.g. Threads home feed).
-        const totalInteractions = likesThisSession + commentsThisSession + repostsThisSession + quotesThisSession;
-        const nonEngagingActions: ActionDecision['action'][] = ['scroll', 'read', 'skip'];
+        const totalInteractions =
+          likesThisSession + commentsThisSession + repostsThisSession + quotesThisSession;
+        const nonEngagingActions: ActionDecision["action"][] = ["scroll", "read", "skip"];
         if (
           nonEngagingActions.includes(decision.action) &&
           totalInteractions === 0 &&
@@ -286,47 +321,81 @@ export class HumanBehaviorEngine {
           context.postText.length > 10 &&
           likesThisSession < config.likesMaxPerSession
         ) {
-          decision = { action: 'like', reason: 'First-interaction quota: solid post gets a like', confidence: 0.6 };
+          decision = {
+            action: "like",
+            reason: "First-interaction quota: solid post gets a like",
+            confidence: 0.6,
+          };
         }
 
         // Generate comment text if the LLM decided 'comment' but didn't provide text.
         // If generation fails (returns null), downgrade to like (or read) — never
         // post a generic fallback comment.
-        if (decision.action === 'comment' && !decision.commentText) {
+        if (decision.action === "comment" && !decision.commentText) {
           try {
             const comment = await this.decisionPort.generateComment(context);
             if (comment === null) {
               if (likesThisSession < config.likesMaxPerSession) {
-                this.logger.warn(`LLM comment generation failed — downgrading comment → like for ${context.postUrl}`);
-                decision = { action: 'like', reason: 'Comment generation failed, downgraded to like', confidence: 0.6 };
+                this.logger.warn(
+                  `LLM comment generation failed — downgrading comment → like for ${context.postUrl}`,
+                );
+                decision = {
+                  action: "like",
+                  reason: "Comment generation failed, downgraded to like",
+                  confidence: 0.6,
+                };
               } else {
-                this.logger.warn(`LLM comment generation failed and like budget exhausted — downgrading comment → read for ${context.postUrl}`);
-                decision = { action: 'read', reason: 'Comment generation failed, like budget exhausted', confidence: 0.6 };
+                this.logger.warn(
+                  `LLM comment generation failed and like budget exhausted — downgrading comment → read for ${context.postUrl}`,
+                );
+                decision = {
+                  action: "read",
+                  reason: "Comment generation failed, like budget exhausted",
+                  confidence: 0.6,
+                };
               }
             } else {
               decision.commentText = comment;
             }
           } catch {
-            this.logger.warn(`generateComment threw — downgrading comment → read for ${context.postUrl}`);
-            decision = { action: 'read', reason: 'Comment generation threw, downgraded to read', confidence: 0.6 };
+            this.logger.warn(
+              `generateComment threw — downgrading comment → read for ${context.postUrl}`,
+            );
+            decision = {
+              action: "read",
+              reason: "Comment generation threw, downgraded to read",
+              confidence: 0.6,
+            };
           }
         }
 
         // Generate quote text if the LLM decided 'quote' but didn't provide text.
         // If generation fails (returns null), downgrade to read — never post a
         // generic fallback quote.
-        if (decision.action === 'quote' && !decision.quoteText) {
+        if (decision.action === "quote" && !decision.quoteText) {
           try {
             const quote = await this.decisionPort.generateQuoteText(context);
             if (quote === null) {
-              this.logger.warn(`LLM quote generation failed — downgrading quote → read for ${context.postUrl}`);
-              decision = { action: 'read', reason: 'Quote generation failed, downgraded to read', confidence: 0.6 };
+              this.logger.warn(
+                `LLM quote generation failed — downgrading quote → read for ${context.postUrl}`,
+              );
+              decision = {
+                action: "read",
+                reason: "Quote generation failed, downgraded to read",
+                confidence: 0.6,
+              };
             } else {
               decision.quoteText = quote;
             }
           } catch {
-            this.logger.warn(`generateQuoteText threw — downgrading quote → read for ${context.postUrl}`);
-            decision = { action: 'read', reason: 'Quote generation threw, downgraded to read', confidence: 0.6 };
+            this.logger.warn(
+              `generateQuoteText threw — downgrading quote → read for ${context.postUrl}`,
+            );
+            decision = {
+              action: "read",
+              reason: "Quote generation threw, downgraded to read",
+              confidence: 0.6,
+            };
           }
         }
 
@@ -359,10 +428,16 @@ export class HumanBehaviorEngine {
         }
 
         if (result.success) {
-          if (decision.action === 'like') likesThisSession++;
-          if (decision.action === 'comment') commentsThisSession++;
-          if (decision.action === 'repost') { repostsThisSession++; discussionsThisSession++; }
-          if (decision.action === 'quote') { quotesThisSession++; discussionsThisSession++; }
+          if (decision.action === "like") likesThisSession++;
+          if (decision.action === "comment") commentsThisSession++;
+          if (decision.action === "repost") {
+            repostsThisSession++;
+            discussionsThisSession++;
+          }
+          if (decision.action === "quote") {
+            quotesThisSession++;
+            discussionsThisSession++;
+          }
         }
 
         results.push(result);
@@ -396,40 +471,40 @@ export class HumanBehaviorEngine {
     };
 
     switch (decision.action) {
-      case 'scroll':
+      case "scroll":
         // Already scrolled during discovery — just pause briefly
         await this.browser.randomDelay(500, 2000);
         return baseResult;
 
-      case 'read':
+      case "read":
         // Dwell on the post (simulate reading) — no interaction
         await this.simulateReading(context);
         return baseResult;
 
-      case 'skip':
+      case "skip":
         // Do nothing — distinct from scroll (no movement)
         await this.browser.randomDelay(200, 800);
         return baseResult;
 
-      case 'like':
+      case "like":
         return this.executeLike(page, engager, context, config);
 
-      case 'comment':
+      case "comment":
         return this.executeComment(page, engager, decision, context, config);
 
-      case 'repost':
+      case "repost":
         return this.executeRepost(page, engager, context, config);
 
-      case 'quote':
+      case "quote":
         return this.executeQuote(page, engager, decision, context, config);
 
-      case 'open-thread':
+      case "open-thread":
         return this.executeOpenThread(page, engager, context, config);
 
-      case 'visit-profile':
+      case "visit-profile":
         return this.executeVisitProfile(page, engager, context, config);
 
-      case 'back':
+      case "back":
         await engager.navigateBack(page);
         return baseResult;
 
@@ -452,12 +527,12 @@ export class HumanBehaviorEngine {
     const rateCheck = await this.rateLimitService.checkRateLimit(
       context.network as string,
       config.accountId,
-      'like',
+      "like",
     );
     if (!rateCheck.allowed) {
       return {
         postUrl: context.postUrl,
-        decision: { action: 'like', reason: 'Rate limited', confidence: 0 },
+        decision: { action: "like", reason: "Rate limited", confidence: 0 },
         success: false,
         error: `Rate limited: ${rateCheck.reason}`,
       };
@@ -488,17 +563,33 @@ export class HumanBehaviorEngine {
       });
 
       if (result.success && !result.alreadyLiked) {
-        await this.rateLimitService.recordPost(context.network as string, config.accountId, 'like');
-        await this.publishInteractionEvent('interaction_completed', interaction.id, context, 'like');
+        await this.rateLimitService.recordPost(context.network as string, config.accountId, "like");
+        await this.publishInteractionEvent(
+          "interaction_completed",
+          interaction.id,
+          context,
+          "like",
+        );
       } else if (result.success) {
-        await this.publishInteractionEvent('interaction_completed', interaction.id, context, 'like');
+        await this.publishInteractionEvent(
+          "interaction_completed",
+          interaction.id,
+          context,
+          "like",
+        );
       } else {
-        await this.publishInteractionEvent('interaction_failed', interaction.id, context, 'like', result.error);
+        await this.publishInteractionEvent(
+          "interaction_failed",
+          interaction.id,
+          context,
+          "like",
+          result.error,
+        );
       }
 
       return {
         postUrl: context.postUrl,
-        decision: { action: 'like', reason: 'Liked', confidence: 1 },
+        decision: { action: "like", reason: "Liked", confidence: 1 },
         interactionId: interaction.id,
         success: result.success,
         error: result.error,
@@ -507,7 +598,7 @@ export class HumanBehaviorEngine {
       await this.markInteractionFailed(interaction.id, (err as Error).message);
       return {
         postUrl: context.postUrl,
-        decision: { action: 'like', reason: 'Failed', confidence: 0 },
+        decision: { action: "like", reason: "Failed", confidence: 0 },
         interactionId: interaction.id,
         success: false,
         error: (err as Error).message,
@@ -525,13 +616,13 @@ export class HumanBehaviorEngine {
     context: PostContext,
     config: BehaviorEngineConfig,
   ): Promise<PostInteractionResult> {
-    const commentText = decision.commentText ?? await this.decisionPort.generateComment(context);
+    const commentText = decision.commentText ?? (await this.decisionPort.generateComment(context));
     if (!commentText) {
       return {
         postUrl: context.postUrl,
         decision,
         success: false,
-        error: 'No comment text generated',
+        error: "No comment text generated",
       };
     }
 
@@ -543,14 +634,24 @@ export class HumanBehaviorEngine {
       if (context.likesThisSession < context.likesMaxPerSession) {
         return {
           postUrl: context.postUrl,
-          decision: { ...decision, action: 'like', reason: `Comment judge rejected: ${judge.reason}`, confidence: 0.5 },
+          decision: {
+            ...decision,
+            action: "like",
+            reason: `Comment judge rejected: ${judge.reason}`,
+            confidence: 0.5,
+          },
           success: true,
           error: `Comment judge rejected (downgraded to like): ${judge.reason}`,
         };
       }
       return {
         postUrl: context.postUrl,
-        decision: { ...decision, action: 'read', reason: `Comment judge rejected: ${judge.reason}`, confidence: 0.5 },
+        decision: {
+          ...decision,
+          action: "read",
+          reason: `Comment judge rejected: ${judge.reason}`,
+          confidence: 0.5,
+        },
         success: true,
         error: `Comment judge rejected (downgraded to read): ${judge.reason}`,
       };
@@ -560,7 +661,7 @@ export class HumanBehaviorEngine {
     const rateCheck = await this.rateLimitService.checkRateLimit(
       context.network as string,
       config.accountId,
-      'comment',
+      "comment",
     );
     if (!rateCheck.allowed) {
       return {
@@ -597,8 +698,17 @@ export class HumanBehaviorEngine {
       });
 
       if (result.success) {
-        await this.rateLimitService.recordPost(context.network as string, config.accountId, 'comment');
-        await this.publishInteractionEvent('interaction_completed', interaction.id, context, 'comment');
+        await this.rateLimitService.recordPost(
+          context.network as string,
+          config.accountId,
+          "comment",
+        );
+        await this.publishInteractionEvent(
+          "interaction_completed",
+          interaction.id,
+          context,
+          "comment",
+        );
       }
 
       return {
@@ -633,12 +743,12 @@ export class HumanBehaviorEngine {
     const rateCheck = await this.rateLimitService.checkRateLimit(
       context.network as string,
       config.accountId,
-      'repost',
+      "repost",
     );
     if (!rateCheck.allowed) {
       return {
         postUrl: context.postUrl,
-        decision: { action: 'repost', reason: 'Rate limited', confidence: 0 },
+        decision: { action: "repost", reason: "Rate limited", confidence: 0 },
         success: false,
         error: `Rate limited: ${rateCheck.reason}`,
       };
@@ -668,17 +778,37 @@ export class HumanBehaviorEngine {
       });
 
       if (result.success && !result.alreadyReposted) {
-        await this.rateLimitService.recordPost(context.network as string, config.accountId, 'repost');
-        await this.publishInteractionEvent('interaction_completed', interaction.id, context, 'repost');
+        await this.rateLimitService.recordPost(
+          context.network as string,
+          config.accountId,
+          "repost",
+        );
+        await this.publishInteractionEvent(
+          "interaction_completed",
+          interaction.id,
+          context,
+          "repost",
+        );
       } else if (result.success) {
-        await this.publishInteractionEvent('interaction_completed', interaction.id, context, 'repost');
+        await this.publishInteractionEvent(
+          "interaction_completed",
+          interaction.id,
+          context,
+          "repost",
+        );
       } else {
-        await this.publishInteractionEvent('interaction_failed', interaction.id, context, 'repost', result.error);
+        await this.publishInteractionEvent(
+          "interaction_failed",
+          interaction.id,
+          context,
+          "repost",
+          result.error,
+        );
       }
 
       return {
         postUrl: context.postUrl,
-        decision: { action: 'repost', reason: 'Reposted', confidence: 1 },
+        decision: { action: "repost", reason: "Reposted", confidence: 1 },
         interactionId: interaction.id,
         success: result.success,
         error: result.error,
@@ -687,7 +817,7 @@ export class HumanBehaviorEngine {
       await this.markInteractionFailed(interaction.id, (err as Error).message);
       return {
         postUrl: context.postUrl,
-        decision: { action: 'repost', reason: 'Failed', confidence: 0 },
+        decision: { action: "repost", reason: "Failed", confidence: 0 },
         interactionId: interaction.id,
         success: false,
         error: (err as Error).message,
@@ -705,20 +835,20 @@ export class HumanBehaviorEngine {
     context: PostContext,
     config: BehaviorEngineConfig,
   ): Promise<PostInteractionResult> {
-    const quoteText = decision.quoteText ?? await this.decisionPort.generateQuoteText(context);
+    const quoteText = decision.quoteText ?? (await this.decisionPort.generateQuoteText(context));
     if (!quoteText) {
       return {
         postUrl: context.postUrl,
         decision,
         success: false,
-        error: 'No quote text generated',
+        error: "No quote text generated",
       };
     }
 
     const rateCheck = await this.rateLimitService.checkRateLimit(
       context.network as string,
       config.accountId,
-      'quote',
+      "quote",
     );
     if (!rateCheck.allowed) {
       return {
@@ -754,8 +884,17 @@ export class HumanBehaviorEngine {
       });
 
       if (result.success) {
-        await this.rateLimitService.recordPost(context.network as string, config.accountId, 'quote');
-        await this.publishInteractionEvent('interaction_completed', interaction.id, context, 'quote');
+        await this.rateLimitService.recordPost(
+          context.network as string,
+          config.accountId,
+          "quote",
+        );
+        await this.publishInteractionEvent(
+          "interaction_completed",
+          interaction.id,
+          context,
+          "quote",
+        );
       }
 
       return {
@@ -805,13 +944,13 @@ export class HumanBehaviorEngine {
 
       return {
         postUrl: context.postUrl,
-        decision: { action: 'open-thread', reason: `Read ${replyCount} replies`, confidence: 1 },
+        decision: { action: "open-thread", reason: `Read ${replyCount} replies`, confidence: 1 },
         success: true,
       };
     } catch (err) {
       return {
         postUrl: context.postUrl,
-        decision: { action: 'open-thread', reason: 'Failed', confidence: 0 },
+        decision: { action: "open-thread", reason: "Failed", confidence: 0 },
         success: false,
         error: (err as Error).message,
       };
@@ -830,9 +969,9 @@ export class HumanBehaviorEngine {
     if (!context.authorHandle) {
       return {
         postUrl: context.postUrl,
-        decision: { action: 'visit-profile', reason: 'No handle available', confidence: 0 },
+        decision: { action: "visit-profile", reason: "No handle available", confidence: 0 },
         success: false,
-        error: 'No author handle to visit',
+        error: "No author handle to visit",
       };
     }
 
@@ -845,13 +984,17 @@ export class HumanBehaviorEngine {
 
       return {
         postUrl: context.postUrl,
-        decision: { action: 'visit-profile', reason: `Visited @${context.authorHandle}`, confidence: 1 },
+        decision: {
+          action: "visit-profile",
+          reason: `Visited @${context.authorHandle}`,
+          confidence: 1,
+        },
         success: true,
       };
     } catch (err) {
       return {
         postUrl: context.postUrl,
-        decision: { action: 'visit-profile', reason: 'Failed', confidence: 0 },
+        decision: { action: "visit-profile", reason: "Failed", confidence: 0 },
         success: false,
         error: (err as Error).message,
       };
@@ -871,27 +1014,27 @@ export class HumanBehaviorEngine {
    */
   private async postActionPause(action: string, _context: PostContext): Promise<void> {
     switch (action) {
-      case 'like':
+      case "like":
         // Brief pause after liking
         await this.browser.randomDelay(2000, 6000);
         break;
-      case 'comment':
+      case "comment":
         // Longer pause after commenting (reflects real user behavior)
         await this.browser.randomDelay(5000, 15000);
         break;
-      case 'repost':
+      case "repost":
         // Pause after reposting
         await this.browser.randomDelay(3000, 8000);
         break;
-      case 'quote':
+      case "quote":
         // Longer pause after quote-posting
         await this.browser.randomDelay(5000, 15000);
         break;
-      case 'open-thread':
+      case "open-thread":
         // Pause after reading a thread
         await this.browser.randomDelay(3000, 8000);
         break;
-      case 'visit-profile':
+      case "visit-profile":
         // Pause after returning from a profile
         await this.browser.randomDelay(2000, 5000);
         break;
@@ -909,13 +1052,13 @@ export class HumanBehaviorEngine {
   private isFatalBrowserError(error?: string): boolean {
     if (!error) return false;
     const fatalPatterns = [
-      'Target page, context or browser has been closed',
-      'Browser has been closed',
-      'Context has been closed',
-      'Page has been closed',
-      'Protocol error',
-      'Target closed',
-      'Connection closed',
+      "Target page, context or browser has been closed",
+      "Browser has been closed",
+      "Context has been closed",
+      "Page has been closed",
+      "Protocol error",
+      "Target closed",
+      "Connection closed",
     ];
     return fatalPatterns.some((pattern) => error.includes(pattern));
   }
@@ -925,7 +1068,7 @@ export class HumanBehaviorEngine {
    * Keeps the session moving without interacting, so it never blocks on a provider.
    */
   private fallbackDecision(_context: PostContext): ActionDecision {
-    return { action: 'read', reason: 'LLM decision fallback (timeout/error)', confidence: 0.5 };
+    return { action: "read", reason: "LLM decision fallback (timeout/error)", confidence: 0.5 };
   }
 
   private async markInteractionFailed(interactionId: string, error: string): Promise<void> {
@@ -940,7 +1083,7 @@ export class HumanBehaviorEngine {
   }
 
   private async publishInteractionEvent(
-    type: SseInteractionEvent['type'],
+    type: SseInteractionEvent["type"],
     interactionId: string,
     context: PostContext,
     interactionType: string,

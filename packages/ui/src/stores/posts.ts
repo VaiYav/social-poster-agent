@@ -1,7 +1,7 @@
-import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
-import api from '../composables/useApi';
-import type { Post, SSEvent } from '@spa/shared';
+import { defineStore } from "pinia";
+import { ref, computed } from "vue";
+import api from "../composables/useApi";
+import type { Post, SSEvent } from "@spa/shared";
 
 /**
  * Posts store — manages post list, drafts, and CRUD operations.
@@ -11,22 +11,33 @@ import type { Post, SSEvent } from '@spa/shared';
  * When a post_status event arrives, the post is updated in-place
  * without needing a full refetch.
  */
-export const usePostsStore = defineStore('posts', () => {
+export const usePostsStore = defineStore("posts", () => {
   const posts = ref<Post[]>([]);
   const drafts = ref<Post[]>([]);
   const total = ref(0);
   const loading = ref(false);
   const error = ref<string | null>(null);
   const sseConnected = ref(false);
-  const lastSseEvent = ref<{ type: string; postId?: string; status?: string; network?: string; error?: string } | null>(null);
+  const lastSseEvent = ref<{
+    type: string;
+    postId?: string;
+    status?: string;
+    network?: string;
+    error?: string;
+  } | null>(null);
 
   const draftCount = computed(() => drafts.value.length);
 
-  async function fetchPosts(params?: { status?: string; network?: string; limit?: number; offset?: number }) {
+  async function fetchPosts(params?: {
+    status?: string;
+    network?: string;
+    limit?: number;
+    offset?: number;
+  }) {
     loading.value = true;
     error.value = null;
     try {
-      const res = await api.get('/posts', { params });
+      const res = await api.get("/posts", { params });
       const data = res.data;
       posts.value = Array.isArray(data) ? data : (data.posts ?? []);
       total.value = Array.isArray(data) ? data.length : (data.total ?? 0);
@@ -41,7 +52,7 @@ export const usePostsStore = defineStore('posts', () => {
     loading.value = true;
     error.value = null;
     try {
-      const res = await api.get('/posts/drafts', { params: { network } });
+      const res = await api.get("/posts/drafts", { params: { network } });
       const data = res.data;
       drafts.value = Array.isArray(data) ? data : (data.posts ?? []);
     } catch (e: unknown) {
@@ -57,7 +68,7 @@ export const usePostsStore = defineStore('posts', () => {
     const previousStatus = post?.status;
     const previousContent = post?.content;
     if (post) {
-      post.status = 'APPROVED';
+      post.status = "APPROVED";
       if (editedContent) post.content = editedContent;
     }
     drafts.value = drafts.value.filter((p) => p.id !== id);
@@ -68,7 +79,7 @@ export const usePostsStore = defineStore('posts', () => {
     } catch (e: unknown) {
       // Sprint N: Rollback on error
       if (post) {
-        post.status = previousStatus ?? 'DRAFT';
+        post.status = previousStatus ?? "DRAFT";
         if (previousContent) post.content = previousContent;
         drafts.value.push(post);
       }
@@ -99,7 +110,7 @@ export const usePostsStore = defineStore('posts', () => {
   }
 
   async function postAllApproved() {
-    return api.post('/posting/batch/all-approved');
+    return api.post("/posting/batch/all-approved");
   }
 
   /**
@@ -109,21 +120,21 @@ export const usePostsStore = defineStore('posts', () => {
   function handleSseEvent(event: SSEvent) {
     lastSseEvent.value = event;
 
-    if (event.type === 'post_status' && event.postId) {
+    if (event.type === "post_status" && event.postId) {
       // Update post in posts list
       const post = posts.value.find((p) => p.id === event.postId);
       if (post && event.status) {
-        post.status = event.status as Post['status'];
+        post.status = event.status as Post["status"];
       }
 
       // If post transitioned to POSTED or FAILED, could trigger refetch
       // or notification. For now, just update in-place.
-      if (event.status === 'POSTED' || event.status === 'FAILED') {
+      if (event.status === "POSTED" || event.status === "FAILED") {
         // Could add toast notification here
       }
     }
 
-    if (event.type === 'health_alert') {
+    if (event.type === "health_alert") {
       // Health monitor alert — could show in notification bar
       // For now, just store as last event
     }
@@ -137,9 +148,21 @@ export const usePostsStore = defineStore('posts', () => {
   }
 
   return {
-    posts, drafts, total, loading, error, draftCount,
-    sseConnected, lastSseEvent,
-    fetchPosts, fetchDrafts, approve, reject, postById, postAllApproved,
-    handleSseEvent, setSseConnected,
+    posts,
+    drafts,
+    total,
+    loading,
+    error,
+    draftCount,
+    sseConnected,
+    lastSseEvent,
+    fetchPosts,
+    fetchDrafts,
+    approve,
+    reject,
+    postById,
+    postAllApproved,
+    handleSseEvent,
+    setSseConnected,
   };
 });

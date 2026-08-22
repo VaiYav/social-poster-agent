@@ -19,16 +19,16 @@
  * same pattern as PostsController — PostsModule → QueueModule → PostingModule
  * → PostsModule would be circular.
  */
-import { Injectable, Logger, Inject } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
-import { ModuleRef } from '@nestjs/core';
-import { ConfigService } from '@nestjs/config';
-import { PostStatus, SocialNetwork } from '@prisma/client';
-import type { JudgeScores } from '@spa/shared';
-import { IPostingQueuePort } from '../../domain/ports/posting-queue.port.js';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { PostEvents } from '../../events/enums/post-events.enum';
-import { parseBool } from '../../infrastructure/config/parse-bool.js';
+import { Injectable, Logger, Inject } from "@nestjs/common";
+import { OnEvent } from "@nestjs/event-emitter";
+import { ModuleRef } from "@nestjs/core";
+import { ConfigService } from "@nestjs/config";
+import { PostStatus, SocialNetwork } from "../../generated/prisma/client";
+import type { JudgeScores } from "@spa/shared";
+import { IPostingQueuePort } from "../../domain/ports/posting-queue.port.js";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service";
+import { PostEvents } from "../../events/enums/post-events.enum";
+import { parseBool } from "../../infrastructure/config/parse-bool.js";
 
 @Injectable()
 export class AutoApproveListener {
@@ -44,14 +44,17 @@ export class AutoApproveListener {
     // SPA_DRY_RUN: disable auto-approve in dry-run mode — the dry-run runner
     // controls the flow manually (approve → postById) to avoid race conditions
     // with the BullMQ worker which would start posting before the session is ready.
-    const isDryRun = parseBool(configService.get<string>('SPA_DRY_RUN', 'false'));
-    this.enabled = !isDryRun && parseBool(configService.get<string>('AUTO_APPROVE_ENABLED', 'false'));
+    const isDryRun = parseBool(configService.get<string>("SPA_DRY_RUN", "false"));
+    this.enabled =
+      !isDryRun && parseBool(configService.get<string>("AUTO_APPROVE_ENABLED", "false"));
     if (isDryRun) {
-      this.logger.warn(`AUTO_APPROVE disabled in dry-run mode (SPA_DRY_RUN=true) — runner controls flow manually`);
+      this.logger.warn(
+        `AUTO_APPROVE disabled in dry-run mode (SPA_DRY_RUN=true) — runner controls flow manually`,
+      );
     } else if (this.enabled) {
       this.logger.warn(
-        'AUTO_APPROVE_ENABLED=true — drafts will be auto-approved via the AutoApprove gate ' +
-          '(AutoCheck + quality thresholds, fail-closed) and posted without human review',
+        "AUTO_APPROVE_ENABLED=true — drafts will be auto-approved via the AutoApprove gate " +
+          "(AutoCheck + quality thresholds, fail-closed) and posted without human review",
       );
     }
   }
@@ -63,7 +66,14 @@ export class AutoApproveListener {
     try {
       const post = await this.prisma.post.findUnique({
         where: { id: payload.postId },
-        select: { content: true, network: true, status: true, llmMetadata: true, threadPosition: true, threadId: true },
+        select: {
+          content: true,
+          network: true,
+          status: true,
+          llmMetadata: true,
+          threadPosition: true,
+          threadId: true,
+        },
       });
       if (!post) {
         this.logger.warn(`Auto-approve: post ${payload.postId} not found`);
@@ -71,7 +81,8 @@ export class AutoApproveListener {
       }
       if (post.status !== PostStatus.DRAFT) return; // already handled by another path
 
-      const meta = (post.llmMetadata as { qualityScore?: number; judgeScores?: JudgeScores } | null) ?? {};
+      const meta =
+        (post.llmMetadata as { qualityScore?: number; judgeScores?: JudgeScores } | null) ?? {};
       const score = meta.qualityScore;
       const judgeScores = meta.judgeScores;
 
@@ -80,16 +91,22 @@ export class AutoApproveListener {
       // quality thresholds and is fail-closed on a missing score. Resolved lazily via
       // ModuleRef (AutonomyModule) so this listener's constructor — and the 11 test
       // paramtypes restorations that pin it — stay unchanged.
-      const { AutoApproveService } = await import('./auto-approve.service.js');
+      const { AutoApproveService } = await import("./auto-approve.service.js");
       const autoApprove = this.moduleRef.get(AutoApproveService, { strict: false });
       if (!autoApprove) {
         this.logger.warn(`AutoApproveService not available — post ${payload.postId} left as DRAFT`);
         return;
       }
 
-      const result = await autoApprove.evaluate(payload.postId, post.content, post.network, score, judgeScores);
+      const result = await autoApprove.evaluate(
+        payload.postId,
+        post.content,
+        post.network,
+        score,
+        judgeScores,
+      );
 
-      if (result.decision === 'AUTO_APPROVE') {
+      if (result.decision === "AUTO_APPROVE") {
         const llmMetadata = (post.llmMetadata as { multiStage?: boolean } | null) ?? {};
         const isMultiStage = llmMetadata.multiStage === true;
 
@@ -106,7 +123,9 @@ export class AutoApproveListener {
           this.logger.log(`Auto-approved post ${payload.postId} (${post.network}) — enqueued`);
         }
       } else {
-        this.logger.log(`Auto-approve [${result.decision}] post ${payload.postId}: ${result.reason}`);
+        this.logger.log(
+          `Auto-approve [${result.decision}] post ${payload.postId}: ${result.reason}`,
+        );
       }
     } catch (err) {
       this.logger.error(
@@ -121,7 +140,9 @@ export class AutoApproveListener {
       await this.postingQueue.enqueuePosting(postId, network as SocialNetwork);
       this.logger.log(`Auto-approved post ${postId} enqueued for ${network}`);
     } catch (err) {
-      this.logger.error(`Failed to enqueue auto-approved post ${postId}: ${(err as Error).message}`);
+      this.logger.error(
+        `Failed to enqueue auto-approved post ${postId}: ${(err as Error).message}`,
+      );
     }
   }
 }

@@ -1,7 +1,7 @@
-import { Module } from '@nestjs/common';
-import { AccountsService } from './accounts.service';
-import { AccountsController } from './accounts.controller';
-import { WarmupModule } from '../sessions/warmup.module';
+import { Module } from "@nestjs/common";
+import { AccountsService } from "./accounts.service";
+import { AccountsController } from "./accounts.controller";
+import { WarmupModule } from "../sessions/warmup.module";
 
 @Module({
   imports: [WarmupModule],

@@ -9,10 +9,10 @@
  * wrapped in try/catch so the snapshot is still useful even if one subsystem is
  * disabled or throwing.
  */
-import { Inject, Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { SseService } from '../../infrastructure/sse/sse.service';
-import { AgentState, IMetricsCollector, MonitoringSnapshot } from './metrics-collector.js';
+import { Inject, Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { SseService } from "../../infrastructure/sse/sse.service";
+import { AgentState, IMetricsCollector, MonitoringSnapshot } from "./metrics-collector.js";
 
 export { AgentState, MonitoringSnapshot };
 
@@ -29,7 +29,7 @@ export class MetricsPublisher implements OnModuleInit, OnModuleDestroy {
     private readonly sseService: SseService,
     @Inject(IMetricsCollector) private readonly collectors: IMetricsCollector[],
   ) {
-    const raw = this.configService.get<string>('METRICS_SSE_INTERVAL_MS', '5000');
+    const raw = this.configService.get<string>("METRICS_SSE_INTERVAL_MS", "5000");
     this.intervalMs = raw ? Number(raw) : 5000;
   }
 
@@ -40,7 +40,7 @@ export class MetricsPublisher implements OnModuleInit, OnModuleDestroy {
       this.timer = setInterval(() => this.collectAndPublish(), this.intervalMs);
       this.logger.log(`Metrics publisher started — interval ${this.intervalMs}ms`);
     } else {
-      this.logger.log('Metrics publisher disabled — METRICS_SSE_INTERVAL_MS is 0');
+      this.logger.log("Metrics publisher disabled — METRICS_SSE_INTERVAL_MS is 0");
     }
   }
 
@@ -57,7 +57,7 @@ export class MetricsPublisher implements OnModuleInit, OnModuleDestroy {
 
   async collectAndPublish(): Promise<void> {
     if (this.isCollecting) {
-      this.logger.debug('Snapshot still collecting — skipping this tick');
+      this.logger.debug("Snapshot still collecting — skipping this tick");
       return;
     }
     this.isCollecting = true;
@@ -65,7 +65,7 @@ export class MetricsPublisher implements OnModuleInit, OnModuleDestroy {
       const snapshot = await this.collectSnapshot();
       this.latestSnapshot = snapshot;
       await this.sseService.publish({
-        type: 'metrics_snapshot',
+        type: "metrics_snapshot",
         timestamp: snapshot.timestamp,
         agents: snapshot.agents,
       });

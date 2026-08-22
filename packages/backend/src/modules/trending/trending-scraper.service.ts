@@ -22,30 +22,30 @@
  *   - Failures are logged but don't block generation (graceful degradation)
  */
 
-import { Injectable, Logger, Optional, Inject, type OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { SchedulerRegistry } from '@nestjs/schedule';
-import { CronJob } from 'cron';
-import { IBrowserPort } from '../../domain/ports/browser.port.js';
-import { ILlmPort } from '../../domain/ports/llm.port.js';
-import { IPromptPort, type CompiledChatPrompt } from '../../domain/ports/prompt.port.js';
-import { DomainConfigService } from '../../domain/domain-config/domain-config.service.js';
-import { SessionsService } from '../sessions/sessions.service.js';
-import { AccountsService } from '../accounts/accounts.service.js';
-import type { BrowserContext, Page } from '../../domain/ports/browser-primitives.js';
-import { SocialNetwork } from '@prisma/client';
-import { isNetworkEnabled } from '../../domain/enabled-networks.js';
-import { parseGoogleTrendsRss as parseGoogleTrendsRssPure } from './google-trends-rss.js';
-import { parseBool } from '../../infrastructure/config/parse-bool.js';
-import { sanitizeUntrustedInput } from '../../infrastructure/llm/sanitize-untrusted-input.js';
-import { interpolate } from '../../domain/prompt-interpolation.js';
-import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
-import { TRENDING_RELEVANCE_PROMPT } from './prompts/trending-relevance-prompt.js';
+import { Injectable, Logger, Optional, Inject, type OnModuleInit } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { SchedulerRegistry } from "@nestjs/schedule";
+import { CronJob } from "cron";
+import { IBrowserPort } from "../../domain/ports/browser.port.js";
+import { ILlmPort } from "../../domain/ports/llm.port.js";
+import { IPromptPort, type CompiledChatPrompt } from "../../domain/ports/prompt.port.js";
+import { DomainConfigService } from "../../domain/domain-config/domain-config.service.js";
+import { SessionsService } from "../sessions/sessions.service.js";
+import { AccountsService } from "../accounts/accounts.service.js";
+import type { BrowserContext, Page } from "../../domain/ports/browser-primitives.js";
+import { SocialNetwork } from "../../generated/prisma/client";
+import { isNetworkEnabled } from "../../domain/enabled-networks.js";
+import { parseGoogleTrendsRss as parseGoogleTrendsRssPure } from "./google-trends-rss.js";
+import { parseBool } from "../../infrastructure/config/parse-bool.js";
+import { sanitizeUntrustedInput } from "../../infrastructure/llm/sanitize-untrusted-input.js";
+import { interpolate } from "../../domain/prompt-interpolation.js";
+import { isOrchestratorEnabled } from "../orchestrator/feature-flag.js";
+import { TRENDING_RELEVANCE_PROMPT } from "./prompts/trending-relevance-prompt.js";
 
 // ── Types ──
 
 export interface ScrapedTrendingTopic {
-  source: 'google_trends' | 'x_trends';
+  source: "google_trends" | "x_trends";
   topic: string;
   rank?: number; // 1 = top trend
   url?: string;
@@ -55,7 +55,7 @@ export interface ScrapedTrendingTopic {
 
 export interface MergedTrendingTopic {
   topic: string;
-  sources: ('events' | 'google_trends' | 'x_trends')[];
+  sources: ("events" | "google_trends" | "x_trends")[];
   networks: string[]; // recommended networks
   priority: number; // 1 = highest (multiple sources agree)
   scrapedAt?: Date;
@@ -63,25 +63,25 @@ export interface MergedTrendingTopic {
 
 // ── Constants ──
 
-const GOOGLE_TRENDS_RSS_URL = 'https://trends.google.com/trending/rss?geo=US';
+const GOOGLE_TRENDS_RSS_URL = "https://trends.google.com/trending/rss?geo=US";
 // X has changed the explore URL multiple times. Try the canonical explore page first,
 // then fall back to the home page sidebar ("What's happening" section).
 const X_TRENDS_URLS = [
-  'https://x.com/explore/tabs/trending',
-  'https://x.com/explore',
-  'https://x.com/home',
+  "https://x.com/explore/tabs/trending",
+  "https://x.com/explore",
+  "https://x.com/home",
 ];
 const DEFAULT_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 const X_SCRAPE_TIMEOUT_MS = 30_000; // 30s timeout for X scraping
 // Multi-fallback selectors for X trending topics — X changes DOM structure frequently.
 // Try data-testid first (most stable), then aria-label, then CSS, then text-based.
 const X_TREND_SELECTORS: readonly string[] = [
-  '[data-testid="trend"]',                    // Original — may still work on some layouts
-  'aside[aria-label="Trending"] [data-testid="trend"]',  // Sidebar with aria-label
+  '[data-testid="trend"]', // Original — may still work on some layouts
+  'aside[aria-label="Trending"] [data-testid="trend"]', // Sidebar with aria-label
   'section[aria-label="Trending"] [data-testid="trend"]', // Section wrapper
-  '[data-testid="trend"] > div > div > span',  // Deeper nesting
-  'div[role="link"] span',                      // Text-based fallback (was :has-text, invalid in browser)
-  'aside a[href*="/explore/tabs/trending"]',   // Link to trending tab
+  '[data-testid="trend"] > div > div > span', // Deeper nesting
+  'div[role="link"] span', // Text-based fallback (was :has-text, invalid in browser)
+  'aside a[href*="/explore/tabs/trending"]', // Link to trending tab
 ];
 
 interface TrendingNiche {
@@ -136,16 +136,19 @@ export class TrendingScraperService implements OnModuleInit {
     @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
     @Optional() private readonly domainConfig?: DomainConfigService,
   ) {
-    this.cacheTtlMs = this.configService.get<number>('TRENDING_CACHE_TTL_MS', DEFAULT_CACHE_TTL_MS);
-    this.enabled = parseBool(this.configService.get<string>('TRENDING_SCRAPING_ENABLED', 'true'));
+    this.cacheTtlMs = this.configService.get<number>("TRENDING_CACHE_TTL_MS", DEFAULT_CACHE_TTL_MS);
+    this.enabled = parseBool(this.configService.get<string>("TRENDING_SCRAPING_ENABLED", "true"));
     this.xScrapeEnabled =
-      parseBool(this.configService.get<string>('X_TRENDS_SCRAPING_ENABLED', 'true')) &&
+      parseBool(this.configService.get<string>("X_TRENDS_SCRAPING_ENABLED", "true")) &&
       isNetworkEnabled(SocialNetwork.X);
-    this.llmFilterEnabled = parseBool(this.configService.get<string>('TRENDING_LLM_FILTER_ENABLED', 'true'));
-    const rawConcurrency = Number(this.configService.get<string>('TRENDING_LLM_CONCURRENCY', '3'));
-    this.llmConcurrency = Number.isFinite(rawConcurrency) && rawConcurrency > 0 ? rawConcurrency : 3;
-    this.googleApiUrl = this.configService.get<string>('TRENDING_GOOGLE_API_URL', '');
-    this.googleApiKey = this.configService.get<string>('TRENDING_GOOGLE_API_KEY', '');
+    this.llmFilterEnabled = parseBool(
+      this.configService.get<string>("TRENDING_LLM_FILTER_ENABLED", "true"),
+    );
+    const rawConcurrency = Number(this.configService.get<string>("TRENDING_LLM_CONCURRENCY", "3"));
+    this.llmConcurrency =
+      Number.isFinite(rawConcurrency) && rawConcurrency > 0 ? rawConcurrency : 3;
+    this.googleApiUrl = this.configService.get<string>("TRENDING_GOOGLE_API_URL", "");
+    this.googleApiKey = this.configService.get<string>("TRENDING_GOOGLE_API_KEY", "");
   }
 
   /**
@@ -158,40 +161,40 @@ export class TrendingScraperService implements OnModuleInit {
     await this.loadNicheKeywords();
 
     if (!this.enabled) {
-      this.logger.log('Trending scraper disabled (TRENDING_SCRAPING_ENABLED=false)');
+      this.logger.log("Trending scraper disabled (TRENDING_SCRAPING_ENABLED=false)");
       return;
     }
 
     // SPA_DRY_RUN: skip cron registration in dry-run mode
-    const isDryRun = parseBool(this.configService.get<string>('SPA_DRY_RUN', 'false'));
+    const isDryRun = parseBool(this.configService.get<string>("SPA_DRY_RUN", "false"));
     if (isDryRun) {
-      this.logger.warn('SPA_DRY_RUN=true — trending scraper cron NOT registered');
+      this.logger.warn("SPA_DRY_RUN=true — trending scraper cron NOT registered");
       return;
     }
 
     // Orchestrator mode: REFRESH_TRENDS is handled by the orchestrator decision loop.
     // Still do initial cache warm-up so the first cycle has data.
     if (isOrchestratorEnabled()) {
-      this.logger.log('Orchestrator is enabled — trending scraper cron NOT registered (initial warm-up still runs)');
+      this.logger.log(
+        "Orchestrator is enabled — trending scraper cron NOT registered (initial warm-up still runs)",
+      );
       void this.refreshCache();
       return;
     }
 
-    const cronExpr = this.configService.get<string>(
-      'TRENDING_SCRAPER_SCHEDULE',
-      '0 */2 * * *',
-    ) ?? '0 */2 * * *';
+    const cronExpr =
+      this.configService.get<string>("TRENDING_SCRAPER_SCHEDULE", "0 */2 * * *") ?? "0 */2 * * *";
 
     const job = new CronJob(cronExpr, async () => {
       await this.refreshCache();
     });
 
     try {
-      this.schedulerRegistry?.addCronJob('trending-scraper', job);
+      this.schedulerRegistry?.addCronJob("trending-scraper", job);
       job.start();
       this.logger.log(`Trending scraper cron registered: ${cronExpr}`);
     } catch {
-      this.logger.warn('SchedulerRegistry not available — trending scraper cron will not run');
+      this.logger.warn("SchedulerRegistry not available — trending scraper cron will not run");
     }
 
     // Initial cache warm-up on startup (non-blocking)
@@ -226,21 +229,21 @@ export class TrendingScraperService implements OnModuleInit {
    */
   private async refreshCache(): Promise<void> {
     try {
-      this.logger.log('Refreshing trending cache (cron)...');
+      this.logger.log("Refreshing trending cache (cron)...");
       const [google, x] = await Promise.allSettled([
         this.getGoogleTrends(20),
         this.xScrapeEnabled ? this.getXTrends(20) : Promise.resolve([]),
       ]);
 
-      const googleCount = google.status === 'fulfilled' ? google.value.length : 0;
-      const xCount = x.status === 'fulfilled' ? x.value.length : 0;
+      const googleCount = google.status === "fulfilled" ? google.value.length : 0;
+      const xCount = x.status === "fulfilled" ? x.value.length : 0;
       this.logger.log(`Trending cache refreshed: Google=${googleCount}, X=${xCount}`);
 
-      if (google.status === 'rejected') {
-        this.logger.warn(`Google Trends refresh failed: ${google.reason?.message ?? 'unknown'}`);
+      if (google.status === "rejected") {
+        this.logger.warn(`Google Trends refresh failed: ${google.reason?.message ?? "unknown"}`);
       }
-      if (x.status === 'rejected') {
-        this.logger.warn(`X Trends refresh failed: ${x.reason?.message ?? 'unknown'}`);
+      if (x.status === "rejected") {
+        this.logger.warn(`X Trends refresh failed: ${x.reason?.message ?? "unknown"}`);
       }
     } catch (err) {
       this.logger.warn(`Trending cache refresh failed: ${(err as Error).message}`);
@@ -268,9 +271,13 @@ export class TrendingScraperService implements OnModuleInit {
 
     const useApi = this.googleApiUrl.length > 0 && this.googleApiKey.length > 0;
     if (this.googleApiUrl.length > 0 && this.googleApiKey.length === 0) {
-      this.logger.warn('TRENDING_GOOGLE_API_URL is set but TRENDING_GOOGLE_API_KEY is missing — using RSS fallback');
+      this.logger.warn(
+        "TRENDING_GOOGLE_API_URL is set but TRENDING_GOOGLE_API_KEY is missing — using RSS fallback",
+      );
     } else if (this.googleApiKey.length > 0 && this.googleApiUrl.length === 0) {
-      this.logger.warn('TRENDING_GOOGLE_API_KEY is set but TRENDING_GOOGLE_API_URL is missing — using RSS fallback');
+      this.logger.warn(
+        "TRENDING_GOOGLE_API_KEY is set but TRENDING_GOOGLE_API_URL is missing — using RSS fallback",
+      );
     }
 
     try {
@@ -278,10 +285,12 @@ export class TrendingScraperService implements OnModuleInit {
         ? await this.fetchGoogleTrendsApi(limit)
         : await this.fetchGoogleTrendsRss(limit);
       this.googleTrendsCache = { topics, expiresAt: Date.now() + this.cacheTtlMs };
-      this.logger.log(`Fetched ${topics.length} Google Trends topics (${useApi ? 'API' : 'RSS'})`);
+      this.logger.log(`Fetched ${topics.length} Google Trends topics (${useApi ? "API" : "RSS"})`);
       return topics.slice(0, limit);
     } catch (err) {
-      this.logger.warn(`Failed to fetch Google Trends (${useApi ? 'API' : 'RSS'}): ${(err as Error).message}`);
+      this.logger.warn(
+        `Failed to fetch Google Trends (${useApi ? "API" : "RSS"}): ${(err as Error).message}`,
+      );
 
       // F22: programmatic API failed — fall back to public RSS
       if (useApi) {
@@ -306,7 +315,7 @@ export class TrendingScraperService implements OnModuleInit {
   private async fetchGoogleTrendsRss(limit: number): Promise<ScrapedTrendingTopic[]> {
     // Use global fetch (Node 18+)
     const response = await fetch(GOOGLE_TRENDS_RSS_URL, {
-      headers: { 'User-Agent': 'SocialPosterAgent/1.0 (trending detection)' },
+      headers: { "User-Agent": "SocialPosterAgent/1.0 (trending detection)" },
       signal: AbortSignal.timeout(10_000),
     });
 
@@ -326,7 +335,7 @@ export class TrendingScraperService implements OnModuleInit {
     // TR1: delegate to the hardened pure parser (CDATA + multiline titles + entity decoding).
     const now = new Date();
     return parseGoogleTrendsRssPure(xml, limit).map((t): ScrapedTrendingTopic => ({
-      source: 'google_trends',
+      source: "google_trends",
       topic: t.topic,
       rank: t.rank,
       url: t.url,
@@ -344,13 +353,13 @@ export class TrendingScraperService implements OnModuleInit {
    */
   private async fetchGoogleTrendsApi(limit: number): Promise<ScrapedTrendingTopic[]> {
     if (!this.googleApiUrl || !this.googleApiKey) {
-      throw new Error('TRENDING_GOOGLE_API_URL and TRENDING_GOOGLE_API_KEY must both be set');
+      throw new Error("TRENDING_GOOGLE_API_URL and TRENDING_GOOGLE_API_KEY must both be set");
     }
 
     const response = await fetch(this.googleApiUrl, {
       headers: {
-        'User-Agent': 'SocialPosterAgent/1.0 (trending detection)',
-        Accept: 'application/json',
+        "User-Agent": "SocialPosterAgent/1.0 (trending detection)",
+        Accept: "application/json",
         Authorization: `Bearer ${this.googleApiKey}`,
       },
       signal: AbortSignal.timeout(10_000),
@@ -370,24 +379,25 @@ export class TrendingScraperService implements OnModuleInit {
    */
   private parseGoogleTrendsApi(json: unknown, limit: number): ScrapedTrendingTopic[] {
     if (!Array.isArray(json)) {
-      throw new Error('Google Trends API did not return a JSON array');
+      throw new Error("Google Trends API did not return a JSON array");
     }
 
     const now = new Date();
     const topics: ScrapedTrendingTopic[] = [];
     for (let i = 0; i < Math.min(json.length, limit); i++) {
       const raw = json[i];
-      if (!raw || typeof raw !== 'object') continue;
+      if (!raw || typeof raw !== "object") continue;
       const item = raw as Record<string, unknown>;
-      const topicText = typeof item.topic === 'string' ? sanitizeUntrustedInput(item.topic, 200) : '';
+      const topicText =
+        typeof item.topic === "string" ? sanitizeUntrustedInput(item.topic, 200) : "";
       if (!topicText) continue;
 
       topics.push({
-        source: 'google_trends',
+        source: "google_trends",
         topic: topicText,
-        rank: typeof item.rank === 'number' ? item.rank : i + 1,
-        url: typeof item.url === 'string' ? item.url : undefined,
-        traffic: typeof item.traffic === 'string' ? item.traffic : undefined,
+        rank: typeof item.rank === "number" ? item.rank : i + 1,
+        url: typeof item.url === "string" ? item.url : undefined,
+        traffic: typeof item.traffic === "string" ? item.traffic : undefined,
         scrapedAt: now,
       });
     }
@@ -413,7 +423,7 @@ export class TrendingScraperService implements OnModuleInit {
     }
 
     let context: BrowserContext | null = null;
-    let page: Awaited<ReturnType<BrowserContext['newPage']>> | undefined;
+    let page: Awaited<ReturnType<BrowserContext["newPage"]>> | undefined;
     let accountId: string | undefined;
     try {
       // Use authenticated session if available — X may require login to view trends
@@ -431,10 +441,12 @@ export class TrendingScraperService implements OnModuleInit {
             storageState = this.sessionsService.decryptStorageState(session);
           }
         } catch (err) {
-          this.logger.debug(`Could not get X session for trending scrape: ${(err as Error).message}`);
+          this.logger.debug(
+            `Could not get X session for trending scrape: ${(err as Error).message}`,
+          );
         }
       }
-      context = await this.browser.acquireContext('X' as SocialNetwork, storageState, accountId);
+      context = await this.browser.acquireContext("X" as SocialNetwork, storageState, accountId);
       page = await context.newPage();
 
       // Suppress uncaught page-side JS errors (X React app throws many) that can
@@ -450,7 +462,7 @@ export class TrendingScraperService implements OnModuleInit {
       let topics: ScrapedTrendingTopic[] = [];
       for (const url of X_TRENDS_URLS) {
         this.logger.debug(`X trends: trying ${url}`);
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: X_SCRAPE_TIMEOUT_MS });
+        await page.goto(url, { waitUntil: "domcontentloaded", timeout: X_SCRAPE_TIMEOUT_MS });
         await page.waitForTimeout(5000); // let trends load (X React app is slow to hydrate)
 
         topics = await this.extractXTrends(page, limit);
@@ -474,7 +486,7 @@ export class TrendingScraperService implements OnModuleInit {
       }
       if (context) {
         try {
-          await this.browser.releaseContext('X' as SocialNetwork, context, accountId);
+          await this.browser.releaseContext("X" as SocialNetwork, context, accountId);
         } catch (err) {
           this.logger.warn(`Failed to release X context: ${(err as Error).message}`);
         }
@@ -503,7 +515,9 @@ export class TrendingScraperService implements OnModuleInit {
     }
 
     if (!matchedSelector) {
-      this.logger.warn('X trend elements not found — all selectors failed (page may not have loaded trends or DOM changed)');
+      this.logger.warn(
+        "X trend elements not found — all selectors failed (page may not have loaded trends or DOM changed)",
+      );
       // Take a screenshot for debugging if screenshots are enabled
       try {
         const url = page.url();
@@ -530,16 +544,17 @@ export class TrendingScraperService implements OnModuleInit {
             // 1. First line of textContent (trend name is usually first)
             // 2. Look for specific trend name elements
             // 3. Fallback to full textContent
-            let trendName = el.querySelector('[data-testid="trendName"]')?.textContent?.trim()
-              || el.querySelector('span')?.textContent?.trim()
-              || el.textContent?.trim()?.split('\n')[0]?.trim();
+            let trendName =
+              el.querySelector('[data-testid="trendName"]')?.textContent?.trim() ||
+              el.querySelector("span")?.textContent?.trim() ||
+              el.textContent?.trim()?.split("\n")[0]?.trim();
 
             if (!trendName) return;
 
             // 2.9.4: The fallback `div[role="link"] span` may match UI labels like
             // "Trending" or "What's happening" — skip those and keep looking.
             const lower = trendName.toLowerCase();
-            if (lower === 'trending' || lower === "what's happening" || lower.includes('·')) return;
+            if (lower === "trending" || lower === "what's happening" || lower.includes("·")) return;
 
             if (trendName.length > 0 && trendName.length < 200) {
               // Dedup by topic text
@@ -558,7 +573,7 @@ export class TrendingScraperService implements OnModuleInit {
     );
 
     return trends.map((t) => ({
-      source: 'x_trends' as const,
+      source: "x_trends" as const,
       topic: t.topic,
       rank: t.rank,
       scrapedAt: now,
@@ -600,12 +615,12 @@ export class TrendingScraperService implements OnModuleInit {
     }
 
     const safeTopic = sanitizeUntrustedInput(topic, 200);
-    const domain = this.domainConfig?.domain ?? 'your product or topic area';
-    const topicCategories = this.domainConfig?.getTopicCategories().join(', ') ?? 'general';
-    const trendingNiches = this.trendingNiches.map((n) => n.label).join(', ') || 'none configured';
-    const nicheKeywords = this.nicheKeywords.join(', ') || 'none configured';
+    const domain = this.domainConfig?.domain ?? "your product or topic area";
+    const topicCategories = this.domainConfig?.getTopicCategories().join(", ") ?? "general";
+    const trendingNiches = this.trendingNiches.map((n) => n.label).join(", ") || "none configured";
+    const nicheKeywords = this.nicheKeywords.join(", ") || "none configured";
     const compiled = await this.getCompiledChat(
-      'trending-relevance',
+      "trending-relevance",
       {
         topic: safeTopic,
         domain,
@@ -617,13 +632,17 @@ export class TrendingScraperService implements OnModuleInit {
     );
 
     try {
-      const response = await this.llmService.generateChat(compiled.systemPrompt, compiled.userPrompt, {
-        temperature: 0,
-      });
+      const response = await this.llmService.generateChat(
+        compiled.systemPrompt,
+        compiled.userPrompt,
+        {
+          temperature: 0,
+        },
+      );
       const answer = response.content.trim().toUpperCase();
-      const relevant = answer.startsWith('YES');
+      const relevant = answer.startsWith("YES");
       this.setRelevanceCache(key, relevant);
-      this.logger.debug(`LLM relevance for "${topic}": ${relevant ? 'YES' : 'NO'}`);
+      this.logger.debug(`LLM relevance for "${topic}": ${relevant ? "YES" : "NO"}`);
       return relevant;
     } catch (err) {
       this.logger.warn(`LLM relevance filter failed for "${topic}": ${(err as Error).message}`);
@@ -716,7 +735,11 @@ export class TrendingScraperService implements OnModuleInit {
 
     // 2.9.5: Cache the merged result by a stable key of event topics.
     const cacheKey = `${this.buildMergedCacheKey(eventTopics)}:x=${includeX}`;
-    if (this.mergedCache && this.mergedCache.key === cacheKey && Date.now() < this.mergedCache.expiresAt) {
+    if (
+      this.mergedCache &&
+      this.mergedCache.key === cacheKey &&
+      Date.now() < this.mergedCache.expiresAt
+    ) {
       this.logger.debug(`Merged trends cache hit (${this.mergedCache.topics.length} topics)`);
       return this.mergedCache.topics.slice(0, 20);
     }
@@ -726,12 +749,12 @@ export class TrendingScraperService implements OnModuleInit {
       includeX ? this.getXTrends(20) : Promise.resolve([]),
     ]);
 
-    const rawGoogle = rawGoogleResult.status === 'fulfilled' ? rawGoogleResult.value : [];
-    const rawX = rawXResult.status === 'fulfilled' ? rawXResult.value : [];
-    if (rawGoogleResult.status === 'rejected') {
+    const rawGoogle = rawGoogleResult.status === "fulfilled" ? rawGoogleResult.value : [];
+    const rawX = rawXResult.status === "fulfilled" ? rawXResult.value : [];
+    if (rawGoogleResult.status === "rejected") {
       this.logger.warn(`Google Trends failed: ${(rawGoogleResult.reason as Error).message}`);
     }
-    if (includeX && rawXResult.status === 'rejected') {
+    if (includeX && rawXResult.status === "rejected") {
       this.logger.warn(`X Trends failed: ${(rawXResult.reason as Error).message}`);
     }
 
@@ -743,7 +766,7 @@ export class TrendingScraperService implements OnModuleInit {
 
     this.logger.log(
       `Niche-filtered trends: Google ${rawGoogle.length}→${googleTopics.length}, ` +
-      `X ${rawX.length}→${xTopics.length}`,
+        `X ${rawX.length}→${xTopics.length}`,
     );
 
     const merged = new Map<string, MergedTrendingTopic>();
@@ -753,7 +776,7 @@ export class TrendingScraperService implements OnModuleInit {
       const key = event.topic.toLowerCase().trim();
       merged.set(key, {
         topic: event.topic,
-        sources: ['events'],
+        sources: ["events"],
         networks: event.networks,
         priority: 3, // event = high priority (predictable, high-value)
       });
@@ -764,13 +787,13 @@ export class TrendingScraperService implements OnModuleInit {
       const key = gt.topic.toLowerCase().trim();
       const existing = merged.get(key);
       if (existing) {
-        existing.sources.push('google_trends');
+        existing.sources.push("google_trends");
         existing.priority += 2; // cross-source confirmation = higher priority
       } else {
         merged.set(key, {
           topic: gt.topic,
-          sources: ['google_trends'],
-          networks: ['X', 'THREADS', 'FACEBOOK'],
+          sources: ["google_trends"],
+          networks: ["X", "THREADS", "FACEBOOK"],
           priority: 2,
           scrapedAt: gt.scrapedAt,
         });
@@ -782,15 +805,15 @@ export class TrendingScraperService implements OnModuleInit {
       const key = xt.topic.toLowerCase().trim();
       const existing = merged.get(key);
       if (existing) {
-        existing.sources.push('x_trends');
+        existing.sources.push("x_trends");
         existing.priority += 2;
         // X trends are best for X posting
-        if (!existing.networks.includes('X')) existing.networks.push('X');
+        if (!existing.networks.includes("X")) existing.networks.push("X");
       } else {
         merged.set(key, {
           topic: xt.topic,
-          sources: ['x_trends'],
-          networks: ['X', 'THREADS'], // X trends are most relevant to X/Threads
+          sources: ["x_trends"],
+          networks: ["X", "THREADS"], // X trends are most relevant to X/Threads
           priority: 2,
           scrapedAt: xt.scrapedAt,
         });
@@ -839,9 +862,7 @@ export class TrendingScraperService implements OnModuleInit {
       googleTrends: {
         cached: this.googleTrendsCache !== null,
         topics: this.googleTrendsCache?.topics.length ?? 0,
-        expiresAt: this.googleTrendsCache
-          ? new Date(this.googleTrendsCache.expiresAt)
-          : undefined,
+        expiresAt: this.googleTrendsCache ? new Date(this.googleTrendsCache.expiresAt) : undefined,
       },
       xTrends: {
         cached: this.xTrendsCache !== null,

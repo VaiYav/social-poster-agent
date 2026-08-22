@@ -10,10 +10,10 @@
  * articles. The LLM-in-the-loop approach handles this gracefully — if the
  * article editor is not available, the LLM will report the failure.
  */
-import { Injectable } from '@nestjs/common';
-import { SocialNetwork } from '@prisma/client';
-import { ArticleBasePoster, type ArticlePosterDeps } from './article-base.poster.js';
-import type { IBrowserPort } from '../../../domain/ports/browser.port.js';
+import { Injectable } from "@nestjs/common";
+import { SocialNetwork } from "../../../generated/prisma/client";
+import { ArticleBasePoster, type ArticlePosterDeps } from "./article-base.poster.js";
+import type { IBrowserPort } from "../../../domain/ports/browser.port.js";
 
 @Injectable()
 export class LinkedinPoster extends ArticleBasePoster {
@@ -22,11 +22,11 @@ export class LinkedinPoster extends ArticleBasePoster {
   }
 
   protected getEditorUrl(): string {
-    return 'https://www.linkedin.com/article/new';
+    return "https://www.linkedin.com/article/new";
   }
 
   protected getPlatformName(): string {
-    return 'LinkedIn';
+    return "LinkedIn";
   }
 
   protected getNetwork(): SocialNetwork {

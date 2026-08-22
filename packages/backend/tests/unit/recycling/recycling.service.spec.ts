@@ -7,9 +7,9 @@
  *
  * Source: packages/backend/src/modules/recycling/recycling.service.ts
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { RecyclingService } from '../../../src/modules/recycling/recycling.service';
-import { createMockConfigService } from '../../mocks/index.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { RecyclingService } from "../../../src/modules/recycling/recycling.service";
+import { createMockConfigService } from "../../mocks/index.js";
 
 function mockPrisma() {
   return {
@@ -24,12 +24,12 @@ function mockPrisma() {
 
 function mockGeneration() {
   return {
-    recycleById: vi.fn().mockResolvedValue({ id: 'draft-1', status: 'DRAFT' }),
-    recycleTopPosts: vi.fn().mockResolvedValue('run-1'),
+    recycleById: vi.fn().mockResolvedValue({ id: "draft-1", status: "DRAFT" }),
+    recycleTopPosts: vi.fn().mockResolvedValue("run-1"),
   };
 }
 
-describe('RecyclingService (RC2/RC3)', () => {
+describe("RecyclingService (RC2/RC3)", () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let prisma: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -40,26 +40,29 @@ describe('RecyclingService (RC2/RC3)', () => {
     prisma = mockPrisma();
     gen = mockGeneration();
     const config = createMockConfigService();
-    const schedulerRegistry = { addCronJob: vi.fn(), deleteCronJob: vi.fn() } as unknown as import('@nestjs/schedule').SchedulerRegistry;
+    const schedulerRegistry = {
+      addCronJob: vi.fn(),
+      deleteCronJob: vi.fn(),
+    } as unknown as import("@nestjs/schedule").SchedulerRegistry;
     service = new RecyclingService(config, prisma, gen, schedulerRegistry);
   });
 
-  it('RC3: recyclePost re-writes via the generation graph (delegates to recycleById)', async () => {
-    const result = await service.recyclePost('post-1');
+  it("RC3: recyclePost re-writes via the generation graph (delegates to recycleById)", async () => {
+    const result = await service.recyclePost("post-1");
 
-    expect(gen.recycleById).toHaveBeenCalledWith('post-1');
-    expect(result).toEqual({ id: 'draft-1', status: 'DRAFT' });
+    expect(gen.recycleById).toHaveBeenCalledWith("post-1");
+    expect(result).toEqual({ id: "draft-1", status: "DRAFT" });
     // The old verbatim path is gone — RecyclingService no longer creates a draft directly.
     expect(prisma.post.create).not.toHaveBeenCalled();
   });
 
-  it('RC3: recyclePost propagates a null (ineligible post) from recycleById', async () => {
+  it("RC3: recyclePost propagates a null (ineligible post) from recycleById", async () => {
     gen.recycleById.mockResolvedValue(null);
-    expect(await service.recyclePost('missing')).toBeNull();
+    expect(await service.recyclePost("missing")).toBeNull();
   });
 
-  it('RC2: runRecycling can be called directly (cron registration is in onModuleInit)', async () => {
-    const spy = vi.spyOn(service, 'runRecycling');
+  it("RC2: runRecycling can be called directly (cron registration is in onModuleInit)", async () => {
+    const spy = vi.spyOn(service, "runRecycling");
     await service.runRecycling();
     expect(spy).toHaveBeenCalledTimes(1);
   });

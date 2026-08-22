@@ -26,35 +26,44 @@
  * as `undefined`. We restore the metadata explicitly via
  * `Reflect.defineMetadata` so @nestjs/testing DI works as intended.
  */
-import 'reflect-metadata';
-import { restoreAllDesignParamtypes } from '../helpers/restore-paramtypes.js';
-import { SchedulerRegistry } from '@nestjs/schedule';
-import { EmailReaderService } from '../../src/infrastructure/email/email-reader.service.js';
-import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
-import { Test } from '@nestjs/testing';
-import type { TestingModule } from '@nestjs/testing';
-import { ConfigService } from '@nestjs/config';
-import { PostStatus, SessionStatus, SocialNetwork } from '@prisma/client';
+import "reflect-metadata";
+import { restoreAllDesignParamtypes } from "../helpers/restore-paramtypes.js";
+import { SchedulerRegistry } from "@nestjs/schedule";
+import { EmailReaderService } from "../../src/infrastructure/email/email-reader.service.js";
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from "vitest";
+import { Test } from "@nestjs/testing";
+import type { TestingModule } from "@nestjs/testing";
+import { ConfigService } from "@nestjs/config";
+import { PostStatus, SessionStatus, SocialNetwork } from "../../src/generated/prisma/client";
 
-import { PostingService } from '../../src/modules/posting/posting.service';
-import { ThreadProgressService } from '../../src/modules/posting/thread-progress.service';
-import { SessionsService } from '../../src/modules/sessions/sessions.service';
-import { WarmupService } from '../../src/modules/sessions/warmup.service';
-import { PostsService } from '../../src/modules/posts/posts.service';
-import { AccountsService } from '../../src/modules/accounts/accounts.service';
-import { RateLimitService } from '../../src/modules/rate-limit/rate-limit.service';
-import { SseService } from '../../src/infrastructure/sse/sse.service';
-import { XPoster } from '../../src/modules/posting/posters/x.poster';
-import { ThreadsPoster } from '../../src/modules/posting/posters/threads.poster';
-import { FacebookPoster } from '../../src/modules/posting/posters/facebook.poster';
-import { PrismaService } from '../../src/infrastructure/prisma/prisma.service';
-import { EncryptionService } from '../../src/infrastructure/crypto/encryption.service.js';
-import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service.js';
-import { IBrowserPort } from '../../src/domain/ports/browser.port.js';
-import { EventEmitterModule } from '@nestjs/event-emitter';
-import { SseEventListener } from '../../src/events/listeners/sse-event.listener.js';
-import { createMockPrismaService, createMockEncryptionService, createMockEmailReaderService, createMockSchedulerRegistry } from '../mocks/index.js';
-import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER } from '../../src/infrastructure/redis/redis.module';
+import { PostingService } from "../../src/modules/posting/posting.service";
+import { ThreadProgressService } from "../../src/modules/posting/thread-progress.service";
+import { SessionsService } from "../../src/modules/sessions/sessions.service";
+import { WarmupService } from "../../src/modules/sessions/warmup.service";
+import { PostsService } from "../../src/modules/posts/posts.service";
+import { AccountsService } from "../../src/modules/accounts/accounts.service";
+import { RateLimitService } from "../../src/modules/rate-limit/rate-limit.service";
+import { SseService } from "../../src/infrastructure/sse/sse.service";
+import { XPoster } from "../../src/modules/posting/posters/x.poster";
+import { ThreadsPoster } from "../../src/modules/posting/posters/threads.poster";
+import { FacebookPoster } from "../../src/modules/posting/posters/facebook.poster";
+import { PrismaService } from "../../src/infrastructure/prisma/prisma.service";
+import { EncryptionService } from "../../src/infrastructure/crypto/encryption.service.js";
+import { DiscordNotificationService } from "../../src/infrastructure/notifications/discord-notification.service.js";
+import { IBrowserPort } from "../../src/domain/ports/browser.port.js";
+import { EventEmitterModule } from "@nestjs/event-emitter";
+import { SseEventListener } from "../../src/events/listeners/sse-event.listener.js";
+import {
+  createMockPrismaService,
+  createMockEncryptionService,
+  createMockEmailReaderService,
+  createMockSchedulerRegistry,
+} from "../mocks/index.js";
+import {
+  SHARED_REDIS,
+  SHARED_REDIS_SUBSCRIBER,
+  SHARED_REDIS_PUBLISHER,
+} from "../../src/infrastructure/redis/redis.module";
 
 // ── ioredis mock (hoisted) ───────────────────────────────────────────────────
 // A real Map-backed store so RateLimitService.checkRateLimit / recordPost
@@ -65,22 +74,22 @@ const { redisStore, sseMessageHandlers } = vi.hoisted(() => ({
   sseMessageHandlers: [] as Array<(channel: string, msg: string) => void>,
 }));
 
-vi.mock('ioredis', () => {
+vi.mock("ioredis", () => {
   return {
     default: vi.fn(() => ({
       get: (key: string) => Promise.resolve(redisStore.get(key) ?? null),
       set: (key: string, val: string) => {
         redisStore.set(key, String(val));
-        return Promise.resolve('OK');
+        return Promise.resolve("OK");
       },
       incr: (key: string) => {
-        const v = parseInt(redisStore.get(key) ?? '0', 10) + 1;
+        const v = parseInt(redisStore.get(key) ?? "0", 10) + 1;
         redisStore.set(key, String(v));
         return Promise.resolve(v);
       },
       expire: () => Promise.resolve(1),
       publish: vi.fn().mockResolvedValue(1),
-      subscribe: () => Promise.resolve('OK'),
+      subscribe: () => Promise.resolve("OK"),
       on: () => {},
       disconnect: () => {},
     })),
@@ -94,22 +103,33 @@ vi.mock('ioredis', () => {
  * and SessionsService.autoLogin (login form flow).
  */
 function createMockPage(opts: { url?: string; successVisible?: boolean } = {}) {
-  const url = opts.url ?? 'https://x.com/status/123456789';
-  let typedContent = '';
-  const setTypedContent = (value: string) => { typedContent = String(value ?? ''); };
+  const url = opts.url ?? "https://x.com/status/123456789";
+  let typedContent = "";
+  const setTypedContent = (value: string) => {
+    typedContent = String(value ?? "");
+  };
   const locatorFirst = {
     waitFor: vi.fn().mockResolvedValue(undefined),
     click: vi.fn().mockResolvedValue(undefined),
-    fill: vi.fn().mockImplementation((value: string) => { setTypedContent(value); return Promise.resolve(undefined); }),
+    fill: vi.fn().mockImplementation((value: string) => {
+      setTypedContent(value);
+      return Promise.resolve(undefined);
+    }),
     focus: vi.fn().mockResolvedValue(undefined),
     isVisible: vi.fn().mockResolvedValue(opts.successVisible ?? true),
     isEnabled: vi.fn().mockResolvedValue(true),
     isDisabled: vi.fn().mockResolvedValue(false),
     isHidden: vi.fn().mockResolvedValue(false),
-    type: vi.fn().mockImplementation((value: string) => { setTypedContent(value); return Promise.resolve(undefined); }),
+    type: vi.fn().mockImplementation((value: string) => {
+      setTypedContent(value);
+      return Promise.resolve(undefined);
+    }),
     press: vi.fn().mockResolvedValue(undefined),
-    pressSequentially: vi.fn().mockImplementation((value: string) => { setTypedContent(value); return Promise.resolve(undefined); }),
-    inputValue: vi.fn().mockResolvedValue('testuser'),
+    pressSequentially: vi.fn().mockImplementation((value: string) => {
+      setTypedContent(value);
+      return Promise.resolve(undefined);
+    }),
+    inputValue: vi.fn().mockResolvedValue("testuser"),
     textContent: vi.fn().mockImplementation(() => Promise.resolve(typedContent)),
     innerText: vi.fn().mockImplementation(() => Promise.resolve(typedContent)),
     getAttribute: vi.fn().mockResolvedValue(null),
@@ -129,7 +149,7 @@ function createMockPage(opts: { url?: string; successVisible?: boolean } = {}) {
   const locatorResult = {
     first: () => locatorFirst,
     allTextContents: vi.fn().mockResolvedValue([]),
-    innerText: vi.fn().mockResolvedValue(''),
+    innerText: vi.fn().mockResolvedValue(""),
     evaluateAll: vi.fn().mockResolvedValue([]),
     evaluate: vi.fn().mockResolvedValue(undefined),
     count: vi.fn().mockResolvedValue(0),
@@ -147,9 +167,11 @@ function createMockPage(opts: { url?: string; successVisible?: boolean } = {}) {
   return {
     goto: vi.fn().mockResolvedValue(undefined),
     url: vi.fn().mockReturnValue(url),
-    locator: vi.fn().mockImplementation((selector: string) =>
-      HIDDEN_SELECTOR_PATTERN.test(selector) ? hiddenLocatorResult : locatorResult,
-    ),
+    locator: vi
+      .fn()
+      .mockImplementation((selector: string) =>
+        HIDDEN_SELECTOR_PATTERN.test(selector) ? hiddenLocatorResult : locatorResult,
+      ),
     getByLabel: vi.fn().mockReturnValue(locatorResult),
     getByRole: vi.fn().mockReturnValue(locatorResult),
     getByText: vi.fn().mockReturnValue(locatorResult),
@@ -158,15 +180,18 @@ function createMockPage(opts: { url?: string; successVisible?: boolean } = {}) {
     waitForTimeout: vi.fn().mockResolvedValue(undefined),
     waitForSelector: vi.fn().mockResolvedValue(undefined),
     waitForFunction: vi.fn().mockResolvedValue(undefined),
-    content: vi.fn().mockResolvedValue('<html></html>'),
-    textContent: vi.fn().mockResolvedValue(''),
-    innerText: vi.fn().mockResolvedValue(''),
-    screenshot: vi.fn().mockResolvedValue('/tmp/mock.png'),
+    content: vi.fn().mockResolvedValue("<html></html>"),
+    textContent: vi.fn().mockResolvedValue(""),
+    innerText: vi.fn().mockResolvedValue(""),
+    screenshot: vi.fn().mockResolvedValue("/tmp/mock.png"),
     evaluate: vi.fn().mockResolvedValue(undefined),
     evaluateAll: vi.fn().mockResolvedValue([]),
     addInitScript: vi.fn().mockResolvedValue(undefined),
     on: vi.fn().mockReturnValue(undefined),
-    keyboard: { type: vi.fn().mockResolvedValue(undefined), press: vi.fn().mockResolvedValue(undefined) },
+    keyboard: {
+      type: vi.fn().mockResolvedValue(undefined),
+      press: vi.fn().mockResolvedValue(undefined),
+    },
     _locatorFirst: locatorFirst,
   };
 }
@@ -189,16 +214,18 @@ function createIntegrationBrowserPort(context: ReturnType<typeof createMockConte
     createContext: vi.fn().mockResolvedValue(context),
     acquireContext: vi.fn().mockResolvedValue(context),
     releaseContext: vi.fn(),
-    saveStorageState: vi.fn().mockResolvedValue(
-      JSON.stringify({ cookies: [{ name: 'sess', value: 'abc' }], origins: [] }),
-    ),
+    saveStorageState: vi
+      .fn()
+      .mockResolvedValue(
+        JSON.stringify({ cookies: [{ name: "sess", value: "abc" }], origins: [] }),
+      ),
     randomDelay: vi.fn().mockResolvedValue(undefined),
     screenshot: vi.fn().mockResolvedValue(undefined),
     humanType: vi.fn().mockResolvedValue(undefined),
     typeHuman: vi.fn().mockResolvedValue(undefined),
     humanClick: vi.fn().mockResolvedValue(undefined),
     scrollPage: vi.fn().mockResolvedValue(undefined),
-    extractText: vi.fn().mockResolvedValue(''),
+    extractText: vi.fn().mockResolvedValue(""),
     dismissDialogs: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
     waitForStable: vi.fn().mockResolvedValue(undefined),
@@ -210,9 +237,9 @@ function createIntegrationBrowserPort(context: ReturnType<typeof createMockConte
 /** ConfigService mock with test env defaults + overrides. */
 function createMockConfigService(overrides: Record<string, unknown> = {}): ConfigService {
   const defaults: Record<string, unknown> = {
-    REDIS_URL: 'redis://localhost:6382',
-    SSE_CHANNEL: 'spa:sse',
-    RATE_LIMIT_PREFIX: 'spa:ratelimit',
+    REDIS_URL: "redis://localhost:6382",
+    SSE_CHANNEL: "spa:sse",
+    RATE_LIMIT_PREFIX: "spa:ratelimit",
     RATE_LIMIT_X_MAX_PER_DAY: 50,
     RATE_LIMIT_X_MAX_PER_WEEK: 10,
     RATE_LIMIT_THREADS_MAX_PER_DAY: 75,
@@ -220,13 +247,13 @@ function createMockConfigService(overrides: Record<string, unknown> = {}): Confi
     RATE_LIMIT_FACEBOOK_MAX_PER_DAY: 25,
     RATE_LIMIT_FACEBOOK_MAX_PER_WEEK: 5,
     RATE_LIMIT_MIN_DELAY_MS: 300_000,
-    SOCIAL_X_USERNAME: 'testuser',
-    SOCIAL_X_PASSWORD: 'testpass',
-    SOCIAL_THREADS_USERNAME: 'testuser',
-    SOCIAL_THREADS_PASSWORD: 'testpass',
-    SOCIAL_FACEBOOK_EMAIL: 'test@fb.com',
-    SOCIAL_FACEBOOK_PASSWORD: 'testpass',
-    SOCIAL_FACEBOOK_PAGE_SLUG: 'exampleco',
+    SOCIAL_X_USERNAME: "testuser",
+    SOCIAL_X_PASSWORD: "testpass",
+    SOCIAL_THREADS_USERNAME: "testuser",
+    SOCIAL_THREADS_PASSWORD: "testpass",
+    SOCIAL_FACEBOOK_EMAIL: "test@fb.com",
+    SOCIAL_FACEBOOK_PASSWORD: "testpass",
+    SOCIAL_FACEBOOK_PAGE_SLUG: "exampleco",
   };
   const values = { ...defaults, ...overrides };
   return {
@@ -257,55 +284,54 @@ function createIntegrationPrismaService() {
   return prisma;
 }
 
-
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
 const ACCOUNT_X = {
-  id: 'acc-001',
+  id: "acc-001",
   network: SocialNetwork.X,
-  handle: 'exampleco',
-  credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD',
+  handle: "exampleco",
+  credentialsRef: "SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD",
   active: true,
-  createdAt: new Date('2026-07-01T00:00:00Z'),
-  updatedAt: new Date('2026-07-01T00:00:00Z'),
+  createdAt: new Date("2026-07-01T00:00:00Z"),
+  updatedAt: new Date("2026-07-01T00:00:00Z"),
 };
 
 const ACTIVE_SESSION = {
-  id: 'sess-001',
-  accountId: 'acc-001',
-  storageState: { cookies: [{ name: 'auth', value: 'token' }], origins: [] },
+  id: "sess-001",
+  accountId: "acc-001",
+  storageState: { cookies: [{ name: "auth", value: "token" }], origins: [] },
   status: SessionStatus.ACTIVE,
-  lastHealthCheck: new Date('2026-07-15T10:00:00Z'),
-  createdAt: new Date('2026-07-10T00:00:00Z'),
-  updatedAt: new Date('2026-07-15T10:00:00Z'),
+  lastHealthCheck: new Date("2026-07-15T10:00:00Z"),
+  createdAt: new Date("2026-07-10T00:00:00Z"),
+  updatedAt: new Date("2026-07-15T10:00:00Z"),
 };
 
 const NEW_SESSION = {
-  id: 'sess-auto-001',
-  accountId: 'acc-001',
-  storageState: { cookies: [{ name: 'sess', value: 'abc' }], origins: [] },
+  id: "sess-auto-001",
+  accountId: "acc-001",
+  storageState: { cookies: [{ name: "sess", value: "abc" }], origins: [] },
   status: SessionStatus.ACTIVE,
-  lastHealthCheck: new Date('2026-07-16T10:00:00Z'),
-  createdAt: new Date('2026-07-16T10:00:00Z'),
-  updatedAt: new Date('2026-07-16T10:00:00Z'),
+  lastHealthCheck: new Date("2026-07-16T10:00:00Z"),
+  createdAt: new Date("2026-07-16T10:00:00Z"),
+  updatedAt: new Date("2026-07-16T10:00:00Z"),
 };
 
 const APPROVED_POST_X = {
-  id: 'post-001',
+  id: "post-001",
   network: SocialNetwork.X,
-  content: 'Workflow trends are coming! Time to focus, not react.',
+  content: "Workflow trends are coming! Time to focus, not react.",
   status: PostStatus.APPROVED,
   postUrl: null,
   errorMessage: null,
-  accountId: 'acc-001',
+  accountId: "acc-001",
   threadId: null,
   threadPosition: 0,
   generationRunId: null,
   sourceRef: null,
   llmMetadata: null,
-  createdAt: new Date('2026-07-15T10:00:00Z'),
-  updatedAt: new Date('2026-07-15T10:00:00Z'),
-  approvedAt: new Date('2026-07-15T10:00:00Z'),
+  createdAt: new Date("2026-07-15T10:00:00Z"),
+  updatedAt: new Date("2026-07-15T10:00:00Z"),
+  approvedAt: new Date("2026-07-15T10:00:00Z"),
   postedAt: null,
   account: ACCOUNT_X,
   thread: null,
@@ -315,12 +341,12 @@ const APPROVED_POST_X = {
 const POSTED_POST_X = {
   ...APPROVED_POST_X,
   status: PostStatus.POSTED,
-  postUrl: 'https://x.com/exampleco/status/123456789',
-  postedAt: new Date('2026-07-15T12:00:00Z'),
+  postUrl: "https://x.com/exampleco/status/123456789",
+  postedAt: new Date("2026-07-15T12:00:00Z"),
 };
 
 const DEFAULT_STORAGE_STATE = JSON.stringify({
-  cookies: [{ name: 'sess', value: 'abc' }],
+  cookies: [{ name: "sess", value: "abc" }],
   origins: [],
 });
 
@@ -362,33 +388,63 @@ async function buildTestingModule(
   const mockSharedRedis = {
     get: (key: string) => Promise.resolve(redisStore.get(key) ?? null),
     mget: (keys: string[]) => Promise.resolve(keys.map((k) => redisStore.get(k) ?? null)),
-    set: (key: string, val: unknown) => { redisStore.set(key, String(val)); return Promise.resolve('OK'); },
-    setex: (key: string, _ttl: number, val: string) => { redisStore.set(key, val); return Promise.resolve('OK'); },
-    psetex: (key: string, _ttl: number, val: string) => { redisStore.set(key, val); return Promise.resolve('OK'); },
-    del: (key: string) => { redisStore.delete(key); return Promise.resolve(1); },
-    ping: () => Promise.resolve('PONG'),
-    subscribe: () => Promise.resolve('OK'),
-    unsubscribe: () => Promise.resolve('OK'),
-    on: (event: string, cb: (channel: string, msg: string) => void) => {
-      if (event === 'message') sseMessageHandlers.push(cb);
+    set: (key: string, val: unknown) => {
+      redisStore.set(key, String(val));
+      return Promise.resolve("OK");
     },
-    publish: (ch: string, msg: string) => { sseMessageHandlers.forEach((h) => h(ch, msg)); return Promise.resolve(1); },
+    setex: (key: string, _ttl: number, val: string) => {
+      redisStore.set(key, val);
+      return Promise.resolve("OK");
+    },
+    psetex: (key: string, _ttl: number, val: string) => {
+      redisStore.set(key, val);
+      return Promise.resolve("OK");
+    },
+    del: (key: string) => {
+      redisStore.delete(key);
+      return Promise.resolve(1);
+    },
+    ping: () => Promise.resolve("PONG"),
+    subscribe: () => Promise.resolve("OK"),
+    unsubscribe: () => Promise.resolve("OK"),
+    on: (event: string, cb: (channel: string, msg: string) => void) => {
+      if (event === "message") sseMessageHandlers.push(cb);
+    },
+    publish: (ch: string, msg: string) => {
+      sseMessageHandlers.forEach((h) => h(ch, msg));
+      return Promise.resolve(1);
+    },
     keys: (pat: string) => {
-      const prefix = pat.replace(/\*$/, '');
+      const prefix = pat.replace(/\*$/, "");
       return Promise.resolve([...redisStore.keys()].filter((k) => k.startsWith(prefix)));
     },
     // Simulate RECORD_POST_SCRIPT atomic rate-limit logic for RateLimitService.recordPost()
-    eval: (_script: unknown, _numKeys: number, dailyKey: string, weeklyKey: string, intervalKey: string, _lastPostAtKey: string, dailyLimit: string, weeklyLimit: string, intervalMs: string, now: string) => {
-      const daily = parseInt(redisStore.get(dailyKey) ?? '0', 10);
-      const weekly = parseInt(redisStore.get(weeklyKey) ?? '0', 10);
+    eval: (
+      _script: unknown,
+      _numKeys: number,
+      dailyKey: string,
+      weeklyKey: string,
+      intervalKey: string,
+      _lastPostAtKey: string,
+      dailyLimit: string,
+      weeklyLimit: string,
+      intervalMs: string,
+      now: string,
+    ) => {
+      const daily = parseInt(redisStore.get(dailyKey) ?? "0", 10);
+      const weekly = parseInt(redisStore.get(weeklyKey) ?? "0", 10);
       if (parseInt(dailyLimit, 10) > 0 && daily >= parseInt(dailyLimit, 10)) {
         return Promise.resolve([0, daily, weekly]);
       }
       if (parseInt(weeklyLimit, 10) > 0 && weekly >= parseInt(weeklyLimit, 10)) {
         return Promise.resolve([0, daily, weekly]);
       }
-      const intervalTs = parseInt(redisStore.get(intervalKey) ?? '0', 10);
-      if (parseInt(intervalMs, 10) > 0 && intervalTs > 0 && parseInt(now, 10) - intervalTs < parseInt(intervalMs, 10)) {
+      const intervalTs = parseInt(redisStore.get(intervalKey) ?? "0", 10);
+      if (
+        parseInt(intervalMs, 10) > 0 &&
+        intervalTs > 0 &&
+        parseInt(now, 10) - intervalTs < parseInt(intervalMs, 10)
+      ) {
         return Promise.resolve([0, daily, weekly]);
       }
       const newDaily = daily + 1;
@@ -402,19 +458,21 @@ async function buildTestingModule(
     expire: () => Promise.resolve(1),
     pexpire: () => Promise.resolve(1),
     incr: (key: string) => {
-      const v = parseInt(redisStore.get(key) ?? '0', 10) + 1;
+      const v = parseInt(redisStore.get(key) ?? "0", 10) + 1;
       redisStore.set(key, String(v));
       return Promise.resolve(v);
     },
     decr: (key: string) => {
-      const v = parseInt(redisStore.get(key) ?? '0', 10) - 1;
+      const v = parseInt(redisStore.get(key) ?? "0", 10) - 1;
       redisStore.set(key, String(v));
       return Promise.resolve(v);
     },
-    quit: () => Promise.resolve('OK'),
+    quit: () => Promise.resolve("OK"),
     disconnect: () => undefined,
     connect: () => Promise.resolve(undefined),
-    duplicate() { return this; },
+    duplicate() {
+      return this;
+    },
   } as unknown;
 
   const moduleRef = await Test.createTestingModule({
@@ -442,7 +500,15 @@ async function buildTestingModule(
       // P0-H3: Mock EncryptionService (passthrough mode)
       { provide: EncryptionService, useValue: createMockEncryptionService() },
       // DiscordNotificationService: mock (SessionsService now depends on it)
-      { provide: DiscordNotificationService, useValue: { critical: vi.fn().mockResolvedValue(undefined), warning: vi.fn().mockResolvedValue(undefined), info: vi.fn().mockResolvedValue(undefined), sendAlert: vi.fn().mockResolvedValue(undefined) } },
+      {
+        provide: DiscordNotificationService,
+        useValue: {
+          critical: vi.fn().mockResolvedValue(undefined),
+          warning: vi.fn().mockResolvedValue(undefined),
+          info: vi.fn().mockResolvedValue(undefined),
+          sendAlert: vi.fn().mockResolvedValue(undefined),
+        },
+      },
       // Sprint L: Provide SHARED_REDIS tokens directly (RedisModule not imported)
       { provide: SHARED_REDIS, useValue: mockSharedRedis },
       { provide: SHARED_REDIS_SUBSCRIBER, useValue: mockSharedRedis },
@@ -489,13 +555,15 @@ function resetDefaultMocks(ctx: TestContext) {
   prisma.post.findUnique.mockImplementation(({ where }: { where: { id: string } }) =>
     Promise.resolve(postStore.get(where.id) ?? null),
   );
-  prisma.post.update.mockImplementation(({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
-    const existing = postStore.get(where.id);
-    if (!existing) return Promise.resolve(null);
-    const updated = { ...existing, ...data };
-    postStore.set(where.id, updated);
-    return Promise.resolve(updated);
-  });
+  prisma.post.update.mockImplementation(
+    ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+      const existing = postStore.get(where.id);
+      if (!existing) return Promise.resolve(null);
+      const updated = { ...existing, ...data };
+      postStore.set(where.id, updated);
+      return Promise.resolve(updated);
+    },
+  );
   prisma.post.findMany.mockResolvedValue([]);
   prisma.post.count.mockResolvedValue(0);
 
@@ -520,7 +588,7 @@ function resetDefaultMocks(ctx: TestContext) {
 
   // Mock page
   mockPage.goto.mockResolvedValue(undefined);
-  mockPage.url.mockReturnValue('https://x.com/status/123456789');
+  mockPage.url.mockReturnValue("https://x.com/status/123456789");
   mockPage._locatorFirst.waitFor.mockResolvedValue(undefined);
   mockPage._locatorFirst.click.mockResolvedValue(undefined);
   mockPage._locatorFirst.fill.mockResolvedValue(undefined);
@@ -529,7 +597,7 @@ function resetDefaultMocks(ctx: TestContext) {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, ITC-023..025, ITC-034)', () => {
+describe("Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, ITC-023..025, ITC-034)", () => {
   let ctx: TestContext;
 
   beforeAll(async () => {
@@ -548,12 +616,12 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
 
   // ── ITC-010: Posting → Browser Port Integration ───────────────────────────
 
-  it('ITC-010: PostingService calls IBrowserPort.createContext(network, storageState) and saveStorageState() — post marked POSTED', async () => {
+  it("ITC-010: PostingService calls IBrowserPort.createContext(network, storageState) and saveStorageState() — post marked POSTED", async () => {
     // Arrange: APPROVED post + ACTIVE session (defaults already set)
-    ctx.postStore.set('post-010', { ...APPROVED_POST_X, id: 'post-010' });
+    ctx.postStore.set("post-010", { ...APPROVED_POST_X, id: "post-010" });
 
     // Act
-    const result = await ctx.postingService.postById('post-010');
+    const result = await ctx.postingService.postById("post-010");
 
     // Assert: acquireContext called with network + storageState from session
     expect(ctx.browserPort.acquireContext).toHaveBeenCalledTimes(1);
@@ -570,7 +638,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
       (c: unknown[]) => c[0]?.data?.status === PostStatus.POSTED,
     );
     expect(postedUpdate).toBeDefined();
-    expect(postedUpdate[0].where.id).toBe('post-010');
+    expect(postedUpdate[0].where.id).toBe("post-010");
     expect(postedUpdate[0].data.postUrl).toBeTruthy();
 
     // Assert: success returned
@@ -580,18 +648,20 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
 
   // ── ITC-011: Posting → Sessions Integration ───────────────────────────────
 
-  it('ITC-011: PostingService calls SessionsService.getOrCreateSession(network) before posting — storageState flows to createContext', async () => {
-    ctx.postStore.set('post-011', { ...APPROVED_POST_X, id: 'post-011' });
+  it("ITC-011: PostingService calls SessionsService.getOrCreateSession(network) before posting — storageState flows to createContext", async () => {
+    ctx.postStore.set("post-011", { ...APPROVED_POST_X, id: "post-011" });
 
     // Spy on the real getOrCreateSession — calls through to original
-    const getOrCreateSpy = vi.spyOn(ctx.sessionsService, 'getOrCreateSession');
+    const getOrCreateSpy = vi.spyOn(ctx.sessionsService, "getOrCreateSession");
 
     // Act
-    await ctx.postingService.postById('post-011');
+    await ctx.postingService.postById("post-011");
 
     // Assert: getOrCreateSession called with account + network
     expect(getOrCreateSpy).toHaveBeenCalledTimes(1);
-    expect(getOrCreateSpy).toHaveBeenCalledWith(ACCOUNT_X.id, SocialNetwork.X, { deferFormLogin: true });
+    expect(getOrCreateSpy).toHaveBeenCalledWith(ACCOUNT_X.id, SocialNetwork.X, {
+      deferFormLogin: true,
+    });
 
     // Assert: session.storageState was passed to browser.acquireContext
     expect(ctx.browserPort.acquireContext).toHaveBeenCalledTimes(1);
@@ -608,14 +678,14 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
 
   // ── ITC-012: Sessions → Browser Port Integration (Auto-Login) ─────────────
 
-  it('ITC-012: SessionsService.autoLogin() uses IBrowserPort — createContext(X) without storageState, page.goto(loginUrl), saveStorageState, session created ACTIVE', async () => {
+  it("ITC-012: SessionsService.autoLogin() uses IBrowserPort — createContext(X) without storageState, page.goto(loginUrl), saveStorageState, session created ACTIVE", async () => {
     // Arrange: no active session → triggers autoLogin
     ctx.prisma.session.findFirst.mockResolvedValue(null);
     ctx.prisma.session.create.mockResolvedValue({ ...NEW_SESSION });
     ctx.prisma.socialAccount.findFirst.mockResolvedValue({ ...ACCOUNT_X });
     // Mock page with success indicator visible (login succeeds)
     ctx.mockPage._locatorFirst.isVisible.mockResolvedValue(true);
-    ctx.mockPage.url.mockReturnValue('https://x.com/home');
+    ctx.mockPage.url.mockReturnValue("https://x.com/home");
 
     // Act
     const session = await ctx.sessionsService.getOrCreateSession(SocialNetwork.X);
@@ -627,10 +697,10 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
     expect(storageStateArg).toBeUndefined();
 
     // Assert: page.goto called with the X login URL
-    expect(ctx.mockPage.goto).toHaveBeenCalledWith(
-      'https://x.com/i/flow/login',
-      { waitUntil: 'domcontentloaded', timeout: 30000 },
-    );
+    expect(ctx.mockPage.goto).toHaveBeenCalledWith("https://x.com/i/flow/login", {
+      waitUntil: "domcontentloaded",
+      timeout: 30000,
+    });
 
     // Assert: saveStorageState called (to capture session state)
     expect(ctx.browserPort.saveStorageState).toHaveBeenCalledTimes(1);
@@ -645,57 +715,61 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
     expect(createArg.data.lastHealthCheck).toBeInstanceOf(Date);
 
     // Assert: returned session is the new ACTIVE session
-    expect(session).toEqual(expect.objectContaining({ id: NEW_SESSION.id, status: SessionStatus.ACTIVE }));
+    expect(session).toEqual(
+      expect.objectContaining({ id: NEW_SESSION.id, status: SessionStatus.ACTIVE }),
+    );
   });
 
   // ── ITC-013: Posting → RateLimit + SSE Integration (Full Posting Flow) ────
 
-  it('ITC-013: Full posting flow — rate check → SSE POSTING → post → SSE POSTED → recordPost (correct sequence)', async () => {
-    ctx.postStore.set('post-013', { ...APPROVED_POST_X, id: 'post-013' });
+  it("ITC-013: Full posting flow — rate check → SSE POSTING → post → SSE POSTED → recordPost (correct sequence)", async () => {
+    ctx.postStore.set("post-013", { ...APPROVED_POST_X, id: "post-013" });
 
     // Spy on real service methods (call through to original)
-    const checkRateSpy = vi.spyOn(ctx.rateLimitService, 'checkRateLimit');
-    const recordPostSpy = vi.spyOn(ctx.rateLimitService, 'recordPost');
-    const publishSpy = vi.spyOn(ctx.sseService, 'publish');
+    const checkRateSpy = vi.spyOn(ctx.rateLimitService, "checkRateLimit");
+    const recordPostSpy = vi.spyOn(ctx.rateLimitService, "recordPost");
+    const publishSpy = vi.spyOn(ctx.sseService, "publish");
 
     // Act
-    const result = await ctx.postingService.postById('post-013');
+    const result = await ctx.postingService.postById("post-013");
 
     // Assert: rate limit checked before posting
     expect(checkRateSpy).toHaveBeenCalledTimes(1);
-    expect(checkRateSpy).toHaveBeenCalledWith('X', 'acc-001');
+    expect(checkRateSpy).toHaveBeenCalledWith("X", "acc-001");
     const rateCheckCallOrder = checkRateSpy.mock.invocationCallOrder[0];
 
     // Assert: SSE POSTING event published
-    const postingEvent = publishSpy.mock.calls.find((c: unknown[]) => c[0]?.status === 'POSTING');
+    const postingEvent = publishSpy.mock.calls.find((c: unknown[]) => c[0]?.status === "POSTING");
     expect(postingEvent).toBeDefined();
     expect(postingEvent[0]).toMatchObject({
-      type: 'post_status',
-      postId: 'post-013',
-      status: 'POSTING',
-      network: 'X',
+      type: "post_status",
+      postId: "post-013",
+      status: "POSTING",
+      network: "X",
     });
-    const postingEventOrder = publishSpy.mock.invocationCallOrder[
-      publishSpy.mock.calls.findIndex((c: unknown[]) => c[0]?.status === 'POSTING')
-    ];
+    const postingEventOrder =
+      publishSpy.mock.invocationCallOrder[
+        publishSpy.mock.calls.findIndex((c: unknown[]) => c[0]?.status === "POSTING")
+      ];
 
     // Assert: SSE POSTED event published with url
-    const postedEvent = publishSpy.mock.calls.find((c: unknown[]) => c[0]?.status === 'POSTED');
+    const postedEvent = publishSpy.mock.calls.find((c: unknown[]) => c[0]?.status === "POSTED");
     expect(postedEvent).toBeDefined();
     expect(postedEvent[0]).toMatchObject({
-      type: 'post_status',
-      postId: 'post-013',
-      status: 'POSTED',
-      network: 'X',
+      type: "post_status",
+      postId: "post-013",
+      status: "POSTED",
+      network: "X",
     });
     expect(postedEvent[0].url).toBeTruthy();
-    const postedEventOrder = publishSpy.mock.invocationCallOrder[
-      publishSpy.mock.calls.findIndex((c: unknown[]) => c[0]?.status === 'POSTED')
-    ];
+    const postedEventOrder =
+      publishSpy.mock.invocationCallOrder[
+        publishSpy.mock.calls.findIndex((c: unknown[]) => c[0]?.status === "POSTED")
+      ];
 
     // Assert: recordPost called after success
     expect(recordPostSpy).toHaveBeenCalledTimes(1);
-    expect(recordPostSpy).toHaveBeenCalledWith('X', 'acc-001');
+    expect(recordPostSpy).toHaveBeenCalledWith("X", "acc-001");
     const recordPostOrder = recordPostSpy.mock.invocationCallOrder[0];
 
     // Assert: correct sequence — rate check < POSTING event < POSTED event
@@ -720,18 +794,18 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
 
   // ── ITC-014: Posting → RateLimit (Rate Limited → Throw → Retry) ───────────
 
-  it('ITC-014: PostingService returns rate-limit result when rate limit exceeded — post status remains APPROVED (not POSTING)', async () => {
+  it("ITC-014: PostingService returns rate-limit result when rate limit exceeded — post status remains APPROVED (not POSTING)", async () => {
     // Arrange: seed Redis interval key to now (just posted → rate limited)
-    const intervalKey = 'spa:ratelimit:X:acc-001:interval';
+    const intervalKey = "spa:ratelimit:X:acc-001:interval";
     redisStore.set(intervalKey, Date.now().toString());
 
-    ctx.postStore.set('post-014', { ...APPROVED_POST_X, id: 'post-014' });
+    ctx.postStore.set("post-014", { ...APPROVED_POST_X, id: "post-014" });
 
     // Spy on SSE publish BEFORE the call to verify no events are emitted
-    const publishSpy = vi.spyOn(ctx.sseService, 'publish');
+    const publishSpy = vi.spyOn(ctx.sseService, "publish");
 
     // Act: rate limit returns a non-throwing result with rateLimit flag
-    const result = await ctx.postingService.postById('post-014');
+    const result = await ctx.postingService.postById("post-014");
 
     // Assert: rate-limit result
     expect(result.success).toBe(false);
@@ -756,43 +830,43 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
 
   // ── ITC-023: Posting → SSE (FAILED Event on Poster Error) ─────────────────
 
-  it('ITC-023: SSE FAILED(retryable=true) event published when poster returns retryable error — post reverted to APPROVED', async () => {
+  it("ITC-023: SSE FAILED(retryable=true) event published when poster returns retryable error — post reverted to APPROVED", async () => {
     // Arrange: make XPoster fail by having page.goto throw "Navigation timeout"
     // (Navigation timeouts are classified as retryable network errors.)
-    ctx.mockPage.goto.mockRejectedValue(new Error('Navigation timeout'));
-    ctx.postStore.set('post-023', { ...APPROVED_POST_X, id: 'post-023' });
+    ctx.mockPage.goto.mockRejectedValue(new Error("Navigation timeout"));
+    ctx.postStore.set("post-023", { ...APPROVED_POST_X, id: "post-023" });
 
     // Spy on SSE publish BEFORE the call to capture all events
-    const publishSpy = vi.spyOn(ctx.sseService, 'publish');
+    const publishSpy = vi.spyOn(ctx.sseService, "publish");
 
     // Act
-    const result = await ctx.postingService.postById('post-023');
+    const result = await ctx.postingService.postById("post-023");
 
     // Assert: SSE POSTING event published (before the error)
-    const postingEvent = publishSpy.mock.calls.find((c: unknown[]) => c[0]?.status === 'POSTING');
+    const postingEvent = publishSpy.mock.calls.find((c: unknown[]) => c[0]?.status === "POSTING");
     expect(postingEvent).toBeDefined();
     expect(postingEvent[0]).toMatchObject({
-      type: 'post_status',
-      postId: 'post-023',
-      status: 'POSTING',
-      network: 'X',
+      type: "post_status",
+      postId: "post-023",
+      status: "POSTING",
+      network: "X",
     });
 
     // Assert: SSE FAILED event published with retryable flag
-    const failedEvent = publishSpy.mock.calls.find((c: unknown[]) => c[0]?.status === 'FAILED');
+    const failedEvent = publishSpy.mock.calls.find((c: unknown[]) => c[0]?.status === "FAILED");
     expect(failedEvent).toBeDefined();
     expect(failedEvent[0]).toMatchObject({
-      type: 'post_status',
-      postId: 'post-023',
-      status: 'FAILED',
-      network: 'X',
+      type: "post_status",
+      postId: "post-023",
+      status: "FAILED",
+      network: "X",
       retryable: true,
     });
-    expect(failedEvent[0].error).toContain('Navigation timeout');
+    expect(failedEvent[0].error).toContain("Navigation timeout");
 
     // Assert: result is failure with retryable error
     expect(result.success).toBe(false);
-    expect(result.error).toContain('Navigation timeout');
+    expect(result.error).toContain("Navigation timeout");
     expect(result.retryable).toBe(true);
 
     // Assert: post status reverted to APPROVED (not FAILED) so BullMQ can retry
@@ -804,52 +878,52 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
       (c: unknown[]) => c[0]?.data?.status === PostStatus.APPROVED,
     );
     expect(approvedUpdate).toBeDefined();
-    expect(approvedUpdate[0].where.id).toBe('post-023');
+    expect(approvedUpdate[0].where.id).toBe("post-023");
 
     // Assert: recordPost NOT called (only on success) — no interval key in Redis
-    expect(redisStore.has('spa:ratelimit:X:interval')).toBe(false);
+    expect(redisStore.has("spa:ratelimit:X:interval")).toBe(false);
   });
 
   // ── ITC-024: Posting → SSE (FAILED Event on Exception) ────────────────────
 
-  it('ITC-024: SSE FAILED(retryable=true) event published when no session — post reverted to APPROVED', async () => {
+  it("ITC-024: SSE FAILED(retryable=true) event published when no session — post reverted to APPROVED", async () => {
     // Arrange: no account → getOrCreateSession returns null → throws RetryableError
     ctx.prisma.socialAccount.findUnique.mockResolvedValue(null);
     ctx.prisma.socialAccount.findFirst.mockResolvedValue(null);
-    ctx.postStore.set('post-024', { ...APPROVED_POST_X, id: 'post-024' });
+    ctx.postStore.set("post-024", { ...APPROVED_POST_X, id: "post-024" });
 
     // Spy on SSE publish BEFORE the call to capture all events
-    const publishSpy = vi.spyOn(ctx.sseService, 'publish');
+    const publishSpy = vi.spyOn(ctx.sseService, "publish");
 
     // Act
-    const result = await ctx.postingService.postById('post-024');
+    const result = await ctx.postingService.postById("post-024");
 
     // Assert: exception caught, returns failure
     expect(result.success).toBe(false);
-    expect(result.error).toContain('No active session');
+    expect(result.error).toContain("No active session");
     expect(result.retryable).toBe(true);
 
     // Assert: SSE POSTING event was published (before the exception in try block)
-    const postingEvent = publishSpy.mock.calls.find((c: unknown[]) => c[0]?.status === 'POSTING');
+    const postingEvent = publishSpy.mock.calls.find((c: unknown[]) => c[0]?.status === "POSTING");
     expect(postingEvent).toBeDefined();
     expect(postingEvent[0]).toMatchObject({
-      type: 'post_status',
-      postId: 'post-024',
-      status: 'POSTING',
-      network: 'X',
+      type: "post_status",
+      postId: "post-024",
+      status: "POSTING",
+      network: "X",
     });
 
     // Assert: SSE FAILED event published with retryable flag
-    const failedEvent = publishSpy.mock.calls.find((c: unknown[]) => c[0]?.status === 'FAILED');
+    const failedEvent = publishSpy.mock.calls.find((c: unknown[]) => c[0]?.status === "FAILED");
     expect(failedEvent).toBeDefined();
     expect(failedEvent[0]).toMatchObject({
-      type: 'post_status',
-      postId: 'post-024',
-      status: 'FAILED',
-      network: 'X',
+      type: "post_status",
+      postId: "post-024",
+      status: "FAILED",
+      network: "X",
       retryable: true,
     });
-    expect(failedEvent[0].error).toContain('No active session');
+    expect(failedEvent[0].error).toContain("No active session");
 
     // Assert: post reverted to APPROVED (not FAILED) so BullMQ can retry
     const failedUpdate = ctx.prisma.post.update.mock.calls.find(
@@ -860,7 +934,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
       (c: unknown[]) => c[0]?.data?.status === PostStatus.APPROVED,
     );
     expect(approvedUpdate).toBeDefined();
-    expect(approvedUpdate[0].where.id).toBe('post-024');
+    expect(approvedUpdate[0].where.id).toBe("post-024");
 
     // Assert: POSTING status was set before the exception
     const postingUpdate = ctx.prisma.post.update.mock.calls.find(
@@ -869,7 +943,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
     expect(postingUpdate).toBeDefined();
 
     // Assert: recordPost NOT called — no interval key in Redis
-    expect(redisStore.has('spa:ratelimit:X:interval')).toBe(false);
+    expect(redisStore.has("spa:ratelimit:X:interval")).toBe(false);
 
     // Assert: browser NOT called (session was null, threw before createContext)
     expect(ctx.browserPort.createContext).not.toHaveBeenCalled();
@@ -877,20 +951,20 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
 
   // ── ITC-025: Posting Idempotency (Already POSTED) ─────────────────────────
 
-  it('ITC-025: postById returns success with existing url when post already POSTED — no browser, no SSE, no side effects', async () => {
+  it("ITC-025: postById returns success with existing url when post already POSTED — no browser, no SSE, no side effects", async () => {
     // Arrange: post already POSTED with postUrl
-    ctx.postStore.set('post-025', {
+    ctx.postStore.set("post-025", {
       ...POSTED_POST_X,
-      id: 'post-025',
+      id: "post-025",
     });
 
     // Act
-    const result = await ctx.postingService.postById('post-025');
+    const result = await ctx.postingService.postById("post-025");
 
     // Assert: returns success with existing url
     expect(result).toEqual({
       success: true,
-      url: 'https://x.com/exampleco/status/123456789',
+      url: "https://x.com/exampleco/status/123456789",
     });
 
     // Assert: IBrowserPort.createContext NOT called (re-verification for X uses
@@ -900,10 +974,11 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
     // Assert: post was re-verified to VERIFIED with the same postUrl
     expect(ctx.prisma.post.update).toHaveBeenCalled();
     const verifiedUpdate = ctx.prisma.post.update.mock.calls.find(
-      (c: unknown[]) => c[0]?.where?.id === 'post-025' && c[0]?.data?.status === PostStatus.VERIFIED,
+      (c: unknown[]) =>
+        c[0]?.where?.id === "post-025" && c[0]?.data?.status === PostStatus.VERIFIED,
     );
     expect(verifiedUpdate).toBeDefined();
-    expect(verifiedUpdate[0].data.postUrl).toBe('https://x.com/exampleco/status/123456789');
+    expect(verifiedUpdate[0].data.postUrl).toBe("https://x.com/exampleco/status/123456789");
 
     // Assert: no rate limit check (checkRateLimit not called — no Redis incr)
     // The daily key would be set if checkRateLimit ran
@@ -913,12 +988,12 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
 
   // ── ITC-034: Posting → Sessions (Auto-Login on Expired Session) ───────────
 
-  it('ITC-034: Posting triggers autoLogin when session is EXPIRED — new ACTIVE session created, storageState saved, post POSTED', async () => {
+  it("ITC-034: Posting triggers autoLogin when session is EXPIRED — new ACTIVE session created, storageState saved, post POSTED", async () => {
     // Arrange: no ACTIVE session (expired) → autoLogin triggered
     ctx.prisma.session.findFirst.mockResolvedValue(null); // no active session
     ctx.prisma.session.create.mockResolvedValue({ ...NEW_SESSION });
     ctx.prisma.socialAccount.findFirst.mockResolvedValue({ ...ACCOUNT_X });
-    ctx.postStore.set('post-034', { ...APPROVED_POST_X, id: 'post-034' });
+    ctx.postStore.set("post-034", { ...APPROVED_POST_X, id: "post-034" });
 
     // Mock page: login succeeds (success indicator visible).
     // URL 'https://x.com/status/123456789' works for BOTH:
@@ -928,13 +1003,15 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
     ctx.mockPage._locatorFirst.isVisible.mockResolvedValue(true);
 
     // Spy on getOrCreateSession to verify it's called
-    const getOrCreateSpy = vi.spyOn(ctx.sessionsService, 'getOrCreateSession');
+    const getOrCreateSpy = vi.spyOn(ctx.sessionsService, "getOrCreateSession");
 
     // Act
-    const result = await ctx.postingService.postById('post-034');
+    const result = await ctx.postingService.postById("post-034");
 
     // Assert: getOrCreateSession called with account + X
-    expect(getOrCreateSpy).toHaveBeenCalledWith(ACCOUNT_X.id, SocialNetwork.X, { deferFormLogin: true });
+    expect(getOrCreateSpy).toHaveBeenCalledWith(ACCOUNT_X.id, SocialNetwork.X, {
+      deferFormLogin: true,
+    });
 
     // Assert: autoLogin triggered — browser.createContext called for login (no storageState)
     // autoLogin uses createContext (SessionsService), posting uses acquireContext (PostingService)
@@ -956,11 +1033,14 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
 
     // Assert: session storageState updated after posting (updateStorageState called)
     const sessionUpdateCalls = ctx.prisma.session.update.mock.calls.filter(
-      (c: unknown[]) => c[0]?.data?.status === SessionStatus.ACTIVE && c[0]?.data?.storageState !== undefined,
+      (c: unknown[]) =>
+        c[0]?.data?.status === SessionStatus.ACTIVE && c[0]?.data?.storageState !== undefined,
     );
     expect(sessionUpdateCalls.length).toBeGreaterThanOrEqual(1);
     // The update should target the new session
-    const updateForNewSession = sessionUpdateCalls.find((c: unknown[]) => c[0]?.where?.id === NEW_SESSION.id);
+    const updateForNewSession = sessionUpdateCalls.find(
+      (c: unknown[]) => c[0]?.where?.id === NEW_SESSION.id,
+    );
     expect(updateForNewSession).toBeDefined();
 
     // Assert: post status = POSTED
@@ -968,7 +1048,7 @@ describe('Sandwich Integration: Posting ↔ Sessions ↔ Browser (ITC-010..014, 
       (c: unknown[]) => c[0]?.data?.status === PostStatus.POSTED,
     );
     expect(postedUpdate).toBeDefined();
-    expect(postedUpdate[0].where.id).toBe('post-034');
+    expect(postedUpdate[0].where.id).toBe("post-034");
 
     // Assert: success
     expect(result.success).toBe(true);

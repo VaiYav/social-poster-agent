@@ -6,10 +6,10 @@
  *
  * @see https://2captcha.com/2captcha-api
  */
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import type { Page } from '../../domain/ports/browser-primitives.js';
-import { parseBool } from '../config/parse-bool.js';
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import type { Page } from "../../domain/ports/browser-primitives.js";
+import { parseBool } from "../config/parse-bool.js";
 
 @Injectable()
 export class CaptchaSolverService {
@@ -20,10 +20,10 @@ export class CaptchaSolverService {
   private readonly maxPollAttempts: number;
 
   constructor(private readonly configService: ConfigService) {
-    this.enabled = parseBool(this.configService.get<string>('CAPTCHA_SOLVER_ENABLED', 'false'));
-    this.apiKey = this.configService.get<string>('TWO_CAPTCHA_API_KEY', '');
-    this.pollIntervalMs = this.configService.get<number>('CAPTCHA_POLL_INTERVAL_MS', 5000);
-    this.maxPollAttempts = this.configService.get<number>('CAPTCHA_MAX_POLL_ATTEMPTS', 24); // 2 min total
+    this.enabled = parseBool(this.configService.get<string>("CAPTCHA_SOLVER_ENABLED", "false"));
+    this.apiKey = this.configService.get<string>("TWO_CAPTCHA_API_KEY", "");
+    this.pollIntervalMs = this.configService.get<number>("CAPTCHA_POLL_INTERVAL_MS", 5000);
+    this.maxPollAttempts = this.configService.get<number>("CAPTCHA_MAX_POLL_ATTEMPTS", 24); // 2 min total
   }
 
   /**
@@ -32,20 +32,26 @@ export class CaptchaSolverService {
    */
   async solve(page: Page): Promise<boolean> {
     if (!this.enabled || !this.apiKey) {
-      this.logger.debug('Captcha solver disabled — skipping');
+      this.logger.debug("Captcha solver disabled — skipping");
       return false;
     }
 
-    const hasRecaptcha = await page.locator('iframe[src*="recaptcha"]').count().catch(() => 0);
-    const hasHcaptcha = await page.locator('iframe[src*="hcaptcha"]').count().catch(() => 0);
+    const hasRecaptcha = await page
+      .locator('iframe[src*="recaptcha"]')
+      .count()
+      .catch(() => 0);
+    const hasHcaptcha = await page
+      .locator('iframe[src*="hcaptcha"]')
+      .count()
+      .catch(() => 0);
 
     if (hasRecaptcha > 0) {
-      this.logger.log('Detected reCAPTCHA — attempting to solve');
+      this.logger.log("Detected reCAPTCHA — attempting to solve");
       return this.solveRecaptcha(page);
     }
 
     if (hasHcaptcha > 0) {
-      this.logger.log('Detected hCaptcha — attempting to solve');
+      this.logger.log("Detected hCaptcha — attempting to solve");
       return this.solveHcaptcha(page);
     }
 
@@ -57,15 +63,19 @@ export class CaptchaSolverService {
    */
   private async solveRecaptcha(page: Page): Promise<boolean> {
     try {
-      const sitekey = await page.locator('[data-sitekey]').first().getAttribute('data-sitekey').catch(() => null);
+      const sitekey = await page
+        .locator("[data-sitekey]")
+        .first()
+        .getAttribute("data-sitekey")
+        .catch(() => null);
       if (!sitekey) {
-        this.logger.warn('reCAPTCHA detected but sitekey not found');
+        this.logger.warn("reCAPTCHA detected but sitekey not found");
         return false;
       }
 
       const pageUrl = page.url();
       const token = await this.submitAndPoll({
-        method: 'userrecaptcha',
+        method: "userrecaptcha",
         googlekey: sitekey,
         pageurl: pageUrl,
       });
@@ -73,13 +83,15 @@ export class CaptchaSolverService {
       if (token) {
         // Inject the token into the page
         await page.evaluate((gToken) => {
-          const textarea = document.getElementById('g-recaptcha-response') as HTMLTextAreaElement | null;
+          const textarea = document.getElementById(
+            "g-recaptcha-response",
+          ) as HTMLTextAreaElement | null;
           if (textarea) {
-            textarea.style.display = 'block';
+            textarea.style.display = "block";
             textarea.value = gToken;
           }
         }, token);
-        this.logger.log('reCAPTCHA solved — token injected');
+        this.logger.log("reCAPTCHA solved — token injected");
         return true;
       }
     } catch (err) {
@@ -93,27 +105,33 @@ export class CaptchaSolverService {
    */
   private async solveHcaptcha(page: Page): Promise<boolean> {
     try {
-      const sitekey = await page.locator('[data-sitekey]').first().getAttribute('data-sitekey').catch(() => null);
+      const sitekey = await page
+        .locator("[data-sitekey]")
+        .first()
+        .getAttribute("data-sitekey")
+        .catch(() => null);
       if (!sitekey) {
-        this.logger.warn('hCaptcha detected but sitekey not found');
+        this.logger.warn("hCaptcha detected but sitekey not found");
         return false;
       }
 
       const pageUrl = page.url();
       const token = await this.submitAndPoll({
-        method: 'hcaptcha',
+        method: "hcaptcha",
         sitekey,
         pageurl: pageUrl,
       });
 
       if (token) {
         await page.evaluate((hToken) => {
-          const textarea = document.querySelector('textarea[name="h-captcha-response"]') as HTMLTextAreaElement | null;
+          const textarea = document.querySelector(
+            'textarea[name="h-captcha-response"]',
+          ) as HTMLTextAreaElement | null;
           if (textarea) {
             textarea.value = hToken;
           }
         }, token);
-        this.logger.log('hCaptcha solved — token injected');
+        this.logger.log("hCaptcha solved — token injected");
         return true;
       }
     } catch (err) {
@@ -128,13 +146,13 @@ export class CaptchaSolverService {
    */
   private async submitAndPoll(params: Record<string, string>): Promise<string | null> {
     // Step 1: Submit the captcha via POST (key in body, not URL)
-    const submitRes = await fetch('https://2captcha.com/in.php', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const submitRes = await fetch("https://2captcha.com/in.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ key: this.apiKey, json: 1, ...params }),
       signal: AbortSignal.timeout(30_000),
     });
-    const submitData = await submitRes.json() as { status: number; request: string };
+    const submitData = (await submitRes.json()) as { status: number; request: string };
 
     if (submitData.status !== 1) {
       this.logger.error(`2Captcha submit failed: ${submitData.request}`);
@@ -148,26 +166,26 @@ export class CaptchaSolverService {
     for (let i = 0; i < this.maxPollAttempts; i++) {
       await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs));
 
-      const resultRes = await fetch('https://2captcha.com/res.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: this.apiKey, action: 'get', id: captchaId, json: 1 }),
+      const resultRes = await fetch("https://2captcha.com/res.php", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: this.apiKey, action: "get", id: captchaId, json: 1 }),
         signal: AbortSignal.timeout(30_000),
       });
-      const resultData = await resultRes.json() as { status: number; request: string };
+      const resultData = (await resultRes.json()) as { status: number; request: string };
 
       if (resultData.status === 1) {
         return resultData.request; // This is the token
       }
 
-      if (resultData.request !== 'CAPCHA_NOT_READY') {
+      if (resultData.request !== "CAPCHA_NOT_READY") {
         this.logger.error(`2Captcha error: ${resultData.request}`);
         return null;
       }
       // CAPCHA_NOT_READY — continue polling
     }
 
-    this.logger.warn('2Captcha polling timed out');
+    this.logger.warn("2Captcha polling timed out");
     return null;
   }
 }

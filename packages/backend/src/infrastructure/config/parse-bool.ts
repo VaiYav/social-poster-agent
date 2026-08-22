@@ -7,14 +7,11 @@
  *
  * Accepts common truthy/falsy forms; unrecognized values fall back to `fallback`.
  */
-export function parseBool(
-  value: string | boolean | undefined | null,
-  fallback = false,
-): boolean {
+export function parseBool(value: string | boolean | undefined | null, fallback = false): boolean {
   if (value === undefined || value === null) return fallback;
-  if (typeof value === 'boolean') return value;
+  if (typeof value === "boolean") return value;
   const v = value.trim().toLowerCase();
-  if (['true', '1', 'yes', 'on', 'y'].includes(v)) return true;
-  if (['false', '0', 'no', 'off', 'n', ''].includes(v)) return false;
+  if (["true", "1", "yes", "on", "y"].includes(v)) return true;
+  if (["false", "0", "no", "off", "n", ""].includes(v)) return false;
   return fallback;
 }

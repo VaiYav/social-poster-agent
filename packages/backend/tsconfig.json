@@ -5,6 +5,7 @@
     "rootDir": "./src",
     "module": "CommonJS",
     "moduleResolution": "Node",
+    "ignoreDeprecations": "6.0",
     "lib": ["ES2022", "DOM"],
     "baseUrl": "./",
     "paths": {

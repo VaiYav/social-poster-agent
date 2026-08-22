@@ -1,6 +1,6 @@
-import type { ContentTopic } from '@spa/shared';
+import type { ContentTopic } from "@spa/shared";
 
-export const CONTENT_ADAPTERS = Symbol('CONTENT_ADAPTERS');
+export const CONTENT_ADAPTERS = Symbol("CONTENT_ADAPTERS");
 
 /**
  * IContentAdapter — pluggable source for content topics.

@@ -6,9 +6,9 @@
  * `parse_mode=MarkdownV2`. The adapter escapes the text for MarkdownV2 and
  * returns the public t.me URL when a channel username is available.
  */
-import { Injectable, Inject, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import type { PostResult } from '../../modules/posting/posters/base.poster.js';
+import { Injectable, Inject, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import type { PostResult } from "../../modules/posting/posters/base.poster.js";
 
 interface TelegramApiResponse {
   ok: boolean;
@@ -26,7 +26,7 @@ interface TelegramApiResponse {
 const MARKDOWN_V2_RESERVED = /[\\_\*\[\]()~`>#+=|{}.!-]/g;
 
 function escapeMarkdownV2(text: string): string {
-  return text.replace(MARKDOWN_V2_RESERVED, '\\$&');
+  return text.replace(MARKDOWN_V2_RESERVED, "\\$&");
 }
 
 @Injectable()
@@ -44,28 +44,28 @@ export class TelegramAdapter {
     chatUsername?: string;
     error?: string;
   }> {
-    const token = this.configService.get<string>('TELEGRAM_BOT_TOKEN', '');
-    const chatId = this.configService.get<string>('TELEGRAM_CHANNEL_ID', '');
+    const token = this.configService.get<string>("TELEGRAM_BOT_TOKEN", "");
+    const chatId = this.configService.get<string>("TELEGRAM_CHANNEL_ID", "");
 
     if (!token) {
-      return { success: false, error: 'TELEGRAM_BOT_TOKEN not configured' };
+      return { success: false, error: "TELEGRAM_BOT_TOKEN not configured" };
     }
     if (!chatId) {
-      return { success: false, error: 'TELEGRAM_CHANNEL_ID not configured' };
+      return { success: false, error: "TELEGRAM_CHANNEL_ID not configured" };
     }
 
     const url = `https://api.telegram.org/bot${token}/sendMessage`;
     const body = {
       chat_id: chatId,
       text: escapeMarkdownV2(text),
-      parse_mode: 'MarkdownV2',
+      parse_mode: "MarkdownV2",
     };
 
     let response: Response;
     try {
       response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
     } catch (err) {
@@ -89,12 +89,12 @@ export class TelegramAdapter {
 
     const messageId = result.result?.message_id;
     if (!messageId) {
-      return { success: false, error: 'Telegram API did not return message_id' };
+      return { success: false, error: "Telegram API did not return message_id" };
     }
 
     const apiUsername = result.result?.chat?.username;
     const chatUsername =
-      apiUsername ?? (String(chatId).startsWith('@') ? String(chatId).slice(1) : undefined);
+      apiUsername ?? (String(chatId).startsWith("@") ? String(chatId).slice(1) : undefined);
 
     this.logger.log(`Telegram message sent: chat=${chatId}, messageId=${messageId}`);
     return { success: true, messageId, chatUsername };

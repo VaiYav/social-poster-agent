@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import type { Component } from 'vue';
-import { Card, Button, Badge } from '../ui';
-import type { AgentViewModel, AgentAction } from '../../stores/agents';
+import type { Component } from "vue";
+import { Card, Button, Badge } from "../ui";
+import type { AgentViewModel, AgentAction } from "../../stores/agents";
 
 const props = defineProps<{
   agent: AgentViewModel;
@@ -12,18 +12,21 @@ const emit = defineEmits<{
   action: [actionId: string, agentId: string];
 }>();
 
-const statusVariants: Record<AgentViewModel['status'], 'success' | 'warning' | 'error' | 'info' | 'neutral'> = {
-  running: 'success',
-  paused: 'warning',
-  idle: 'neutral',
-  error: 'error',
-  warning: 'warning',
-  disabled: 'neutral',
-  unknown: 'neutral',
+const statusVariants: Record<
+  AgentViewModel["status"],
+  "success" | "warning" | "error" | "info" | "neutral"
+> = {
+  running: "success",
+  paused: "warning",
+  idle: "neutral",
+  error: "error",
+  warning: "warning",
+  disabled: "neutral",
+  unknown: "neutral",
 };
 
 function onAction(action: AgentAction) {
-  emit('action', action.id, props.agent.id);
+  emit("action", action.id, props.agent.id);
 }
 </script>
 
@@ -31,10 +34,17 @@ function onAction(action: AgentAction) {
   <Card
     :class="`
       flex flex-col overflow-hidden transition-shadow
-      ${agent.status === 'error' ? 'border-error/50 shadow-glow-error' :
-        agent.status === 'warning' ? 'border-warning/50' :
-        agent.status === 'running' ? 'border-success/30' : 'border-border'}
-    `">
+      ${
+        agent.status === 'error'
+          ? 'border-error/50 shadow-glow-error'
+          : agent.status === 'warning'
+            ? 'border-warning/50'
+            : agent.status === 'running'
+              ? 'border-success/30'
+              : 'border-border'
+      }
+    `"
+  >
     <div class="p-4">
       <div class="flex items-start justify-between gap-3">
         <div class="flex items-center gap-3">

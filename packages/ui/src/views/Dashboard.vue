@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed } from "vue";
 import {
   FileText,
   CheckCircle,
@@ -16,20 +16,20 @@ import {
   TrendingUp,
   Flame,
   RefreshCw,
-} from '@lucide/vue';
-import { usePostsStore } from '../stores/posts';
-import { useStatsStore } from '../stores/stats';
-import { useAgentsStore } from '../stores/agents';
-import { useMonitoringStore } from '../stores/monitoring';
-import { useApi } from '../composables/useApi';
-import { Card, Button, SectionHeader, Badge } from '../components/ui';
-import StatCard from '../components/StatCard.vue';
-import PostCard from '../components/PostCard.vue';
-import LoadingSpinner from '../components/LoadingSpinner.vue';
-import ErrorState from '../components/ErrorState.vue';
-import AgentGrid from '../components/agents/AgentGrid.vue';
-import LiveEventFeed from '../components/agents/LiveEventFeed.vue';
-import { useRouter } from 'vue-router';
+} from "@lucide/vue";
+import { usePostsStore } from "../stores/posts";
+import { useStatsStore } from "../stores/stats";
+import { useAgentsStore } from "../stores/agents";
+import { useMonitoringStore } from "../stores/monitoring";
+import { useApi } from "../composables/useApi";
+import { Card, Button, SectionHeader, Badge } from "../components/ui";
+import StatCard from "../components/StatCard.vue";
+import PostCard from "../components/PostCard.vue";
+import LoadingSpinner from "../components/LoadingSpinner.vue";
+import ErrorState from "../components/ErrorState.vue";
+import AgentGrid from "../components/agents/AgentGrid.vue";
+import LiveEventFeed from "../components/agents/LiveEventFeed.vue";
+import { useRouter } from "vue-router";
 
 const postsStore = usePostsStore();
 const statsStore = useStatsStore();
@@ -63,7 +63,7 @@ onMounted(async () => {
 
 async function fetchFlowControl() {
   try {
-    const res = await api.get<FlowControlState>('/flow-control/state');
+    const res = await api.get<FlowControlState>("/flow-control/state");
     flowState.value = res.data;
   } catch {
     // Endpoint may not exist in all environments
@@ -76,7 +76,7 @@ async function fetchQualityMetrics() {
     const res = await api.get<{
       networks: Record<string, Record<string, { avgQuality: number; qualityCount: number }>>;
       lastUpdated: number | null;
-    }>('/analytics/hook-performance');
+    }>("/analytics/hook-performance");
     if (res.data.lastUpdated) {
       // Compute weighted average quality across all networks
       let totalScore = 0;
@@ -98,50 +98,57 @@ async function fetchQualityMetrics() {
 
 const allPaused = computed(() => {
   if (!flowState.value) return false;
-  return flowState.value.crisisMode ||
-    (flowState.value.generationPaused && flowState.value.postingPaused);
+  return (
+    flowState.value.crisisMode ||
+    (flowState.value.generationPaused && flowState.value.postingPaused)
+  );
 });
 
 const sourceLabels: Record<string, string> = {
-  events: 'Events',
-  google_trends: 'Google',
-  x_trends: 'X',
+  events: "Events",
+  google_trends: "Google",
+  x_trends: "X",
 };
 
 function formatSources(sources: string[]) {
-  return sources.map((s) => sourceLabels[s] ?? s).join(' · ');
+  return sources.map((s) => sourceLabels[s] ?? s).join(" · ");
 }
 
 // F22: show merged real-time trends when available, fall back to events-only active trends.
 const activeTrends = computed(() => {
   if (statsStore.mergedTrending.length > 0) {
     return statsStore.mergedTrending.slice(0, 5).map((t) => ({
-      type: 'merged' as const,
+      type: "merged" as const,
       title: t.topic,
       subtitle: formatSources(t.sources),
       priority: t.priority,
       networks: t.networks,
     }));
   }
-  return statsStore.trending.filter((t) => t.trending).slice(0, 5).map((t) => ({
-    type: 'events' as const,
-    title: t.event,
-    subtitle: t.topic,
-    daysUntil: t.daysUntil,
-    networks: t.networks,
-  }));
+  return statsStore.trending
+    .filter((t) => t.trending)
+    .slice(0, 5)
+    .map((t) => ({
+      type: "events" as const,
+      title: t.event,
+      subtitle: t.topic,
+      daysUntil: t.daysUntil,
+      networks: t.networks,
+    }));
 });
 
 const upcomingTrends = computed(() =>
-  statsStore.trending.filter((t) => !t.trending && t.daysUntil > 0 && t.daysUntil <= 14).slice(0, 5),
+  statsStore.trending
+    .filter((t) => !t.trending && t.daysUntil > 0 && t.daysUntil <= 14)
+    .slice(0, 5),
 );
 
 const statItems = [
-  { label: 'Drafts', value: 'drafts', icon: FileText, color: 'text-status-draft' },
-  { label: 'Approved', value: 'approved', icon: CheckCircle, color: 'text-status-approved' },
-  { label: 'Posted', value: 'posted', icon: CheckCircle2, color: 'text-status-posted' },
-  { label: 'Failed', value: 'failed', icon: XCircle, color: 'text-status-failed' },
-  { label: 'Rejected', value: 'rejected', icon: Ban, color: 'text-status-rejected' },
+  { label: "Drafts", value: "drafts", icon: FileText, color: "text-status-draft" },
+  { label: "Approved", value: "approved", icon: CheckCircle, color: "text-status-approved" },
+  { label: "Posted", value: "posted", icon: CheckCircle2, color: "text-status-posted" },
+  { label: "Failed", value: "failed", icon: XCircle, color: "text-status-failed" },
+  { label: "Rejected", value: "rejected", icon: Ban, color: "text-status-rejected" },
 ] as const;
 </script>
 
@@ -161,7 +168,9 @@ const statItems = [
       <div class="flex-1">
         <p class="font-medium text-error">All flows paused</p>
         <p class="text-sm text-text-secondary">
-          {{ flowState?.crisisMode ? 'Crisis mode is active.' : 'Generation and posting are paused.' }}
+          {{
+            flowState?.crisisMode ? "Crisis mode is active." : "Generation and posting are paused."
+          }}
         </p>
       </div>
       <Button size="sm" variant="outline" @click="router.push('/flow-control')">
@@ -196,7 +205,7 @@ const statItems = [
           <div>
             <p class="text-sm text-text-secondary">Avg Quality Score</p>
             <p class="text-2xl font-bold text-text-primary">
-              {{ avgQualityScore !== null ? avgQualityScore.toFixed(1) : '—' }}
+              {{ avgQualityScore !== null ? avgQualityScore.toFixed(1) : "—" }}
               <span class="text-sm font-normal text-text-muted">/ 10</span>
             </p>
           </div>
@@ -213,7 +222,7 @@ const statItems = [
             <p class="text-sm text-text-secondary">Autonomous Mode</p>
             <div class="flex items-center gap-2">
               <Badge :variant="flowState && !allPaused ? 'success' : 'warning'">
-                {{ flowState && !allPaused ? 'Active' : 'Paused' }}
+                {{ flowState && !allPaused ? "Active" : "Paused" }}
               </Badge>
               <Button size="sm" variant="ghost" @click="router.push('/flow-control')">
                 Configure
@@ -232,14 +241,26 @@ const statItems = [
           <div class="flex-1">
             <p class="text-sm text-text-secondary">Flow Status</p>
             <div class="flex flex-wrap gap-1.5 mt-1">
-              <Badge v-if="flowState" :variant="flowState.generationPaused ? 'warning' : 'success'" class="text-xs">
-                Gen {{ flowState.generationPaused ? 'off' : 'on' }}
+              <Badge
+                v-if="flowState"
+                :variant="flowState.generationPaused ? 'warning' : 'success'"
+                class="text-xs"
+              >
+                Gen {{ flowState.generationPaused ? "off" : "on" }}
               </Badge>
-              <Badge v-if="flowState" :variant="flowState.postingPaused ? 'warning' : 'success'" class="text-xs">
-                Post {{ flowState.postingPaused ? 'off' : 'on' }}
+              <Badge
+                v-if="flowState"
+                :variant="flowState.postingPaused ? 'warning' : 'success'"
+                class="text-xs"
+              >
+                Post {{ flowState.postingPaused ? "off" : "on" }}
               </Badge>
-              <Badge v-if="flowState" :variant="flowState.engagementPaused ? 'warning' : 'success'" class="text-xs">
-                Eng {{ flowState.engagementPaused ? 'off' : 'on' }}
+              <Badge
+                v-if="flowState"
+                :variant="flowState.engagementPaused ? 'warning' : 'success'"
+                class="text-xs"
+              >
+                Eng {{ flowState.engagementPaused ? "off" : "on" }}
               </Badge>
             </div>
           </div>
@@ -266,20 +287,11 @@ const statItems = [
         <LoadingSpinner v-if="postsStore.loading" />
         <ErrorState v-else-if="postsStore.error" :message="postsStore.error" />
         <div v-else-if="postsStore.posts.length === 0" class="py-8 text-center">
-          <p class="text-sm text-text-muted">
-            No posts yet. Generate some from the Generate page.
-          </p>
-          <Button class="mt-4" size="sm" @click="router.push('/generate')">
-            Generate posts
-          </Button>
+          <p class="text-sm text-text-muted">No posts yet. Generate some from the Generate page.</p>
+          <Button class="mt-4" size="sm" @click="router.push('/generate')"> Generate posts </Button>
         </div>
         <div v-else class="space-y-4">
-          <PostCard
-            v-for="post in postsStore.posts"
-            :key="post.id"
-            :post="post"
-            :truncate="120"
-          />
+          <PostCard v-for="post in postsStore.posts" :key="post.id" :post="post" :truncate="120" />
         </div>
       </Card>
 
@@ -296,19 +308,35 @@ const statItems = [
               Review queue
               <ArrowRight class="h-4 w-4" />
             </Button>
-            <Button class="w-full justify-between" variant="secondary" @click="router.push('/generate')">
+            <Button
+              class="w-full justify-between"
+              variant="secondary"
+              @click="router.push('/generate')"
+            >
               Generate posts
               <ArrowRight class="h-4 w-4" />
             </Button>
-            <Button class="w-full justify-between" variant="outline" @click="router.push('/analytics')">
+            <Button
+              class="w-full justify-between"
+              variant="outline"
+              @click="router.push('/analytics')"
+            >
               View analytics
               <ArrowRight class="h-4 w-4" />
             </Button>
-            <Button class="w-full justify-between" variant="outline" @click="router.push('/flow-control')">
+            <Button
+              class="w-full justify-between"
+              variant="outline"
+              @click="router.push('/flow-control')"
+            >
               Flow control
               <ArrowRight class="h-4 w-4" />
             </Button>
-            <Button class="w-full justify-between" variant="outline" @click="router.push('/reports')">
+            <Button
+              class="w-full justify-between"
+              variant="outline"
+              @click="router.push('/reports')"
+            >
               Reports
               <ArrowRight class="h-4 w-4" />
             </Button>
@@ -369,7 +397,12 @@ const statItems = [
           <h2 class="text-lg font-semibold text-text-primary">Agent Subsystems</h2>
           <p class="text-sm text-text-secondary">Live status and control for all agents</p>
         </div>
-        <Button variant="outline" size="sm" :loading="agentsStore.loading" @click="agentsStore.fetchSnapshot">
+        <Button
+          variant="outline"
+          size="sm"
+          :loading="agentsStore.loading"
+          @click="agentsStore.fetchSnapshot"
+        >
           <RefreshCw class="mr-1 h-3.5 w-3.5" />
           Refresh
         </Button>

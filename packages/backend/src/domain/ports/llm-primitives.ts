@@ -15,4 +15,4 @@
  * For now this is a structural pass-through of the LangChain type, so there
  * is zero behavioural change; the value is the centralised seam.
  */
-export type { BaseCallbackHandler } from '@langchain/core/callbacks/base';
+export type { BaseCallbackHandler } from "@langchain/core/callbacks/base";

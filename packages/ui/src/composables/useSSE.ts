@@ -12,8 +12,8 @@
  *   - Clear timeout on disconnect to prevent zombie reconnects
  */
 
-import { ref, onUnmounted, type Ref } from 'vue';
-import { SSEvent, SSEventSchema } from '@spa/shared';
+import { ref, onUnmounted, type Ref } from "vue";
+import { SSEvent, SSEventSchema } from "@spa/shared";
 
 export interface SSEOptions {
   /** Maximum reconnection attempts before giving up (default: 10) */
@@ -27,12 +27,7 @@ export interface SSEOptions {
 }
 
 export function useSSE(url: string, options: SSEOptions = {}) {
-  const {
-    maxRetries = 10,
-    baseDelayMs = 1000,
-    maxDelayMs = 30000,
-    jitter = true,
-  } = options;
+  const { maxRetries = 10, baseDelayMs = 1000, maxDelayMs = 30000, jitter = true } = options;
 
   const data: Ref<SSEvent | null> = ref(null);
   const error: Ref<string | null> = ref(null);

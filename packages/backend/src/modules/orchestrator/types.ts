@@ -5,7 +5,7 @@
  * (OBSERVE → DECIDE → EXECUTE → EVALUATE) and the services they call.
  */
 
-import type { SocialNetwork, SessionStatus } from '@prisma/client';
+import type { SocialNetwork, SessionStatus } from "../../generated/prisma/client";
 
 // ── World State (collected by OBSERVE node) ────────────────────────────────
 
@@ -23,9 +23,9 @@ export interface DraftCounts {
 }
 
 export interface SessionState {
-  status: SessionStatus | 'unknown';
+  status: SessionStatus | "unknown";
   lastCheckMs: number;
-  circuitBreaker: 'closed' | 'open' | 'half_open' | 'unknown';
+  circuitBreaker: "closed" | "open" | "half_open" | "unknown";
 }
 
 export interface RateLimitState {
@@ -40,7 +40,7 @@ export interface RateLimitState {
 export interface PostingWindow {
   bestHours: number[];
   inWindow: boolean;
-  confidence: 'high' | 'medium' | 'low';
+  confidence: "high" | "medium" | "low";
 }
 
 export interface PostMetricsSummary {
@@ -138,30 +138,30 @@ export interface WorldState {
 // ── Actions (produced by DECIDE node) ──────────────────────────────────────
 
 export type ActionType =
-  | 'GENERATE_TOPICS'
-  | 'GENERATE_POSTS'
-  | 'POST'
-  | 'BROWSE'
-  | 'RECOVER_SESSION'
-  | 'CHECK_REPLIES'
-  | 'REFRESH_TRENDS'
-  | 'HEALTH_CHECK'
-  | 'RECONCILE'
-  | 'TRIAGE_QUEUE'
-  | 'SCRAPE_METRICS'
-  | 'RECYCLE_CONTENT'
-  | 'AGGREGATE_HOOKS'
-  | 'WAIT';
+  | "GENERATE_TOPICS"
+  | "GENERATE_POSTS"
+  | "POST"
+  | "BROWSE"
+  | "RECOVER_SESSION"
+  | "CHECK_REPLIES"
+  | "REFRESH_TRENDS"
+  | "HEALTH_CHECK"
+  | "RECONCILE"
+  | "TRIAGE_QUEUE"
+  | "SCRAPE_METRICS"
+  | "RECYCLE_CONTENT"
+  | "AGGREGATE_HOOKS"
+  | "WAIT";
 
 /** Actions that require a network target */
-export type NetworkActionType = 'POST' | 'BROWSE' | 'RECOVER_SESSION';
+export type NetworkActionType = "POST" | "BROWSE" | "RECOVER_SESSION";
 
 /** Actions that don't require a network */
 export type GenericActionType = Exclude<ActionType, NetworkActionType>;
 
 interface BaseAction {
   reason: string;
-  source: 'hard_rule' | 'llm' | 'guardrail_override' | 'rules_fallback';
+  source: "hard_rule" | "llm" | "guardrail_override" | "rules_fallback";
   params?: Record<string, unknown>;
 }
 
@@ -204,17 +204,17 @@ export interface OrchestratorState {
 export const WAIT_ACTION = (
   reason: string,
   sleepMs = 120_000,
-  source: Action['source'] = 'hard_rule',
+  source: Action["source"] = "hard_rule",
 ): GenericAction => ({
-  type: 'WAIT',
+  type: "WAIT",
   reason,
   source,
   params: { sleepMs },
 });
 
 export const RECOVER_ACTION = (network: SocialNetwork, reason: string): NetworkAction => ({
-  type: 'RECOVER_SESSION',
+  type: "RECOVER_SESSION",
   network,
   reason,
-  source: 'hard_rule',
+  source: "hard_rule",
 });

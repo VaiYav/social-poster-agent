@@ -9,15 +9,15 @@
  * falls back to hardcoded hours from POSTING_WINDOW_FALLBACK_HOURS.
  */
 
-import { Injectable, Logger, Inject } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
-import { SocialNetwork } from '@prisma/client';
-import { parseBool } from '../../infrastructure/config/parse-bool.js';
-import type { PostingWindow } from './types.js';
+import { Injectable, Logger, Inject } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service";
+import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
+import { SocialNetwork } from "../../generated/prisma/client";
+import { parseBool } from "../../infrastructure/config/parse-bool.js";
+import type { PostingWindow } from "./types.js";
 
-const CACHE_KEY_PREFIX = 'spa:posting-window:heatmap';
+const CACHE_KEY_PREFIX = "spa:posting-window:heatmap";
 const CACHE_TTL_SEC = 3600; // 1 hour
 
 interface HourScore {
@@ -38,16 +38,23 @@ export class PostingWindowService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
-    @Inject(SHARED_REDIS) private readonly redis: InstanceType<typeof import('ioredis').default>,
+    @Inject(SHARED_REDIS) private readonly redis: InstanceType<typeof import("ioredis").default>,
   ) {
-    this.minSamples = Number(this.configService.get<string>('POSTING_WINDOW_MIN_SAMPLES', '10'));
-    this.topHours = Number(this.configService.get<string>('POSTING_WINDOW_TOP_HOURS', '3'));
-    this.decayDays = Number(this.configService.get<string>('POSTING_WINDOW_DECAY_DAYS', '30'));
-    const fallbackCsv = this.configService.get<string>('POSTING_WINDOW_FALLBACK_HOURS', '9,12,18,21');
-    this.fallbackHours = fallbackCsv.split(',').map((h) => Number(h.trim())).filter((h) => !isNaN(h)).sort((a, b) => a - b);
-    this.bypass = parseBool(this.configService.get<string>('POSTING_WINDOW_BYPASS', 'false'));
+    this.minSamples = Number(this.configService.get<string>("POSTING_WINDOW_MIN_SAMPLES", "10"));
+    this.topHours = Number(this.configService.get<string>("POSTING_WINDOW_TOP_HOURS", "3"));
+    this.decayDays = Number(this.configService.get<string>("POSTING_WINDOW_DECAY_DAYS", "30"));
+    const fallbackCsv = this.configService.get<string>(
+      "POSTING_WINDOW_FALLBACK_HOURS",
+      "9,12,18,21",
+    );
+    this.fallbackHours = fallbackCsv
+      .split(",")
+      .map((h) => Number(h.trim()))
+      .filter((h) => !isNaN(h))
+      .sort((a, b) => a - b);
+    this.bypass = parseBool(this.configService.get<string>("POSTING_WINDOW_BYPASS", "false"));
     if (this.bypass) {
-      this.logger.log('Posting window bypass enabled — all networks will report inWindow=true');
+      this.logger.log("Posting window bypass enabled — all networks will report inWindow=true");
     }
   }
 
@@ -63,33 +70,40 @@ export class PostingWindowService {
       if (totalSamples < this.minSamples) {
         // Cold start — use fallback hours
         const currentHour = new Date().getUTCHours();
-        const inWindow = this.bypass || this.fallbackHours.some(
-          (h) => Math.abs(h - currentHour) <= 1, // ±1 hour tolerance
-        );
+        const inWindow =
+          this.bypass ||
+          this.fallbackHours.some(
+            (h) => Math.abs(h - currentHour) <= 1, // ±1 hour tolerance
+          );
         return {
           bestHours: this.fallbackHours,
           inWindow,
-          confidence: 'low',
+          confidence: "low",
         };
       }
 
       // Sort by score descending, take top N, then return hours in ascending order
       // so callers can compute the next upcoming window easily.
       const sorted = [...heatmap].sort((a, b) => b.score - a.score);
-      const best = sorted.slice(0, this.topHours).map((h) => h.hour).sort((a, b) => a - b);
+      const best = sorted
+        .slice(0, this.topHours)
+        .map((h) => h.hour)
+        .sort((a, b) => a - b);
 
       const currentHour = new Date().getUTCHours();
       const inWindow = this.bypass || best.some((h) => Math.abs(h - currentHour) <= 1);
 
-      const confidence = totalSamples > 50 ? 'high' : 'medium';
+      const confidence = totalSamples > 50 ? "high" : "medium";
 
       return { bestHours: best, inWindow, confidence };
     } catch (err) {
-      this.logger.warn(`PostingWindow recommendation failed for ${network}: ${(err as Error).message}`);
+      this.logger.warn(
+        `PostingWindow recommendation failed for ${network}: ${(err as Error).message}`,
+      );
       return {
         bestHours: this.fallbackHours,
         inWindow: this.bypass,
-        confidence: 'low',
+        confidence: "low",
       };
     }
   }
@@ -115,7 +129,15 @@ export class PostingWindowService {
     // Wrap to tomorrow's first hour
     const first = hours[0]!;
     const tomorrow = new Date(now + 24 * 60 * 60 * 1000);
-    return Date.UTC(tomorrow.getUTCFullYear(), tomorrow.getUTCMonth(), tomorrow.getUTCDate(), first, 0, 0, 0);
+    return Date.UTC(
+      tomorrow.getUTCFullYear(),
+      tomorrow.getUTCMonth(),
+      tomorrow.getUTCDate(),
+      first,
+      0,
+      0,
+      0,
+    );
   }
 
   /**
@@ -164,7 +186,7 @@ export class PostingWindowService {
       include: {
         post: { select: { postedAt: true } },
       },
-      orderBy: { collectedAt: 'desc' },
+      orderBy: { collectedAt: "desc" },
       take: 500, // Limit to prevent unbounded queries on high-volume networks
     });
 

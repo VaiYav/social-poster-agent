@@ -1,6 +1,6 @@
-import { Module } from '@nestjs/common';
-import { QueueFactory } from './queue.factory';
-import { IPostingQueuePort } from '../../domain/ports/posting-queue.port';
+import { Module } from "@nestjs/common";
+import { QueueFactory } from "./queue.factory";
+import { IPostingQueuePort } from "../../domain/ports/posting-queue.port";
 
 /**
  * A5: also binds IPostingQueuePort (a thin wrapper over QueueFactory.enqueuePosting) so consumers
@@ -13,7 +13,8 @@ import { IPostingQueuePort } from '../../domain/ports/posting-queue.port';
     {
       provide: IPostingQueuePort,
       useFactory: (queueFactory: QueueFactory): IPostingQueuePort => ({
-        enqueuePosting: (postId, network, opts) => queueFactory.enqueuePosting(postId, network, opts),
+        enqueuePosting: (postId, network, opts) =>
+          queueFactory.enqueuePosting(postId, network, opts),
       }),
       inject: [QueueFactory],
     },

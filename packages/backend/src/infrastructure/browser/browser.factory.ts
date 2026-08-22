@@ -1,21 +1,32 @@
-import { Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
-import type { ModuleRef } from '@nestjs/core';
-import { ConfigService } from '@nestjs/config';
-import type { Browser, BrowserContext, Locator, Page } from '../../domain/ports/browser-primitives.js';
-import type { SocialNetwork } from '@prisma/client';
-import { Camoufox, type LaunchOptions } from 'camoufox-js';
+import {
+  Injectable,
+  Logger,
+  Optional,
+  type OnModuleDestroy,
+  type OnModuleInit,
+} from "@nestjs/common";
+import type { ModuleRef } from "@nestjs/core";
+import { ConfigService } from "@nestjs/config";
+import type {
+  Browser,
+  BrowserContext,
+  Locator,
+  Page,
+} from "../../domain/ports/browser-primitives.js";
+import type { SocialNetwork } from "../../generated/prisma/client";
+import { Camoufox, type LaunchOptions } from "camoufox-js";
 import type {
   IBrowserPort,
   ScrollDirection,
   ScreenshotPhase,
   LLMActionResult,
   ObservableElement,
-} from '../../domain/ports/browser.port.js';
-import { mkdirSync, existsSync, chmodSync } from 'node:fs';
-import { join } from 'node:path';
-import { parseBool } from '../config/parse-bool.js';
-import { withTimeout } from '../util/with-timeout.js';
-import { ProxyRotationService, type ProxyConfig } from '../proxy/proxy-rotation.service.js';
+} from "../../domain/ports/browser.port.js";
+import { mkdirSync, existsSync, chmodSync } from "node:fs";
+import { join } from "node:path";
+import { parseBool } from "../config/parse-bool.js";
+import { withTimeout } from "../util/with-timeout.js";
+import { ProxyRotationService, type ProxyConfig } from "../proxy/proxy-rotation.service.js";
 
 /**
  * Browser factory — creates Camoufox (stealth Firefox fork) browser contexts.
@@ -41,7 +52,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
   private readonly humanize: boolean;
   private readonly geoip: boolean;
   private readonly locale: string;
-  private readonly targetOs: 'windows' | 'macos' | 'linux';
+  private readonly targetOs: "windows" | "macos" | "linux";
   private readonly proxyUrl: string | undefined;
   private readonly screenshotDir: string;
   private readonly screenshotsEnabled: boolean;
@@ -64,17 +75,17 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
   // Telegram is NOT here — it uses Bot API, not Camoufox.
   // X/Threads remain pooled (existing behavior, storageState saved between posts).
   private static readonly PERSISTENT_NETWORKS: Set<SocialNetwork> = new Set<SocialNetwork>([
-    'FACEBOOK' as SocialNetwork,
-    'DEVTO' as SocialNetwork,
-    'HASHNODE' as SocialNetwork,
-    'LINKEDIN' as SocialNetwork,
-    'BLUESKY' as SocialNetwork,
-    'MASTODON' as SocialNetwork,
-    'MEDIUM' as SocialNetwork,
-    'SUBSTACK' as SocialNetwork,
-    'REDDIT' as SocialNetwork,
-    'QUORA' as SocialNetwork,
-    'PINTEREST' as SocialNetwork,
+    "FACEBOOK" as SocialNetwork,
+    "DEVTO" as SocialNetwork,
+    "HASHNODE" as SocialNetwork,
+    "LINKEDIN" as SocialNetwork,
+    "BLUESKY" as SocialNetwork,
+    "MASTODON" as SocialNetwork,
+    "MEDIUM" as SocialNetwork,
+    "SUBSTACK" as SocialNetwork,
+    "REDDIT" as SocialNetwork,
+    "QUORA" as SocialNetwork,
+    "PINTEREST" as SocialNetwork,
   ]);
   // P5: key `${network}:${accountId ?? 'default'}` → in-flight launch promise, so concurrent callers share a
   // single Camoufox launch instead of racing two processes onto one user_data_dir.
@@ -107,7 +118,10 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
   // sat unused past contextIdleTtlMs — each is a real Camoufox (Firefox) process,
   // and without eviction a warm pool of up to `poolSize` contexts per network sits
   // in memory indefinitely even when nothing is running.
-  private readonly idleContexts = new Map<string, Array<{ context: BrowserContext; releasedAt: number }>>();
+  private readonly idleContexts = new Map<
+    string,
+    Array<{ context: BrowserContext; releasedAt: number }>
+  >();
   // MEM: tracks acquiredAt per context so sweepIdleContexts can also reap
   // orphaned in-use contexts (releaseContext never called due to exception).
   private readonly inUseContexts = new Map<string, Map<BrowserContext, number>>();
@@ -117,7 +131,14 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
   // poolSize with no further cap (the excess context then persists as idle inventory
   // until the TTL sweep closes it).
   private readonly pendingCreates = new Map<string, number>();
-  private readonly contextWaiters = new Map<string, Array<{ resolve: () => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> }>>();
+  private readonly contextWaiters = new Map<
+    string,
+    Array<{
+      resolve: () => void;
+      reject: (err: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }>
+  >();
   // Tracks contexts that have been closed (by us, by the browser, or by a page crash).
   // Prevents the pool from reusing dead contexts after a failed session or sweep.
   private readonly closedContexts = new WeakSet<BrowserContext>();
@@ -135,75 +156,109 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     @Optional() private readonly proxyRotation?: ProxyRotationService,
     @Optional() private readonly moduleRef?: ModuleRef,
   ) {
-    this.headless = parseBool(this.configService.get<string>('CAMOUFOX_HEADLESS', 'true'));
-    this.humanize = parseBool(this.configService.get<string>('CAMOUFOX_HUMANIZE', 'true'));
-    this.geoip = parseBool(this.configService.get<string>('CAMOUFOX_GEOIP', 'true'));
-    this.locale = this.configService.get<string>('CAMOUFOX_LOCALE', 'en-US');
-    this.targetOs = this.configService.get<string>('CAMOUFOX_OS', 'windows') as
-      | 'windows'
-      | 'macos'
-      | 'linux';
-    this.proxyUrl = this.configService.get<string | undefined>('CAMOUFOX_PROXY_URL');
-    this.screenshotDir = this.configService.get<string>('SPA_SCREENSHOT_DIR', '/tmp/spa-screenshots');
+    this.headless = parseBool(this.configService.get<string>("CAMOUFOX_HEADLESS", "true"));
+    this.humanize = parseBool(this.configService.get<string>("CAMOUFOX_HUMANIZE", "true"));
+    this.geoip = parseBool(this.configService.get<string>("CAMOUFOX_GEOIP", "true"));
+    this.locale = this.configService.get<string>("CAMOUFOX_LOCALE", "en-US");
+    this.targetOs = this.configService.get<string>("CAMOUFOX_OS", "windows") as
+      | "windows"
+      | "macos"
+      | "linux";
+    this.proxyUrl = this.configService.get<string | undefined>("CAMOUFOX_PROXY_URL");
+    this.screenshotDir = this.configService.get<string>(
+      "SPA_SCREENSHOT_DIR",
+      "/tmp/spa-screenshots",
+    );
     // P7: screenshots OFF by default — they were written on every posting phase and
     // every engagement scroll tick (fullPage) with no cleanup → unbounded disk leak.
     // Enable for debugging via SPA_SCREENSHOTS=true; fullPage via SPA_SCREENSHOT_FULLPAGE=true.
-    this.screenshotsEnabled = parseBool(this.configService.get<string>('SPA_SCREENSHOTS', 'false'));
-    this.screenshotFullPage = parseBool(this.configService.get<string>('SPA_SCREENSHOT_FULLPAGE', 'false'));
+    this.screenshotsEnabled = parseBool(this.configService.get<string>("SPA_SCREENSHOTS", "false"));
+    this.screenshotFullPage = parseBool(
+      this.configService.get<string>("SPA_SCREENSHOT_FULLPAGE", "false"),
+    );
     // MEM: pool default lowered from 3 → 1. Each pooled context is a real Firefox
     // process (~150-300 MB RSS). With 2 pooled networks (X + Threads) the old default
     // kept up to 6 Firefox processes resident for 10 min after last use = ~1.2 GB.
     // Concurrency=1 per queue means only one post runs at a time per network anyway,
     // so poolSize=1 is sufficient; raise via env only if you run parallel engagement.
-    this.poolSize = Math.max(1, this.configService.get<number>('BROWSER_POOL_SIZE', 1));
-    this.poolAcquireTimeoutMs = Math.max(1000, this.configService.get<number>('BROWSER_POOL_ACQUIRE_TIMEOUT_MS', 60000));
+    this.poolSize = Math.max(1, this.configService.get<number>("BROWSER_POOL_SIZE", 1));
+    this.poolAcquireTimeoutMs = Math.max(
+      1000,
+      this.configService.get<number>("BROWSER_POOL_ACQUIRE_TIMEOUT_MS", 60000),
+    );
     // MEM: idle TTL lowered from 10 min → 3 min. Idle Firefox processes are pure
     // memory overhead — re-creating a context takes ~2-4s, acceptable vs 200 MB saved.
-    this.contextIdleTtlMs = Math.max(60000, this.configService.get<number>('BROWSER_CONTEXT_IDLE_TTL_MS', 3 * 60 * 1000));
+    this.contextIdleTtlMs = Math.max(
+      60000,
+      this.configService.get<number>("BROWSER_CONTEXT_IDLE_TTL_MS", 3 * 60 * 1000),
+    );
     // MEM: orphan grace period — how long an in-use context can be held before the
     // sweep closes it as leaked. Must be longer than the max browsing session duration
     // (F1_BROWSING_SESSION_MINUTES, default 15 min) plus buffer, otherwise the sweep
     // closes contexts mid-session. Default: max(3 × idle TTL, 25 min).
-    const browsingMinutes = Number(this.configService.get<string>('F1_BROWSING_SESSION_MINUTES', '15'));
+    const browsingMinutes = Number(
+      this.configService.get<string>("F1_BROWSING_SESSION_MINUTES", "15"),
+    );
     const minOrphanGrace = (browsingMinutes + 10) * 60 * 1000; // browsing + 10 min buffer
     const defaultOrphanGrace = Math.max(this.contextIdleTtlMs * 3, minOrphanGrace);
-    this.orphanGraceMs = Math.max(60000, this.configService.get<number>('BROWSER_ORPHAN_GRACE_MS', defaultOrphanGrace));
+    this.orphanGraceMs = Math.max(
+      60000,
+      this.configService.get<number>("BROWSER_ORPHAN_GRACE_MS", defaultOrphanGrace),
+    );
     // MEM: persistent (Facebook) context idle TTL — defaults to 15 min. FB posts
     // infrequently, so the persistent Firefox process is closed when idle >15 min
     // and re-opened on demand (cookies/fingerprint persist on disk via user_data_dir).
-    this.persistentContextIdleTtlMs = Math.max(60000, this.configService.get<number>('PERSISTENT_CONTEXT_IDLE_TTL_MS', 15 * 60 * 1000));
+    this.persistentContextIdleTtlMs = Math.max(
+      60000,
+      this.configService.get<number>("PERSISTENT_CONTEXT_IDLE_TTL_MS", 15 * 60 * 1000),
+    );
     // MEM: Camoufox/Firefox native memory fragmentation — restart browser after 15 min default
-    this.browserMaxLifetimeMs = Math.max(60000, this.configService.get<number>('BROWSER_MAX_LIFETIME_MS', 15 * 60 * 1000));
+    this.browserMaxLifetimeMs = Math.max(
+      60000,
+      this.configService.get<number>("BROWSER_MAX_LIFETIME_MS", 15 * 60 * 1000),
+    );
     // Persistent browser profiles directory — stores fingerprint + cookies per network
     // Facebook requires this to avoid "suspicious login" challenges on every run
-    this.profileDir = this.configService.get<string>('CAMOUFOX_PROFILE_DIR', '/tmp/spa-profiles');
+    this.profileDir = this.configService.get<string>("CAMOUFOX_PROFILE_DIR", "/tmp/spa-profiles");
     // MEM: memory-saving firefox_user_prefs. Toggle off via CAMOUFOX_MEMORY_PREFS=false
     // (e.g. for debugging memory issues or benchmarking). Prefs are safe for automation:
     // they reduce cache, session history, JS GC thresholds, image decode chunk size, and
     // disable telemetry/devtools — none affect fingerprinting or anti-detect.
-    this.memoryPrefsEnabled = parseBool(this.configService.get<string>('CAMOUFOX_MEMORY_PREFS', 'true'));
-    const imageDecodeChunk = Math.max(1024, this.configService.get<number>('CAMOUFOX_IMAGE_DECODE_CHUNK', 8192));
+    this.memoryPrefsEnabled = parseBool(
+      this.configService.get<string>("CAMOUFOX_MEMORY_PREFS", "true"),
+    );
+    const imageDecodeChunk = Math.max(
+      1024,
+      this.configService.get<number>("CAMOUFOX_IMAGE_DECODE_CHUNK", 8192),
+    );
     this.firefoxUserPrefs = this.memoryPrefsEnabled ? this.buildMemoryPrefs(imageDecodeChunk) : {};
     // MEM: block images in read-only contexts. Toggle via CAMOUFOX_BLOCK_IMAGES_READONLY.
     this.blockImagesReadOnly = parseBool(
-      this.configService.get<string>('CAMOUFOX_BLOCK_IMAGES_READONLY', 'true'),
+      this.configService.get<string>("CAMOUFOX_BLOCK_IMAGES_READONLY", "true"),
     );
     // SEC2: the persistent profile stores plaintext auth cookies outside the DB encryption.
     // /tmp is broadly accessible; in production it must live on a restricted/encrypted volume.
-    if (this.configService.get<string>('NODE_ENV') === 'production' && this.profileDir.startsWith('/tmp/')) {
+    if (
+      this.configService.get<string>("NODE_ENV") === "production" &&
+      this.profileDir.startsWith("/tmp/")
+    ) {
       this.logger.warn(
         `SEC2: CAMOUFOX_PROFILE_DIR is under /tmp (${this.profileDir}) — FB/Threads cookies are stored there in plaintext. ` +
-          'Point it at a restricted, encrypted volume in production.',
+          "Point it at a restricted, encrypted volume in production.",
       );
     }
 
     // P0: posting without a residential/mobile proxy in production is a high ban risk.
     // The platform sees a datacenter IP and is much more likely to challenge/lock the account.
     const hasRotatedProxy = this.proxyRotation?.isEnabled() ?? false;
-    if (this.configService.get<string>('NODE_ENV') === 'production' && !this.proxyUrl && !hasRotatedProxy) {
+    if (
+      this.configService.get<string>("NODE_ENV") === "production" &&
+      !this.proxyUrl &&
+      !hasRotatedProxy
+    ) {
       this.logger.warn(
-        'No proxy configured for Camoufox (set CAMOUFOX_PROXY_URL or PROXY_ROTATION_ENABLED). ' +
-          'Posting from a datacenter IP greatly increases the risk of account bans.',
+        "No proxy configured for Camoufox (set CAMOUFOX_PROXY_URL or PROXY_ROTATION_ENABLED). " +
+          "Posting from a datacenter IP greatly increases the risk of account bans.",
       );
     }
   }
@@ -216,7 +271,9 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
    */
   private getProxyConfig(network?: string): ProxyConfig | undefined {
     if (this.proxyRotation?.isEnabled()) {
-      const rotated = network ? this.proxyRotation.getProxy(network) : this.proxyRotation.getProxy('default');
+      const rotated = network
+        ? this.proxyRotation.getProxy(network)
+        : this.proxyRotation.getProxy("default");
       if (rotated) return rotated;
     }
     if (this.proxyUrl) {
@@ -250,7 +307,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
    * existing behavior/tests.
    */
   private contextKey(network: SocialNetwork, accountId?: string): string {
-    return `${network}:${accountId ?? 'default'}`;
+    return `${network}:${accountId ?? "default"}`;
   }
 
   /**
@@ -294,49 +351,49 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     return {
       // Session history — don't retain back/forward cached viewers (each ~10-30 MB).
       // Automation never uses go_back/go_forward, so zero viewers is safe.
-      'browser.sessionhistory.max_total_viewers': 0,
-      'browser.sessionhistory.max_entries': 3,
+      "browser.sessionhistory.max_total_viewers": 0,
+      "browser.sessionhistory.max_entries": 3,
       // Session restore — no tab undo, no crash resume (automation controls lifecycle).
-      'browser.sessionstore.max_tabs_undo': 0,
-      'browser.sessionstore.resume_from_crash': false,
+      "browser.sessionstore.max_tabs_undo": 0,
+      "browser.sessionstore.resume_from_crash": false,
       // Focus/IME — Camoufox sets focusmanager.testmode=true by default for headless
       // environments, but that breaks real key event handling in X's DraftJS/Lexical
       // composer and prevents typing in some IME/Cyrillic scenarios. Set false so
       // normal focus management applies (keyboard events reach the contenteditable).
-      'focusmanager.testmode': false,
+      "focusmanager.testmode": false,
       // Cache — disk cache off (we have no reuse benefit), memory cache capped at 64 MB
       // (default auto-sizes based on system RAM, often 50-100 MB+ in containers).
       // The previous 16 MB cap was too aggressive and caused the X compose page to crash
       // the Camoufox renderer under the React/Lexical editor load.
-      'browser.cache.disk.enable': false,
-      'browser.cache.memory.capacity': 65536,
-      'media.memory_cache_max_size': 16384,
+      "browser.cache.disk.enable": false,
+      "browser.cache.memory.capacity": 65536,
+      "media.memory_cache_max_size": 16384,
       // Media decode — disable the RDD (Remote Data Decoder) process and HW video decoding.
       // X/Threads permalink pages contain <video> elements that can start the RDD process;
       // in headless/container environments without VAAPI/GLX the RDD process can crash and
       // take the renderer page with it ("Page crashed during ..."). Engagement already blocks
       // media network requests, so playback is not needed. This keeps the renderer alive.
-      'media.rdd-process.enabled': false,
-      'media.hardware-video-decoding.enabled': false,
-      'media.ffmpeg.enable-vaapi': false,
+      "media.rdd-process.enabled": false,
+      "media.hardware-video-decoding.enabled": false,
+      "media.ffmpeg.enable-vaapi": false,
       // JS GC — trigger GC at a 256 MB high-water mark (vs default ~256 MB), run incremental
       // GC slices more frequently, compact on user inactive. The earlier 128 MB mark was too
       // aggressive for X's heavy compose SPA and contributed to renderer crashes.
-      'javascript.options.mem.high_water_mark': 256,
-      'javascript.options.mem.gc_incremental_slice_ms': 5,
-      'javascript.options.compact_on_user_inactive': true,
-      'javascript.options.compact_on_user_inactive_delay': 5000,
+      "javascript.options.mem.high_water_mark": 256,
+      "javascript.options.mem.gc_incremental_slice_ms": 5,
+      "javascript.options.compact_on_user_inactive": true,
+      "javascript.options.compact_on_user_inactive_delay": 5000,
       // Memory pressure — free dirty pages aggressively (helps jemalloc/arena fragmentation).
-      'memory.free_dirty_pages': true,
+      "memory.free_dirty_pages": true,
       // Image decode — fix for camoufox#87 OOM on scroll: default 32768 causes
       // excessive memory when scrolling media-heavy feeds. The previous 4096 default was too
       // aggressive for X's compose page and led to renderer crashes; 8192 is a safer middle
       // ground. Configurable via CAMOUFOX_IMAGE_DECODE_CHUNK.
-      'image.mem.decode_bytes_at_a_time': imageDecodeChunk,
+      "image.mem.decode_bytes_at_a_time": imageDecodeChunk,
       // Telemetry/devtools — disable to save memory + avoid background network traffic.
-      'datareporting.policy.dataSubmissionEnabled': false,
-      'toolkit.telemetry.reportingpolicy.firstRun': false,
-      'devtools.jsonview.enabled': false,
+      "datareporting.policy.dataSubmissionEnabled": false,
+      "toolkit.telemetry.reportingpolicy.firstRun": false,
+      "devtools.jsonview.enabled": false,
     };
   }
 
@@ -360,7 +417,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     const proxy = this.getProxyConfig();
     if (proxy) {
       launchOpts.proxy = proxy;
-      this.logger.log(`Using proxy: ${proxy.server.replace(/\/\/.*@/, '//***@')}`);
+      this.logger.log(`Using proxy: ${proxy.server.replace(/\/\/.*@/, "//***@")}`);
     }
 
     // Camoufox() returns a Playwright-compatible Browser instance.
@@ -370,9 +427,9 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     // When the browser process crashes (e.g. Camoufox/Playwright uncaughtError bug),
     // mark all pooled contexts as closed so the next acquire creates a fresh browser
     // instead of reusing dead contexts.
-    if (typeof browser.on === 'function') {
-      browser.on('disconnected', () => {
-        this.logger.warn('Camoufox browser disconnected (process likely crashed)');
+    if (typeof browser.on === "function") {
+      browser.on("disconnected", () => {
+        this.logger.warn("Camoufox browser disconnected (process likely crashed)");
         for (const [, entries] of this.idleContexts) {
           for (const entry of entries) {
             this.closedContexts.add(entry.context);
@@ -441,9 +498,9 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     accountId?: string,
   ): Promise<BrowserContext> {
     // Create profile directory if it doesn't exist
-    const profilePath = join(this.profileDir, network.toLowerCase(), accountId ?? 'default');
+    const profilePath = join(this.profileDir, network.toLowerCase(), accountId ?? "default");
     const key = this.contextKey(network, accountId);
-    const accountSuffix = accountId ? `:${accountId}` : '';
+    const accountSuffix = accountId ? `:${accountId}` : "";
     try {
       // SEC2: the persistent profile holds plaintext auth cookies (esp. Facebook c_user+xs,
       // which bypass the DB storageState encryption entirely). Restrict the profile tree to
@@ -525,7 +582,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     accountId?: string,
   ): Promise<BrowserContext> {
     const key = this.contextKey(network, accountId);
-    const accountSuffix = accountId ? `:${accountId}` : '';
+    const accountSuffix = accountId ? `:${accountId}` : "";
 
     // Persistent-context networks (Facebook + all syndication platforms): use
     // persistent context to avoid repeated "suspicious login" challenges
@@ -538,7 +595,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     // X/Threads: fresh context with storageState (existing behavior)
     const browser = await this.getBrowser();
 
-    const contextOptions: Parameters<Browser['newContext']>[0] = {
+    const contextOptions: Parameters<Browser["newContext"]>[0] = {
       // Camoufox doesn't support isMobile in viewport — disable viewport entirely.
       // Camoufox handles window size at C++ level via its fingerprint spoofing.
       viewport: null,
@@ -558,8 +615,8 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
 
     // Mark the context as closed if it closes itself (browser crash, page crash, etc.)
     // so the pool never reuses a dead context.
-    if (typeof context.on === 'function') {
-      context.on('close', () => {
+    if (typeof context.on === "function") {
+      context.on("close", () => {
         this.closedContexts.add(context);
       });
     }
@@ -585,7 +642,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     accountId?: string,
   ): Promise<BrowserContext> {
     const key = this.contextKey(network, accountId);
-    const accountSuffix = accountId ? `:${accountId}` : '';
+    const accountSuffix = accountId ? `:${accountId}` : "";
 
     // Persistent-context networks: shared (not pooled) — return it directly
     if (BrowserFactory.PERSISTENT_NETWORKS.has(network)) {
@@ -605,7 +662,9 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
         if (Date.now() - entry.releasedAt > this.contextIdleTtlMs) {
           // Stale — discard and loop back (creates fresh if still within pool capacity)
           void entry.context.close().catch(() => {});
-          this.logger.debug(`Context pool: discarded stale idle context for ${network}${accountSuffix} (past ${this.contextIdleTtlMs}ms TTL)`);
+          this.logger.debug(
+            `Context pool: discarded stale idle context for ${network}${accountSuffix} (past ${this.contextIdleTtlMs}ms TTL)`,
+          );
           continue;
         }
 
@@ -619,22 +678,31 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
         // post-creation Playwright API for that) — acceptable since AUTH_COOKIES-based health
         // checks and cookie-based auth are what actually gate session validity in this app.
         if (this.closedContexts.has(entry.context)) {
-          this.logger.debug(`Context pool: discarded closed idle context for ${network}${accountSuffix}`);
+          this.logger.debug(
+            `Context pool: discarded closed idle context for ${network}${accountSuffix}`,
+          );
           continue;
         }
 
         // If the browser process this context belongs to has already disconnected
         // (e.g. after a crash or the lifetime sweep), don't reuse it. The close
         // event listener may not have fired yet, so this is a synchronous guard.
-        if (typeof entry.context.browser === 'function' && !entry.context.browser()?.isConnected()) {
+        if (
+          typeof entry.context.browser === "function" &&
+          !entry.context.browser()?.isConnected()
+        ) {
           this.closedContexts.add(entry.context);
-          this.logger.debug(`Context pool: discarded idle context for ${network}${accountSuffix} because browser disconnected`);
+          this.logger.debug(
+            `Context pool: discarded idle context for ${network}${accountSuffix} because browser disconnected`,
+          );
           continue;
         }
 
         if (storageState) {
           try {
-            const parsed = JSON.parse(storageState) as { cookies?: Parameters<BrowserContext['addCookies']>[0] };
+            const parsed = JSON.parse(storageState) as {
+              cookies?: Parameters<BrowserContext["addCookies"]>[0];
+            };
             if (parsed.cookies?.length) {
               await entry.context.clearCookies();
               await entry.context.addCookies(parsed.cookies);
@@ -675,7 +743,9 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
 
       // At capacity — wait for a release. The release will put the context
       // into idle and resolve our promise. We then loop back to grab it.
-      this.logger.debug(`Context pool: at capacity (${this.poolSize}) for ${network}${accountSuffix}, waiting…`);
+      this.logger.debug(
+        `Context pool: at capacity (${this.poolSize}) for ${network}${accountSuffix}, waiting…`,
+      );
       await new Promise<void>((resolve, reject) => {
         const waiters = this.contextWaiters.get(key) ?? [];
         const timer = setTimeout(() => {
@@ -683,7 +753,11 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
           const current = this.contextWaiters.get(key) ?? [];
           const idx = current.indexOf(entry);
           if (idx >= 0) current.splice(idx, 1);
-          reject(new Error(`Context pool acquire timeout (${this.poolAcquireTimeoutMs}ms) for ${network}${accountSuffix}`));
+          reject(
+            new Error(
+              `Context pool acquire timeout (${this.poolAcquireTimeoutMs}ms) for ${network}${accountSuffix}`,
+            ),
+          );
         }, this.poolAcquireTimeoutMs);
         const entry = { resolve, reject, timer };
         waiters.push(entry);
@@ -702,13 +776,9 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
    * @param network Target social network
    * @param context The context to release
    */
-  releaseContext(
-    network: SocialNetwork,
-    context: BrowserContext,
-    accountId?: string,
-  ): void {
+  releaseContext(network: SocialNetwork, context: BrowserContext, accountId?: string): void {
     const key = this.contextKey(network, accountId);
-    const accountSuffix = accountId ? `:${accountId}` : '';
+    const accountSuffix = accountId ? `:${accountId}` : "";
 
     // Persistent-context networks: not pooled — just return (context stays alive)
     if (BrowserFactory.PERSISTENT_NETWORKS.has(network)) {
@@ -723,7 +793,9 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     // Dead contexts must not return to the pool, otherwise the next acquire
     // reuses them and immediately fails with "Target page, context or browser has been closed".
     if (this.closedContexts.has(context)) {
-      this.logger.debug(`Context pool: not returning closed context for ${network}${accountSuffix} to idle pool`);
+      this.logger.debug(
+        `Context pool: not returning closed context for ${network}${accountSuffix} to idle pool`,
+      );
       // Wake up a waiter so they can create/reuse a fresh context instead of hanging
       const waiters = this.contextWaiters.get(key);
       if (waiters && waiters.length > 0) {
@@ -751,9 +823,13 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
       clearTimeout(waiter.timer);
       this.contextWaiters.set(key, waiters);
       waiter.resolve();
-      this.logger.debug(`Context pool: released context for ${network}${accountSuffix}, woke waiter (idle: ${idle.length})`);
+      this.logger.debug(
+        `Context pool: released context for ${network}${accountSuffix}, woke waiter (idle: ${idle.length})`,
+      );
     } else {
-      this.logger.debug(`Context pool: released context for ${network}${accountSuffix} (idle: ${idle.length})`);
+      this.logger.debug(
+        `Context pool: released context for ${network}${accountSuffix} (idle: ${idle.length})`,
+      );
     }
   }
 
@@ -784,8 +860,10 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
   async adaptiveDelay(page: Page): Promise<void> {
     try {
       const navTiming = await page.evaluate(() => {
-        const entries = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
-        return entries[0] ? { loadEventEnd: entries[0].loadEventEnd, startTime: entries[0].startTime } : null;
+        const entries = performance.getEntriesByType("navigation") as PerformanceNavigationTiming[];
+        return entries[0]
+          ? { loadEventEnd: entries[0].loadEventEnd, startTime: entries[0].startTime }
+          : null;
       });
       const responseTime = navTiming ? navTiming.loadEventEnd - navTiming.startTime : 3000;
       if (responseTime > 5000) {
@@ -828,7 +906,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
           el.focus();
           // For contenteditable: set textContent and dispatch input event
           el.textContent = value;
-          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event("input", { bubbles: true }));
         }, text);
       }
     }
@@ -880,8 +958,8 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     } catch (err) {
       const message = (err as Error).message;
       // If it's a timeout (humanize blocked the click), retry with force
-      if (message.includes('Timeout') && message.includes('click')) {
-        this.logger.debug('Normal click timed out (humanize?), retrying with force: true');
+      if (message.includes("Timeout") && message.includes("click")) {
+        this.logger.debug("Normal click timed out (humanize?), retrying with force: true");
         await locator.click({ force: true, timeout: 5000 });
       } else {
         throw err;
@@ -905,10 +983,13 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
    * Used for feed browsing and engagement sessions.
    */
   async scrollPage(page: Page, direction: ScrollDirection, amountPx = 600): Promise<void> {
-    const scrollY = direction === 'down' ? amountPx : -amountPx;
+    const scrollY = direction === "down" ? amountPx : -amountPx;
     // Move the cursor to the center of the viewport so the wheel event is delivered
     // to the main scrollable area (X/Threads use custom scrollable divs, not body).
-    const viewport = (page.viewportSize?.() as { width: number; height: number } | undefined) ?? { width: 1280, height: 720 };
+    const viewport = (page.viewportSize?.() as { width: number; height: number } | undefined) ?? {
+      width: 1280,
+      height: 720,
+    };
     try {
       // Guard mouse operations with a short timeout. If the browser/page becomes
       // unresponsive (e.g. after a Camoufox/Playwright crash), mouse.wheel can hang
@@ -919,10 +1000,12 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
           await page.mouse.wheel(0, scrollY);
         })(),
         15000,
-        'scrollPage mouse wheel',
+        "scrollPage mouse wheel",
       );
     } catch (err) {
-      this.logger.warn(`scrollPage mouse wheel timed out, falling back to JS scroll: ${(err as Error).message}`);
+      this.logger.warn(
+        `scrollPage mouse wheel timed out, falling back to JS scroll: ${(err as Error).message}`,
+      );
       // Fallback: try to scroll via evaluate. Works for body scroll; for custom
       // scrollable divs it may be a no-op, but it unblocks the loop. Guard with a
       // short timeout so a fully unresponsive page doesn't hang here either.
@@ -930,7 +1013,11 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
         page.evaluate((y) => {
           window.scrollBy(0, y);
           // Try common custom scrollable containers as well
-          const scrollables = Array.from(document.querySelectorAll('[data-testid="primaryColumn"], [role="main"], main, [data-pagelet="root"], .scrollable'));
+          const scrollables = Array.from(
+            document.querySelectorAll(
+              '[data-testid="primaryColumn"], [role="main"], main, [data-pagelet="root"], .scrollable',
+            ),
+          );
           for (const el of scrollables) {
             if (el.scrollHeight > el.clientHeight) {
               el.scrollBy(0, y);
@@ -939,7 +1026,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
           }
         }, scrollY),
         10000,
-        'scrollPage JS fallback',
+        "scrollPage JS fallback",
       ).catch(() => {});
     }
     // Wait for scroll to settle and new content to load
@@ -955,7 +1042,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
       void page.evaluate(() => {
         const el = document.activeElement;
         if (el) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
         }
       });
     });
@@ -966,13 +1053,9 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
    * Capture a screenshot and save to /tmp/spa-screenshots/{network}/{phase}-{timestamp}.png
    * for debugging and post validation.
    */
-  async screenshot(
-    page: Page,
-    network: SocialNetwork,
-    phase: ScreenshotPhase,
-  ): Promise<string> {
+  async screenshot(page: Page, network: SocialNetwork, phase: ScreenshotPhase): Promise<string> {
     // P7: disabled by default — return empty path without writing to disk.
-    if (!this.screenshotsEnabled) return '';
+    if (!this.screenshotsEnabled) return "";
     const networkDir = join(this.screenshotDir, network.toLowerCase());
     const filename = `${phase}-${Date.now()}.png`;
     const filepath = join(networkDir, filename);
@@ -985,7 +1068,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
       return filepath;
     } catch (err) {
       this.logger.warn(`Screenshot failed: ${(err as Error).message}`);
-      return '';
+      return "";
     }
   }
 
@@ -1010,7 +1093,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
    */
   async waitForStable(locator: Locator, opts?: { timeoutMs?: number }): Promise<void> {
     const timeout = opts?.timeoutMs ?? 10000;
-    await locator.waitFor({ state: 'visible', timeout });
+    await locator.waitFor({ state: "visible", timeout });
     // Extra wait for animations to settle
     await this.randomDelay(500, 1500);
   }
@@ -1026,10 +1109,24 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
    */
   async suppressPageErrors(page: Page): Promise<void> {
     await page.addInitScript(() => {
-      window.addEventListener('error', (e) => { e.preventDefault(); e.stopImmediatePropagation(); }, true);
-      window.addEventListener('unhandledrejection', (e) => { e.preventDefault(); e.stopImmediatePropagation(); }, true);
+      window.addEventListener(
+        "error",
+        (e) => {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        },
+        true,
+      );
+      window.addEventListener(
+        "unhandledrejection",
+        (e) => {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        },
+        true,
+      );
     });
-    page.on('pageerror', () => {});
+    page.on("pageerror", () => {});
   }
 
   /**
@@ -1054,13 +1151,9 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
   async applyResourceBlocking(page: Page, opts?: { blockImages?: boolean }): Promise<void> {
     const blockImages = opts?.blockImages && this.blockImagesReadOnly;
     try {
-      await page.route('**/*', (route) => {
+      await page.route("**/*", (route) => {
         const type = route.request().resourceType();
-        if (
-          type === 'media' ||
-          type === 'font' ||
-          (blockImages && type === 'image')
-        ) {
+        if (type === "media" || type === "font" || (blockImages && type === "image")) {
           void route.abort();
         } else {
           void route.continue();
@@ -1087,7 +1180,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
    */
   private getBrowserAgent(): {
     act: (page: Page, instruction: string) => Promise<LLMActionResult>;
-    extract: <T>(page: Page, schema: import('zod').ZodSchema<T>) => Promise<T | null>;
+    extract: <T>(page: Page, schema: import("zod").ZodSchema<T>) => Promise<T | null>;
     observe: (page: Page) => Promise<ObservableElement[]>;
     verify: (page: Page, stateDescription: string) => Promise<boolean>;
   } | null {
@@ -1096,7 +1189,9 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     if (!this.moduleRef) return null;
     try {
       // Lazy import to avoid circular dependency at module load time
-      const { BrowserAgentService } = require('../../modules/browser-agent/browser-agent.service.js');
+      const {
+        BrowserAgentService,
+      } = require("../../modules/browser-agent/browser-agent.service.js");
       this.browserAgentService = this.moduleRef.get(BrowserAgentService, { strict: false });
     } catch {
       // BrowserAgentService not registered (SYNDICATION_ENABLED=false)
@@ -1109,18 +1204,18 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     const agent = this.getBrowserAgent();
     if (!agent) {
       throw new Error(
-        'IBrowserPort.act() not available — BrowserAgentService requires SYNDICATION_ENABLED=true. ' +
+        "IBrowserPort.act() not available — BrowserAgentService requires SYNDICATION_ENABLED=true. " +
           'See ROADMAP-SYNDICATION.md "LLM-in-the-loop browser engine".',
       );
     }
     return agent.act(page, instruction);
   }
 
-  async extract<T>(page: Page, schema: import('zod').ZodSchema<T>): Promise<T | null> {
+  async extract<T>(page: Page, schema: import("zod").ZodSchema<T>): Promise<T | null> {
     const agent = this.getBrowserAgent();
     if (!agent) {
       throw new Error(
-        'IBrowserPort.extract() not available — BrowserAgentService requires SYNDICATION_ENABLED=true.',
+        "IBrowserPort.extract() not available — BrowserAgentService requires SYNDICATION_ENABLED=true.",
       );
     }
     return agent.extract(page, schema);
@@ -1130,7 +1225,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     const agent = this.getBrowserAgent();
     if (!agent) {
       throw new Error(
-        'IBrowserPort.observe() not available — BrowserAgentService requires SYNDICATION_ENABLED=true.',
+        "IBrowserPort.observe() not available — BrowserAgentService requires SYNDICATION_ENABLED=true.",
       );
     }
     return agent.observe(page);
@@ -1140,7 +1235,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     const agent = this.getBrowserAgent();
     if (!agent) {
       throw new Error(
-        'IBrowserPort.verify() not available — BrowserAgentService requires SYNDICATION_ENABLED=true.',
+        "IBrowserPort.verify() not available — BrowserAgentService requires SYNDICATION_ENABLED=true.",
       );
     }
     return agent.verify(page, stateDescription);
@@ -1202,7 +1297,9 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
           }
         }
         this.idleContexts.set(key, fresh);
-        this.logger.debug(`Context pool: swept ${evicted} idle context(s) for ${key} past ${this.contextIdleTtlMs}ms TTL`);
+        this.logger.debug(
+          `Context pool: swept ${evicted} idle context(s) for ${key} past ${this.contextIdleTtlMs}ms TTL`,
+        );
       }
     }
 
@@ -1293,24 +1390,24 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     let isPatched: boolean | undefined;
     try {
       if (coreBundleSource !== undefined) {
-        isPatched = coreBundleSource.includes('params2.location ?? { url:');
+        isPatched = coreBundleSource.includes("params2.location ?? { url:");
       } else {
-        const fs = require('fs') as typeof import('fs');
-        const path = require('path') as typeof import('path');
+        const fs = require("fs") as typeof import("fs");
+        const path = require("path") as typeof import("path");
         let pwDir: string | undefined;
         try {
-          pwDir = path.dirname(require.resolve('playwright-core/package.json'));
+          pwDir = path.dirname(require.resolve("playwright-core/package.json"));
         } catch {
-          this.logger.warn('Camoufox patch check: playwright-core not resolvable');
+          this.logger.warn("Camoufox patch check: playwright-core not resolvable");
           return;
         }
-        const coreBundle = path.join(pwDir, 'lib', 'coreBundle.js');
+        const coreBundle = path.join(pwDir, "lib", "coreBundle.js");
         if (!fs.existsSync(coreBundle)) {
           this.logger.warn(`Camoufox patch check: coreBundle.js not found at ${coreBundle}`);
           return;
         }
-        const src = fs.readFileSync(coreBundle, 'utf8');
-        isPatched = src.includes('params2.location ?? { url:');
+        const src = fs.readFileSync(coreBundle, "utf8");
+        isPatched = src.includes("params2.location ?? { url:");
       }
     } catch (err) {
       this.logger.warn(`Camoufox patch check failed: ${(err as Error).message}`);
@@ -1318,13 +1415,13 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     }
 
     if (isPatched) {
-      this.logger.log('Camoufox patch verified: coreBundle.js is patched for uncaughtError crash');
+      this.logger.log("Camoufox patch verified: coreBundle.js is patched for uncaughtError crash");
       return;
     }
 
     const message =
       'Camoufox patch MISSING: coreBundle.js is not patched. Browsing sessions will likely crash with "Target page, context or browser has been closed" on X/Threads feeds.';
-    if (this.configService.get<string>('NODE_ENV') === 'production') {
+    if (this.configService.get<string>("NODE_ENV") === "production") {
       throw new Error(message);
     }
     this.logger.warn(message);
@@ -1371,14 +1468,14 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     for (const [, waiters] of this.contextWaiters) {
       for (const w of waiters) {
         clearTimeout(w.timer);
-        w.reject(new Error('Browser factory shutting down'));
+        w.reject(new Error("Browser factory shutting down"));
       }
     }
     this.contextWaiters.clear();
 
     if (this.browser) {
       await this.browser.close().catch(() => {});
-      this.logger.log('Camoufox browser closed');
+      this.logger.log("Camoufox browser closed");
     }
     this.browserLaunchPromise = null;
   }

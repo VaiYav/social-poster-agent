@@ -1,5 +1,5 @@
-import type IORedis from 'ioredis';
-import { isLlmResponse, type LlmResponse } from '../../domain/ports/llm.port.js';
+import type IORedis from "ioredis";
+import { isLlmResponse, type LlmResponse } from "../../domain/ports/llm.port.js";
 
 export interface LlmCache {
   get(key: string): Promise<LlmResponse | null>;
@@ -79,30 +79,30 @@ export class RedisLlmCache implements LlmCache {
   }
 
   async set(key: string, response: LlmResponse, ttlMs: number): Promise<void> {
-    await this.redis.set(`${this.prefix}:${key}`, JSON.stringify(response), 'PX', ttlMs);
+    await this.redis.set(`${this.prefix}:${key}`, JSON.stringify(response), "PX", ttlMs);
   }
 
   async clear(): Promise<void> {
     const pattern = `${this.prefix}:*`;
-    let cursor = '0';
+    let cursor = "0";
     do {
-      const [next, keys] = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+      const [next, keys] = await this.redis.scan(cursor, "MATCH", pattern, "COUNT", 100);
       if (keys.length > 0) {
         await this.redis.del(...keys);
       }
       cursor = next;
-    } while (cursor !== '0');
+    } while (cursor !== "0");
   }
 
   async stats(): Promise<{ size: number }> {
     const pattern = `${this.prefix}:*`;
-    let cursor = '0';
+    let cursor = "0";
     let size = 0;
     do {
-      const [next, keys] = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+      const [next, keys] = await this.redis.scan(cursor, "MATCH", pattern, "COUNT", 100);
       size += keys.length;
       cursor = next;
-    } while (cursor !== '0');
+    } while (cursor !== "0");
     return { size };
   }
 }

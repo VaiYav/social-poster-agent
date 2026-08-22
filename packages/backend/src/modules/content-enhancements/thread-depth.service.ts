@@ -18,12 +18,12 @@
  * (batch prompt) to ensure narrative coherence across the thread.
  */
 
-import { Injectable, Logger, Optional } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import type { ILlmPort } from '../../domain/ports/llm.port.js';
-import { SocialNetwork } from '@prisma/client';
-import { classifyPillar } from './content-pillar.tracker.js';
-import { truncateForThread } from './thread-limit.js';
+import { Injectable, Logger, Optional } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import type { ILlmPort } from "../../domain/ports/llm.port.js";
+import { SocialNetwork } from "../../generated/prisma/client";
+import { classifyPillar } from "./content-pillar.tracker.js";
+import { truncateForThread } from "./thread-limit.js";
 
 /** Maximum thread depth (tweet count including root). */
 const MAX_THREAD_DEPTH = 5;
@@ -70,8 +70,13 @@ export class ThreadDepthService {
     private readonly configService: ConfigService,
     @Optional() private readonly llm?: ILlmPort,
   ) {
-    const envDepth = Number(this.configService.get<string>('THREAD_DEFAULT_DEPTH', String(DEFAULT_THREAD_DEPTH)));
-    this.defaultDepth = Math.max(1, Math.min(MAX_THREAD_DEPTH, isNaN(envDepth) ? DEFAULT_THREAD_DEPTH : envDepth));
+    const envDepth = Number(
+      this.configService.get<string>("THREAD_DEFAULT_DEPTH", String(DEFAULT_THREAD_DEPTH)),
+    );
+    this.defaultDepth = Math.max(
+      1,
+      Math.min(MAX_THREAD_DEPTH, isNaN(envDepth) ? DEFAULT_THREAD_DEPTH : envDepth),
+    );
   }
 
   /**
@@ -96,15 +101,22 @@ export class ThreadDepthService {
   ): Promise<ThreadPlan> {
     const networkMax = NETWORK_MAX_DEPTH[network] ?? 1;
     if (networkMax === 1) {
-      return { depth: 1, continuations: [], reasoning: 'Facebook does not support threads' };
+      return { depth: 1, continuations: [], reasoning: "Facebook does not support threads" };
     }
 
     if (userOverride !== undefined && userOverride > 0) {
       const depth = Math.min(userOverride, networkMax);
       if (depth === 1) {
-        return { depth: 1, continuations: [], reasoning: 'User override: single post' };
+        return { depth: 1, continuations: [], reasoning: "User override: single post" };
       }
-      return this.generateContinuations(depth, rootContent, keyFacts, topic, keywords, 'User override');
+      return this.generateContinuations(
+        depth,
+        rootContent,
+        keyFacts,
+        topic,
+        keywords,
+        "User override",
+      );
     }
 
     const pillar = classifyPillar(topic, keywords);
@@ -112,7 +124,10 @@ export class ThreadDepthService {
 
     let targetDepth = this.defaultDepth;
 
-    if (factsCount >= MIN_FACTS_FOR_DEEP_THREAD && (pillar === 'educational' || pillar === 'product')) {
+    if (
+      factsCount >= MIN_FACTS_FOR_DEEP_THREAD &&
+      (pillar === "educational" || pillar === "product")
+    ) {
       targetDepth = Math.min(MAX_THREAD_DEPTH, Math.min(factsCount + 1, 5));
     } else if (factsCount >= 2) {
       targetDepth = 3;
@@ -123,12 +138,18 @@ export class ThreadDepthService {
     targetDepth = Math.min(targetDepth, networkMax);
 
     if (targetDepth === 1) {
-      return { depth: 1, continuations: [], reasoning: 'Auto: insufficient content for thread' };
+      return { depth: 1, continuations: [], reasoning: "Auto: insufficient content for thread" };
     }
 
-    const reasoning =
-      `Auto: ${factsCount} facts, pillar="${pillar}", depth=${targetDepth}`;
-    return this.generateContinuations(targetDepth, rootContent, keyFacts, topic, keywords, reasoning);
+    const reasoning = `Auto: ${factsCount} facts, pillar="${pillar}", depth=${targetDepth}`;
+    return this.generateContinuations(
+      targetDepth,
+      rootContent,
+      keyFacts,
+      topic,
+      keywords,
+      reasoning,
+    );
   }
 
   /**
@@ -167,9 +188,9 @@ Each continuation must:
 Return ONLY the tweets, one per line, numbered 1-${continuationCount}.`;
 
       const userPrompt = `Topic: ${topic}
-Keywords: ${keywords.join(', ')}
+Keywords: ${keywords.join(", ")}
 Key facts to distribute across continuations:
-${keyFacts.map((f, i) => `  ${i + 1}. ${f}`).join('\n')}
+${keyFacts.map((f, i) => `  ${i + 1}. ${f}`).join("\n")}
 
 Root tweet (position 0):
 "${rootContent}"
@@ -181,17 +202,14 @@ Write ${continuationCount} continuation tweet(s):`;
       });
 
       const tweets = response.content
-        .split('\n')
-        .map((line) => line.replace(/^\d+[\.\)]\s*/, '').trim())
+        .split("\n")
+        .map((line) => line.replace(/^\d+[\.\)]\s*/, "").trim())
         .filter((line) => line.length > 0)
         .slice(0, continuationCount);
 
       while (tweets.length < continuationCount) {
         const idx = tweets.length;
-        tweets.push(
-          keyFacts[idx] ??
-            `Discover more about ${topic} \u2728`,
-        );
+        tweets.push(keyFacts[idx] ?? `Discover more about ${topic} \u2728`);
       }
 
       const continuations: ThreadContinuationTweet[] = tweets.map((content, i) => ({
@@ -201,7 +219,9 @@ Write ${continuationCount} continuation tweet(s):`;
 
       return { depth, continuations, reasoning };
     } catch (err) {
-      this.logger.debug(`P4: LLM thread generation failed: ${(err as Error).message} — using heuristic`);
+      this.logger.debug(
+        `P4: LLM thread generation failed: ${(err as Error).message} — using heuristic`,
+      );
       return {
         depth,
         continuations: this.heuristicContinuations(rootContent, continuationCount, keyFacts),
@@ -222,7 +242,7 @@ Write ${continuationCount} continuation tweet(s):`;
     const continuations: ThreadContinuationTweet[] = [];
     for (let i = 0; i < count; i++) {
       const fact = keyFacts[i];
-      const content = fact ? fact : 'Discover how this applies to your brand \u2728';
+      const content = fact ? fact : "Discover how this applies to your brand \u2728";
       continuations.push({ position: i + 1, content: truncateForThread(content) });
     }
     return continuations;

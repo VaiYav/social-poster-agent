@@ -1,15 +1,15 @@
-import { Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import * as fs from 'node:fs';
-import { join } from 'node:path';
-import { ContentSourcesConfigSchema, type ContentSourceConfig } from '@spa/shared';
-import type { ContentReader } from '../content-reader.js';
-import type { DbContentReader } from '../db-content-reader.js';
-import type { PrismaService } from '../../prisma/prisma.service';
-import type { IContentAdapter } from './content-adapter.interface.js';
-import { ApiAdapter } from './api.adapter.js';
-import { GoogleTrendsAdapter } from './google-trends.adapter.js';
-import { RssAdapter } from './rss.adapter.js';
+import { Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import * as fs from "node:fs";
+import { join } from "node:path";
+import { ContentSourcesConfigSchema, type ContentSourceConfig } from "@spa/shared";
+import type { ContentReader } from "../content-reader.js";
+import type { DbContentReader } from "../db-content-reader.js";
+import type { PrismaService } from "../../prisma/prisma.service";
+import type { IContentAdapter } from "./content-adapter.interface.js";
+import { ApiAdapter } from "./api.adapter.js";
+import { GoogleTrendsAdapter } from "./google-trends.adapter.js";
+import { RssAdapter } from "./rss.adapter.js";
 
 export interface ContentAdapterFactoryDeps {
   configService: ConfigService;
@@ -27,8 +27,10 @@ export interface ContentAdapterFactoryDeps {
  *    CAP filesystem reader if `CONTENT_AGENT_PLATFORM_PATH` exists, otherwise
  *    the DB-backed reader.
  */
-export async function buildContentAdapters(deps: ContentAdapterFactoryDeps): Promise<IContentAdapter[]> {
-  const logger = new Logger('ContentAdapterFactory');
+export async function buildContentAdapters(
+  deps: ContentAdapterFactoryDeps,
+): Promise<IContentAdapter[]> {
+  const logger = new Logger("ContentAdapterFactory");
 
   const fromDb = await dbSources(deps, logger);
   if (fromDb.length > 0) return fromDb;
@@ -39,12 +41,15 @@ export async function buildContentAdapters(deps: ContentAdapterFactoryDeps): Pro
   return legacyAdapters(deps);
 }
 
-async function dbSources(deps: ContentAdapterFactoryDeps, logger: Logger): Promise<IContentAdapter[]> {
+async function dbSources(
+  deps: ContentAdapterFactoryDeps,
+  logger: Logger,
+): Promise<IContentAdapter[]> {
   if (!deps.prisma?.contentSource) return [];
   try {
     const rows = await deps.prisma.contentSource.findMany({
       where: { enabled: true },
-      orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
+      orderBy: [{ priority: "asc" }, { createdAt: "asc" }],
     });
     const adapters: IContentAdapter[] = [];
     for (const row of rows) {
@@ -52,7 +57,10 @@ async function dbSources(deps: ContentAdapterFactoryDeps, logger: Logger): Promi
         sourceType: row.sourceType,
         name: row.name ?? undefined,
         enabled: row.enabled,
-        config: (typeof row.config === 'object' && row.config !== null ? row.config : {}) as Record<string, unknown>,
+        config: (typeof row.config === "object" && row.config !== null ? row.config : {}) as Record<
+          string,
+          unknown
+        >,
       };
       const adapter = createAdapter(source, deps);
       if (adapter) adapters.push(adapter);
@@ -62,13 +70,15 @@ async function dbSources(deps: ContentAdapterFactoryDeps, logger: Logger): Promi
     }
     return adapters;
   } catch (err) {
-    logger.warn(`ContentSource DB read failed: ${(err as Error).message}. Falling back to env/legacy.`);
+    logger.warn(
+      `ContentSource DB read failed: ${(err as Error).message}. Falling back to env/legacy.`,
+    );
     return [];
   }
 }
 
 function envSources(deps: ContentAdapterFactoryDeps, logger: Logger): IContentAdapter[] {
-  const sourcesJson = deps.configService.get<string>('CONTENT_SOURCES', '').trim();
+  const sourcesJson = deps.configService.get<string>("CONTENT_SOURCES", "").trim();
   if (!sourcesJson) return [];
   try {
     const parsed = JSON.parse(sourcesJson) as unknown;
@@ -84,7 +94,9 @@ function envSources(deps: ContentAdapterFactoryDeps, logger: Logger): IContentAd
     }
     return adapters;
   } catch (err) {
-    logger.warn(`CONTENT_SOURCES parse failed: ${(err as Error).message}. Falling back to legacy detection.`);
+    logger.warn(
+      `CONTENT_SOURCES parse failed: ${(err as Error).message}. Falling back to legacy detection.`,
+    );
     return [];
   }
 }
@@ -93,23 +105,26 @@ const ADAPTER_FACTORIES: Record<
   string,
   (source: ContentSourceConfig, deps: ContentAdapterFactoryDeps) => IContentAdapter | null
 > = {
-  'cap_file': (_source, deps) => deps.fsReader,
-  'db': (_source, deps) => deps.dbReader,
-  'rss': (source) => new RssAdapter(source),
-  'api': (source) => new ApiAdapter(source),
-  'google_trends': (source) => new GoogleTrendsAdapter(source),
-  'google-trends': (source) => new GoogleTrendsAdapter(source),
+  cap_file: (_source, deps) => deps.fsReader,
+  db: (_source, deps) => deps.dbReader,
+  rss: (source) => new RssAdapter(source),
+  api: (source) => new ApiAdapter(source),
+  google_trends: (source) => new GoogleTrendsAdapter(source),
+  "google-trends": (source) => new GoogleTrendsAdapter(source),
 };
 
-function createAdapter(source: ContentSourceConfig, deps: ContentAdapterFactoryDeps): IContentAdapter | null {
+function createAdapter(
+  source: ContentSourceConfig,
+  deps: ContentAdapterFactoryDeps,
+): IContentAdapter | null {
   const factory = ADAPTER_FACTORIES[source.sourceType];
   return factory ? factory(source, deps) : null;
 }
 
 function legacyAdapters(deps: ContentAdapterFactoryDeps): IContentAdapter[] {
-  const capPath = deps.configService.get<string>('CONTENT_AGENT_PLATFORM_PATH', '');
+  const capPath = deps.configService.get<string>("CONTENT_AGENT_PLATFORM_PATH", "");
   if (capPath) {
-    if (fs.existsSync(join(capPath, 'runs'))) {
+    if (fs.existsSync(join(capPath, "runs"))) {
       return [deps.fsReader];
     }
   }

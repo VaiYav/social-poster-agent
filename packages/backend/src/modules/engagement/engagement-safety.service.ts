@@ -9,13 +9,9 @@
  * The checks are intentionally fast, local, and LLM-free so they run on every
  * API action and every generated comment/quote without extra latency.
  */
-import { Injectable, Logger } from '@nestjs/common';
-import { SocialNetwork } from '@prisma/client';
-import {
-  detectSensitive,
-  isLikelyTroll,
-  isLowValueComment,
-} from '../replies/sensitive-filter.js';
+import { Injectable, Logger } from "@nestjs/common";
+import { SocialNetwork } from "../../generated/prisma/client";
+import { detectSensitive, isLikelyTroll, isLowValueComment } from "../replies/sensitive-filter.js";
 
 export interface ContentSafetyResult {
   safe: boolean;
@@ -28,9 +24,15 @@ export interface UrlValidationResult {
 }
 
 const ALLOWED_HOSTS: Partial<Record<SocialNetwork, string[]>> = {
-  X: ['x.com', 'twitter.com', 'mobile.x.com', 'mobile.twitter.com', 'www.x.com', 'www.twitter.com'],
-  THREADS: ['threads.net', 'www.threads.net'],
-  FACEBOOK: ['facebook.com', 'mbasic.facebook.com', 'm.facebook.com', 'www.facebook.com', 'mobile.facebook.com'],
+  X: ["x.com", "twitter.com", "mobile.x.com", "mobile.twitter.com", "www.x.com", "www.twitter.com"],
+  THREADS: ["threads.net", "www.threads.net"],
+  FACEBOOK: [
+    "facebook.com",
+    "mbasic.facebook.com",
+    "m.facebook.com",
+    "www.facebook.com",
+    "mobile.facebook.com",
+  ],
 };
 
 @Injectable()
@@ -53,7 +55,7 @@ export class EngagementSafetyService {
       return { allowed: false, reason: `URL host ${hostname} is not allowed for ${network}` };
     } catch {
       this.logger.warn(`Blocked invalid engagement URL: ${url.slice(0, 120)}`);
-      return { allowed: false, reason: 'Invalid URL' };
+      return { allowed: false, reason: "Invalid URL" };
     }
   }
 
@@ -75,14 +77,14 @@ export class EngagementSafetyService {
     }
 
     if (isLikelyTroll(t)) {
-      this.logger.warn('Engagement text flagged as troll/spam');
-      return { safe: false, reason: 'Troll/spam keyword detected' };
+      this.logger.warn("Engagement text flagged as troll/spam");
+      return { safe: false, reason: "Troll/spam keyword detected" };
     }
 
     const sensitive = detectSensitive(t);
     if (sensitive.sensitive) {
       this.logger.warn(`Engagement text flagged as sensitive: ${sensitive.reason}`);
-      return { safe: false, reason: sensitive.reason ?? 'Sensitive content detected' };
+      return { safe: false, reason: sensitive.reason ?? "Sensitive content detected" };
     }
 
     return { safe: true };

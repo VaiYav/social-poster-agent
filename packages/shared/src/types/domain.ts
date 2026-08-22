@@ -9,7 +9,7 @@ import type {
   GenerationTrigger,
   ContentSourceType,
   ContentType,
-} from './enums.js';
+} from "./enums.js";
 
 export interface SocialAccount {
   id: string;

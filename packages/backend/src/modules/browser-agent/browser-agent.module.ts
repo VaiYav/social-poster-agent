@@ -1,6 +1,6 @@
-import { Module } from '@nestjs/common';
-import { BrowserAgentService } from './browser-agent.service.js';
-import { LlmModule } from '../../infrastructure/llm/llm.module.js';
+import { Module } from "@nestjs/common";
+import { BrowserAgentService } from "./browser-agent.service.js";
+import { LlmModule } from "../../infrastructure/llm/llm.module.js";
 
 /**
  * BrowserAgentModule — provides BrowserAgentService (LLM-in-the-loop engine #47).

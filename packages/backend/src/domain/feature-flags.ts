@@ -17,8 +17,8 @@
 function parseBoolEnv(value: string | undefined, fallback = false): boolean {
   if (value === undefined) return fallback;
   const v = value.trim().toLowerCase();
-  if (['true', '1', 'yes', 'on', 'y'].includes(v)) return true;
-  if (['false', '0', 'no', 'off', 'n', ''].includes(v)) return false;
+  if (["true", "1", "yes", "on", "y"].includes(v)) return true;
+  if (["false", "0", "no", "off", "n", ""].includes(v)) return false;
   return fallback;
 }
 

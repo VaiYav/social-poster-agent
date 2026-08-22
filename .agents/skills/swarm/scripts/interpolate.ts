@@ -17,10 +17,7 @@ import { readColumn } from "./utils.js";
  * @returns The interpolated string with all placeholders resolved.
  * @throws Error listing all missing column paths.
  */
-export function interpolate(
-  template: string,
-  row: Record<string, unknown>,
-): string {
+export function interpolate(template: string, row: Record<string, unknown>): string {
   const missing: string[] = [];
 
   const result = template.replace(/\{([^}]+)\}/g, (_match, rawPath) => {
@@ -44,9 +41,7 @@ export function interpolate(
   });
 
   if (missing.length > 0) {
-    throw new Error(
-      `Interpolation failed: missing columns: ${missing.join(", ")}`,
-    );
+    throw new Error(`Interpolation failed: missing columns: ${missing.join(", ")}`);
   }
 
   return result;

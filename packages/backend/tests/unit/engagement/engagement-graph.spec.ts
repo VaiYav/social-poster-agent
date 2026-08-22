@@ -6,39 +6,44 @@
  *
  * Source: packages/backend/src/modules/engagement/engagement.graph.ts
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SocialNetwork } from '@prisma/client';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { SocialNetwork } from "../../../src/generated/prisma/client";
 import {
   buildEngagementGraph,
   createEngagementInitialState,
-} from '../../../src/modules/engagement/engagement.graph';
-import type { IEngagementDecisionPort, ActionDecision } from '../../../src/domain/ports/engagement-decision.port';
-import type { TargetingService } from '../../../src/modules/engagement/targeting.service';
-import type { WarmupService, WarmupStatus } from '../../../src/modules/sessions/warmup.service';
-import type { HumanBehaviorEngine } from '../../../src/modules/engagement/human-behavior-engine.js';
-import type { BaseEngager } from '../../../src/modules/engagement/engagers/base.engager';
+} from "../../../src/modules/engagement/engagement.graph";
+import type {
+  IEngagementDecisionPort,
+  ActionDecision,
+} from "../../../src/domain/ports/engagement-decision.port";
+import type { TargetingService } from "../../../src/modules/engagement/targeting.service";
+import type { WarmupService, WarmupStatus } from "../../../src/modules/sessions/warmup.service";
+import type { HumanBehaviorEngine } from "../../../src/modules/engagement/human-behavior-engine.js";
+import type { BaseEngager } from "../../../src/modules/engagement/engagers/base.engager";
 
 // ── Mocks ──
 
 function createMockDecisionPort(): IEngagementDecisionPort {
   return {
     decideAction: vi.fn().mockResolvedValue({
-      action: 'scroll', reason: 'test', confidence: 0.5,
+      action: "scroll",
+      reason: "test",
+      confidence: 0.5,
     } as ActionDecision),
-    generateComment: vi.fn().mockResolvedValue('Test comment.'),
+    generateComment: vi.fn().mockResolvedValue("Test comment."),
   };
 }
 
 function createMockTargetingService(): TargetingService {
   return {
     pickSource: vi.fn().mockReturnValue({
-      source: 'home-feed' as const,
-      url: 'https://x.com/home',
-      label: 'Home Feed',
+      source: "home-feed" as const,
+      url: "https://x.com/home",
+      label: "Home Feed",
     }),
     getAvailableSources: vi.fn().mockReturnValue([]),
-    getHashtags: vi.fn().mockReturnValue(['#productivity']),
-    getCompetitors: vi.fn().mockReturnValue(['competitorco']),
+    getHashtags: vi.fn().mockReturnValue(["#productivity"]),
+    getCompetitors: vi.fn().mockReturnValue(["competitorco"]),
   } as unknown as TargetingService;
 }
 
@@ -54,16 +59,25 @@ function createMockWarmupService(status: WarmupStatus | null = null): WarmupServ
 function createMockHumanBehaviorEngine(): HumanBehaviorEngine {
   return {
     processPosts: vi.fn().mockResolvedValue([
-      { postUrl: 'url1', decision: { action: 'scroll', reason: 'test', confidence: 0.5 }, success: true },
-      { postUrl: 'url2', decision: { action: 'like', reason: 'good', confidence: 0.9 }, success: true, interactionId: 'int-1' },
+      {
+        postUrl: "url1",
+        decision: { action: "scroll", reason: "test", confidence: 0.5 },
+        success: true,
+      },
+      {
+        postUrl: "url2",
+        decision: { action: "like", reason: "good", confidence: 0.9 },
+        success: true,
+        interactionId: "int-1",
+      },
     ]),
   } as unknown as HumanBehaviorEngine;
 }
 
 function createMockEngager(): BaseEngager {
   return {
-    scrollFeed: vi.fn().mockResolvedValue(['url1', 'url2', 'url3']),
-    scrollUrl: vi.fn().mockResolvedValue(['url1', 'url2', 'url3']),
+    scrollFeed: vi.fn().mockResolvedValue(["url1", "url2", "url3"]),
+    scrollUrl: vi.fn().mockResolvedValue(["url1", "url2", "url3"]),
     extractPostText: vi.fn(),
     openCommentsThread: vi.fn(),
     navigateBack: vi.fn(),
@@ -75,7 +89,7 @@ function createMockEngager(): BaseEngager {
   } as unknown as BaseEngager;
 }
 
-describe('EngagementGraph', () => {
+describe("EngagementGraph", () => {
   let engager: BaseEngager;
   let targetingService: TargetingService;
   let warmupService: WarmupService;
@@ -91,7 +105,7 @@ describe('EngagementGraph', () => {
 
   // ── Graph building ──
 
-  it('EG-001: buildEngagementGraph returns a compilable graph', () => {
+  it("EG-001: buildEngagementGraph returns a compilable graph", () => {
     const graph = buildEngagementGraph(engager, {
       targetingService,
       warmupService,
@@ -102,11 +116,11 @@ describe('EngagementGraph', () => {
     expect(() => graph.compile()).not.toThrow();
   });
 
-  it('EG-002: createEngagementInitialState returns correct initial state', () => {
+  it("EG-002: createEngagementInitialState returns correct initial state", () => {
     const state = createEngagementInitialState({
       network: SocialNetwork.X,
-      accountId: 'acc-1',
-      browsingSessionId: 'sess-1',
+      accountId: "acc-1",
+      browsingSessionId: "sess-1",
       durationSec: 60,
       maxPosts: 10,
       likesMaxPerSession: 15,
@@ -116,22 +130,22 @@ describe('EngagementGraph', () => {
       page: null,
     });
     expect(state.network).toBe(SocialNetwork.X);
-    expect(state.accountId).toBe('acc-1');
-    expect(state.browsingSessionId).toBe('sess-1');
+    expect(state.accountId).toBe("acc-1");
+    expect(state.browsingSessionId).toBe("sess-1");
     expect(state.durationSec).toBe(60);
     expect(state.maxPosts).toBe(10);
     expect(state.likesMaxPerSession).toBe(15);
     expect(state.commentsMaxPerSession).toBe(4);
     expect(state.repostsMaxPerSession).toBe(0);
     expect(state.quotesMaxPerSession).toBe(0);
-    expect(state.warmupPhase).toBe('none');
+    expect(state.warmupPhase).toBe("none");
     expect(state.results).toEqual([]);
     expect(state.page).toBeNull();
   });
 
   // ── Graph invocation ──
 
-  it('EG-003: graph calls check_warmup → pick_source → scroll_feed → decide_per_post', async () => {
+  it("EG-003: graph calls check_warmup → pick_source → scroll_feed → decide_per_post", async () => {
     const graph = buildEngagementGraph(engager, {
       targetingService,
       warmupService,
@@ -140,8 +154,8 @@ describe('EngagementGraph', () => {
     const compiled = graph.compile();
     const initialState = createEngagementInitialState({
       network: SocialNetwork.X,
-      accountId: 'acc-1',
-      browsingSessionId: 'sess-1',
+      accountId: "acc-1",
+      browsingSessionId: "sess-1",
       durationSec: 30,
       maxPosts: 5,
       likesMaxPerSession: 15,
@@ -154,10 +168,12 @@ describe('EngagementGraph', () => {
     const finalState = await compiled.invoke(initialState);
 
     // check_warmup was called (via warmupService.getWarmupStatus)
-    expect(warmupService.getWarmupStatus).toHaveBeenCalledWith('acc-1');
+    expect(warmupService.getWarmupStatus).toHaveBeenCalledWith("acc-1");
 
     // pick_source was called
-    expect(targetingService.pickSource).toHaveBeenCalledWith(SocialNetwork.X, { conversationReady: false });
+    expect(targetingService.pickSource).toHaveBeenCalledWith(SocialNetwork.X, {
+      conversationReady: false,
+    });
 
     // scroll_feed was called (via scrollUrl because the mock targeting service returns a URL)
     expect(engager.scrollUrl).toHaveBeenCalled();
@@ -166,12 +182,12 @@ describe('EngagementGraph', () => {
     expect(humanBehaviorEngine.processPosts).toHaveBeenCalled();
   });
 
-  it('EG-004: warmup browse-only phase sets likesBudget=0, commentsBudget=0', async () => {
+  it("EG-004: warmup browse-only phase sets likesBudget=0, commentsBudget=0", async () => {
     warmupService = createMockWarmupService({
-      accountId: 'acc-1',
+      accountId: "acc-1",
       daysElapsed: 0,
       daysTotal: 7,
-      phase: 'browse-only',
+      phase: "browse-only",
       canPost: false,
       canInteract: false,
       maxInteractionsPerDay: 0,
@@ -185,8 +201,8 @@ describe('EngagementGraph', () => {
     const compiled = graph.compile();
     const initialState = createEngagementInitialState({
       network: SocialNetwork.X,
-      accountId: 'acc-1',
-      browsingSessionId: 'sess-1',
+      accountId: "acc-1",
+      browsingSessionId: "sess-1",
       durationSec: 30,
       maxPosts: 5,
       likesMaxPerSession: 15,
@@ -196,17 +212,17 @@ describe('EngagementGraph', () => {
 
     const finalState = await compiled.invoke(initialState);
 
-    expect(finalState.warmupPhase).toBe('browse-only');
+    expect(finalState.warmupPhase).toBe("browse-only");
     expect(finalState.likesBudget).toBe(0);
     expect(finalState.commentsBudget).toBe(0);
   });
 
-  it('EG-005: warmup light phase sets likesBudget=2, commentsBudget=0', async () => {
+  it("EG-005: warmup light phase sets likesBudget=2, commentsBudget=0", async () => {
     warmupService = createMockWarmupService({
-      accountId: 'acc-1',
+      accountId: "acc-1",
       daysElapsed: 2,
       daysTotal: 7,
-      phase: 'light',
+      phase: "light",
       canPost: false,
       canInteract: true,
       maxInteractionsPerDay: 2,
@@ -220,8 +236,8 @@ describe('EngagementGraph', () => {
     const compiled = graph.compile();
     const initialState = createEngagementInitialState({
       network: SocialNetwork.X,
-      accountId: 'acc-1',
-      browsingSessionId: 'sess-1',
+      accountId: "acc-1",
+      browsingSessionId: "sess-1",
       durationSec: 30,
       maxPosts: 5,
       likesMaxPerSession: 15,
@@ -231,17 +247,17 @@ describe('EngagementGraph', () => {
 
     const finalState = await compiled.invoke(initialState);
 
-    expect(finalState.warmupPhase).toBe('light');
+    expect(finalState.warmupPhase).toBe("light");
     expect(finalState.likesBudget).toBe(2);
     expect(finalState.commentsBudget).toBe(0);
   });
 
-  it('EG-006: warmup moderate phase sets commentsBudget=1', async () => {
+  it("EG-006: warmup moderate phase sets commentsBudget=1", async () => {
     warmupService = createMockWarmupService({
-      accountId: 'acc-1',
+      accountId: "acc-1",
       daysElapsed: 5,
       daysTotal: 7,
-      phase: 'moderate',
+      phase: "moderate",
       canPost: true,
       canInteract: true,
       maxInteractionsPerDay: 5,
@@ -255,8 +271,8 @@ describe('EngagementGraph', () => {
     const compiled = graph.compile();
     const initialState = createEngagementInitialState({
       network: SocialNetwork.X,
-      accountId: 'acc-1',
-      browsingSessionId: 'sess-1',
+      accountId: "acc-1",
+      browsingSessionId: "sess-1",
       durationSec: 30,
       maxPosts: 5,
       likesMaxPerSession: 15,
@@ -266,12 +282,12 @@ describe('EngagementGraph', () => {
 
     const finalState = await compiled.invoke(initialState);
 
-    expect(finalState.warmupPhase).toBe('moderate');
+    expect(finalState.warmupPhase).toBe("moderate");
     expect(finalState.likesBudget).toBe(5);
     expect(finalState.commentsBudget).toBe(1);
   });
 
-  it('EG-007: no warmup (null status) uses configured budgets', async () => {
+  it("EG-007: no warmup (null status) uses configured budgets", async () => {
     warmupService = createMockWarmupService(null);
 
     const graph = buildEngagementGraph(engager, {
@@ -282,8 +298,8 @@ describe('EngagementGraph', () => {
     const compiled = graph.compile();
     const initialState = createEngagementInitialState({
       network: SocialNetwork.X,
-      accountId: 'acc-1',
-      browsingSessionId: 'sess-1',
+      accountId: "acc-1",
+      browsingSessionId: "sess-1",
       durationSec: 30,
       maxPosts: 5,
       likesMaxPerSession: 15,
@@ -293,17 +309,17 @@ describe('EngagementGraph', () => {
 
     const finalState = await compiled.invoke(initialState);
 
-    expect(finalState.warmupPhase).toBe('none');
+    expect(finalState.warmupPhase).toBe("none");
     expect(finalState.likesBudget).toBe(15);
     expect(finalState.commentsBudget).toBe(4);
   });
 
-  it('EG-008: graph passes warmup-adjusted budget to HumanBehaviorEngine', async () => {
+  it("EG-008: graph passes warmup-adjusted budget to HumanBehaviorEngine", async () => {
     warmupService = createMockWarmupService({
-      accountId: 'acc-1',
+      accountId: "acc-1",
       daysElapsed: 0,
       daysTotal: 7,
-      phase: 'browse-only',
+      phase: "browse-only",
       canPost: false,
       canInteract: false,
       maxInteractionsPerDay: 0,
@@ -317,8 +333,8 @@ describe('EngagementGraph', () => {
     const compiled = graph.compile();
     const initialState = createEngagementInitialState({
       network: SocialNetwork.X,
-      accountId: 'acc-1',
-      browsingSessionId: 'sess-1',
+      accountId: "acc-1",
+      browsingSessionId: "sess-1",
       durationSec: 30,
       maxPosts: 5,
       likesMaxPerSession: 15,
@@ -340,12 +356,12 @@ describe('EngagementGraph', () => {
     );
   });
 
-  it('EG-009: graph records source label from TargetingService', async () => {
+  it("EG-009: graph records source label from TargetingService", async () => {
     targetingService = createMockTargetingService();
     (targetingService.pickSource as ReturnType<typeof vi.fn>).mockReturnValue({
-      source: 'hashtag' as const,
-      url: 'https://x.com/search?q=%23productivity',
-      label: 'Hashtag #productivity',
+      source: "hashtag" as const,
+      url: "https://x.com/search?q=%23productivity",
+      label: "Hashtag #productivity",
     });
 
     const graph = buildEngagementGraph(engager, {
@@ -356,8 +372,8 @@ describe('EngagementGraph', () => {
     const compiled = graph.compile();
     const initialState = createEngagementInitialState({
       network: SocialNetwork.X,
-      accountId: 'acc-1',
-      browsingSessionId: 'sess-1',
+      accountId: "acc-1",
+      browsingSessionId: "sess-1",
       durationSec: 30,
       maxPosts: 5,
       likesMaxPerSession: 15,
@@ -367,18 +383,18 @@ describe('EngagementGraph', () => {
 
     const finalState = await compiled.invoke(initialState);
 
-    expect(finalState.sourceLabel).toBe('Hashtag #productivity');
-    expect(finalState.sourceUrl).toBe('https://x.com/search?q=%23productivity');
+    expect(finalState.sourceLabel).toBe("Hashtag #productivity");
+    expect(finalState.sourceUrl).toBe("https://x.com/search?q=%23productivity");
     expect(engager.scrollUrl).toHaveBeenCalledWith(
       expect.anything(),
-      'https://x.com/search?q=%23productivity',
+      "https://x.com/search?q=%23productivity",
       expect.any(Number),
     );
   });
 
-  it('EG-010: graph handles scroll_feed failure gracefully', async () => {
+  it("EG-010: graph handles scroll_feed failure gracefully", async () => {
     engager = createMockEngager();
-    (engager.scrollUrl as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Browser crashed'));
+    (engager.scrollUrl as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("Browser crashed"));
 
     const graph = buildEngagementGraph(engager, {
       targetingService,
@@ -388,8 +404,8 @@ describe('EngagementGraph', () => {
     const compiled = graph.compile();
     const initialState = createEngagementInitialState({
       network: SocialNetwork.X,
-      accountId: 'acc-1',
-      browsingSessionId: 'sess-1',
+      accountId: "acc-1",
+      browsingSessionId: "sess-1",
       durationSec: 30,
       maxPosts: 5,
       likesMaxPerSession: 15,
@@ -398,15 +414,15 @@ describe('EngagementGraph', () => {
     });
 
     // Graph should propagate the error
-    await expect(compiled.invoke(initialState)).rejects.toThrow('Browser crashed');
+    await expect(compiled.invoke(initialState)).rejects.toThrow("Browser crashed");
   });
 
-  it('EG-013: scroll_feed falls back to home feed when source returns empty', async () => {
+  it("EG-013: scroll_feed falls back to home feed when source returns empty", async () => {
     targetingService = createMockTargetingService();
     (targetingService.pickSource as ReturnType<typeof vi.fn>).mockReturnValue({
-      source: 'hashtag' as const,
-      url: 'https://x.com/search?q=%23productivity',
-      label: 'Hashtag #productivity',
+      source: "hashtag" as const,
+      url: "https://x.com/search?q=%23productivity",
+      label: "Hashtag #productivity",
     });
     engager = createMockEngager();
     (engager.scrollUrl as ReturnType<typeof vi.fn>).mockResolvedValue([]);
@@ -419,8 +435,8 @@ describe('EngagementGraph', () => {
     const compiled = graph.compile();
     const initialState = createEngagementInitialState({
       network: SocialNetwork.X,
-      accountId: 'acc-1',
-      browsingSessionId: 'sess-1',
+      accountId: "acc-1",
+      browsingSessionId: "sess-1",
       durationSec: 30,
       maxPosts: 5,
       likesMaxPerSession: 15,
@@ -432,15 +448,15 @@ describe('EngagementGraph', () => {
 
     expect(engager.scrollUrl).toHaveBeenCalledWith(
       expect.anything(),
-      'https://x.com/search?q=%23productivity',
+      "https://x.com/search?q=%23productivity",
       expect.any(Number),
     );
     expect(engager.scrollFeed).toHaveBeenCalled();
-    expect(finalState.sourceLabel).toBe('home-feed');
-    expect(finalState.postUrls).toEqual(['url1', 'url2', 'url3']);
+    expect(finalState.sourceLabel).toBe("home-feed");
+    expect(finalState.postUrls).toEqual(["url1", "url2", "url3"]);
   });
 
-  it('EG-011: graph works without warmupService (undefined)', async () => {
+  it("EG-011: graph works without warmupService (undefined)", async () => {
     const graph = buildEngagementGraph(engager, {
       targetingService,
       warmupService: undefined,
@@ -449,8 +465,8 @@ describe('EngagementGraph', () => {
     const compiled = graph.compile();
     const initialState = createEngagementInitialState({
       network: SocialNetwork.X,
-      accountId: 'acc-1',
-      browsingSessionId: 'sess-1',
+      accountId: "acc-1",
+      browsingSessionId: "sess-1",
       durationSec: 30,
       maxPosts: 5,
       likesMaxPerSession: 15,
@@ -461,7 +477,7 @@ describe('EngagementGraph', () => {
     const finalState = await compiled.invoke(initialState);
 
     // Should use configured budgets (no warmup gating)
-    expect(finalState.warmupPhase).toBe('none');
+    expect(finalState.warmupPhase).toBe("none");
     expect(finalState.likesBudget).toBe(15);
   });
 });

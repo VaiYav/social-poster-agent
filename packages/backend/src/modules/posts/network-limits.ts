@@ -1,4 +1,4 @@
-import { SocialNetwork } from '@prisma/client';
+import { SocialNetwork } from "../../generated/prisma/client";
 
 /**
  * PO2: per-network hard character limits (mirrors generation / ab-variant NETWORK_LIMITS).
@@ -24,6 +24,6 @@ export interface LengthCheck {
 
 export function checkContentLength(network: SocialNetwork, content: string): LengthCheck {
   const limit = NETWORK_LIMITS[network] ?? 280;
-  const length = [...(content ?? '')].length;
+  const length = [...(content ?? "")].length;
   return { ok: length <= limit, limit, length };
 }

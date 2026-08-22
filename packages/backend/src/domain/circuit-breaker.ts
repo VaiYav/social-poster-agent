@@ -12,9 +12,9 @@
 //   const breaker = new CircuitBreaker('x-login', { failureThreshold: 3, resetTimeoutMs: 900000 });
 //   const result = await breaker.execute(() => someOperation());
 
-import { Logger } from '@nestjs/common';
+import { Logger } from "@nestjs/common";
 
-export type CircuitState = 'CLOSED' | 'OPEN' | 'HALF_OPEN';
+export type CircuitState = "CLOSED" | "OPEN" | "HALF_OPEN";
 
 export interface CircuitBreakerOptions {
   /** Number of consecutive failures before opening the circuit. Default: 3. */
@@ -40,7 +40,7 @@ interface FailureRecord {
  */
 export class CircuitBreaker {
   private readonly logger: Logger;
-  private state: CircuitState = 'CLOSED';
+  private state: CircuitState = "CLOSED";
   private failures: FailureRecord[] = [];
   private lastFailureTime = 0;
   private openedAt = 0;
@@ -61,7 +61,7 @@ export class CircuitBreaker {
   async execute<T>(operation: () => Promise<T>): Promise<T> {
     this.maybeTransitionToHalfOpen();
 
-    if (this.state === 'OPEN') {
+    if (this.state === "OPEN") {
       const remainingMs = (this.opts.resetTimeoutMs ?? 900000) - (Date.now() - this.openedAt);
       const msg = `Circuit "${this.name}" is OPEN — ${Math.ceil(remainingMs / 1000)}s until reset`;
       this.logger.warn(msg);
@@ -81,29 +81,29 @@ export class CircuitBreaker {
   /** Check if the circuit would block a request without executing. */
   canExecute(): boolean {
     this.maybeTransitionToHalfOpen();
-    return this.state !== 'OPEN';
+    return this.state !== "OPEN";
   }
 
   /** Time until the circuit resets (in ms). 0 if not open. */
   get resetInMs(): number {
-    if (this.state !== 'OPEN') return 0;
+    if (this.state !== "OPEN") return 0;
     const elapsed = Date.now() - this.openedAt;
     return Math.max(0, (this.opts.resetTimeoutMs ?? 900000) - elapsed);
   }
 
   /** Manually reset the circuit (e.g., after fixing the underlying issue). */
   reset(): void {
-    this.state = 'CLOSED';
+    this.state = "CLOSED";
     this.failures = [];
     this.openedAt = 0;
     this.logger.log(`Circuit "${this.name}" manually reset → CLOSED`);
   }
 
   private onSuccess(): void {
-    if (this.state === 'HALF_OPEN') {
+    if (this.state === "HALF_OPEN") {
       this.logger.log(`Circuit "${this.name}" HALF_OPEN → CLOSED (trial succeeded)`);
     }
-    this.state = 'CLOSED';
+    this.state = "CLOSED";
     this.failures = [];
   }
 
@@ -119,12 +119,10 @@ export class CircuitBreaker {
 
     const threshold = this.opts.failureThreshold ?? 3;
 
-    if (this.state === 'HALF_OPEN') {
+    if (this.state === "HALF_OPEN") {
       // Trial failed — re-open the circuit
       this.openCircuit();
-      this.logger.warn(
-        `Circuit "${this.name}" HALF_OPEN → OPEN (trial failed: ${errorMsg})`,
-      );
+      this.logger.warn(`Circuit "${this.name}" HALF_OPEN → OPEN (trial failed: ${errorMsg})`);
     } else if (this.failures.length >= threshold) {
       this.openCircuit();
       this.logger.error(
@@ -134,15 +132,15 @@ export class CircuitBreaker {
   }
 
   private openCircuit(): void {
-    this.state = 'OPEN';
+    this.state = "OPEN";
     this.openedAt = Date.now();
   }
 
   private maybeTransitionToHalfOpen(): void {
-    if (this.state !== 'OPEN') return;
+    if (this.state !== "OPEN") return;
     const resetMs = this.opts.resetTimeoutMs ?? 900000;
     if (Date.now() - this.openedAt >= resetMs) {
-      this.state = 'HALF_OPEN';
+      this.state = "HALF_OPEN";
       this.logger.log(`Circuit "${this.name}" OPEN → HALF_OPEN (reset timeout elapsed)`);
     }
   }
@@ -155,7 +153,7 @@ export class CircuitOpenError extends Error {
 
   constructor(name: string, resetInMs: number) {
     super(`Circuit "${name}" is open — retry in ${Math.ceil(resetInMs / 1000)}s`);
-    this.name = 'CircuitOpenError';
+    this.name = "CircuitOpenError";
     this.circuitName = name;
     this.resetInMs = resetInMs;
   }
@@ -184,7 +182,7 @@ export class CircuitBreakerRegistry {
     return Array.from(this.breakers.entries()).map(([name, breaker]) => ({
       name,
       state: breaker.currentState,
-      failures: breaker['failures'].length,
+      failures: breaker["failures"].length,
       resetInMs: breaker.resetInMs,
     }));
   }
@@ -194,6 +192,6 @@ export class CircuitBreakerRegistry {
     for (const breaker of this.breakers.values()) {
       breaker.reset();
     }
-    this.logger.log('All circuit breakers reset');
+    this.logger.log("All circuit breakers reset");
   }
 }

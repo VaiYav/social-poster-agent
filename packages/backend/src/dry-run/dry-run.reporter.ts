@@ -8,7 +8,7 @@
 //   reporter.endFeature();
 //   reporter.summary();
 
-type StepStatus = 'ok' | 'fail' | 'dry-run' | 'warn';
+type StepStatus = "ok" | "fail" | "dry-run" | "warn";
 
 interface Step {
   status: StepStatus;
@@ -23,21 +23,21 @@ interface Feature {
 }
 
 const ICONS: Record<StepStatus, string> = {
-  ok: '\u2713', // ✓
-  fail: '\u2717', // ✗
-  'dry-run': '\u2299', // ⊙
-  warn: '\u26a0', // ⚠
+  ok: "\u2713", // ✓
+  fail: "\u2717", // ✗
+  "dry-run": "\u2299", // ⊙
+  warn: "\u26a0", // ⚠
 };
 
 const COLORS: Record<StepStatus, string> = {
-  ok: '\x1b[32m', // green
-  fail: '\x1b[31m', // red
-  'dry-run': '\x1b[33m', // yellow
-  warn: '\x1b[33m', // yellow
+  ok: "\x1b[32m", // green
+  fail: "\x1b[31m", // red
+  "dry-run": "\x1b[33m", // yellow
+  warn: "\x1b[33m", // yellow
 };
-const RESET = '\x1b[0m';
-const BOLD = '\x1b[1m';
-const DIM = '\x1b[2m';
+const RESET = "\x1b[0m";
+const BOLD = "\x1b[1m";
+const DIM = "\x1b[2m";
 
 export class DryRunReporter {
   private features: Feature[] = [];
@@ -52,7 +52,7 @@ export class DryRunReporter {
     if (!this.currentFeature) return;
     const step: Step = { status, message, details };
     this.currentFeature.steps.push(step);
-    if (status === 'fail') this.currentFeature.passed = false;
+    if (status === "fail") this.currentFeature.passed = false;
 
     const icon = ICONS[status];
     const color = COLORS[status];
@@ -60,7 +60,7 @@ export class DryRunReporter {
 
     if (details) {
       for (const [key, value] of Object.entries(details)) {
-        const formatted = typeof value === 'string' ? value : JSON.stringify(value);
+        const formatted = typeof value === "string" ? value : JSON.stringify(value);
         const truncated = formatted.length > 120 ? `${formatted.slice(0, 117)}...` : formatted;
         console.log(`    ${DIM}${key}: ${truncated}${RESET}`);
       }
@@ -82,9 +82,9 @@ export class DryRunReporter {
     const padding = Math.max(0, width - title.length - 2);
     const leftPad = Math.floor(padding / 2);
     const rightPad = padding - leftPad;
-    console.log(`\n${BOLD}${'='.repeat(width)}${RESET}`);
-    console.log(`${BOLD}${'='.repeat(leftPad)} ${title} ${'='.repeat(rightPad)}${RESET}`);
-    console.log(`${BOLD}${'='.repeat(width)}${RESET}`);
+    console.log(`\n${BOLD}${"=".repeat(width)}${RESET}`);
+    console.log(`${BOLD}${"=".repeat(leftPad)} ${title} ${"=".repeat(rightPad)}${RESET}`);
+    console.log(`${BOLD}${"=".repeat(width)}${RESET}`);
   }
 
   info(message: string): void {
@@ -96,14 +96,18 @@ export class DryRunReporter {
     const passed = this.features.filter((f) => f.passed).length;
     const failed = total - passed;
 
-    console.log(`\n${BOLD}${'='.repeat(60)}${RESET}`);
+    console.log(`\n${BOLD}${"=".repeat(60)}${RESET}`);
     if (failed === 0) {
-      console.log(`${BOLD}${COLORS.ok}  Summary: ${passed}/${total} features verified \u2713${RESET}`);
+      console.log(
+        `${BOLD}${COLORS.ok}  Summary: ${passed}/${total} features verified \u2713${RESET}`,
+      );
     } else {
-      console.log(`${BOLD}${COLORS.fail}  Summary: ${passed}/${total} features passed, ${failed} failed \u2717${RESET}`);
+      console.log(
+        `${BOLD}${COLORS.fail}  Summary: ${passed}/${total} features passed, ${failed} failed \u2717${RESET}`,
+      );
     }
     console.log(`${DIM}  Dry-run completed \u2014 no posts were published${RESET}`);
-    console.log(`${BOLD}${'='.repeat(60)}${RESET}\n`);
+    console.log(`${BOLD}${"=".repeat(60)}${RESET}\n`);
 
     return { total, passed, failed };
   }

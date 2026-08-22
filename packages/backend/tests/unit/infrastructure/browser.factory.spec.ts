@@ -5,8 +5,8 @@
  * Source: packages/backend/src/infrastructure/browser/browser.factory.ts
  * Test IDs: UTC-400 through UTC-419
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ConfigService } from '@nestjs/config';
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { ConfigService } from "@nestjs/config";
 
 // ── Mock camoufox-js ──
 // Camoufox() returns a Playwright-compatible Browser or BrowserContext.
@@ -24,28 +24,30 @@ const mocks = vi.hoisted(() => ({
   contextAddCookies: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('camoufox-js', () => ({
+vi.mock("camoufox-js", () => ({
   Camoufox: mocks.camoufoxLaunch,
 }));
 
-import { BrowserFactory } from '../../../src/infrastructure/browser/browser.factory';
+import { BrowserFactory } from "../../../src/infrastructure/browser/browser.factory";
 
 // ── Helpers ──
 
 function createMockConfigService(overrides: Record<string, unknown> = {}): ConfigService {
   const defaults: Record<string, unknown> = {
-    CAMOUFOX_HEADLESS: 'true',
-    CAMOUFOX_HUMANIZE: 'true',
-    CAMOUFOX_GEOIP: 'true',
-    CAMOUFOX_LOCALE: 'en-US',
-    CAMOUFOX_OS: 'windows',
+    CAMOUFOX_HEADLESS: "true",
+    CAMOUFOX_HUMANIZE: "true",
+    CAMOUFOX_GEOIP: "true",
+    CAMOUFOX_LOCALE: "en-US",
+    CAMOUFOX_OS: "windows",
     CAMOUFOX_PROXY_URL: undefined,
-    SPA_SCREENSHOT_DIR: '/tmp/spa-screenshots-test',
+    SPA_SCREENSHOT_DIR: "/tmp/spa-screenshots-test",
     BROWSER_POOL_SIZE: 2,
-    CAMOUFOX_PROFILE_DIR: '/tmp/spa-profiles-test',
+    CAMOUFOX_PROFILE_DIR: "/tmp/spa-profiles-test",
   };
   return {
-    get: vi.fn((key: string, defaultValue?: unknown) => overrides[key] ?? defaults[key] ?? defaultValue),
+    get: vi.fn(
+      (key: string, defaultValue?: unknown) => overrides[key] ?? defaults[key] ?? defaultValue,
+    ),
   } as unknown as ConfigService;
 }
 
@@ -72,9 +74,15 @@ function makeMockPage(opts: { loadEventEnd?: number; startTime?: number } = {}) 
   const startTime = opts.startTime ?? 0;
   return {
     evaluate: vi.fn().mockResolvedValue({ loadEventEnd, startTime }),
-    mouse: { wheel: vi.fn().mockResolvedValue(undefined), move: vi.fn().mockResolvedValue(undefined) },
-    keyboard: { type: vi.fn().mockResolvedValue(undefined), press: vi.fn().mockResolvedValue(undefined) },
-    screenshot: vi.fn().mockResolvedValue(Buffer.from('png')),
+    mouse: {
+      wheel: vi.fn().mockResolvedValue(undefined),
+      move: vi.fn().mockResolvedValue(undefined),
+    },
+    keyboard: {
+      type: vi.fn().mockResolvedValue(undefined),
+      press: vi.fn().mockResolvedValue(undefined),
+    },
+    screenshot: vi.fn().mockResolvedValue(Buffer.from("png")),
     locator: vi.fn().mockReturnValue({
       first: vi.fn().mockReturnThis(),
       isVisible: vi.fn().mockResolvedValue(true),
@@ -85,14 +93,14 @@ function makeMockPage(opts: { loadEventEnd?: number; startTime?: number } = {}) 
       scrollIntoViewIfNeeded: vi.fn().mockResolvedValue(undefined),
       waitFor: vi.fn().mockResolvedValue(undefined),
       evaluate: vi.fn().mockResolvedValue(undefined),
-      textContent: vi.fn().mockResolvedValue(''),
+      textContent: vi.fn().mockResolvedValue(""),
     }),
   } as unknown;
 }
 
 // ── Tests ──
 
-describe('BrowserFactory', () => {
+describe("BrowserFactory", () => {
   let factory: BrowserFactory;
   let configService: ConfigService;
 
@@ -105,7 +113,7 @@ describe('BrowserFactory', () => {
     // Default: Camoufox launch returns a Browser (for non-Facebook)
     mocks.camoufoxLaunch.mockImplementation(async (opts: Record<string, unknown>) => {
       // If user_data_dir is present → persistent context
-      if (opts && 'user_data_dir' in opts) {
+      if (opts && "user_data_dir" in opts) {
         return makeMockContext();
       }
       return makeMockBrowser();
@@ -121,58 +129,61 @@ describe('BrowserFactory', () => {
 
   // ── createContext ──
 
-  it('UTC-400: createContext(X, storageState) → launch → newContext with storageState → return context', async () => {
+  it("UTC-400: createContext(X, storageState) → launch → newContext with storageState → return context", async () => {
     // Arrange
-    const storageState = JSON.stringify({ cookies: [{ name: 'c1', value: 'v1' }], origins: [] });
+    const storageState = JSON.stringify({ cookies: [{ name: "c1", value: "v1" }], origins: [] });
 
     // Act
-    const ctx = await factory.createContext('X', storageState);
+    const ctx = await factory.createContext("X", storageState);
 
     // Assert
     expect(ctx).toBeDefined();
     expect(mocks.camoufoxLaunch).toHaveBeenCalledOnce();
     expect(mocks.browserNewContext).toHaveBeenCalledOnce();
     const ctxOpts = mocks.browserNewContext.mock.calls[0]![0];
-    expect(ctxOpts.storageState).toEqual({ cookies: [{ name: 'c1', value: 'v1' }], origins: [] });
+    expect(ctxOpts.storageState).toEqual({ cookies: [{ name: "c1", value: "v1" }], origins: [] });
   });
 
-  it('UTC-401: createContext(FACEBOOK) → persistent context with user_data_dir', async () => {
+  it("UTC-401: createContext(FACEBOOK) → persistent context with user_data_dir", async () => {
     // Act
-    const ctx = await factory.createContext('FACEBOOK');
+    const ctx = await factory.createContext("FACEBOOK");
 
     // Assert — Camoufox called with user_data_dir, returns a context (not browser)
     expect(mocks.camoufoxLaunch).toHaveBeenCalledOnce();
     const launchOpts = mocks.camoufoxLaunch.mock.calls[0]![0];
-    expect(launchOpts.user_data_dir).toContain('facebook');
+    expect(launchOpts.user_data_dir).toContain("facebook");
     expect(ctx).toBeDefined();
     // newContext should NOT be called for Facebook (persistent context)
     expect(mocks.browserNewContext).not.toHaveBeenCalled();
   });
 
-  it('UTC-401b: concurrent createContext(FACEBOOK) → single Camoufox launch, shared context (P5 race)', async () => {
+  it("UTC-401b: concurrent createContext(FACEBOOK) → single Camoufox launch, shared context (P5 race)", async () => {
     // Two callers hit the cold cache at the same time (e.g. a posting job and a
     // warmup task). Without in-flight memoization each would launch its own
     // Camoufox process on the SAME user_data_dir (Firefox profile-lock conflict).
     const [a, b] = await Promise.all([
-      factory.createContext('FACEBOOK'),
-      factory.createContext('FACEBOOK'),
+      factory.createContext("FACEBOOK"),
+      factory.createContext("FACEBOOK"),
     ]);
 
     expect(mocks.camoufoxLaunch).toHaveBeenCalledOnce();
     expect(a).toBe(b); // both share the one launched persistent context
   });
 
-  it('SEC2: persistent profile directory is created owner-only (0700) — plaintext cookies not world-readable', async () => {
-    const { statSync } = await import('node:fs');
-    await factory.createContext('FACEBOOK');
+  it("SEC2: persistent profile directory is created owner-only (0700) — plaintext cookies not world-readable", async () => {
+    const { statSync } = await import("node:fs");
+    await factory.createContext("FACEBOOK");
     // CAMOUFOX_PROFILE_DIR is /tmp/spa-profiles-test in the mock config.
-    const mode = statSync('/tmp/spa-profiles-test/facebook/default').mode & 0o777;
+    const mode = statSync("/tmp/spa-profiles-test/facebook/default").mode & 0o777;
     expect(mode).toBe(0o700);
   });
 
-  it('UTC-402: createContext(THREADS, storageState) → standard context (not persistent)', async () => {
+  it("UTC-402: createContext(THREADS, storageState) → standard context (not persistent)", async () => {
     // Act
-    const ctx = await factory.createContext('THREADS', JSON.stringify({ cookies: [], origins: [] }));
+    const ctx = await factory.createContext(
+      "THREADS",
+      JSON.stringify({ cookies: [], origins: [] }),
+    );
 
     // Assert
     expect(ctx).toBeDefined();
@@ -181,10 +192,10 @@ describe('BrowserFactory', () => {
     expect(launchOpts.user_data_dir).toBeUndefined();
   });
 
-  it('UTC-403: createContext reuses browser instance on subsequent calls (no relaunch)', async () => {
+  it("UTC-403: createContext reuses browser instance on subsequent calls (no relaunch)", async () => {
     // Act
-    await factory.createContext('X');
-    await factory.createContext('THREADS');
+    await factory.createContext("X");
+    await factory.createContext("THREADS");
 
     // Assert — Camoufox launched only once (browser reused)
     expect(mocks.camoufoxLaunch).toHaveBeenCalledOnce();
@@ -193,13 +204,13 @@ describe('BrowserFactory', () => {
 
   // ── acquireContext / releaseContext (pool) ──
 
-  it('UTC-404: acquireContext reuses idle context from pool', async () => {
+  it("UTC-404: acquireContext reuses idle context from pool", async () => {
     // Arrange — acquire then release to populate the idle pool
-    const ctx1 = await factory.acquireContext('X');
-    factory.releaseContext('X', ctx1);
+    const ctx1 = await factory.acquireContext("X");
+    factory.releaseContext("X", ctx1);
 
     // Act — second acquire should reuse the idle context (no new context created)
-    const ctx2 = await factory.acquireContext('X');
+    const ctx2 = await factory.acquireContext("X");
 
     // Assert
     expect(ctx2).toBe(ctx1);
@@ -207,82 +218,82 @@ describe('BrowserFactory', () => {
     expect(mocks.browserNewContext).toHaveBeenCalledOnce();
   });
 
-  it('UTC-405: acquireContext at capacity → waits → acquires when released', async () => {
+  it("UTC-405: acquireContext at capacity → waits → acquires when released", async () => {
     // Arrange — pool size is 2 (from config); fill both slots
-    const ctx1 = await factory.acquireContext('X');
-    const ctx2 = await factory.acquireContext('X');
+    const ctx1 = await factory.acquireContext("X");
+    const ctx2 = await factory.acquireContext("X");
 
     // Act — third acquire should wait; release ctx1 to unblock
-    const acquirePromise = factory.acquireContext('X');
+    const acquirePromise = factory.acquireContext("X");
     // Release after a short tick to resolve the waiter
-    setTimeout(() => factory.releaseContext('X', ctx1), 10);
+    setTimeout(() => factory.releaseContext("X", ctx1), 10);
     const ctx3 = await acquirePromise;
 
     // Assert — ctx3 should be the released ctx1 (handed directly to waiter)
     expect(ctx3).toBe(ctx1);
   });
 
-  it('UTC-406: releaseContext returns context to idle pool', async () => {
+  it("UTC-406: releaseContext returns context to idle pool", async () => {
     // Arrange
-    const ctx = await factory.acquireContext('X');
+    const ctx = await factory.acquireContext("X");
 
     // Act
-    factory.releaseContext('X', ctx);
+    factory.releaseContext("X", ctx);
 
     // Assert — next acquire reuses without creating new
-    const reused = await factory.acquireContext('X');
+    const reused = await factory.acquireContext("X");
     expect(reused).toBe(ctx);
     expect(mocks.browserNewContext).toHaveBeenCalledOnce();
   });
 
-  it('UTC-406d: acquireContext re-applies storageState cookies to a reused idle context', async () => {
+  it("UTC-406d: acquireContext re-applies storageState cookies to a reused idle context", async () => {
     // Arrange — acquire and release a context (no storageState), then re-acquire WITH
     // storageState. Regression for: the reuse path previously ignored the storageState
     // argument entirely (only createContext() applied it), so a caller passing a
     // freshly-saved session's cookies onto a reused context silently got the OLD
     // context's cookies instead — this is what let a health check see a brand-new
     // session as having no auth cookies and mark it EXPIRED.
-    const ctx = await factory.acquireContext('X');
-    factory.releaseContext('X', ctx);
+    const ctx = await factory.acquireContext("X");
+    factory.releaseContext("X", ctx);
 
     const storageState = JSON.stringify({
-      cookies: [{ name: 'auth_token', value: 'fresh-token', domain: '.x.com', path: '/' }],
+      cookies: [{ name: "auth_token", value: "fresh-token", domain: ".x.com", path: "/" }],
       origins: [],
     });
-    const reused = await factory.acquireContext('X', storageState);
+    const reused = await factory.acquireContext("X", storageState);
 
     expect(reused).toBe(ctx);
     expect(mocks.contextClearCookies).toHaveBeenCalledOnce();
     expect(mocks.contextAddCookies).toHaveBeenCalledWith([
-      { name: 'auth_token', value: 'fresh-token', domain: '.x.com', path: '/' },
+      { name: "auth_token", value: "fresh-token", domain: ".x.com", path: "/" },
     ]);
   });
 
-  it('UTC-406e: acquireContext skips cookie re-apply on reuse when no storageState is passed', async () => {
-    const ctx = await factory.acquireContext('X');
-    factory.releaseContext('X', ctx);
+  it("UTC-406e: acquireContext skips cookie re-apply on reuse when no storageState is passed", async () => {
+    const ctx = await factory.acquireContext("X");
+    factory.releaseContext("X", ctx);
 
-    const reused = await factory.acquireContext('X');
+    const reused = await factory.acquireContext("X");
 
     expect(reused).toBe(ctx);
     expect(mocks.contextClearCookies).not.toHaveBeenCalled();
     expect(mocks.contextAddCookies).not.toHaveBeenCalled();
   });
 
-  it('UTC-406b: acquireContext discards an idle context past the TTL and creates a fresh one', async () => {
+  it("UTC-406b: acquireContext discards an idle context past the TTL and creates a fresh one", async () => {
     vi.useFakeTimers();
     try {
       mocks.browserNewContext
         .mockResolvedValueOnce(makeMockContext())
         .mockResolvedValueOnce(makeMockContext());
 
-      const ctx1 = await factory.acquireContext('X');
-      factory.releaseContext('X', ctx1);
+      const ctx1 = await factory.acquireContext("X");
+      factory.releaseContext("X", ctx1);
 
       // Advance past the default 10-minute idle TTL
       vi.setSystemTime(Date.now() + 11 * 60 * 1000);
 
-      const ctx2 = await factory.acquireContext('X');
+      const ctx2 = await factory.acquireContext("X");
 
       expect(ctx2).not.toBe(ctx1);
       expect(mocks.contextClose).toHaveBeenCalledOnce(); // stale ctx1 was closed
@@ -292,17 +303,17 @@ describe('BrowserFactory', () => {
     }
   });
 
-  it('UTC-406c: sweepIdleContexts (private, invoked via timer) closes contexts past the TTL', async () => {
+  it("UTC-406c: sweepIdleContexts (private, invoked via timer) closes contexts past the TTL", async () => {
     vi.useFakeTimers();
     try {
-      const ctx1 = await factory.acquireContext('X');
-      factory.releaseContext('X', ctx1);
+      const ctx1 = await factory.acquireContext("X");
+      factory.releaseContext("X", ctx1);
 
       factory.onModuleInit();
       vi.advanceTimersByTime(11 * 60 * 1000);
 
       expect(mocks.contextClose).toHaveBeenCalledOnce();
-      expect((factory as any).idleContexts.get('X:default')).toEqual([]);
+      expect((factory as any).idleContexts.get("X:default")).toEqual([]);
 
       await factory.onModuleDestroy();
     } finally {
@@ -310,7 +321,7 @@ describe('BrowserFactory', () => {
     }
   });
 
-  it('UTC-406f: acquireContext discards a closed idle context and creates a fresh one', async () => {
+  it("UTC-406f: acquireContext discards a closed idle context and creates a fresh one", async () => {
     const baseCtx = makeMockContext();
     let closeListener: (() => void) | undefined;
     const ctx1 = {
@@ -319,24 +330,22 @@ describe('BrowserFactory', () => {
         closeListener = handler;
       }),
     };
-    mocks.browserNewContext
-      .mockResolvedValueOnce(ctx1)
-      .mockResolvedValueOnce(makeMockContext());
+    mocks.browserNewContext.mockResolvedValueOnce(ctx1).mockResolvedValueOnce(makeMockContext());
 
-    const acquired1 = await factory.acquireContext('X');
+    const acquired1 = await factory.acquireContext("X");
     expect(acquired1).toBe(ctx1);
 
-    factory.releaseContext('X', ctx1);
+    factory.releaseContext("X", ctx1);
 
     // Simulate the browser/context closing while idle
     closeListener?.();
 
-    const ctx2 = await factory.acquireContext('X');
+    const ctx2 = await factory.acquireContext("X");
     expect(ctx2).not.toBe(ctx1);
     expect(mocks.browserNewContext).toHaveBeenCalledTimes(2);
   });
 
-  it('UTC-406g: releaseContext does not return a closed context to the idle pool', async () => {
+  it("UTC-406g: releaseContext does not return a closed context to the idle pool", async () => {
     const baseCtx = makeMockContext();
     let closeListener: (() => void) | undefined;
     const ctx1 = {
@@ -345,33 +354,31 @@ describe('BrowserFactory', () => {
         closeListener = handler;
       }),
     };
-    mocks.browserNewContext
-      .mockResolvedValueOnce(ctx1)
-      .mockResolvedValueOnce(makeMockContext());
+    mocks.browserNewContext.mockResolvedValueOnce(ctx1).mockResolvedValueOnce(makeMockContext());
 
-    const acquired1 = await factory.acquireContext('X');
+    const acquired1 = await factory.acquireContext("X");
     expect(acquired1).toBe(ctx1);
 
     // Simulate the context closing while in use (e.g. page crash)
     closeListener?.();
 
-    factory.releaseContext('X', ctx1);
+    factory.releaseContext("X", ctx1);
 
     // The closed context should not be in the idle pool, so the next acquire creates a new one
-    const ctx2 = await factory.acquireContext('X');
+    const ctx2 = await factory.acquireContext("X");
     expect(ctx2).not.toBe(ctx1);
-    expect((factory as any).idleContexts.get('X:default')?.length ?? 0).toBe(0);
+    expect((factory as any).idleContexts.get("X:default")?.length ?? 0).toBe(0);
     expect(mocks.browserNewContext).toHaveBeenCalledTimes(2);
   });
 
   // ── saveStorageState ──
 
-  it('UTC-407: saveStorageState → JSON string with cookies + origins', async () => {
+  it("UTC-407: saveStorageState → JSON string with cookies + origins", async () => {
     // Arrange
     const mockCtx = makeMockContext();
     mocks.contextStorageState.mockResolvedValue({
-      cookies: [{ name: 'session', value: 'abc' }],
-      origins: [{ origin: 'https://x.com', localStorage: [] }],
+      cookies: [{ name: "session", value: "abc" }],
+      origins: [{ origin: "https://x.com", localStorage: [] }],
     });
 
     // Act
@@ -380,17 +387,17 @@ describe('BrowserFactory', () => {
     // Assert
     const parsed = JSON.parse(result);
     expect(parsed.cookies).toHaveLength(1);
-    expect(parsed.cookies[0].name).toBe('session');
+    expect(parsed.cookies[0].name).toBe("session");
     expect(parsed.origins).toHaveLength(1);
-    expect(parsed.origins[0].origin).toBe('https://x.com');
+    expect(parsed.origins[0].origin).toBe("https://x.com");
   });
 
   // ── randomDelay ──
 
-  it('UTC-408: randomDelay(100, 500) → resolves after a delay within range', async () => {
+  it("UTC-408: randomDelay(100, 500) → resolves after a delay within range", async () => {
     // Arrange — use fake timers to observe the setTimeout delay
     vi.useFakeTimers();
-    const spy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const spy = vi.spyOn(Math, "random").mockReturnValue(0.5);
 
     // Act
     const p = factory.randomDelay(100, 500);
@@ -405,10 +412,10 @@ describe('BrowserFactory', () => {
 
   // ── adaptiveDelay ──
 
-  it('UTC-409: adaptiveDelay — slow page (loadEventEnd > 5s) → longer delay (15-45s range)', async () => {
+  it("UTC-409: adaptiveDelay — slow page (loadEventEnd > 5s) → longer delay (15-45s range)", async () => {
     // Arrange
     const page = makeMockPage({ loadEventEnd: 8000, startTime: 0 }); // 8s → slow
-    const delaySpy = vi.spyOn(factory, 'randomDelay').mockResolvedValue(undefined);
+    const delaySpy = vi.spyOn(factory, "randomDelay").mockResolvedValue(undefined);
 
     // Act
     await factory.adaptiveDelay(page as never);
@@ -418,10 +425,10 @@ describe('BrowserFactory', () => {
     expect(delaySpy).toHaveBeenCalledWith(15000, 45000);
   });
 
-  it('UTC-410: adaptiveDelay — fast page → normal delay (5-20s range)', async () => {
+  it("UTC-410: adaptiveDelay — fast page → normal delay (5-20s range)", async () => {
     // Arrange
     const page = makeMockPage({ loadEventEnd: 1000, startTime: 0 }); // 1s → fast
-    const delaySpy = vi.spyOn(factory, 'randomDelay').mockResolvedValue(undefined);
+    const delaySpy = vi.spyOn(factory, "randomDelay").mockResolvedValue(undefined);
 
     // Act
     await factory.adaptiveDelay(page as never);
@@ -433,7 +440,7 @@ describe('BrowserFactory', () => {
 
   // ── humanType ──
 
-  it('UTC-411: humanType → locator.pressSequentially with delay', async () => {
+  it("UTC-411: humanType → locator.pressSequentially with delay", async () => {
     // Arrange
     const locator = {
       focus: vi.fn().mockResolvedValue(undefined),
@@ -444,44 +451,55 @@ describe('BrowserFactory', () => {
     };
 
     // Act
-    await factory.humanType(locator as never, 'hello', { delayMs: 30 });
+    await factory.humanType(locator as never, "hello", { delayMs: 30 });
 
     // Assert
     expect(locator.focus).toHaveBeenCalled();
-    expect(locator.pressSequentially).toHaveBeenCalledWith('hello', expect.objectContaining({ delay: 30 }));
+    expect(locator.pressSequentially).toHaveBeenCalledWith(
+      "hello",
+      expect.objectContaining({ delay: 30 }),
+    );
   });
 
   // ── typeHuman ──
 
-  it('UTC-412: typeHuman → randomized 40-120ms delay + 5% thinking pauses', async () => {
+  it("UTC-412: typeHuman → randomized 40-120ms delay + 5% thinking pauses", async () => {
     // Arrange — use fake timers so randomDelay resolves instantly
-    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
     const page = makeMockPage();
     const locator = { pressSequentially: vi.fn().mockResolvedValue(undefined) };
     // Force thinking pause (Math.random < 0.05)
     let call = 0;
-    const spy = vi.spyOn(Math, 'random').mockImplementation(() => {
+    const spy = vi.spyOn(Math, "random").mockImplementation(() => {
       call++;
       // First call (per-key delay) returns 0.5 → 80ms; second call (5% check) returns 0.01 → pause
       return call % 2 === 1 ? 0.5 : 0.01;
     });
 
     // Act — type "ab" (2 chars), each triggers a thinking pause
-    const p = factory.typeHuman(page as never, 'ab', locator as never);
+    const p = factory.typeHuman(page as never, "ab", locator as never);
     // Advance timers to resolve all internal setTimeouts (randomDelay 200-600ms each)
     await vi.runAllTimersAsync();
     await p;
 
     // Assert — pressSequentially called once per character
     expect(locator.pressSequentially).toHaveBeenCalledTimes(2);
-    expect(locator.pressSequentially).toHaveBeenNthCalledWith(1, 'a', expect.objectContaining({ delay: expect.any(Number) }));
-    expect(locator.pressSequentially).toHaveBeenNthCalledWith(2, 'b', expect.objectContaining({ delay: expect.any(Number) }));
+    expect(locator.pressSequentially).toHaveBeenNthCalledWith(
+      1,
+      "a",
+      expect.objectContaining({ delay: expect.any(Number) }),
+    );
+    expect(locator.pressSequentially).toHaveBeenNthCalledWith(
+      2,
+      "b",
+      expect.objectContaining({ delay: expect.any(Number) }),
+    );
     spy.mockRestore();
   });
 
   // ── humanClick ──
 
-  it('UTC-413: humanClick → normal click succeeds (no fallback)', async () => {
+  it("UTC-413: humanClick → normal click succeeds (no fallback)", async () => {
     // Arrange
     const locator = { click: vi.fn().mockResolvedValue(undefined) };
 
@@ -493,13 +511,11 @@ describe('BrowserFactory', () => {
     expect(locator.click).toHaveBeenCalledTimes(1);
   });
 
-  it('UTC-414: humanClick → timeout → fallback force:true', async () => {
+  it("UTC-414: humanClick → timeout → fallback force:true", async () => {
     // Arrange — first click throws a timeout error, second (force) succeeds
-    const timeoutErr = new Error('Timeout 15000ms exceeded: click');
+    const timeoutErr = new Error("Timeout 15000ms exceeded: click");
     const locator = {
-      click: vi.fn()
-        .mockRejectedValueOnce(timeoutErr)
-        .mockResolvedValueOnce(undefined),
+      click: vi.fn().mockRejectedValueOnce(timeoutErr).mockResolvedValueOnce(undefined),
     };
 
     // Act
@@ -512,25 +528,27 @@ describe('BrowserFactory', () => {
 
   // ── scrollPage ──
 
-  it('UTC-415: scrollPage down 500px → mouse.wheel deltaY', async () => {
+  it("UTC-415: scrollPage down 500px → mouse.wheel deltaY", async () => {
     // Arrange
-    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
     const page = makeMockPage();
 
     // Act
-    const p = factory.scrollPage(page as never, 'down', 500);
+    const p = factory.scrollPage(page as never, "down", 500);
     await vi.runAllTimersAsync();
     await p;
 
     // Assert
-    expect((page as { mouse: { wheel: ReturnType<typeof vi.fn> } }).mouse.wheel).toHaveBeenCalledWith(0, 500);
+    expect(
+      (page as { mouse: { wheel: ReturnType<typeof vi.fn> } }).mouse.wheel,
+    ).toHaveBeenCalledWith(0, 500);
   });
 
   // ── scrollToElement ──
 
-  it('UTC-416: scrollToElement → locator.scrollIntoViewIfNeeded', async () => {
+  it("UTC-416: scrollToElement → locator.scrollIntoViewIfNeeded", async () => {
     // Arrange
-    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
     const locator = { scrollIntoViewIfNeeded: vi.fn().mockResolvedValue(undefined) };
     const page = makeMockPage();
 
@@ -545,39 +563,39 @@ describe('BrowserFactory', () => {
 
   // ── screenshot ──
 
-  it('UTC-417: screenshot (enabled) → page.screenshot → write file → return path', async () => {
+  it("UTC-417: screenshot (enabled) → page.screenshot → write file → return path", async () => {
     // P7: screenshots are disabled by default — enable them to exercise the write path.
     const enabled = new BrowserFactory(
-      createMockConfigService({ SPA_SCREENSHOTS: 'true', SPA_SCREENSHOT_FULLPAGE: 'true' }),
+      createMockConfigService({ SPA_SCREENSHOTS: "true", SPA_SCREENSHOT_FULLPAGE: "true" }),
     );
     const page = makeMockPage();
 
     // Act
-    const path = await enabled.screenshot(page as never, 'X', 'after-submit');
+    const path = await enabled.screenshot(page as never, "X", "after-submit");
 
     // Assert
-    expect(path).toContain('x');
-    expect(path).toContain('after-submit');
+    expect(path).toContain("x");
+    expect(path).toContain("after-submit");
     expect(path).toMatch(/\.png$/);
     expect((page as { screenshot: ReturnType<typeof vi.fn> }).screenshot).toHaveBeenCalledWith(
       expect.objectContaining({ fullPage: true, path }),
     );
   });
 
-  it('UTC-417b: screenshot is disabled by default → returns empty path, no write (P7 disk-leak guard)', async () => {
+  it("UTC-417b: screenshot is disabled by default → returns empty path, no write (P7 disk-leak guard)", async () => {
     const page = makeMockPage();
 
-    const path = await factory.screenshot(page as never, 'X', 'after-submit');
+    const path = await factory.screenshot(page as never, "X", "after-submit");
 
-    expect(path).toBe('');
+    expect(path).toBe("");
     expect((page as { screenshot: ReturnType<typeof vi.fn> }).screenshot).not.toHaveBeenCalled();
   });
 
   // ── dismissDialogs ──
 
-  it('UTC-418: dismissDialogs → cookie consent dialog dismissed', async () => {
+  it("UTC-418: dismissDialogs → cookie consent dialog dismissed", async () => {
     // Arrange — a locator for "Accept all" is visible and clickable
-    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
     const visibleLocator = {
       first: vi.fn().mockReturnThis(),
       isVisible: vi.fn().mockResolvedValue(true),
@@ -599,36 +617,36 @@ describe('BrowserFactory', () => {
 
   // ── Camoufox patch verification ──
 
-  describe('verifyCamoufoxPatch', () => {
-    it('throws in production when the coreBundle.js patch is missing', () => {
-      const prodConfig = createMockConfigService({ NODE_ENV: 'production' });
+  describe("verifyCamoufoxPatch", () => {
+    it("throws in production when the coreBundle.js patch is missing", () => {
+      const prodConfig = createMockConfigService({ NODE_ENV: "production" });
       const prodFactory = new BrowserFactory(prodConfig);
 
       expect(() =>
         (prodFactory as unknown as Record<string, (src?: string) => void>).verifyCamoufoxPatch(
-          'unpatched playwright source',
+          "unpatched playwright source",
         ),
       ).toThrow(/Camoufox patch MISSING/);
     });
 
-    it('logs a warning in non-production when the patch is missing', () => {
-      const warnSpy = vi.spyOn(factory['logger'], 'warn').mockImplementation(() => undefined);
+    it("logs a warning in non-production when the patch is missing", () => {
+      const warnSpy = vi.spyOn(factory["logger"], "warn").mockImplementation(() => undefined);
 
       (factory as unknown as Record<string, (src?: string) => void>).verifyCamoufoxPatch(
-        'unpatched playwright source',
+        "unpatched playwright source",
       );
 
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Camoufox patch MISSING'));
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Camoufox patch MISSING"));
     });
 
-    it('logs verification success when the patch is present', () => {
-      const logSpy = vi.spyOn(factory['logger'], 'log').mockImplementation(() => undefined);
+    it("logs verification success when the patch is present", () => {
+      const logSpy = vi.spyOn(factory["logger"], "log").mockImplementation(() => undefined);
 
       (factory as unknown as Record<string, (src?: string) => void>).verifyCamoufoxPatch(
-        'params2.location ?? { url: \'\'',
+        "params2.location ?? { url: ''",
       );
 
-      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Camoufox patch verified'));
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Camoufox patch verified"));
     });
   });
 });

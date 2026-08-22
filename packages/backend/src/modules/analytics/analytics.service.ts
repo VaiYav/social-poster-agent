@@ -4,10 +4,15 @@
  * Computes posting stats, success rates, network breakdowns, and time-series
  * data for the analytics dashboard. All queries are read-only against Prisma.
  */
-import { Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { PostStatus, SocialNetwork, GenerationTrigger, Prisma } from '@prisma/client';
-import type { JudgeScores } from '@spa/shared';
+import { Injectable, Logger } from "@nestjs/common";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service";
+import {
+  PostStatus,
+  SocialNetwork,
+  GenerationTrigger,
+  Prisma,
+} from "../../generated/prisma/client";
+import type { JudgeScores } from "@spa/shared";
 
 export interface JudgeScoreAverages {
   antiAiTone: number | null;
@@ -17,7 +22,7 @@ export interface JudgeScoreAverages {
   count: number;
 }
 
-export type JudgeDimension = 'antiAiTone' | 'hookStrength' | 'factualAccuracy' | 'characterLimit';
+export type JudgeDimension = "antiAiTone" | "hookStrength" | "factualAccuracy" | "characterLimit";
 
 export interface JudgeStats {
   overall: JudgeScoreAverages;
@@ -71,7 +76,9 @@ export class AnalyticsService {
   /**
    * Get per-network breakdown.
    */
-  private async getNetworkStats(): Promise<Record<string, { total: number; posted: number; failed: number }>> {
+  private async getNetworkStats(): Promise<
+    Record<string, { total: number; posted: number; failed: number }>
+  > {
     const networks = [SocialNetwork.X, SocialNetwork.THREADS, SocialNetwork.FACEBOOK];
     const result: Record<string, { total: number; posted: number; failed: number }> = {};
 
@@ -90,7 +97,9 @@ export class AnalyticsService {
   /**
    * Get daily posting stats for the last N days.
    */
-  private async getDailyStats(days: number): Promise<{ date: string; posted: number; failed: number }[]> {
+  private async getDailyStats(
+    days: number,
+  ): Promise<{ date: string; posted: number; failed: number }[]> {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
     startDate.setHours(0, 0, 0, 0);
@@ -117,7 +126,7 @@ export class AnalyticsService {
       // 2.8.6: POSTED uses `postedAt`; FAILED falls back to `createdAt` (no failedAt column).
       const eventDate = post.status === PostStatus.POSTED ? post.postedAt : post.createdAt;
       if (!eventDate) continue;
-      const dateStr = eventDate.toISOString().split('T')[0]!;
+      const dateStr = eventDate.toISOString().split("T")[0]!;
       const entry = byDate.get(dateStr) ?? { posted: 0, failed: 0 };
       if (post.status === PostStatus.POSTED) entry.posted++;
       if (post.status === PostStatus.FAILED) entry.failed++;
@@ -129,7 +138,7 @@ export class AnalyticsService {
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split('T')[0]!;
+      const dateStr = d.toISOString().split("T")[0]!;
       const entry = byDate.get(dateStr) ?? { posted: 0, failed: 0 };
       result.push({ date: dateStr, ...entry });
     }
@@ -140,7 +149,15 @@ export class AnalyticsService {
   /**
    * Get top performing posts (by engagement if available, otherwise by recency).
    */
-  async getTopPosts(limit = 10): Promise<{ id: string; network: string; content: string; postedAt: Date | null; postUrl: string | null }[]> {
+  async getTopPosts(limit = 10): Promise<
+    {
+      id: string;
+      network: string;
+      content: string;
+      postedAt: Date | null;
+      postUrl: string | null;
+    }[]
+  > {
     // 2.8.7: Sort by engagement (likes + comments + shares) using the latest metrics record.
     const posts = await this.prisma.post.findMany({
       where: { status: PostStatus.POSTED },
@@ -152,7 +169,7 @@ export class AnalyticsService {
         postedAt: true,
         postUrl: true,
         metrics: {
-          orderBy: { collectedAt: 'desc' },
+          orderBy: { collectedAt: "desc" },
           take: 1,
           select: { likes: true, comments: true, shares: true },
         },
@@ -197,10 +214,19 @@ export class AnalyticsService {
       successRate: number;
       avgQualityScore: number | null;
     };
-    byNetwork: Record<string, { total: number; posted: number; failed: number; successRate: number }>;
+    byNetwork: Record<
+      string,
+      { total: number; posted: number; failed: number; successRate: number }
+    >;
     byTrigger: Record<string, number>;
     dailyStats: { date: string; posted: number; failed: number }[];
-    topPosts: { id: string; network: string; content: string; postedAt: string | null; qualityScore?: number }[];
+    topPosts: {
+      id: string;
+      network: string;
+      content: string;
+      postedAt: string | null;
+      qualityScore?: number;
+    }[];
     autoApproveStats: {
       autoApproved: number;
       humanReview: number;
@@ -217,7 +243,10 @@ export class AnalyticsService {
     const BATCH_SIZE = 500;
 
     const networks = [SocialNetwork.X, SocialNetwork.THREADS, SocialNetwork.FACEBOOK];
-    const byNetwork: Record<string, { total: number; posted: number; failed: number; successRate: number }> = {};
+    const byNetwork: Record<
+      string,
+      { total: number; posted: number; failed: number; successRate: number }
+    > = {};
     for (const network of networks) {
       byNetwork[network] = { total: 0, posted: 0, failed: 0, successRate: 0 };
     }
@@ -231,7 +260,13 @@ export class AnalyticsService {
     let autoApproveScoreCount = 0;
     let qualityScoreSum = 0;
     let qualityScoreCount = 0;
-    let topPosts: { id: string; network: string; content: string; postedAt: Date | null; qualityScore: number | null }[] = [];
+    let topPosts: {
+      id: string;
+      network: string;
+      content: string;
+      postedAt: Date | null;
+      qualityScore: number | null;
+    }[] = [];
     let totalPosts = 0;
     let posted = 0;
     let failed = 0;
@@ -243,7 +278,10 @@ export class AnalyticsService {
       factualAccuracy: { sum: 0, count: 0 },
       characterLimit: { sum: 0, count: 0 },
     };
-    const judgeByDecisionSums: Record<string, Record<JudgeDimension, { sum: number; count: number }>> = {};
+    const judgeByDecisionSums: Record<
+      string,
+      Record<JudgeDimension, { sum: number; count: number }>
+    > = {};
     let judgePostsCount = 0;
     const judgeByDecisionPostsCount: Record<string, number> = {};
 
@@ -256,7 +294,7 @@ export class AnalyticsService {
         take: BATCH_SIZE,
         skip: cursor ? 1 : 0,
         cursor: cursor ? { id: cursor } : undefined,
-        orderBy: { id: 'asc' },
+        orderBy: { id: "asc" },
       });
 
       if (batch.length === 0) break;
@@ -266,7 +304,7 @@ export class AnalyticsService {
         const network = post.network;
         const meta = (post.llmMetadata as Record<string, unknown> | null) ?? {};
         const decision = meta?.autoApproveDecision as string | undefined;
-        const qualityScore = typeof meta?.qualityScore === 'number' ? meta.qualityScore : null;
+        const qualityScore = typeof meta?.qualityScore === "number" ? meta.qualityScore : null;
         const networkStats = byNetwork[network];
 
         if (networkStats) {
@@ -286,15 +324,15 @@ export class AnalyticsService {
           rejected++;
         }
 
-        if (decision === 'AUTO_APPROVE') {
+        if (decision === "AUTO_APPROVE") {
           autoApproved++;
           if (qualityScore !== null) {
             autoApproveScoreSum += qualityScore;
             autoApproveScoreCount++;
           }
-        } else if (decision === 'HUMAN_REVIEW') {
+        } else if (decision === "HUMAN_REVIEW") {
           humanReview++;
-        } else if (decision === 'REJECT') {
+        } else if (decision === "REJECT") {
           rejectedCount++;
         }
 
@@ -306,13 +344,19 @@ export class AnalyticsService {
         const judgeScores = this.extractJudgeScores(meta);
         if (judgeScores) {
           judgePostsCount++;
-          const decisionKey = decision ?? 'UNKNOWN';
-          judgeByDecisionPostsCount[decisionKey] = (judgeByDecisionPostsCount[decisionKey] ?? 0) + 1;
+          const decisionKey = decision ?? "UNKNOWN";
+          judgeByDecisionPostsCount[decisionKey] =
+            (judgeByDecisionPostsCount[decisionKey] ?? 0) + 1;
 
-          const dimensions: JudgeDimension[] = ['antiAiTone', 'hookStrength', 'factualAccuracy', 'characterLimit'];
+          const dimensions: JudgeDimension[] = [
+            "antiAiTone",
+            "hookStrength",
+            "factualAccuracy",
+            "characterLimit",
+          ];
           for (const dim of dimensions) {
             const val = judgeScores[dim];
-            if (typeof val === 'number' && Number.isFinite(val)) {
+            if (typeof val === "number" && Number.isFinite(val)) {
               judgeOverallSums[dim].sum += val;
               judgeOverallSums[dim].count++;
 
@@ -328,7 +372,7 @@ export class AnalyticsService {
           }
         }
 
-        const trigger = post.generationRun?.triggeredBy ?? 'UNKNOWN';
+        const trigger = post.generationRun?.triggeredBy ?? "UNKNOWN";
         byTrigger[trigger] = (byTrigger[trigger] ?? 0) + 1;
 
         if (post.status === PostStatus.POSTED && post.postedAt && post.postedAt >= startDate) {
@@ -354,7 +398,7 @@ export class AnalyticsService {
         // Daily stats
         const eventDate = post.status === PostStatus.POSTED ? post.postedAt : post.createdAt;
         if (eventDate) {
-          const dateStr = eventDate.toISOString().split('T')[0]!;
+          const dateStr = eventDate.toISOString().split("T")[0]!;
           const day = dailyStats.find((d) => d.date === dateStr);
           if (day) {
             if (post.status === PostStatus.POSTED) day.posted++;
@@ -384,11 +428,26 @@ export class AnalyticsService {
 
     const successRate = totalPosts > 0 ? Math.round((posted / totalPosts) * 1000) / 10 : 0;
 
-    const makeJudgeAverages = (sums: Record<JudgeDimension, { sum: number; count: number }>, count: number): JudgeScoreAverages => ({
-      antiAiTone: sums.antiAiTone.count > 0 ? Math.round((sums.antiAiTone.sum / sums.antiAiTone.count) * 100) / 100 : null,
-      hookStrength: sums.hookStrength.count > 0 ? Math.round((sums.hookStrength.sum / sums.hookStrength.count) * 100) / 100 : null,
-      factualAccuracy: sums.factualAccuracy.count > 0 ? Math.round((sums.factualAccuracy.sum / sums.factualAccuracy.count) * 100) / 100 : null,
-      characterLimit: sums.characterLimit.count > 0 ? Math.round((sums.characterLimit.sum / sums.characterLimit.count) * 100) / 100 : null,
+    const makeJudgeAverages = (
+      sums: Record<JudgeDimension, { sum: number; count: number }>,
+      count: number,
+    ): JudgeScoreAverages => ({
+      antiAiTone:
+        sums.antiAiTone.count > 0
+          ? Math.round((sums.antiAiTone.sum / sums.antiAiTone.count) * 100) / 100
+          : null,
+      hookStrength:
+        sums.hookStrength.count > 0
+          ? Math.round((sums.hookStrength.sum / sums.hookStrength.count) * 100) / 100
+          : null,
+      factualAccuracy:
+        sums.factualAccuracy.count > 0
+          ? Math.round((sums.factualAccuracy.sum / sums.factualAccuracy.count) * 100) / 100
+          : null,
+      characterLimit:
+        sums.characterLimit.count > 0
+          ? Math.round((sums.characterLimit.sum / sums.characterLimit.count) * 100) / 100
+          : null,
       count,
     });
 
@@ -409,7 +468,10 @@ export class AnalyticsService {
         failed,
         rejected,
         successRate,
-        avgQualityScore: qualityScoreCount > 0 ? Math.round((qualityScoreSum / qualityScoreCount) * 10) / 10 : null,
+        avgQualityScore:
+          qualityScoreCount > 0
+            ? Math.round((qualityScoreSum / qualityScoreCount) * 10) / 10
+            : null,
       },
       byNetwork,
       byTrigger,
@@ -425,7 +487,10 @@ export class AnalyticsService {
         autoApproved,
         humanReview,
         rejected: rejectedCount,
-        avgScore: autoApproveScoreCount > 0 ? Math.round((autoApproveScoreSum / autoApproveScoreCount) * 10) / 10 : 0,
+        avgScore:
+          autoApproveScoreCount > 0
+            ? Math.round((autoApproveScoreSum / autoApproveScoreCount) * 10) / 10
+            : 0,
       },
       judgeStats,
     };
@@ -448,7 +513,14 @@ export class AnalyticsService {
   }> {
     const totalGenerated = await this.prisma.post.count();
 
-    const [decisionRows, avgRows, distributionRows, reasonRows, judgeOverallRows, judgeByDecisionRows] = await Promise.all([
+    const [
+      decisionRows,
+      avgRows,
+      distributionRows,
+      reasonRows,
+      judgeOverallRows,
+      judgeByDecisionRows,
+    ] = await Promise.all([
       this.prisma.$queryRaw<Array<{ autoApproved: number; rejected: number; humanReview: number }>>(
         Prisma.sql`
           SELECT
@@ -581,21 +653,23 @@ export class AnalyticsService {
    * Extract numeric judge dimensions from Post.llmMetadata (JSON).
    * Ignores string reason fields and non-numeric / missing values.
    */
-  private extractJudgeScores(meta: Record<string, unknown>): Partial<Record<JudgeDimension, number>> | null {
+  private extractJudgeScores(
+    meta: Record<string, unknown>,
+  ): Partial<Record<JudgeDimension, number>> | null {
     const raw = meta?.judgeScores;
-    if (typeof raw !== 'object' || raw === null) return null;
+    if (typeof raw !== "object" || raw === null) return null;
     const v = raw as Record<string, unknown>;
 
     const scores: Partial<Record<keyof JudgeScoreAverages, number>> = {};
     const dimensions: [keyof JudgeScoreAverages, string][] = [
-      ['antiAiTone', 'anti_ai_tone'],
-      ['hookStrength', 'hook_strength'],
-      ['factualAccuracy', 'factual_accuracy'],
-      ['characterLimit', 'character_limit'],
+      ["antiAiTone", "anti_ai_tone"],
+      ["hookStrength", "hook_strength"],
+      ["factualAccuracy", "factual_accuracy"],
+      ["characterLimit", "character_limit"],
     ];
     for (const [key, jsonKey] of dimensions) {
       const val = v[jsonKey];
-      if (typeof val === 'number' && Number.isFinite(val)) {
+      if (typeof val === "number" && Number.isFinite(val)) {
         scores[key] = val;
       }
     }
@@ -607,7 +681,7 @@ export class AnalyticsService {
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      result.push({ date: d.toISOString().split('T')[0]!, posted: 0, failed: 0 });
+      result.push({ date: d.toISOString().split("T")[0]!, posted: 0, failed: 0 });
     }
     return result;
   }

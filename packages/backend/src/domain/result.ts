@@ -18,7 +18,10 @@ export function map<T, U, E>(result: Result<T, E>, fn: (value: T) => U): Result<
   return result.ok ? ok(fn(result.value)) : result;
 }
 
-export function flatMap<T, U, E>(result: Result<T, E>, fn: (value: T) => Result<U, E>): Result<U, E> {
+export function flatMap<T, U, E>(
+  result: Result<T, E>,
+  fn: (value: T) => Result<U, E>,
+): Result<U, E> {
   return result.ok ? fn(result.value) : result;
 }
 

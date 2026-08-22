@@ -1,4 +1,4 @@
-import { ConfigService } from '@nestjs/config';
+import { ConfigService } from "@nestjs/config";
 
 /**
  * Per-provider rate-limit backoff state.
@@ -41,12 +41,20 @@ export class LlmProviderRateLimit {
   readonly retryAfterMaxMs: number;
 
   constructor(private readonly config: ConfigService) {
-    this.maxCooldownMs = this.readConfigNumber('LLM_RATE_LIMIT_MAX_COOLDOWN_MS', 2 * 60 * 60 * 1000);
-    this.baseBackoffMs = this.readConfigNumber('LLM_RATE_LIMIT_BASE_BACKOFF_MS', 10_000);
-    this.strikeWindowMs = this.readConfigNumber('LLM_RATE_LIMIT_STRIKE_WINDOW_MS', 10 * 60 * 1000);
-    this.strikeThreshold = this.readConfigNumber('LLM_RATE_LIMIT_STRIKE_THRESHOLD', 3, { allowZero: true });
-    this.strikePenaltyMs = this.readConfigNumber('LLM_RATE_LIMIT_STRIKE_PENALTY_MS', 30 * 60 * 1000);
-    this.retryAfterMaxMs = this.readConfigNumber('LLM_RATE_LIMIT_RETRY_AFTER_MAX_MS', 10_000);
+    this.maxCooldownMs = this.readConfigNumber(
+      "LLM_RATE_LIMIT_MAX_COOLDOWN_MS",
+      2 * 60 * 60 * 1000,
+    );
+    this.baseBackoffMs = this.readConfigNumber("LLM_RATE_LIMIT_BASE_BACKOFF_MS", 10_000);
+    this.strikeWindowMs = this.readConfigNumber("LLM_RATE_LIMIT_STRIKE_WINDOW_MS", 10 * 60 * 1000);
+    this.strikeThreshold = this.readConfigNumber("LLM_RATE_LIMIT_STRIKE_THRESHOLD", 3, {
+      allowZero: true,
+    });
+    this.strikePenaltyMs = this.readConfigNumber(
+      "LLM_RATE_LIMIT_STRIKE_PENALTY_MS",
+      30 * 60 * 1000,
+    );
+    this.retryAfterMaxMs = this.readConfigNumber("LLM_RATE_LIMIT_RETRY_AFTER_MAX_MS", 10_000);
   }
 
   /**
@@ -62,7 +70,11 @@ export class LlmProviderRateLimit {
    * Record a 429 for a provider and compute its next available time.
    * If `retryAfterMs` is known from headers, use it; otherwise exponential.
    */
-  recordRateLimit(name: string, retryAfterMs: number | undefined, now = Date.now()): RateLimitStatus {
+  recordRateLimit(
+    name: string,
+    retryAfterMs: number | undefined,
+    now = Date.now(),
+  ): RateLimitStatus {
     const state = this.getOrCreateState(name);
 
     state.consecutive429s += 1;
@@ -147,25 +159,25 @@ export class LlmProviderRateLimit {
    * Safely extract a human-readable error message from various error shapes.
    */
   static extractErrorMessage(err: unknown): string {
-    if (!err) return 'unknown error';
-    if (typeof err === 'string') return err;
+    if (!err) return "unknown error";
+    if (typeof err === "string") return err;
     if (err instanceof Error) return err.message;
-    if (typeof err === 'object') {
-      const message = Reflect.get(err, 'message');
-      if (typeof message === 'string' && message) return message;
+    if (typeof err === "object") {
+      const message = Reflect.get(err, "message");
+      if (typeof message === "string" && message) return message;
       const status = this.extractStatusCode(err);
       if (status) return `HTTP ${status}`;
     }
-    return 'unknown error';
+    return "unknown error";
   }
 
   /**
    * Safely extract an HTTP status code from various error shapes.
    */
   static extractStatusCode(err: unknown): number | undefined {
-    if (err && typeof err === 'object') {
-      const status = Reflect.get(err, 'status') ?? Reflect.get(err, 'statusCode');
-      if (typeof status === 'number') return status;
+    if (err && typeof err === "object") {
+      const status = Reflect.get(err, "status") ?? Reflect.get(err, "statusCode");
+      if (typeof status === "number") return status;
     }
     return undefined;
   }
@@ -192,16 +204,20 @@ export class LlmProviderRateLimit {
     };
   }
 
-  private readConfigNumber(key: string, defaultValue: number, opts: { allowZero?: boolean } = {}): number {
+  private readConfigNumber(
+    key: string,
+    defaultValue: number,
+    opts: { allowZero?: boolean } = {},
+  ): number {
     const raw = this.config.get<string | number>(key, defaultValue);
-    const n = typeof raw === 'number' ? raw : Number(raw);
+    const n = typeof raw === "number" ? raw : Number(raw);
     if (!Number.isFinite(n)) return defaultValue;
     if (opts.allowZero ? n >= 0 : n > 0) return n;
     return defaultValue;
   }
 
   private static normalizeHeaders(headers: unknown): Record<string, string> | undefined {
-    if (!headers || typeof headers !== 'object') return undefined;
+    if (!headers || typeof headers !== "object") return undefined;
 
     if (this.isHeaderMap(headers)) {
       const record: Record<string, string> = {};
@@ -214,10 +230,10 @@ export class LlmProviderRateLimit {
     if (this.isHeaderGetter(headers)) {
       const record: Record<string, string> = {};
       for (const key of [
-        'retry-after',
-        'x-ratelimit-reset-requests',
-        'x-ratelimit-reset-tokens',
-        'x-ratelimit-reset',
+        "retry-after",
+        "x-ratelimit-reset-requests",
+        "x-ratelimit-reset-tokens",
+        "x-ratelimit-reset",
       ]) {
         const value = headers.get(key);
         if (value) record[key] = value;
@@ -229,33 +245,36 @@ export class LlmProviderRateLimit {
   }
 
   private static isErrorWithHeaders(err: unknown): err is { headers: unknown } {
-    return typeof err === 'object' && err !== null && 'headers' in err;
+    return typeof err === "object" && err !== null && "headers" in err;
   }
 
   private static isHeaderMap(
     value: unknown,
   ): value is { forEach(callback: (value: string, key: string) => void): void } {
-    if (!value || typeof value !== 'object') return false;
-    const forEach = Reflect.get(value, 'forEach');
-    return typeof forEach === 'function';
+    if (!value || typeof value !== "object") return false;
+    const forEach = Reflect.get(value, "forEach");
+    return typeof forEach === "function";
   }
 
   private static isHeaderGetter(value: unknown): value is { get(name: string): string | null } {
-    if (!value || typeof value !== 'object') return false;
-    const get = Reflect.get(value, 'get');
-    return typeof get === 'function';
+    if (!value || typeof value !== "object") return false;
+    const get = Reflect.get(value, "get");
+    return typeof get === "function";
   }
 
   private static isPlainHeaderRecord(value: unknown): value is Record<string, string> {
-    if (typeof value !== 'object' || value === null) return false;
+    if (typeof value !== "object" || value === null) return false;
     for (const v of Object.values(value)) {
-      if (typeof v !== 'string') return false;
+      if (typeof v !== "string") return false;
     }
     return true;
   }
 
-  private static parseRetryAfterHeader(headers: Record<string, string>, now: number): number | undefined {
-    const value = headers['retry-after'];
+  private static parseRetryAfterHeader(
+    headers: Record<string, string>,
+    now: number,
+  ): number | undefined {
+    const value = headers["retry-after"];
     if (!value) return undefined;
 
     const seconds = Number(value);
@@ -272,11 +291,14 @@ export class LlmProviderRateLimit {
     return undefined;
   }
 
-  private static parseRateLimitResetHeaders(headers: Record<string, string>, now: number): number | undefined {
+  private static parseRateLimitResetHeaders(
+    headers: Record<string, string>,
+    now: number,
+  ): number | undefined {
     const resetKeys = [
-      'x-ratelimit-reset-requests',
-      'x-ratelimit-reset-tokens',
-      'x-ratelimit-reset',
+      "x-ratelimit-reset-requests",
+      "x-ratelimit-reset-tokens",
+      "x-ratelimit-reset",
     ];
     let maxResetMs = 0;
     for (const key of resetKeys) {
@@ -305,10 +327,10 @@ export class LlmProviderRateLimit {
   }
 
   private static convertDurationToMs(amount: number, unit: string): number | undefined {
-    if (unit.startsWith('ms')) return amount;
-    if (unit.startsWith('s')) return amount * 1000;
-    if (unit.startsWith('m')) return amount * 60 * 1000;
-    if (unit.startsWith('h')) return amount * 60 * 60 * 1000;
+    if (unit.startsWith("ms")) return amount;
+    if (unit.startsWith("s")) return amount * 1000;
+    if (unit.startsWith("m")) return amount * 60 * 1000;
+    if (unit.startsWith("h")) return amount * 60 * 60 * 1000;
     return undefined;
   }
 
@@ -328,10 +350,10 @@ export class LlmProviderRateLimit {
     const amount = Number(durationMatch[1]);
     const unit = durationMatch[2]?.toLowerCase();
     if (!unit || !Number.isFinite(amount) || amount <= 0) return undefined;
-    if (unit === 'ms') return amount;
-    if (unit === 's') return amount * 1000;
-    if (unit === 'm') return amount * 60 * 1000;
-    if (unit === 'h') return amount * 60 * 60 * 1000;
+    if (unit === "ms") return amount;
+    if (unit === "s") return amount * 1000;
+    if (unit === "m") return amount * 60 * 1000;
+    if (unit === "h") return amount * 60 * 60 * 1000;
     return undefined;
   }
 

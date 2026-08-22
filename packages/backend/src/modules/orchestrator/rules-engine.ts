@@ -1,8 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { SocialNetwork } from '@prisma/client';
-import { NetworkSelector } from './network-selector.js';
-import type { WorldState, Action } from './types.js';
-import { WAIT_ACTION } from './types.js';
+import { Injectable, Logger } from "@nestjs/common";
+import { SocialNetwork } from "../../generated/prisma/client";
+import { NetworkSelector } from "./network-selector.js";
+import type { WorldState, Action } from "./types.js";
+import { WAIT_ACTION } from "./types.js";
 
 interface Rule {
   readonly priority: number;
@@ -26,9 +26,9 @@ class TopicPoolRule implements Rule {
   evaluate(world: WorldState): Action | null {
     if (world.topicPool.count < world.topicPool.threshold) {
       return {
-        type: 'GENERATE_TOPICS',
+        type: "GENERATE_TOPICS",
         reason: `Topic pool ${world.topicPool.count}/${world.topicPool.threshold}`,
-        source: 'rules_fallback',
+        source: "rules_fallback",
       };
     }
     return null;
@@ -47,10 +47,10 @@ class PostApprovedRule implements Rule {
     const postNet = this.networkSelector.selectBestReadyNetwork(world, true);
     if (postNet) {
       return {
-        type: 'POST',
+        type: "POST",
         network: postNet,
         reason: `${world.drafts.approved} approved drafts, ${postNet} in posting window`,
-        source: 'rules_fallback',
+        source: "rules_fallback",
       };
     }
 
@@ -58,17 +58,17 @@ class PostApprovedRule implements Rule {
     const genNet = this.networkSelector.selectBestGenerationNetwork(world);
     if (genNet) {
       return {
-        type: 'GENERATE_POSTS',
+        type: "GENERATE_POSTS",
         network: genNet,
         reason: `Approved drafts but no healthy POST network; generating drafts for ${genNet}`,
-        source: 'rules_fallback',
+        source: "rules_fallback",
       };
     }
 
     return WAIT_ACTION(
-      'Approved drafts waiting for healthy posting network',
+      "Approved drafts waiting for healthy posting network",
       120_000,
-      'rules_fallback',
+      "rules_fallback",
     );
   }
 }
@@ -86,10 +86,10 @@ class EngagementBrowseRule implements Rule {
     const browseNet = this.networkSelector.selectBestEngagementNetwork(world, fourHoursAgo);
     if (browseNet) {
       return {
-        type: 'BROWSE',
+        type: "BROWSE",
         network: browseNet,
         reason: `Engagement-first: ${world.engagement.engagementDebt} network(s) need browsing, ${browseNet} is stale`,
-        source: 'rules_fallback',
+        source: "rules_fallback",
       };
     }
     return null;
@@ -107,17 +107,17 @@ class GeneratePostsRule implements Rule {
     const genNet = this.networkSelector.selectBestGenerationNetwork(world);
     if (genNet) {
       return {
-        type: 'GENERATE_POSTS',
+        type: "GENERATE_POSTS",
         network: genNet,
         reason: `No approved drafts; generating for ${genNet}`,
-        source: 'rules_fallback',
+        source: "rules_fallback",
       };
     }
 
     return WAIT_ACTION(
-      'No approved drafts and no healthy network for generation',
+      "No approved drafts and no healthy network for generation",
       120_000,
-      'rules_fallback',
+      "rules_fallback",
     );
   }
 }
@@ -128,9 +128,9 @@ class CheckRepliesRule implements Rule {
   evaluate(world: WorldState): Action | null {
     if (world.engagement.uncheckedReplies > 0) {
       return {
-        type: 'CHECK_REPLIES',
+        type: "CHECK_REPLIES",
         reason: `${world.engagement.uncheckedReplies} unchecked replies`,
-        source: 'rules_fallback',
+        source: "rules_fallback",
       };
     }
     return null;
@@ -143,9 +143,9 @@ class TriageQueueRule implements Rule {
   evaluate(world: WorldState): Action | null {
     if (world.health.dlqDepth > 0) {
       return {
-        type: 'TRIAGE_QUEUE',
+        type: "TRIAGE_QUEUE",
         reason: `${world.health.dlqDepth} failed job(s) in posting DLQ`,
-        source: 'rules_fallback',
+        source: "rules_fallback",
       };
     }
     return null;
@@ -159,9 +159,9 @@ class RefreshTrendsRule implements Rule {
     const twoHoursAgo = Date.now() - TWO_HOURS_MS;
     if (world.trends.lastRefreshMs < twoHoursAgo) {
       return {
-        type: 'REFRESH_TRENDS',
-        reason: 'Trends cache stale (> 2h)',
-        source: 'rules_fallback',
+        type: "REFRESH_TRENDS",
+        reason: "Trends cache stale (> 2h)",
+        source: "rules_fallback",
       };
     }
     return null;
@@ -172,7 +172,7 @@ class WaitRule implements Rule {
   readonly priority = 100;
 
   evaluate(): Action {
-    return WAIT_ACTION('No actionable condition', 120_000, 'rules_fallback');
+    return WAIT_ACTION("No actionable condition", 120_000, "rules_fallback");
   }
 }
 
@@ -203,11 +203,13 @@ export class RulesEngine {
     for (const rule of sorted) {
       const action = rule.evaluate(world);
       if (action) {
-        this.logger.debug(`Rule ${rule.constructor.name} → ${action.type}${action.network ? `:${action.network}` : ''}`);
+        this.logger.debug(
+          `Rule ${rule.constructor.name} → ${action.type}${action.network ? `:${action.network}` : ""}`,
+        );
         return action;
       }
     }
     // Should never happen because WaitRule always returns an action.
-    return WAIT_ACTION('No actionable condition', 120_000, 'rules_fallback');
+    return WAIT_ACTION("No actionable condition", 120_000, "rules_fallback");
   }
 }

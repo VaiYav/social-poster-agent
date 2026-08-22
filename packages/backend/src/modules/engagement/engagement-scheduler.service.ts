@@ -14,16 +14,16 @@
 //   ENGAGEMENT_SESSIONS_PER_DAY=3
 //   ENGAGEMENT_SESSION_WINDOWS=09:00,13:00,18:00  (base times, jitter applied)
 
-import { Injectable, Logger, type OnModuleInit, type OnModuleDestroy } from '@nestjs/common';
-import { SchedulerRegistry } from '@nestjs/schedule';
-import { CronJob } from 'cron';
-import { ConfigService } from '@nestjs/config';
-import { SocialNetwork } from '@prisma/client';
-import { QueueFactory } from '../../infrastructure/queue/queue.factory.js';
-import { parseBool } from '../../infrastructure/config/parse-bool.js';
-import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
-import { getEnabledNetworks, isNetworkEnabled } from '../../domain/enabled-networks.js';
-import type { WorldState } from '../orchestrator/types.js';
+import { Injectable, Logger, type OnModuleInit, type OnModuleDestroy } from "@nestjs/common";
+import { SchedulerRegistry } from "@nestjs/schedule";
+import { CronJob } from "cron";
+import { ConfigService } from "@nestjs/config";
+import { SocialNetwork } from "../../generated/prisma/client";
+import { QueueFactory } from "../../infrastructure/queue/queue.factory.js";
+import { parseBool } from "../../infrastructure/config/parse-bool.js";
+import { isOrchestratorEnabled } from "../orchestrator/feature-flag.js";
+import { getEnabledNetworks, isNetworkEnabled } from "../../domain/enabled-networks.js";
+import type { WorldState } from "../orchestrator/types.js";
 
 @Injectable()
 export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy {
@@ -41,25 +41,29 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
     private readonly queueFactory: QueueFactory,
     private readonly schedulerRegistry: SchedulerRegistry,
   ) {
-    this.enabled = parseBool(this.configService.get<string>('ENGAGEMENT_SCHEDULER_ENABLED', 'false'));
-    this.sessionsPerDay = Number(this.configService.get<string>('ENGAGEMENT_SESSIONS_PER_DAY', '3'));
-    this.sessionWindows = this.parseWindows(
-      this.configService.get<string>('ENGAGEMENT_SESSION_WINDOWS', '09:00,13:00,18:00'),
+    this.enabled = parseBool(
+      this.configService.get<string>("ENGAGEMENT_SCHEDULER_ENABLED", "false"),
     );
-    this.jitterMinutes = Number(this.configService.get<string>('ENGAGEMENT_JITTER_MINUTES', '30'));
+    this.sessionsPerDay = Number(
+      this.configService.get<string>("ENGAGEMENT_SESSIONS_PER_DAY", "3"),
+    );
+    this.sessionWindows = this.parseWindows(
+      this.configService.get<string>("ENGAGEMENT_SESSION_WINDOWS", "09:00,13:00,18:00"),
+    );
+    this.jitterMinutes = Number(this.configService.get<string>("ENGAGEMENT_JITTER_MINUTES", "30"));
     this.networks = this.parseNetworks(
-      this.configService.get<string>('ENGAGEMENT_NETWORKS', getEnabledNetworks().join(',')),
+      this.configService.get<string>("ENGAGEMENT_NETWORKS", getEnabledNetworks().join(",")),
     ).filter((n) => isNetworkEnabled(n));
   }
 
   async onModuleInit(): Promise<void> {
     if (!this.enabled) {
-      this.logger.log('Engagement scheduler disabled (ENGAGEMENT_SCHEDULER_ENABLED=false)');
+      this.logger.log("Engagement scheduler disabled (ENGAGEMENT_SCHEDULER_ENABLED=false)");
       return;
     }
 
     if (this.networks.length === 0) {
-      this.logger.warn('Engagement scheduler enabled but no networks configured');
+      this.logger.warn("Engagement scheduler enabled but no networks configured");
       return;
     }
 
@@ -68,7 +72,7 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
     // The daily cron + scheduleDailySessions are NOT needed.
     if (isOrchestratorEnabled()) {
       this.logger.log(
-        'Engagement scheduler: orchestrator is enabled — stale-check runs in parallel, daily cron skipped',
+        "Engagement scheduler: orchestrator is enabled — stale-check runs in parallel, daily cron skipped",
       );
       return;
     }
@@ -77,9 +81,7 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
     try {
       await this.scheduleDailySessions();
     } catch (err) {
-      this.logger.error(
-        `Failed to schedule daily engagement sessions: ${(err as Error).message}`,
-      );
+      this.logger.error(`Failed to schedule daily engagement sessions: ${(err as Error).message}`);
     }
     this.registerDailyCron();
     this.logger.log(
@@ -96,20 +98,18 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
    * Dynamically registered (not @Cron) so it is NOT created when orchestrator is enabled.
    */
   private registerDailyCron(): void {
-    const cronExpr = this.configService.get<string>('ENGAGEMENT_SCHEDULE_CRON', '0 0 * * *');
+    const cronExpr = this.configService.get<string>("ENGAGEMENT_SCHEDULE_CRON", "0 0 * * *");
     const job = new CronJob(cronExpr, () => {
       this.scheduleDailySessions().catch((err) => {
-        this.logger.error(
-          `Daily engagement session scheduling failed: ${(err as Error).message}`,
-        );
+        this.logger.error(`Daily engagement session scheduling failed: ${(err as Error).message}`);
       });
     });
     try {
-      this.schedulerRegistry.addCronJob('engagement-daily', job);
+      this.schedulerRegistry.addCronJob("engagement-daily", job);
       job.start();
       this.logger.debug(`Engagement daily cron registered: ${cronExpr}`);
     } catch {
-      this.logger.warn('SchedulerRegistry not available — engagement daily cron will not run');
+      this.logger.warn("SchedulerRegistry not available — engagement daily cron will not run");
     }
   }
 
@@ -123,12 +123,16 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
     // scheduled sessions don't outlive the service on shutdown/restart.
     for (const network of this.networks) {
       try {
-        const removed = await this.queueFactory.clearPendingEngagementBrowsingJobs(network as string);
+        const removed = await this.queueFactory.clearPendingEngagementBrowsingJobs(
+          network as string,
+        );
         if (removed > 0) {
           this.logger.log(`Cleared ${removed} pending browsing session job(s) for ${network}`);
         }
       } catch (err) {
-        this.logger.warn(`Failed to clear pending browsing jobs for ${network}: ${(err as Error).message}`);
+        this.logger.warn(
+          `Failed to clear pending browsing jobs for ${network}: ${(err as Error).message}`,
+        );
       }
     }
   }
@@ -151,11 +155,11 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
       // Without this, delayed jobs accumulate and a single day can end up with far more
       // sessions than sessionsPerDay.
       try {
-        const removed = await this.queueFactory.clearPendingEngagementBrowsingJobs(network as string);
+        const removed = await this.queueFactory.clearPendingEngagementBrowsingJobs(
+          network as string,
+        );
         if (removed > 0) {
-          this.logger.debug(
-            `Cleared ${removed} stale pending browsing session(s) for ${network}`,
-          );
+          this.logger.debug(`Cleared ${removed} stale pending browsing session(s) for ${network}`);
         }
       } catch (err) {
         this.logger.warn(
@@ -183,11 +187,11 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
           await this.queueFactory.enqueueEngagement(
             jobId,
             network,
-            'browsing-session',
+            "browsing-session",
             {
               network,
               scheduledAt: scheduledTime.toISOString(),
-              durationSec: this.configService.get<number>('F1_BROWSING_SESSION_MINUTES', 15) * 60,
+              durationSec: this.configService.get<number>("F1_BROWSING_SESSION_MINUTES", 15) * 60,
             },
             { delay: delayMs },
           );
@@ -221,11 +225,16 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
    * Apply random jitter (±jitterMinutes) to a base time.
    */
   private applyJitter(baseTime: string, date: Date): Date {
-    const [hours, minutes] = baseTime.split(':').map(Number);
+    const [hours, minutes] = baseTime.split(":").map(Number);
     const base = new Date(date);
     // BUG-10: `?? default` does NOT catch NaN (a non-numeric window segment), so guard with
     // Number.isFinite — otherwise setHours(NaN, …) yields an Invalid Date.
-    base.setHours(Number.isFinite(hours) ? hours! : 9, Number.isFinite(minutes) ? minutes! : 0, 0, 0);
+    base.setHours(
+      Number.isFinite(hours) ? hours! : 9,
+      Number.isFinite(minutes) ? minutes! : 0,
+      0,
+      0,
+    );
 
     // Apply jitter: -jitterMinutes to +jitterMinutes
     const jitterMs = (Math.random() * 2 - 1) * this.jitterMinutes * 60 * 1000;
@@ -236,13 +245,15 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
     // BUG-10: validate HH:MM at the source and drop malformed windows (e.g. 'foo' or '25:99'),
     // so a bad env value can't reach applyJitter and produce an Invalid Date.
     return value
-      .split(',')
+      .split(",")
       .map((s) => s.trim())
       .filter(Boolean)
       .filter((w) => {
         const m = /^(\d{1,2}):(\d{2})$/.exec(w);
         if (!m) {
-          this.logger.warn(`Ignoring invalid ENGAGEMENT_SESSION_WINDOWS entry "${w}" (expected HH:MM)`);
+          this.logger.warn(
+            `Ignoring invalid ENGAGEMENT_SESSION_WINDOWS entry "${w}" (expected HH:MM)`,
+          );
           return false;
         }
         const h = Number(m[1]);
@@ -255,9 +266,9 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
 
   private parseNetworks(value: string): SocialNetwork[] {
     return value
-      .split(',')
+      .split(",")
       .map((s) => s.trim().toUpperCase())
-      .filter((s) => s === 'X' || s === 'THREADS' || s === 'FACEBOOK')
+      .filter((s) => s === "X" || s === "THREADS" || s === "FACEBOOK")
       .map((s) => SocialNetwork[s as keyof typeof SocialNetwork]);
   }
 
@@ -277,13 +288,17 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
    *   - Not in night mode (01:00-07:00 UTC) — let the account rest
    */
   async checkStaleAndEnqueue(world: WorldState): Promise<void> {
-    this.logger.debug(`checkStaleAndEnqueue called: enabled=${this.enabled}, networks=${this.networks.join(',')}, utcHour=${world.utcHour}`);
+    this.logger.debug(
+      `checkStaleAndEnqueue called: enabled=${this.enabled}, networks=${this.networks.join(",")}, utcHour=${world.utcHour}`,
+    );
     if (!this.enabled || this.networks.length === 0) {
-      this.logger.warn('checkStaleAndEnqueue: scheduler disabled or no networks configured');
+      this.logger.warn("checkStaleAndEnqueue: scheduler disabled or no networks configured");
       return;
     }
     if (world.flowControl.pauseAll || world.flowControl.pauseEngagement) {
-      this.logger.warn(`checkStaleAndEnqueue paused: pauseAll=${world.flowControl.pauseAll}, pauseEngagement=${world.flowControl.pauseEngagement}`);
+      this.logger.warn(
+        `checkStaleAndEnqueue paused: pauseAll=${world.flowControl.pauseAll}, pauseEngagement=${world.flowControl.pauseEngagement}`,
+      );
       return;
     }
 
@@ -294,21 +309,22 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
     }
 
     const fourHoursAgo = Date.now() - 4 * 60 * 60 * 1000;
-    const durationSec = this.configService.get<number>('F1_BROWSING_SESSION_MINUTES', 15) * 60;
+    const durationSec = this.configService.get<number>("F1_BROWSING_SESSION_MINUTES", 15) * 60;
 
     for (const network of this.networks) {
       const netKey = network as string;
       const lastBrowse = world.engagement.lastBrowseMs[netKey] ?? 0;
       const session = world.sessions[netKey];
-      const lastSessionStatus = world.engagement.lastSessionStatus[netKey] ?? 'none';
+      const lastSessionStatus = world.engagement.lastSessionStatus[netKey] ?? "none";
       const lastSessionInteractions = world.engagement.lastSessionInteractions[netKey] ?? 0;
 
       // Detect sessions that are ACTIVE but have not finished within their planned duration + buffer.
       // This typically happens when a previous container crashed or a browser hang left the row in ACTIVE.
       const sessionAgeMs = Date.now() - lastBrowse;
       const stuckThresholdMs = durationSec * 1000 + 5 * 60 * 1000;
-      const isStuck = session?.status === 'ACTIVE' && lastBrowse > 0 && sessionAgeMs > stuckThresholdMs;
-      const isStale = lastBrowse < fourHoursAgo || lastSessionStatus === 'FAILED' || isStuck;
+      const isStuck =
+        session?.status === "ACTIVE" && lastBrowse > 0 && sessionAgeMs > stuckThresholdMs;
+      const isStale = lastBrowse < fourHoursAgo || lastSessionStatus === "FAILED" || isStuck;
 
       this.logger.debug(
         `checkStaleAndEnqueue ${netKey}: lastBrowse=${lastBrowse}, stale=${isStale}, ` +
@@ -316,7 +332,7 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
       );
 
       if (!isStale) continue; // not stale
-      if (!session || session.status !== 'ACTIVE') continue; // no active session
+      if (!session || session.status !== "ACTIVE") continue; // no active session
 
       // Dedup key — one browsing session per network per 4h window.
       // Because the jobId is fixed per window, a completed/failed session from the same
@@ -326,20 +342,20 @@ export class EngagementSchedulerService implements OnModuleInit, OnModuleDestroy
       const jobId = `browsing-stale-${netKey}-${windowStart}`;
 
       try {
-        await this.queueFactory.clearCompletedAndFailedJobs(netKey, 'engagement');
+        await this.queueFactory.clearCompletedAndFailedJobs(netKey, "engagement");
         await this.queueFactory.enqueueEngagement(
           jobId,
           netKey,
-          'browsing-session',
+          "browsing-session",
           {
             network: netKey,
             scheduledAt: new Date().toISOString(),
             durationSec,
-            source: 'orchestrator-stale-check',
+            source: "orchestrator-stale-check",
           },
           { delay: 0 }, // run immediately — it's already stale
         );
-        const reason = isStuck ? 'stuck' : 'stale';
+        const reason = isStuck ? "stuck" : "stale";
         this.logger.log(
           `Orchestrator: enqueued ${reason} browsing session for ${netKey} (last browse ${Math.round((Date.now() - lastBrowse) / 1000 / 60)}min ago)`,
         );

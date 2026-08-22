@@ -7,7 +7,11 @@
 //
 // All use the local LlmService (multi-provider fallback chain).
 
-import type { PostContext, ActionDecision, EngagementAction } from '../../../../domain/ports/engagement-decision.port.js';
+import type {
+  PostContext,
+  ActionDecision,
+  EngagementAction,
+} from "../../../../domain/ports/engagement-decision.port.js";
 
 // ── Decision Prompt ──────────────────────────────────────────────────────────
 
@@ -204,8 +208,15 @@ export const ENGAGEMENT_QUOTE_PROMPT = {
  *
  * @returns Array of decisions, padded/truncated to match expectedCount.
  */
-export function parseBatchDecisionResponse(content: string, expectedCount: number): ActionDecision[] {
-  const fallback: ActionDecision = { action: 'scroll', reason: 'Batch parse fallback', confidence: 0.3 };
+export function parseBatchDecisionResponse(
+  content: string,
+  expectedCount: number,
+): ActionDecision[] {
+  const fallback: ActionDecision = {
+    action: "scroll",
+    reason: "Batch parse fallback",
+    confidence: 0.3,
+  };
 
   try {
     // Extract JSON array from the response (LLMs may wrap in markdown)
@@ -220,18 +231,30 @@ export function parseBatchDecisionResponse(content: string, expectedCount: numbe
     }
 
     const validActions: EngagementAction[] = [
-      'scroll', 'read', 'like', 'comment', 'repost', 'quote', 'open-thread',
-      'visit-profile', 'back', 'skip',
+      "scroll",
+      "read",
+      "like",
+      "comment",
+      "repost",
+      "quote",
+      "open-thread",
+      "visit-profile",
+      "back",
+      "skip",
     ];
 
     const results = parsed.map((p) => {
       if (!p.action || !validActions.includes(p.action)) {
-        return { action: 'scroll' as EngagementAction, reason: `Invalid action: ${p.action}`, confidence: 0.3 };
+        return {
+          action: "scroll" as EngagementAction,
+          reason: `Invalid action: ${p.action}`,
+          confidence: 0.3,
+        };
       }
       return {
         action: p.action,
-        reason: p.reason ?? 'No reason provided',
-        confidence: typeof p.confidence === 'number' ? p.confidence : 0.5,
+        reason: p.reason ?? "No reason provided",
+        confidence: typeof p.confidence === "number" ? p.confidence : 0.5,
         commentText: p.commentText,
         quoteText: p.quoteText,
       } as ActionDecision;
@@ -259,7 +282,7 @@ export function parseBatchDecisionResponse(content: string, expectedCount: numbe
  */
 function parseLangJsonResponse(
   content: string,
-  field: 'comment' | 'quote',
+  field: "comment" | "quote",
 ): { language?: string; text: string | null } {
   const trimmed = content.trim();
   if (!trimmed) return { text: null };
@@ -267,9 +290,13 @@ function parseLangJsonResponse(
   const jsonMatch = trimmed.match(/\{[\s\S]*\}/);
   if (jsonMatch) {
     try {
-      const parsed = JSON.parse(jsonMatch[0]) as { language?: string; comment?: string; quote?: string };
+      const parsed = JSON.parse(jsonMatch[0]) as {
+        language?: string;
+        comment?: string;
+        quote?: string;
+      };
       const value = parsed[field];
-      if (value && typeof value === 'string') {
+      if (value && typeof value === "string") {
         return { language: parsed.language, text: value.trim() };
       }
     } catch {
@@ -326,15 +353,15 @@ export interface CommentJudgeResult {
 export function parseCommentJudgeResponse(content: string): CommentJudgeResult {
   try {
     const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return { approved: false, score: 0, reason: 'No JSON in judge response' };
+    if (!jsonMatch) return { approved: false, score: 0, reason: "No JSON in judge response" };
     const parsed = JSON.parse(jsonMatch[0]) as Partial<CommentJudgeResult>;
     return {
       approved: parsed.approved === true,
-      score: typeof parsed.score === 'number' ? Math.max(0, Math.min(1, parsed.score)) : 0,
-      reason: parsed.reason ?? 'No reason provided',
+      score: typeof parsed.score === "number" ? Math.max(0, Math.min(1, parsed.score)) : 0,
+      reason: parsed.reason ?? "No reason provided",
     };
   } catch {
-    return { approved: false, score: 0, reason: 'JSON parse failed' };
+    return { approved: false, score: 0, reason: "JSON parse failed" };
   }
 }
 
@@ -345,8 +372,11 @@ export function parseCommentJudgeResponse(content: string): CommentJudgeResult {
  * Falls back to treating the raw content as the comment text if JSON parsing
  * fails (backward compatibility with models that ignore the JSON instruction).
  */
-export function parseCommentResponse(content: string): { language?: string; comment: string | null } {
-  const { language, text } = parseLangJsonResponse(content, 'comment');
+export function parseCommentResponse(content: string): {
+  language?: string;
+  comment: string | null;
+} {
+  const { language, text } = parseLangJsonResponse(content, "comment");
   return { language, comment: text };
 }
 
@@ -357,7 +387,7 @@ export function parseCommentResponse(content: string): { language?: string; comm
  * Falls back to treating the raw content as the quote text if JSON parsing fails.
  */
 export function parseQuoteResponse(content: string): { language?: string; quote: string | null } {
-  const { language, text } = parseLangJsonResponse(content, 'quote');
+  const { language, text } = parseLangJsonResponse(content, "quote");
   return { language, quote: text };
 }
 
@@ -370,27 +400,35 @@ export function parseDecisionResponse(content: string): ActionDecision {
     // Extract JSON from the response (LLMs sometimes wrap in markdown code blocks)
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      return { action: 'scroll', reason: 'No JSON in response', confidence: 0.3 };
+      return { action: "scroll", reason: "No JSON in response", confidence: 0.3 };
     }
     const parsed = JSON.parse(jsonMatch[0]) as Partial<ActionDecision>;
 
     // Validate action
     const validActions: EngagementAction[] = [
-      'scroll', 'read', 'like', 'comment', 'repost', 'quote', 'open-thread',
-      'visit-profile', 'back', 'skip',
+      "scroll",
+      "read",
+      "like",
+      "comment",
+      "repost",
+      "quote",
+      "open-thread",
+      "visit-profile",
+      "back",
+      "skip",
     ];
     if (!parsed.action || !validActions.includes(parsed.action)) {
-      return { action: 'scroll', reason: `Invalid action: ${parsed.action}`, confidence: 0.3 };
+      return { action: "scroll", reason: `Invalid action: ${parsed.action}`, confidence: 0.3 };
     }
 
     return {
       action: parsed.action,
-      reason: parsed.reason ?? 'No reason provided',
-      confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.5,
+      reason: parsed.reason ?? "No reason provided",
+      confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0.5,
       commentText: parsed.commentText,
       quoteText: parsed.quoteText,
     } as ActionDecision;
   } catch {
-    return { action: 'scroll', reason: 'JSON parse failed', confidence: 0.3 };
+    return { action: "scroll", reason: "JSON parse failed", confidence: 0.3 };
   }
 }

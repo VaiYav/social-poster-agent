@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash } from "node:crypto";
 
 export interface HookCacheEntry {
   hooks: string[];
@@ -101,6 +101,6 @@ export function clearHookCache(): void {
  * Excludes brandVoice (constant per process) and performanceGuidance (advisory).
  */
 export function hookCacheKey(topic: string, keywords: string[], facts: string[]): string {
-  const input = `${topic}||${keywords.slice().sort().join(',')}||${facts.slice().sort().join('\n')}`;
-  return createHash('sha256').update(input).digest('hex').slice(0, 32);
+  const input = `${topic}||${keywords.slice().sort().join(",")}||${facts.slice().sort().join("\n")}`;
+  return createHash("sha256").update(input).digest("hex").slice(0, 32);
 }

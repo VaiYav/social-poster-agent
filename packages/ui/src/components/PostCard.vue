@@ -1,18 +1,21 @@
 <script setup lang="ts">
-import type { Post } from '@spa/shared';
-import { Check, X, Pencil, ExternalLink, Layers } from '@lucide/vue';
-import { Card, Button } from './ui';
-import StatusBadge from './StatusBadge.vue';
-import NetworkIcon from './NetworkIcon.vue';
+import type { Post } from "@spa/shared";
+import { Check, X, Pencil, ExternalLink, Layers } from "@lucide/vue";
+import { Card, Button } from "./ui";
+import StatusBadge from "./StatusBadge.vue";
+import NetworkIcon from "./NetworkIcon.vue";
 
-const props = withDefaults(defineProps<{
-  post: Post;
-  showActions?: boolean;
-  truncate?: number;
-}>(), {
-  showActions: false,
-  truncate: 0,
-});
+const props = withDefaults(
+  defineProps<{
+    post: Post;
+    showActions?: boolean;
+    truncate?: number;
+  }>(),
+  {
+    showActions: false,
+    truncate: 0,
+  },
+);
 
 const emit = defineEmits<{
   approve: [id: string];
@@ -20,17 +23,18 @@ const emit = defineEmits<{
   edit: [post: Post];
 }>();
 
-const displayContent = props.truncate > 0
-  ? props.post.content.length > props.truncate
-    ? props.post.content.slice(0, props.truncate) + '…'
-    : props.post.content
-  : props.post.content;
+const displayContent =
+  props.truncate > 0
+    ? props.post.content.length > props.truncate
+      ? props.post.content.slice(0, props.truncate) + "…"
+      : props.post.content
+    : props.post.content;
 
 const isMultiStage = props.post.llmMetadata?.multiStage === true;
 const threadLabel = isMultiStage
-  ? `Multi-stage · ${(props.post.threadPosition ?? 0) + 1}/${props.post.llmMetadata?.threadDepth ?? '?'}`
+  ? `Multi-stage · ${(props.post.threadPosition ?? 0) + 1}/${props.post.llmMetadata?.threadDepth ?? "?"}`
   : props.post.threadId
-    ? 'Thread'
+    ? "Thread"
     : null;
 </script>
 
@@ -39,9 +43,7 @@ const threadLabel = isMultiStage
     <div class="flex items-start justify-between gap-4">
       <div class="flex items-center gap-3">
         <NetworkIcon :network="post.network" />
-        <span class="text-xs text-text-muted">
-          {{ post.id.slice(0, 8) }}…
-        </span>
+        <span class="text-xs text-text-muted"> {{ post.id.slice(0, 8) }}… </span>
       </div>
       <div class="flex items-center gap-2">
         <span

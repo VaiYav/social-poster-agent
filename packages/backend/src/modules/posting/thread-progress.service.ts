@@ -13,8 +13,8 @@
  *   5. getThreadProgress(rootPostId) — returns all progress entries for inspection
  */
 
-import { Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { Injectable, Logger } from "@nestjs/common";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service";
 
 @Injectable()
 export class ThreadProgressService {
@@ -44,7 +44,7 @@ export class ThreadProgressService {
             postId: rootPostId,
             replyPostId: reply.id,
             position: reply.threadPosition,
-            status: 'PENDING',
+            status: "PENDING",
           },
           update: {}, // don't overwrite if already exists
         });
@@ -59,11 +59,7 @@ export class ThreadProgressService {
   /**
    * Mark an individual reply as POSTED.
    */
-  async markReplyPosted(
-    rootPostId: string,
-    replyPostId: string,
-    postUrl: string,
-  ): Promise<void> {
+  async markReplyPosted(rootPostId: string, replyPostId: string, postUrl: string): Promise<void> {
     try {
       await this.prisma.threadProgress.update({
         where: {
@@ -73,27 +69,21 @@ export class ThreadProgressService {
           },
         },
         data: {
-          status: 'POSTED',
+          status: "POSTED",
           postUrl,
           completedAt: new Date(),
           error: null,
         },
       });
     } catch (err) {
-      this.logger.warn(
-        `Failed to mark reply ${replyPostId} as POSTED: ${(err as Error).message}`,
-      );
+      this.logger.warn(`Failed to mark reply ${replyPostId} as POSTED: ${(err as Error).message}`);
     }
   }
 
   /**
    * Mark an individual reply as FAILED.
    */
-  async markReplyFailed(
-    rootPostId: string,
-    replyPostId: string,
-    error: string,
-  ): Promise<void> {
+  async markReplyFailed(rootPostId: string, replyPostId: string, error: string): Promise<void> {
     try {
       await this.prisma.threadProgress.update({
         where: {
@@ -103,15 +93,13 @@ export class ThreadProgressService {
           },
         },
         data: {
-          status: 'FAILED',
+          status: "FAILED",
           error,
           completedAt: new Date(),
         },
       });
     } catch (err) {
-      this.logger.warn(
-        `Failed to mark reply ${replyPostId} as FAILED: ${(err as Error).message}`,
-      );
+      this.logger.warn(`Failed to mark reply ${replyPostId} as FAILED: ${(err as Error).message}`);
     }
   }
 
@@ -123,7 +111,7 @@ export class ThreadProgressService {
     const pending = await this.prisma.threadProgress.findMany({
       where: {
         postId: rootPostId,
-        status: 'PENDING',
+        status: "PENDING",
       },
       select: { replyPostId: true },
     });
@@ -146,7 +134,7 @@ export class ThreadProgressService {
   > {
     return this.prisma.threadProgress.findMany({
       where: { postId: rootPostId },
-      orderBy: { position: 'asc' },
+      orderBy: { position: "asc" },
       select: {
         replyPostId: true,
         position: true,
@@ -171,7 +159,7 @@ export class ThreadProgressService {
     const posted = await this.prisma.threadProgress.count({
       where: {
         postId: rootPostId,
-        status: 'POSTED',
+        status: "POSTED",
       },
     });
     return posted === total;
@@ -189,13 +177,13 @@ export class ThreadProgressService {
     const [total, posted, failed, pending] = await Promise.all([
       this.prisma.threadProgress.count({ where: { postId: rootPostId } }),
       this.prisma.threadProgress.count({
-        where: { postId: rootPostId, status: 'POSTED' },
+        where: { postId: rootPostId, status: "POSTED" },
       }),
       this.prisma.threadProgress.count({
-        where: { postId: rootPostId, status: 'FAILED' },
+        where: { postId: rootPostId, status: "FAILED" },
       }),
       this.prisma.threadProgress.count({
-        where: { postId: rootPostId, status: 'PENDING' },
+        where: { postId: rootPostId, status: "PENDING" },
       }),
     ]);
 

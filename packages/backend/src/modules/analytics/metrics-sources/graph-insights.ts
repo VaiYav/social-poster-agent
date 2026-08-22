@@ -1,4 +1,4 @@
-import type { PostMetricsData } from './metrics-source.port.js';
+import type { PostMetricsData } from "./metrics-source.port.js";
 
 /**
  * AN1: parse the Meta Graph / Threads **insights** response envelope, which both
@@ -24,12 +24,12 @@ export function extractMetric(json: unknown, name: string): number | null {
   if (!datum) return null;
 
   const total = (datum.total_value as { value?: unknown } | undefined)?.value;
-  if (typeof total === 'number') return total;
+  if (typeof total === "number") return total;
 
   if (Array.isArray(datum.values) && datum.values.length > 0) {
     // Take the most recent data point.
     const last = (datum.values as Array<{ value?: unknown }>)[datum.values.length - 1]?.value;
-    if (typeof last === 'number') return last;
+    if (typeof last === "number") return last;
   }
   return null;
 }

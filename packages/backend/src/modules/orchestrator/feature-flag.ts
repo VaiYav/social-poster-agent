@@ -12,4 +12,4 @@
  * check the flag at module-init time.
  */
 
-export { isOrchestratorEnabled } from '../../domain/feature-flags.js';
+export { isOrchestratorEnabled } from "../../domain/feature-flags.js";

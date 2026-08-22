@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import type { Component } from 'vue';
-import { CheckCircle2, XCircle, AlertTriangle, Info, X } from '@lucide/vue';
-import { useToast } from '../composables/useToast';
+import type { Component } from "vue";
+import { CheckCircle2, XCircle, AlertTriangle, Info, X } from "@lucide/vue";
+import { useToast } from "../composables/useToast";
 
 const { toasts, dismiss } = useToast();
 
 const typeStyles: Record<string, string> = {
-  success: 'bg-success-subtle border-success/30 text-success',
-  error: 'bg-error-subtle border-error/30 text-error',
-  info: 'bg-info-subtle border-info/30 text-info',
-  warning: 'bg-warning-subtle border-warning/30 text-warning',
+  success: "bg-success-subtle border-success/30 text-success",
+  error: "bg-error-subtle border-error/30 text-error",
+  info: "bg-info-subtle border-info/30 text-info",
+  warning: "bg-warning-subtle border-warning/30 text-warning",
 };
 
 const typeIcons: Record<string, Component> = {

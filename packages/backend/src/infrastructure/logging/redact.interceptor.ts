@@ -1,13 +1,7 @@
-import {
-  Injectable,
-  NestInterceptor,
-  ExecutionContext,
-  CallHandler,
-  Logger,
-} from '@nestjs/common';
-import { Observable } from 'rxjs';
-import { tap, map } from 'rxjs/operators';
-import type { Request } from 'express';
+import { Injectable, NestInterceptor, ExecutionContext, CallHandler, Logger } from "@nestjs/common";
+import { Observable } from "rxjs";
+import { tap, map } from "rxjs/operators";
+import type { Request } from "express";
 
 /**
  * Redact interceptor — masks sensitive fields in logs and responses.
@@ -22,23 +16,20 @@ import type { Request } from 'express';
  * Also logs each request with correlationId from CLS.
  */
 const REDACT_KEYS = [
-  'password',
-  'token',
-  'authorization',
-  'storageState',
-  'credentialsRef',
-  'cookie',
-  'secret',
-  'apiKey',
+  "password",
+  "token",
+  "authorization",
+  "storageState",
+  "credentialsRef",
+  "cookie",
+  "secret",
+  "apiKey",
 ];
 
 // P1-7 fix: exact key match set (lowercase) — avoids false positives like 'tokenizer' matching 'token'
 const REDACT_KEYS_SET = new Set(REDACT_KEYS.map((k) => k.toLowerCase()));
 
-const REDACT_PATTERN = new RegExp(
-  `("(?:${REDACT_KEYS.join('|')})"\\s*:\\s*)"[^"]*"`,
-  'gi',
-);
+const REDACT_PATTERN = new RegExp(`("(?:${REDACT_KEYS.join("|")})"\\s*:\\s*)"[^"]*"`, "gi");
 
 // SEC9: value-based redaction — catch secrets that appear in VALUES regardless
 // of the key (key-based redaction above misses e.g. a connection string in an
@@ -55,8 +46,8 @@ const SECRET_VALUE_PATTERNS: RegExp[] = [
 ];
 
 function redactSecretValues(str: string): string {
-  let out = str.replace(URL_CREDENTIALS, '$1[REDACTED]@'); // keep scheme+host, mask user:pass
-  for (const re of SECRET_VALUE_PATTERNS) out = out.replace(re, '[REDACTED]');
+  let out = str.replace(URL_CREDENTIALS, "$1[REDACTED]@"); // keep scheme+host, mask user:pass
+  for (const re of SECRET_VALUE_PATTERNS) out = out.replace(re, "[REDACTED]");
   return out;
 }
 
@@ -66,8 +57,8 @@ function redactString(str: string): string {
 
 function redactObject(obj: unknown): unknown {
   if (obj === null || obj === undefined) return obj;
-  if (typeof obj === 'string') return redactString(obj);
-  if (typeof obj !== 'object') return obj;
+  if (typeof obj === "string") return redactString(obj);
+  if (typeof obj !== "object") return obj;
 
   if (Array.isArray(obj)) return obj.map(redactObject);
 
@@ -75,7 +66,7 @@ function redactObject(obj: unknown): unknown {
   for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
     // P1-7 fix: exact key match (case-insensitive) instead of includes()
     if (REDACT_KEYS_SET.has(key.toLowerCase())) {
-      result[key] = '[REDACTED]';
+      result[key] = "[REDACTED]";
     } else {
       result[key] = redactObject(value);
     }
@@ -85,7 +76,7 @@ function redactObject(obj: unknown): unknown {
 
 @Injectable()
 export class RedactInterceptor implements NestInterceptor {
-  private readonly logger = new Logger('HTTP');
+  private readonly logger = new Logger("HTTP");
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const request = context.switchToHttp().getRequest<Request>();

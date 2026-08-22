@@ -1,54 +1,54 @@
-import { Module, type OnModuleInit, Logger } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
-import { ConfigModule } from '@nestjs/config';
-import { ScheduleModule } from '@nestjs/schedule';
-import { AuthModule } from './modules/auth/auth.module';
-import { JwtAuthGuard } from './modules/auth/jwt-auth.guard';
-import { SentryModule } from '@sentry/nestjs/setup';
-import { validateEnv } from './infrastructure/config/env.validation';
-import { PrismaModule } from './infrastructure/prisma/prisma.module';
-import { NotificationsModule } from './infrastructure/notifications/notifications.module';
-import { AppClsModule } from './infrastructure/cls/cls.module';
-import { LoggingModule } from './infrastructure/logging/logging.module';
-import { DomainConfigModule } from './domain/domain-config/domain-config.module.js';
-import { FiltersModule } from './infrastructure/filters/filters.module';
-import { CryptoModule } from './infrastructure/crypto/crypto.module';
-import { HealthModule } from './modules/health/health.module';
-import { PostsModule } from './modules/posts/posts.module';
-import { GenerationModule } from './modules/generation/generation.module';
-import { PostingModule } from './modules/posting/posting.module';
-import { SessionsModule } from './modules/sessions/sessions.module';
-import { AccountsModule } from './modules/accounts/accounts.module';
-import { ContentSourceModule } from './modules/content-source/content-source.module';
-import { BrowserModule } from './infrastructure/browser/browser.module';
-import { LlmModule } from './infrastructure/llm/llm.module';
-import { LangfuseModule } from './infrastructure/langfuse/langfuse.module';
-import { PromptRegistryModule } from './infrastructure/prompt/prompt-registry.module';
-import { ContentModule } from './infrastructure/content/content.module';
-import { QueueModule } from './modules/queue/queue.module';
-import { QueueModule as QueueInfraModule } from './infrastructure/queue/queue.module';
-import { RateLimitModule } from './modules/rate-limit/rate-limit.module';
-import { SseApiModule } from './modules/sse/sse-api.module';
-import { EngagementModule } from './modules/engagement/engagement.module';
-import { HealthMonitorModule } from './modules/health-monitor/health-monitor.module';
-import { TrendingModule } from './modules/trending/trending.module';
-import { AnalyticsModule } from './modules/analytics/analytics.module';
-import { RecyclingModule } from './modules/recycling/recycling.module';
-import { QuoteCardModule } from './modules/quote-cards/quote-card.module';
-import { RepliesModule } from './modules/replies/replies.module';
-import { FlowControlModule } from './modules/flow-control/flow-control.module';
-import { AutonomyModule } from './modules/autonomy/autonomy.module';
-import { CaptchaModule } from './infrastructure/captcha/captcha.module';
-import { EventsEdaModule } from './events/events.module';
-import { RedisModule } from './infrastructure/redis/redis.module';
-import { SseModule } from './infrastructure/sse/sse.module';
-import { MultiInstanceModule } from './infrastructure/multi-instance/multi-instance.module';
-import { EmailModule } from './infrastructure/email/email.module';
-import { OrchestratorModule } from './modules/orchestrator/orchestrator.module';
-import { SyndicationModule } from './modules/syndication/syndication.module.js';
-import { MonitoringController } from './modules/monitoring/monitoring.controller';
-import { metricsPublisherProviders } from './modules/monitoring/monitoring.providers';
-import { parseBool } from './infrastructure/config/parse-bool.js';
+import { Module, type OnModuleInit, Logger } from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
+import { ConfigModule } from "@nestjs/config";
+import { ScheduleModule } from "@nestjs/schedule";
+import { AuthModule } from "./modules/auth/auth.module";
+import { JwtAuthGuard } from "./modules/auth/jwt-auth.guard";
+import { SentryModule } from "@sentry/nestjs/setup";
+import { validateEnv } from "./infrastructure/config/env.validation";
+import { PrismaModule } from "./infrastructure/prisma/prisma.module";
+import { NotificationsModule } from "./infrastructure/notifications/notifications.module";
+import { AppClsModule } from "./infrastructure/cls/cls.module";
+import { LoggingModule } from "./infrastructure/logging/logging.module";
+import { DomainConfigModule } from "./domain/domain-config/domain-config.module.js";
+import { FiltersModule } from "./infrastructure/filters/filters.module";
+import { CryptoModule } from "./infrastructure/crypto/crypto.module";
+import { HealthModule } from "./modules/health/health.module";
+import { PostsModule } from "./modules/posts/posts.module";
+import { GenerationModule } from "./modules/generation/generation.module";
+import { PostingModule } from "./modules/posting/posting.module";
+import { SessionsModule } from "./modules/sessions/sessions.module";
+import { AccountsModule } from "./modules/accounts/accounts.module";
+import { ContentSourceModule } from "./modules/content-source/content-source.module";
+import { BrowserModule } from "./infrastructure/browser/browser.module";
+import { LlmModule } from "./infrastructure/llm/llm.module";
+import { LangfuseModule } from "./infrastructure/langfuse/langfuse.module";
+import { PromptRegistryModule } from "./infrastructure/prompt/prompt-registry.module";
+import { ContentModule } from "./infrastructure/content/content.module";
+import { QueueModule } from "./modules/queue/queue.module";
+import { QueueModule as QueueInfraModule } from "./infrastructure/queue/queue.module";
+import { RateLimitModule } from "./modules/rate-limit/rate-limit.module";
+import { SseApiModule } from "./modules/sse/sse-api.module";
+import { EngagementModule } from "./modules/engagement/engagement.module";
+import { HealthMonitorModule } from "./modules/health-monitor/health-monitor.module";
+import { TrendingModule } from "./modules/trending/trending.module";
+import { AnalyticsModule } from "./modules/analytics/analytics.module";
+import { RecyclingModule } from "./modules/recycling/recycling.module";
+import { QuoteCardModule } from "./modules/quote-cards/quote-card.module";
+import { RepliesModule } from "./modules/replies/replies.module";
+import { FlowControlModule } from "./modules/flow-control/flow-control.module";
+import { AutonomyModule } from "./modules/autonomy/autonomy.module";
+import { CaptchaModule } from "./infrastructure/captcha/captcha.module";
+import { EventsEdaModule } from "./events/events.module";
+import { RedisModule } from "./infrastructure/redis/redis.module";
+import { SseModule } from "./infrastructure/sse/sse.module";
+import { MultiInstanceModule } from "./infrastructure/multi-instance/multi-instance.module";
+import { EmailModule } from "./infrastructure/email/email.module";
+import { OrchestratorModule } from "./modules/orchestrator/orchestrator.module";
+import { SyndicationModule } from "./modules/syndication/syndication.module.js";
+import { MonitoringController } from "./modules/monitoring/monitoring.controller";
+import { metricsPublisherProviders } from "./modules/monitoring/monitoring.providers";
+import { parseBool } from "./infrastructure/config/parse-bool.js";
 
 /**
  * F1 Engagement module is experimental (Phase 2-3).
@@ -64,10 +64,13 @@ const engagementImports = parseBool(process.env.ENGAGEMENT_ENABLED) ? [Engagemen
  */
 const captchaImports = parseBool(process.env.CAPTCHA_SOLVER_ENABLED) ? [CaptchaModule] : [];
 const quoteCardImports = parseBool(process.env.QUOTE_CARDS_ENABLED) ? [QuoteCardModule] : [];
-const repliesImports =
-  parseBool(process.env.REPLIES_ENABLED)
-    ? [parseBool(process.env.ENGAGEMENT_ENABLED) ? RepliesModule.withEngagement(EngagementModule) : RepliesModule]
-    : [];
+const repliesImports = parseBool(process.env.REPLIES_ENABLED)
+  ? [
+      parseBool(process.env.ENGAGEMENT_ENABLED)
+        ? RepliesModule.withEngagement(EngagementModule)
+        : RepliesModule,
+    ]
+  : [];
 
 /**
  * Orchestrator (LangGraph agent loop) — replaces all crons when enabled.
@@ -90,7 +93,7 @@ const syndicationImports = parseBool(process.env.SYNDICATION_ENABLED)
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      envFilePath: ".env",
     }),
     DomainConfigModule, // Brand/domain context — must load before consumers
     ScheduleModule.forRoot(),
@@ -150,7 +153,7 @@ export class AppModule implements OnModuleInit {
     // — which would overwrite process.env with Joi defaults and break tests)
     try {
       validateEnv();
-      this.logger.log('Environment variables validated successfully');
+      this.logger.log("Environment variables validated successfully");
     } catch (err) {
       this.logger.error((err as Error).message);
       throw err;

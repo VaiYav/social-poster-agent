@@ -7,13 +7,13 @@
  * a single-code-point ellipsis.
  */
 export function truncateForThread(text: string, limit = 280): string {
-  const trimmed = (text ?? '').trim();
+  const trimmed = (text ?? "").trim();
   const chars = [...trimmed]; // count by Unicode code points, not UTF-16 units
   if (chars.length <= limit) return trimmed;
 
   const budget = Math.max(1, limit - 1); // reserve 1 code point for the ellipsis
-  let cut = chars.slice(0, budget).join('');
-  const lastSpace = cut.lastIndexOf(' ');
+  let cut = chars.slice(0, budget).join("");
+  const lastSpace = cut.lastIndexOf(" ");
   if (lastSpace > budget * 0.6) {
     cut = cut.slice(0, lastSpace);
   }

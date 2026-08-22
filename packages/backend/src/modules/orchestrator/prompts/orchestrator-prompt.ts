@@ -6,8 +6,8 @@
  * Output is validated by guardrails before execution.
  */
 
-import type { WorldState } from '../types.js';
-import { getEnabledNetworks } from '../../../domain/enabled-networks.js';
+import type { WorldState } from "../types.js";
+import { getEnabledNetworks } from "../../../domain/enabled-networks.js";
 
 export const ORCHESTRATOR_SYSTEM_PROMPT = `You are a social media orchestrator agent. You decide what action to take next based on the current world state. You must choose exactly ONE action.
 
@@ -61,8 +61,8 @@ export function buildOrchestratorUserPrompt(world: WorldState): string {
   const now = world.now;
   const hour = world.utcHour;
   const minute = new Date(now).getUTCMinutes();
-  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const dayName = days[world.utcDayOfWeek] ?? '?';
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const dayName = days[world.utcDayOfWeek] ?? "?";
   const networks = getEnabledNetworks();
 
   const topicAgeHours = world.topicPool.oldestAgeMs
@@ -71,13 +71,11 @@ export function buildOrchestratorUserPrompt(world: WorldState): string {
 
   const approvedByNetwork = networks
     .map((net) => `${net}=${world.drafts.approvedByNetwork[net] ?? 0}`)
-    .join(', ');
-  const queueParts = networks
-    .map((net) => `${net}=${world.queueDepth[net] ?? 0}`)
-    .join(', ');
+    .join(", ");
+  const queueParts = networks.map((net) => `${net}=${world.queueDepth[net] ?? 0}`).join(", ");
 
   const lines: string[] = [
-    `Current state (UTC ${hour}:${String(minute).padStart(2, '0')}, ${dayName}):`,
+    `Current state (UTC ${hour}:${String(minute).padStart(2, "0")}, ${dayName}):`,
     `- Topic pool: ${world.topicPool.count}/${world.topicPool.threshold} (oldest: ${topicAgeHours}h)`,
     `- Approved drafts: ${world.drafts.approved} (${approvedByNetwork})`,
     `- Queue depth: ${queueParts}`,
@@ -88,14 +86,14 @@ export function buildOrchestratorUserPrompt(world: WorldState): string {
   for (const [net, s] of Object.entries(world.sessions)) {
     sessionParts.push(`${net}=${s.status}(${s.circuitBreaker})`);
   }
-  lines.push(`- Sessions: ${sessionParts.join(', ')}`);
+  lines.push(`- Sessions: ${sessionParts.join(", ")}`);
 
   // Rate limits
   const rateParts: string[] = [];
   for (const [net, r] of Object.entries(world.rateLimits)) {
     rateParts.push(`${net} daily=${r.dailyRemaining}/weekly=${r.weeklyRemaining}`);
   }
-  lines.push(`- Rate limits: ${rateParts.join(', ')}`);
+  lines.push(`- Rate limits: ${rateParts.join(", ")}`);
 
   // Last post time
   const lastPostParts: string[] = [];
@@ -103,21 +101,21 @@ export function buildOrchestratorUserPrompt(world: WorldState): string {
     const r = world.rateLimits[net];
     if (r && r.lastPostMs > 0) {
       const age = hoursAgo(now, r.lastPostMs);
-      lastPostParts.push(`${net}=${Number.isFinite(age) ? `${age}h ago` : 'never'}`);
+      lastPostParts.push(`${net}=${Number.isFinite(age) ? `${age}h ago` : "never"}`);
     } else {
       lastPostParts.push(`${net}=never`);
     }
   }
-  lines.push(`- Last post: ${lastPostParts.join(', ')}`);
+  lines.push(`- Last post: ${lastPostParts.join(", ")}`);
 
   // Posting windows
   const windowParts: string[] = [];
   for (const [net, w] of Object.entries(world.postingWindows)) {
     if (w) {
-      windowParts.push(`${net}=${w.inWindow ? 'IN' : 'OUT'}(${w.bestHours.join(',')})`);
+      windowParts.push(`${net}=${w.inWindow ? "IN" : "OUT"}(${w.bestHours.join(",")})`);
     }
   }
-  lines.push(`- Posting window: ${windowParts.join(', ') || 'none'}`);
+  lines.push(`- Posting window: ${windowParts.join(", ") || "none"}`);
 
   // Engagement
   const browseParts: string[] = [];
@@ -125,14 +123,18 @@ export function buildOrchestratorUserPrompt(world: WorldState): string {
     const ms = world.engagement.lastBrowseMs[net] ?? 0;
     if (ms > 0) {
       const age = hoursAgo(now, ms);
-      browseParts.push(`${net}=${Number.isFinite(age) ? `${age}h ago` : 'never'}`);
+      browseParts.push(`${net}=${Number.isFinite(age) ? `${age}h ago` : "never"}`);
     } else {
       browseParts.push(`${net}=never`);
     }
   }
-  lines.push(`- Last browse: ${browseParts.join(', ')}`);
-  lines.push(`- Engagement debt: ${world.engagement.engagementDebt} (networks that need a browse session)`);
-  lines.push(`- Engagement today: comments ${world.engagement.commentsActualToday}/${world.engagement.commentsTargetToday}, likes ${world.engagement.likesActualToday}/${world.engagement.likesTargetToday}, comment debt ${world.engagement.debt}`);
+  lines.push(`- Last browse: ${browseParts.join(", ")}`);
+  lines.push(
+    `- Engagement debt: ${world.engagement.engagementDebt} (networks that need a browse session)`,
+  );
+  lines.push(
+    `- Engagement today: comments ${world.engagement.commentsActualToday}/${world.engagement.commentsTargetToday}, likes ${world.engagement.likesActualToday}/${world.engagement.likesTargetToday}, comment debt ${world.engagement.debt}`,
+  );
   lines.push(`- Unchecked replies: ${world.engagement.uncheckedReplies}`);
 
   // Trends
@@ -142,22 +144,26 @@ export function buildOrchestratorUserPrompt(world: WorldState): string {
   lines.push(`- Trends: ${world.trends.count} (last refresh: ${trendAgeHours}h ago)`);
 
   // Health
-  lines.push(`- Health: bans=${world.health.bans}, DLQ=${world.health.dlqDepth}, stuck=${world.health.stuckPosting}`);
+  lines.push(
+    `- Health: bans=${world.health.bans}, DLQ=${world.health.dlqDepth}, stuck=${world.health.stuckPosting}`,
+  );
 
   // Performance
   const perfParts: string[] = [];
   for (const [net, p] of Object.entries(world.performance)) {
     perfParts.push(`${net} avg=${Math.round(p.recentAvgEngagement)}`);
   }
-  lines.push(`- Recent engagement: ${perfParts.join(', ') || 'no data'}`);
+  lines.push(`- Recent engagement: ${perfParts.join(", ") || "no data"}`);
 
   // Flow control
   if (world.flowControl.pauseAll) {
-    lines.push('- ⚠️ KILL SWITCH ACTIVE');
+    lines.push("- ⚠️ KILL SWITCH ACTIVE");
   }
 
-  lines.push('');
-  lines.push('Respond with JSON: {"action": "ACTION_TYPE", "network": "X|THREADS|FACEBOOK|null", "reason": "one sentence"}');
+  lines.push("");
+  lines.push(
+    'Respond with JSON: {"action": "ACTION_TYPE", "network": "X|THREADS|FACEBOOK|null", "reason": "one sentence"}',
+  );
 
-  return lines.join('\n');
+  return lines.join("\n");
 }

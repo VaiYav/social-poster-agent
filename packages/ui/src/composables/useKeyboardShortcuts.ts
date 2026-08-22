@@ -13,8 +13,8 @@
  *   Space  → Pause/Resume auto-refresh (in Monitor view)
  *   ?      → Show shortcuts help
  */
-import { onMounted, onUnmounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { onMounted, onUnmounted } from "vue";
+import { useRouter } from "vue-router";
 
 export function useKeyboardShortcuts() {
   const router = useRouter();
@@ -22,36 +22,36 @@ export function useKeyboardShortcuts() {
   function handler(e: KeyboardEvent) {
     // Don't intercept when typing in inputs
     const target = e.target as HTMLElement;
-    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+    if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) {
       return;
     }
 
     // Ctrl/Cmd + key combos
     if (e.ctrlKey || e.metaKey) {
       switch (e.key.toLowerCase()) {
-        case 'k':
+        case "k":
           e.preventDefault();
-          router.push('/queue');
+          router.push("/queue");
           break;
-        case 'g':
+        case "g":
           e.preventDefault();
-          router.push('/generate');
+          router.push("/generate");
           break;
-        case 'd':
+        case "d":
           e.preventDefault();
-          router.push('/');
+          router.push("/");
           break;
-        case 'm':
+        case "m":
           e.preventDefault();
-          router.push('/monitor');
+          router.push("/monitor");
           break;
-        case 'f':
+        case "f":
           e.preventDefault();
-          router.push('/flow-control');
+          router.push("/flow-control");
           break;
-        case 'r':
+        case "r":
           e.preventDefault();
-          router.push('/reports');
+          router.push("/reports");
           break;
       }
       return;
@@ -59,18 +59,18 @@ export function useKeyboardShortcuts() {
 
     // Single-key shortcuts (only when not in input)
     switch (e.key) {
-      case '?':
+      case "?":
         // Toggle shortcuts help — emit event for App.vue to handle
-        window.dispatchEvent(new CustomEvent('spa:toggle-shortcuts-help'));
+        window.dispatchEvent(new CustomEvent("spa:toggle-shortcuts-help"));
         break;
     }
   }
 
   onMounted(() => {
-    window.addEventListener('keydown', handler);
+    window.addEventListener("keydown", handler);
   });
 
   onUnmounted(() => {
-    window.removeEventListener('keydown', handler);
+    window.removeEventListener("keydown", handler);
   });
 }

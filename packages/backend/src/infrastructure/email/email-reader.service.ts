@@ -1,6 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { ImapFlow, type ImapFlowOptions } from 'imapflow';
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { ImapFlow, type ImapFlowOptions } from "imapflow";
 
 /**
  * EmailReaderService — reads verification codes from email via IMAP.
@@ -44,11 +44,11 @@ export class EmailReaderService {
   private idleTimer: NodeJS.Timeout | null = null;
 
   constructor(private readonly configService: ConfigService) {
-    this.host = this.configService.get<string>('EMAIL_IMAP_HOST', 'imap.gmail.com');
-    this.port = Number(this.configService.get<string>('EMAIL_IMAP_PORT', '993'));
-    this.user = this.configService.get<string>('EMAIL_USER', '');
-    this.password = this.configService.get<string>('EMAIL_PASSWORD', '');
-    this.fromFilter = this.configService.get<string>('EMAIL_FROM_FILTER', 'x.com');
+    this.host = this.configService.get<string>("EMAIL_IMAP_HOST", "imap.gmail.com");
+    this.port = Number(this.configService.get<string>("EMAIL_IMAP_PORT", "993"));
+    this.user = this.configService.get<string>("EMAIL_USER", "");
+    this.password = this.configService.get<string>("EMAIL_PASSWORD", "");
+    this.fromFilter = this.configService.get<string>("EMAIL_FROM_FILTER", "x.com");
     this.idleTimeoutMs = this.parseIdleTimeout();
     this.enabled = !!(this.user && this.password);
   }
@@ -66,7 +66,7 @@ export class EmailReaderService {
    */
   async fetchVerificationCode(sinceMs = 300000): Promise<string | null> {
     if (!this.enabled) {
-      this.logger.debug('Email reader disabled — EMAIL_USER/EMAIL_PASSWORD not set');
+      this.logger.debug("Email reader disabled — EMAIL_USER/EMAIL_PASSWORD not set");
       return null;
     }
 
@@ -76,7 +76,7 @@ export class EmailReaderService {
       const client = await this.ensureClient();
 
       // Open INBOX
-      lock = await client.getMailboxLock('INBOX');
+      lock = await client.getMailboxLock("INBOX");
       try {
         // Search for recent emails from the configured sender, UID > last seen.
         // UIDs are stable across sessions and monotonically increasing, so they
@@ -93,7 +93,9 @@ export class EmailReaderService {
         const messages = await client.search(searchQuery, { uid: true });
 
         if (!messages || messages.length === 0) {
-          this.logger.debug(`No new emails from ${this.fromFilter} in the last ${Math.round(sinceMs / 1000)}s`);
+          this.logger.debug(
+            `No new emails from ${this.fromFilter} in the last ${Math.round(sinceMs / 1000)}s`,
+          );
           return null;
         }
 
@@ -116,10 +118,9 @@ export class EmailReaderService {
         this.lastSeenUid = Math.max(this.lastSeenUid, ...messages);
 
         // Extract code from subject + body
-        const subject = msg.envelope?.subject ?? '';
-        const body = msg.source instanceof Buffer
-          ? msg.source.toString('utf-8')
-          : String(msg.source ?? '');
+        const subject = msg.envelope?.subject ?? "";
+        const body =
+          msg.source instanceof Buffer ? msg.source.toString("utf-8") : String(msg.source ?? "");
         const fullText = `${subject}\n${body}`;
 
         const code = this.extractCode(fullText);
@@ -146,12 +147,9 @@ export class EmailReaderService {
    * Poll for a verification code, checking every few seconds.
    * Useful when the email hasn't arrived yet — keeps checking until timeout.
    */
-  async pollForVerificationCode(
-    timeoutMs = 120000,
-    intervalMs = 5000,
-  ): Promise<string | null> {
+  async pollForVerificationCode(timeoutMs = 120000, intervalMs = 5000): Promise<string | null> {
     if (!this.enabled) {
-      this.logger.debug('Email reader disabled — cannot poll for verification code');
+      this.logger.debug("Email reader disabled — cannot poll for verification code");
       return null;
     }
 
@@ -193,11 +191,11 @@ export class EmailReaderService {
     }
 
     this.client = new ImapFlow(this.getImapOptions());
-    this.client.on('close', () => {
-      this.logger.debug('IMAP connection closed');
+    this.client.on("close", () => {
+      this.logger.debug("IMAP connection closed");
       this.client = null;
     });
-    this.client.on('error', (err: Error) => {
+    this.client.on("error", (err: Error) => {
       this.logger.warn(`IMAP connection error: ${err.message}`);
       this.client = null;
     });
@@ -246,7 +244,7 @@ export class EmailReaderService {
   }
 
   private parseIdleTimeout(): number {
-    const raw = this.configService.get<string>('EMAIL_IMAP_IDLE_TIMEOUT_MS');
+    const raw = this.configService.get<string>("EMAIL_IMAP_IDLE_TIMEOUT_MS");
     if (!raw) return 300_000; // 5 minutes
     const parsed = Number(raw);
     return Number.isNaN(parsed) ? 300_000 : parsed;

@@ -9,11 +9,11 @@
  *
  * Source: packages/backend/src/modules/health-monitor/health-monitor.service.ts
  */
-import { describe, it, expect, vi } from 'vitest';
-import { ConfigService } from '@nestjs/config';
-import { PostStatus, SocialNetwork } from '@prisma/client';
+import { describe, it, expect, vi } from "vitest";
+import { ConfigService } from "@nestjs/config";
+import { PostStatus, SocialNetwork } from "../../../src/generated/prisma/client";
 
-import { HealthMonitorService } from '../../../src/modules/health-monitor/health-monitor.service';
+import { HealthMonitorService } from "../../../src/modules/health-monitor/health-monitor.service";
 
 function buildService(overrides: Record<string, unknown> = {}) {
   const prisma = {
@@ -30,7 +30,10 @@ function buildService(overrides: Record<string, unknown> = {}) {
     warning: vi.fn().mockResolvedValue(undefined),
     info: vi.fn().mockResolvedValue(undefined),
   };
-  const queueService = { enqueuePosting: vi.fn().mockResolvedValue(undefined), getJobCounts: vi.fn() };
+  const queueService = {
+    enqueuePosting: vi.fn().mockResolvedValue(undefined),
+    getJobCounts: vi.fn(),
+  };
   const queue = { getJob: vi.fn().mockResolvedValue(undefined) };
   const queueFactory = { getQueue: vi.fn().mockReturnValue(queue) };
   const configService = {
@@ -51,15 +54,15 @@ function buildService(overrides: Record<string, unknown> = {}) {
 }
 
 const orphanPost = {
-  id: 'p1',
+  id: "p1",
   network: SocialNetwork.X,
   status: PostStatus.POSTING,
   approvedAt: new Date(Date.now() - 60 * 60 * 1000), // 1h ago — well past grace
   createdAt: new Date(),
 };
 
-describe('HealthMonitorService.reapStuckPosting (M1 — orphaned POSTING reaper)', () => {
-  it('returns {reaped:0,skipped:0} when there are no stuck POSTING posts', async () => {
+describe("HealthMonitorService.reapStuckPosting (M1 — orphaned POSTING reaper)", () => {
+  it("returns {reaped:0,skipped:0} when there are no stuck POSTING posts", async () => {
     const { service, prisma } = buildService();
     prisma.post.findMany.mockResolvedValue([]);
 
@@ -67,7 +70,7 @@ describe('HealthMonitorService.reapStuckPosting (M1 — orphaned POSTING reaper)
     expect(prisma.post.update).not.toHaveBeenCalled();
   });
 
-  it('queries only POSTING posts older than the grace window', async () => {
+  it("queries only POSTING posts older than the grace window", async () => {
     const { service, prisma } = buildService({ STUCK_POSTING_GRACE_MIN: 5 });
     prisma.post.findMany.mockResolvedValue([]);
 
@@ -82,7 +85,7 @@ describe('HealthMonitorService.reapStuckPosting (M1 — orphaned POSTING reaper)
     expect(elapsedMs).toBeGreaterThanOrEqual(5 * 60 * 1000 - 1000);
   });
 
-  it('reaps an orphaned POSTING post (no BullMQ job) → FAILED + SSE + Discord, and NEVER re-enqueues', async () => {
+  it("reaps an orphaned POSTING post (no BullMQ job) → FAILED + SSE + Discord, and NEVER re-enqueues", async () => {
     const { service, prisma, sseService, discord, queueService, queue } = buildService();
     prisma.post.findMany.mockResolvedValue([orphanPost]);
     queue.getJob.mockResolvedValue(undefined); // no job → orphaned
@@ -92,20 +95,20 @@ describe('HealthMonitorService.reapStuckPosting (M1 — orphaned POSTING reaper)
     expect(res).toEqual({ reaped: 1, skipped: 0 });
     expect(prisma.post.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'p1' },
+        where: { id: "p1" },
         data: expect.objectContaining({ status: PostStatus.FAILED }),
       }),
     );
     expect(sseService.publish).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'post_status', postId: 'p1', status: 'FAILED' }),
+      expect.objectContaining({ type: "post_status", postId: "p1", status: "FAILED" }),
     );
     expect(discord.warning).toHaveBeenCalled();
     // The reaper must NOT auto-requeue — that would risk a duplicate publish.
     expect(queueService.enqueuePosting).not.toHaveBeenCalled();
   });
 
-  it.each(['active', 'waiting', 'delayed'])(
-    'skips a genuinely in-flight post (job state=%s) — does not mark FAILED',
+  it.each(["active", "waiting", "delayed"])(
+    "skips a genuinely in-flight post (job state=%s) — does not mark FAILED",
     async (state) => {
       const { service, prisma, queue } = buildService();
       prisma.post.findMany.mockResolvedValue([orphanPost]);
@@ -118,10 +121,10 @@ describe('HealthMonitorService.reapStuckPosting (M1 — orphaned POSTING reaper)
     },
   );
 
-  it('reaps when a job exists but already completed/failed (not in-flight)', async () => {
+  it("reaps when a job exists but already completed/failed (not in-flight)", async () => {
     const { service, prisma, queue } = buildService();
     prisma.post.findMany.mockResolvedValue([orphanPost]);
-    queue.getJob.mockResolvedValue({ getState: vi.fn().mockResolvedValue('completed') });
+    queue.getJob.mockResolvedValue({ getState: vi.fn().mockResolvedValue("completed") });
 
     const res = await service.reapStuckPosting();
 
@@ -129,10 +132,10 @@ describe('HealthMonitorService.reapStuckPosting (M1 — orphaned POSTING reaper)
     expect(prisma.post.update).toHaveBeenCalled();
   });
 
-  it('is conservative: skips (never reaps) when the queue state cannot be determined', async () => {
+  it("is conservative: skips (never reaps) when the queue state cannot be determined", async () => {
     const { service, prisma, queue } = buildService();
     prisma.post.findMany.mockResolvedValue([orphanPost]);
-    queue.getJob.mockRejectedValue(new Error('redis down'));
+    queue.getJob.mockRejectedValue(new Error("redis down"));
 
     const res = await service.reapStuckPosting();
 

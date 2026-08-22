@@ -1,9 +1,9 @@
-import { Module } from '@nestjs/common';
-import { BrowserFactory } from './browser.factory';
-import { SelectorHealthService } from './selector-health.service.js';
-import { IBrowserPort } from '../../domain/ports/browser.port.js';
-import { parseBool } from '../config/parse-bool.js';
-import { ProxyModule } from '../proxy/proxy.module.js';
+import { Module } from "@nestjs/common";
+import { BrowserFactory } from "./browser.factory";
+import { SelectorHealthService } from "./selector-health.service.js";
+import { IBrowserPort } from "../../domain/ports/browser.port.js";
+import { parseBool } from "../config/parse-bool.js";
+import { ProxyModule } from "../proxy/proxy.module.js";
 
 @Module({
   imports: [ProxyModule],
@@ -17,7 +17,7 @@ import { ProxyModule } from '../proxy/proxy.module.js';
         // Lazy import to avoid circular dependency (DryRunBrowserPort imports BrowserFactory type).
         if (parseBool(process.env.SPA_DRY_RUN)) {
           // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const { DryRunBrowserPort } = require('../../dry-run/dry-run.browser-port.js');
+          const { DryRunBrowserPort } = require("../../dry-run/dry-run.browser-port.js");
           return new DryRunBrowserPort(real);
         }
         return real;

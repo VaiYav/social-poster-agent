@@ -8,12 +8,12 @@
  *   - If publish throws, the handler swallows the error and logs via logger.error
  *   - The handler returns normally (does not rethrow) — event bus stays alive
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SseEventListener } from '../../../src/events/listeners/sse-event.listener';
-import { PostEvents } from '../../../src/events/enums/post-events.enum';
-import { createMockSseService } from '../../mocks/index.js';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { SseEventListener } from "../../../src/events/listeners/sse-event.listener";
+import { PostEvents } from "../../../src/events/enums/post-events.enum";
+import { createMockSseService } from "../../mocks/index.js";
 
-describe('SseEventListener (ARCH-001 — event bus safety)', () => {
+describe("SseEventListener (ARCH-001 — event bus safety)", () => {
   let sseService: ReturnType<typeof createMockSseService>;
   let listener: SseEventListener;
   let errorSpy: ReturnType<typeof vi.spyOn>;
@@ -22,10 +22,10 @@ describe('SseEventListener (ARCH-001 — event bus safety)', () => {
     sseService = createMockSseService();
     listener = new SseEventListener(sseService as never);
     // Spy on the internal NestJS Logger.error to assert the catch path logs.
-    errorSpy = vi.spyOn(listener['logger'], 'error').mockImplementation(() => undefined);
+    errorSpy = vi.spyOn(listener["logger"], "error").mockImplementation(() => undefined);
   });
 
-  const basePayload = { postId: 'post-123', network: 'X' };
+  const basePayload = { postId: "post-123", network: "X" };
 
   const cases: Array<{
     name: string;
@@ -36,68 +36,68 @@ describe('SseEventListener (ARCH-001 — event bus safety)', () => {
     extra?: Record<string, unknown>;
   }> = [
     {
-      name: 'handleDraftGenerated',
+      name: "handleDraftGenerated",
       event: PostEvents.DRAFT_GENERATED,
-      handler: 'handleDraftGenerated',
+      handler: "handleDraftGenerated",
       payload: basePayload,
-      expectedStatus: 'DRAFT',
+      expectedStatus: "DRAFT",
     },
     {
-      name: 'handleApproved',
+      name: "handleApproved",
       event: PostEvents.APPROVED,
-      handler: 'handleApproved',
+      handler: "handleApproved",
       payload: basePayload,
-      expectedStatus: 'APPROVED',
+      expectedStatus: "APPROVED",
     },
     {
-      name: 'handlePostingStarted',
+      name: "handlePostingStarted",
       event: PostEvents.POSTING_STARTED,
-      handler: 'handlePostingStarted',
+      handler: "handlePostingStarted",
       payload: basePayload,
-      expectedStatus: 'POSTING',
+      expectedStatus: "POSTING",
     },
     {
-      name: 'handlePosted',
+      name: "handlePosted",
       event: PostEvents.POSTED,
-      handler: 'handlePosted',
-      payload: { ...basePayload, postUrl: 'https://x.com/status/1' },
-      expectedStatus: 'POSTED',
-      extra: { url: 'https://x.com/status/1' },
+      handler: "handlePosted",
+      payload: { ...basePayload, postUrl: "https://x.com/status/1" },
+      expectedStatus: "POSTED",
+      extra: { url: "https://x.com/status/1" },
     },
     {
-      name: 'handleVerified',
+      name: "handleVerified",
       event: PostEvents.VERIFIED,
-      handler: 'handleVerified',
-      payload: { ...basePayload, postUrl: 'https://x.com/status/1' },
-      expectedStatus: 'VERIFIED',
-      extra: { url: 'https://x.com/status/1' },
+      handler: "handleVerified",
+      payload: { ...basePayload, postUrl: "https://x.com/status/1" },
+      expectedStatus: "VERIFIED",
+      extra: { url: "https://x.com/status/1" },
     },
     {
-      name: 'handleFailed',
+      name: "handleFailed",
       event: PostEvents.FAILED,
-      handler: 'handleFailed',
-      payload: { ...basePayload, error: 'boom' },
-      expectedStatus: 'FAILED',
-      extra: { error: 'boom' },
+      handler: "handleFailed",
+      payload: { ...basePayload, error: "boom" },
+      expectedStatus: "FAILED",
+      extra: { error: "boom" },
     },
     {
-      name: 'handleRejected',
+      name: "handleRejected",
       event: PostEvents.REJECTED,
-      handler: 'handleRejected',
+      handler: "handleRejected",
       payload: basePayload,
-      expectedStatus: 'REJECTED',
+      expectedStatus: "REJECTED",
     },
   ];
 
   it.each(cases)(
-    '$name publishes the correct SSE payload on $event',
+    "$name publishes the correct SSE payload on $event",
     ({ handler, payload, expectedStatus, extra }) => {
       const fn = listener[handler] as (p: typeof payload) => void;
       fn.call(listener, payload);
 
       expect(sseService.publish).toHaveBeenCalledTimes(1);
       expect(sseService.publish).toHaveBeenCalledWith({
-        type: 'post_status',
+        type: "post_status",
         postId: payload.postId,
         status: expectedStatus,
         network: payload.network,
@@ -108,10 +108,10 @@ describe('SseEventListener (ARCH-001 — event bus safety)', () => {
   );
 
   it.each(cases)(
-    '$name swallows publish errors and NEVER rethrows (event bus stays alive) on $event',
+    "$name swallows publish errors and NEVER rethrows (event bus stays alive) on $event",
     ({ handler, payload }) => {
       sseService.publish.mockImplementationOnce(() => {
-        throw new Error('Redis connection refused');
+        throw new Error("Redis connection refused");
       });
 
       const fn = listener[handler] as (p: typeof payload) => void;
@@ -124,15 +124,15 @@ describe('SseEventListener (ARCH-001 — event bus safety)', () => {
       expect(errorSpy).toHaveBeenCalledTimes(1);
       const [msg] = errorSpy.mock.calls[0];
       expect(String(msg)).toContain(payload.postId);
-      expect(String(msg)).toContain('Redis connection refused');
+      expect(String(msg)).toContain("Redis connection refused");
     },
   );
 
-  it('all 5 handlers recover and continue after a transient publish failure', () => {
+  it("all 5 handlers recover and continue after a transient publish failure", () => {
     // First call throws, second succeeds — simulates Redis flap.
     sseService.publish
       .mockImplementationOnce(() => {
-        throw new Error('transient');
+        throw new Error("transient");
       })
       .mockResolvedValueOnce(undefined);
 

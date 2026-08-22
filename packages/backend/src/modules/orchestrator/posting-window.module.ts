@@ -1,5 +1,5 @@
-import { Module } from '@nestjs/common';
-import { PostingWindowService } from './posting-window.service.js';
+import { Module } from "@nestjs/common";
+import { PostingWindowService } from "./posting-window.service.js";
 
 /**
  * PostingWindowModule — provides PostingWindowService for use inside and outside

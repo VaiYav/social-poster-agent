@@ -17,18 +17,18 @@
  * Env-gated: only active when VISUAL_CARDS_ENABLED=true.
  */
 
-import { Injectable, Logger, Optional } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import type { ILlmPort } from '../../domain/ports/llm.port.js';
-import { SocialNetwork } from '@prisma/client';
-import { parseBool } from '../../infrastructure/config/parse-bool.js';
+import { Injectable, Logger, Optional } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import type { ILlmPort } from "../../domain/ports/llm.port.js";
+import { SocialNetwork } from "../../generated/prisma/client";
+import { parseBool } from "../../infrastructure/config/parse-bool.js";
 
 /**
  * Visual concept for a post — describes what image to generate/attach.
  */
 export interface VisualConcept {
   /** Visual style — drives the rendering pipeline. */
-  style: 'quote_card' | 'aesthetic_photo';
+  style: "quote_card" | "aesthetic_photo";
   /** Prompt for the image generation API (Flux/DALL-E/Recraft). */
   imagePrompt: string;
   /** The text to render on the image (for quote_card style). */
@@ -47,21 +47,23 @@ export interface VisualConcept {
  * Threads: 4:5 (1080x1350) for portrait
  * Facebook: 1.91:1 (1200x630) for link-style images
  */
-const NETWORK_DIMENSIONS: Partial<Record<SocialNetwork, { width: number; height: number; ratio: string }>> = {
-  [SocialNetwork.X]: { width: 1200, height: 675, ratio: '16:9' },
-  [SocialNetwork.THREADS]: { width: 1080, height: 1350, ratio: '4:5' },
-  [SocialNetwork.FACEBOOK]: { width: 1200, height: 630, ratio: '1.91:1' },
+const NETWORK_DIMENSIONS: Partial<
+  Record<SocialNetwork, { width: number; height: number; ratio: string }>
+> = {
+  [SocialNetwork.X]: { width: 1200, height: 675, ratio: "16:9" },
+  [SocialNetwork.THREADS]: { width: 1080, height: 1350, ratio: "4:5" },
+  [SocialNetwork.FACEBOOK]: { width: 1200, height: 630, ratio: "1.91:1" },
 };
 
 /**
  * Gradient presets for quote-card backgrounds.
  */
 const GRADIENT_PRESETS: [string, string][] = [
-  ['#1a1a2e', '#16213e'],   // deep night
-  ['#2d1b4e', '#1a1a2e'],   // purple dusk
-  ['#0f3460', '#16213e'],   // midnight blue
-  ['#533483', '#0f3460'],   // violet
-  ['#1a1a2e', '#533483'],   // twilight
+  ["#1a1a2e", "#16213e"], // deep night
+  ["#2d1b4e", "#1a1a2e"], // purple dusk
+  ["#0f3460", "#16213e"], // midnight blue
+  ["#533483", "#0f3460"], // violet
+  ["#1a1a2e", "#533483"], // twilight
 ];
 
 @Injectable()
@@ -73,7 +75,7 @@ export class VisualConceptService {
     private readonly configService: ConfigService,
     @Optional() private readonly llm?: ILlmPort,
   ) {
-    this.enabled = parseBool(this.configService.get<string>('VISUAL_CARDS_ENABLED', 'false'));
+    this.enabled = parseBool(this.configService.get<string>("VISUAL_CARDS_ENABLED", "false"));
   }
 
   isEnabled(): boolean {
@@ -104,24 +106,32 @@ export class VisualConceptService {
     const gradientIdx = content.length % GRADIENT_PRESETS.length;
     const bgGradient = GRADIENT_PRESETS[gradientIdx]!;
 
-    const firstLine = content.split('\n')[0]?.trim() ?? content.slice(0, 80);
+    const firstLine = content.split("\n")[0]?.trim() ?? content.slice(0, 80);
 
     if (this.llm) {
       try {
-        const concept = await this.llmStyleSelection(content, network, topic, bgGradient, firstLine);
+        const concept = await this.llmStyleSelection(
+          content,
+          network,
+          topic,
+          bgGradient,
+          firstLine,
+        );
         if (concept) return concept;
       } catch (err) {
-        this.logger.debug(`P3: LLM style selection failed: ${(err as Error).message} — using fallback`);
+        this.logger.debug(
+          `P3: LLM style selection failed: ${(err as Error).message} — using fallback`,
+        );
       }
     }
 
     return {
-      style: 'quote_card',
+      style: "quote_card",
       imagePrompt: this.buildQuoteCardPrompt(firstLine, bgGradient, network),
       textOverlay: firstLine,
       bgGradient,
       network,
-      reasoning: 'Fallback: quote_card style (LLM unavailable)',
+      reasoning: "Fallback: quote_card style (LLM unavailable)",
     };
   }
 
@@ -170,8 +180,8 @@ Choose the visual style:`;
     });
 
     const jsonStr = response.content
-      .replace(/^```(?:json)?\s*/i, '')
-      .replace(/\s*```$/i, '')
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/i, "")
       .trim();
     const parsed = JSON.parse(jsonStr) as {
       style?: string;
@@ -180,18 +190,18 @@ Choose the visual style:`;
     };
 
     const style = (
-      ['quote_card', 'aesthetic_photo'].includes(parsed.style ?? '')
-        ? parsed.style
-        : 'quote_card'
-    ) as VisualConcept['style'];
+      ["quote_card", "aesthetic_photo"].includes(parsed.style ?? "") ? parsed.style : "quote_card"
+    ) as VisualConcept["style"];
 
     return {
       style,
-      imagePrompt: String(parsed.imagePrompt ?? this.buildQuoteCardPrompt(firstLine, bgGradient, network)),
-      textOverlay: style === 'quote_card' ? firstLine : undefined,
+      imagePrompt: String(
+        parsed.imagePrompt ?? this.buildQuoteCardPrompt(firstLine, bgGradient, network),
+      ),
+      textOverlay: style === "quote_card" ? firstLine : undefined,
       bgGradient,
       network,
-      reasoning: String(parsed.reasoning ?? 'LLM-selected style'),
+      reasoning: String(parsed.reasoning ?? "LLM-selected style"),
     };
   }
 

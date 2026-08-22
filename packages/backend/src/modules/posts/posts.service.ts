@@ -1,22 +1,38 @@
-import { Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { PostStatus, type SocialNetwork, type Prisma, type Post } from '@prisma/client';
-import type { PostQueryDto, UpdatePostStatusDto, CalendarQueryDto, SchedulePostDto } from '../../domain/dtos.js';
-import type { PostDraftGeneratedEvent, PostApprovedEvent, PostRejectedEvent } from '@spa/shared';
-import { PostEvents } from '../../events/enums/post-events.enum';
-import { checkContentLength } from './network-limits.js';
-import { simhash } from '../generation/simhash.js';
-import { AutoCheckService } from '../autonomy/auto-check.service.js';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  ConflictException,
+  BadRequestException,
+} from "@nestjs/common";
+import { EventEmitter2 } from "@nestjs/event-emitter";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service";
+import {
+  PostStatus,
+  type SocialNetwork,
+  type Prisma,
+  type Post,
+} from "../../generated/prisma/client";
+import type {
+  PostQueryDto,
+  UpdatePostStatusDto,
+  CalendarQueryDto,
+  SchedulePostDto,
+} from "../../domain/dtos.js";
+import type { PostDraftGeneratedEvent, PostApprovedEvent, PostRejectedEvent } from "@spa/shared";
+import { PostEvents } from "../../events/enums/post-events.enum";
+import { checkContentLength } from "./network-limits.js";
+import { simhash } from "../generation/simhash.js";
+import { AutoCheckService } from "../autonomy/auto-check.service.js";
 
 /**
  * Extract the source path from a sourceRef JSON object when it is present.
  * Returns `null` when the ref is not an object or has no string `path`.
  */
 export function extractSourcePath(sourceRef: unknown): string | null {
-  if (!sourceRef || typeof sourceRef !== 'object') return null;
-  const path = (sourceRef as Record<string, unknown>)['path'];
-  return typeof path === 'string' ? path : null;
+  if (!sourceRef || typeof sourceRef !== "object") return null;
+  const path = (sourceRef as Record<string, unknown>)["path"];
+  return typeof path === "string" ? path : null;
 }
 
 /**
@@ -68,7 +84,7 @@ export class PostsService {
     const [posts, total] = await Promise.all([
       this.prisma.post.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
         take: query.limit,
         skip: query.offset,
         include: { account: true, thread: true },
@@ -104,7 +120,7 @@ export class PostsService {
         status: PostStatus.DRAFT,
         ...(network && { network }),
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
       include: { account: true },
     });
   }
@@ -138,7 +154,10 @@ export class PostsService {
    * commits when create() was used with `{ emitEvent: false }` inside that tx.
    */
   emitDraftGenerated(postId: string, network: SocialNetwork): void {
-    this.eventEmitter.emit(PostEvents.DRAFT_GENERATED, { postId, network } satisfies PostDraftGeneratedEvent);
+    this.eventEmitter.emit(PostEvents.DRAFT_GENERATED, {
+      postId,
+      network,
+    } satisfies PostDraftGeneratedEvent);
   }
 
   async updateStatus(id: string, dto: UpdatePostStatusDto) {
@@ -229,7 +248,10 @@ export class PostsService {
       data: updateData,
     });
 
-    this.eventEmitter.emit(PostEvents.APPROVED, { postId: id, network: post.network } satisfies PostApprovedEvent);
+    this.eventEmitter.emit(PostEvents.APPROVED, {
+      postId: id,
+      network: post.network,
+    } satisfies PostApprovedEvent);
     return updated;
   }
 
@@ -249,7 +271,10 @@ export class PostsService {
       data: { status: PostStatus.REJECTED },
     });
     this.logger.log(`Post ${id}: ${post.status} → REJECTED`);
-    this.eventEmitter.emit(PostEvents.REJECTED, { postId: id, network: post.network } satisfies PostRejectedEvent);
+    this.eventEmitter.emit(PostEvents.REJECTED, {
+      postId: id,
+      network: post.network,
+    } satisfies PostRejectedEvent);
     return updated;
   }
 
@@ -281,7 +306,7 @@ export class PostsService {
     const posts = await this.prisma.post.findMany({
       where,
       include: { account: { select: { id: true, handle: true, network: true } } },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
       take: 500,
     });
 
@@ -289,8 +314,8 @@ export class PostsService {
       .map((post) => {
         const timestamp =
           post.status === PostStatus.POSTED || post.status === PostStatus.VERIFIED
-            ? post.postedAt ?? post.approvedAt ?? post.createdAt
-            : post.approvedAt ?? post.createdAt;
+            ? (post.postedAt ?? post.approvedAt ?? post.createdAt)
+            : (post.approvedAt ?? post.createdAt);
         if (!timestamp) return null;
         const t = new Date(timestamp);
         if (t < from || t > to) return null;
@@ -332,9 +357,7 @@ export class PostsService {
       post.status === PostStatus.REJECTED ||
       post.status === PostStatus.VERIFIED
     ) {
-      throw new ConflictException(
-        `Post ${id} cannot be rescheduled from status ${post.status}`,
-      );
+      throw new ConflictException(`Post ${id} cannot be rescheduled from status ${post.status}`);
     }
 
     const scheduledAt = new Date(dto.scheduledAt);
@@ -375,7 +398,7 @@ export class PostsService {
         threadPosition: { gt: 0 },
         status: PostStatus.APPROVED,
       },
-      orderBy: { threadPosition: 'asc' },
+      orderBy: { threadPosition: "asc" },
     });
   }
 
@@ -385,7 +408,7 @@ export class PostsService {
   async findThreadRoot(threadId: string): Promise<Post | null> {
     return this.prisma.post.findFirst({
       where: { threadId, threadPosition: 0 },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: "asc" },
     });
   }
 
@@ -395,7 +418,7 @@ export class PostsService {
   async findByThreadPosition(threadId: string, position: number): Promise<Post | null> {
     return this.prisma.post.findFirst({
       where: { threadId, threadPosition: position },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: "asc" },
     });
   }
 }

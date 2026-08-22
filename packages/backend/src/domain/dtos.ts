@@ -32,7 +32,7 @@ export {
   type ABTest,
   ABTestVariantSchema,
   type ABTestVariant,
-} from '@spa/shared';
+} from "@spa/shared";
 
 // Domain enums — re-export from @spa/shared
 export type {
@@ -42,4 +42,4 @@ export type {
   GenerationRunStatus,
   GenerationTrigger,
   ContentSourceType,
-} from '@spa/shared';
+} from "@spa/shared";

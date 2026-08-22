@@ -12,9 +12,9 @@
  * Errors are caught and returned as ActionResult — never thrown.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
-import type { Action, ActionResult } from './types.js';
-import type { IActionHandler } from './action-handler.interface.js';
+import { Injectable, Logger } from "@nestjs/common";
+import type { Action, ActionResult } from "./types.js";
+import type { IActionHandler } from "./action-handler.interface.js";
 import {
   GenerateTopicsHandler,
   GeneratePostsHandler,
@@ -29,7 +29,7 @@ import {
   ScrapeMetricsHandler,
   RecycleContentHandler,
   AggregateHooksHandler,
-} from './action-handlers.js';
+} from "./action-handlers.js";
 
 @Injectable()
 export class ActionExecutorService {
@@ -75,11 +75,11 @@ export class ActionExecutorService {
     const startTime = Date.now();
 
     if (options?.signal?.aborted) {
-      return { success: false, type: action.type, duration: 0, error: 'Action aborted' };
+      return { success: false, type: action.type, duration: 0, error: "Action aborted" };
     }
 
-    if (action.type === 'WAIT') {
-      return { success: true, type: 'WAIT', duration: 0 };
+    if (action.type === "WAIT") {
+      return { success: true, type: "WAIT", duration: 0 };
     }
 
     try {
@@ -91,11 +91,13 @@ export class ActionExecutorService {
       const sideEffects = await handler.execute(action, options);
 
       if (options?.signal?.aborted) {
-        throw new Error('Action aborted');
+        throw new Error("Action aborted");
       }
 
       const duration = Date.now() - startTime;
-      this.logger.log(`Executed ${action.type}${action.network ? `:${action.network}` : ''} in ${duration}ms`);
+      this.logger.log(
+        `Executed ${action.type}${action.network ? `:${action.network}` : ""} in ${duration}ms`,
+      );
       return { success: true, type: action.type, duration, sideEffects };
     } catch (err) {
       const duration = Date.now() - startTime;

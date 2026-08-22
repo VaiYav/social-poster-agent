@@ -1,5 +1,10 @@
-import { withTimeout } from '../../../infrastructure/util/with-timeout.js';
-import type { FetchFn, IMetricsSource, PostMetricsData, PostMetricsRef } from './metrics-source.port.js';
+import { withTimeout } from "../../../infrastructure/util/with-timeout.js";
+import type {
+  FetchFn,
+  IMetricsSource,
+  PostMetricsData,
+  PostMetricsRef,
+} from "./metrics-source.port.js";
 
 /**
  * AN1: parse a Facebook Graph **post node** counts response (pure, tested):
@@ -20,7 +25,7 @@ export function parseFacebookPostCounts(json: unknown): {
     comments?: { summary?: { total_count?: unknown } };
     shares?: { count?: unknown };
   } | null;
-  const n = (v: unknown): number => (typeof v === 'number' ? v : 0);
+  const n = (v: unknown): number => (typeof v === "number" ? v : 0);
   return {
     likes: n(j?.likes?.summary?.total_count),
     comments: n(j?.comments?.summary?.total_count),
@@ -42,13 +47,13 @@ export function parseFacebookPostCounts(json: unknown): {
  * (or composing it with the page id) is the robust path.
  */
 export class FacebookInsightsSource implements IMetricsSource {
-  readonly network = 'FACEBOOK' as const;
+  readonly network = "FACEBOOK" as const;
   readonly isHttpApi = true;
 
   constructor(
     private readonly accessToken: string,
     private readonly fetchFn: FetchFn = globalThis.fetch as unknown as FetchFn,
-    private readonly base = 'https://graph.facebook.com/v21.0',
+    private readonly base = "https://graph.facebook.com/v21.0",
     private readonly timeoutMs = 8000,
   ) {}
 
@@ -61,7 +66,7 @@ export class FacebookInsightsSource implements IMetricsSource {
       `?fields=likes.summary(true),comments.summary(true),shares` +
       `&access_token=${encodeURIComponent(this.accessToken)}`;
 
-    const res = await withTimeout(this.fetchFn(url), this.timeoutMs, 'facebook post counts');
+    const res = await withTimeout(this.fetchFn(url), this.timeoutMs, "facebook post counts");
     if (!res.ok) return null;
 
     return { ...parseFacebookPostCounts(await res.json()), impressions: null };

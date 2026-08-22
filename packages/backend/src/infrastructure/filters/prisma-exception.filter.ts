@@ -1,12 +1,6 @@
-import {
-  ExceptionFilter,
-  Catch,
-  ArgumentsHost,
-  HttpStatus,
-  Logger,
-} from '@nestjs/common';
-import type { Request, Response } from 'express';
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+import { ExceptionFilter, Catch, ArgumentsHost, HttpStatus, Logger } from "@nestjs/common";
+import type { Request, Response } from "express";
+import { PrismaClientKnownRequestError } from "@prisma/client/runtime/client";
 
 /**
  * Global exception filter that maps known Prisma Client errors to HTTP exceptions.
@@ -44,11 +38,11 @@ export class PrismaClientExceptionFilter implements ExceptionFilter {
 
   private mapStatus(code: string): number {
     switch (code) {
-      case 'P2002':
+      case "P2002":
         return HttpStatus.CONFLICT;
-      case 'P2025':
+      case "P2025":
         return HttpStatus.NOT_FOUND;
-      case 'P2024':
+      case "P2024":
         return HttpStatus.GATEWAY_TIMEOUT;
       default:
         return HttpStatus.INTERNAL_SERVER_ERROR;
@@ -58,27 +52,27 @@ export class PrismaClientExceptionFilter implements ExceptionFilter {
   private mapMessage(exception: PrismaClientKnownRequestError): string {
     // Do not expose raw Prisma internals beyond the model/field targeted.
     switch (exception.code) {
-      case 'P2002': {
+      case "P2002": {
         const meta = exception.meta as { target?: string[] } | undefined;
-        const target = meta?.target?.join(', ') ?? 'unique constraint';
+        const target = meta?.target?.join(", ") ?? "unique constraint";
         return `Conflict: a record with this ${target} already exists`;
       }
-      case 'P2025':
-        return 'The requested record was not found';
-      case 'P2024':
-        return 'Database operation timed out, please try again';
+      case "P2025":
+        return "The requested record was not found";
+      case "P2024":
+        return "Database operation timed out, please try again";
       default:
-        return 'A database error occurred';
+        return "A database error occurred";
     }
   }
 
   private getReasonPhrase(status: number): string {
     const map: Record<number, string> = {
-      [HttpStatus.CONFLICT]: 'Conflict',
-      [HttpStatus.NOT_FOUND]: 'Not Found',
-      [HttpStatus.GATEWAY_TIMEOUT]: 'Gateway Timeout',
-      [HttpStatus.INTERNAL_SERVER_ERROR]: 'Internal Server Error',
+      [HttpStatus.CONFLICT]: "Conflict",
+      [HttpStatus.NOT_FOUND]: "Not Found",
+      [HttpStatus.GATEWAY_TIMEOUT]: "Gateway Timeout",
+      [HttpStatus.INTERNAL_SERVER_ERROR]: "Internal Server Error",
     };
-    return map[status] ?? 'Error';
+    return map[status] ?? "Error";
   }
 }

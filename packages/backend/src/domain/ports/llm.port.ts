@@ -2,16 +2,25 @@
 // Implementation: LlmService (OpenAI/Anthropic via LangChain).
 // Unit tests can inject a mock LLM without API calls.
 
-import type { BaseCallbackHandler } from './llm-primitives.js';
+import type { BaseCallbackHandler } from "./llm-primitives.js";
 
-export const ILlmPort = Symbol('ILlmPort');
+export const ILlmPort = Symbol("ILlmPort");
 
 /**
  * Role of an LLM call — enables per-role provider routing (LLM_ROLE_CHAINS).
  * Creative roles (draft/hook) can be routed to stronger models while
  * analytical roles (critique/judge) stay on the cheapest chain.
  */
-export type LlmRole = 'draft' | 'hook' | 'critique' | 'judge' | 'facts' | 'utility' | 'refine' | 'vision' | 'outline';
+export type LlmRole =
+  | "draft"
+  | "hook"
+  | "critique"
+  | "judge"
+  | "facts"
+  | "utility"
+  | "refine"
+  | "vision"
+  | "outline";
 
 export interface GenerateOptions {
   systemPrompt?: string;
@@ -38,7 +47,7 @@ export interface GenerateOptions {
   /**
    * P0: token/cost budget scope. 'orchestrator' is hourly; 'generation' is per-run.
    */
-  budgetScope?: 'orchestrator' | 'generation';
+  budgetScope?: "orchestrator" | "generation";
   /** P0: generation run ID for per-run budget tracking. */
   budgetRunId?: string;
   /** F3: explicit provider/model override, e.g. "openai/gpt-5-nano". */
@@ -53,9 +62,9 @@ export interface LlmResponse {
 }
 
 export function isLlmResponse(value: unknown): value is LlmResponse {
-  if (typeof value !== 'object' || value === null) return false;
+  if (typeof value !== "object" || value === null) return false;
   const obj = value as Record<string, unknown>;
-  return typeof obj['content'] === 'string' && typeof obj['model'] === 'string';
+  return typeof obj["content"] === "string" && typeof obj["model"] === "string";
 }
 
 export interface ProviderStatus {

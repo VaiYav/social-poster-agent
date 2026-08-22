@@ -17,9 +17,9 @@
  * - en, es, it → Latin script expected
  */
 
-export type SupportedLanguage = 'en' | 'ru' | 'uk' | 'es' | 'it';
+export type SupportedLanguage = "en" | "ru" | "uk" | "es" | "it";
 
-const SUPPORTED_LANGS: readonly SupportedLanguage[] = ['en', 'ru', 'uk', 'es', 'it'];
+const SUPPORTED_LANGS: readonly SupportedLanguage[] = ["en", "ru", "uk", "es", "it"];
 
 const CYRILLIC_RE = /[\u0400-\u04FF]/g;
 const LATIN_RE = /[a-zA-Z]/g;
@@ -27,12 +27,12 @@ const LATIN_RE = /[a-zA-Z]/g;
 /**
  * Languages that must use Cyrillic script.
  */
-const CYRILLIC_LANGS: ReadonlySet<SupportedLanguage> = new Set(['ru', 'uk']);
+const CYRILLIC_LANGS: ReadonlySet<SupportedLanguage> = new Set(["ru", "uk"]);
 
 /**
  * Languages that must use Latin script.
  */
-const LATIN_LANGS: ReadonlySet<SupportedLanguage> = new Set(['en', 'es', 'it']);
+const LATIN_LANGS: ReadonlySet<SupportedLanguage> = new Set(["en", "es", "it"]);
 
 /**
  * Check whether a text contains enough of the expected script to be plausible.
@@ -77,15 +77,15 @@ export function matchesScript(text: string, expectedLang: SupportedLanguage): bo
  * Falls back to 'en' for unknown codes.
  */
 export function normalizeLanguage(code?: string | null): SupportedLanguage {
-  if (!code) return 'en';
+  if (!code) return "en";
   const lower = code.toLowerCase().trim();
   if (SUPPORTED_LANGS.includes(lower as SupportedLanguage)) {
     return lower as SupportedLanguage;
   }
-  if (lower.startsWith('ru')) return 'ru';
-  if (lower.startsWith('uk')) return 'uk';
-  if (lower.startsWith('es')) return 'es';
-  if (lower.startsWith('it')) return 'it';
-  if (lower.startsWith('en')) return 'en';
-  return 'en';
+  if (lower.startsWith("ru")) return "ru";
+  if (lower.startsWith("uk")) return "uk";
+  if (lower.startsWith("es")) return "es";
+  if (lower.startsWith("it")) return "it";
+  if (lower.startsWith("en")) return "en";
+  return "en";
 }

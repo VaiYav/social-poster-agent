@@ -33,7 +33,7 @@ function fnv1aHash(str: string): number {
 function tokenize(text: string): string[] {
   return text
     .toLowerCase()
-    .replace(/[^\w\s]/g, ' ')
+    .replace(/[^\w\s]/g, " ")
     .split(/\s+/)
     .filter((t) => t.length > 1 || /^\d+$/.test(t));
 }
@@ -42,10 +42,10 @@ function tokenize(text: string): string[] {
  * Generate shingles (n-grams of words) from text.
  */
 function shingles(tokens: string[], size: number): string[] {
-  if (tokens.length < size) return [tokens.join(' ')];
+  if (tokens.length < size) return [tokens.join(" ")];
   const result: string[] = [];
   for (let i = 0; i <= tokens.length - size; i++) {
-    result.push(tokens.slice(i, i + size).join(' '));
+    result.push(tokens.slice(i, i + size).join(" "));
   }
   return result;
 }
@@ -64,7 +64,7 @@ export function simhash(text: string): string {
   for (const shingle of shingleList) {
     // Use two 32-bit hashes to get 64 bits
     const h1 = fnv1aHash(shingle);
-    const h2 = fnv1aHash(shingle + '_salt');
+    const h2 = fnv1aHash(shingle + "_salt");
 
     for (let i = 0; i < 32; i++) {
       bitSums[i] = (bitSums[i] ?? 0) + ((h1 >> i) & 1 ? 1 : -1);
@@ -76,13 +76,13 @@ export function simhash(text: string): string {
   let high = 0;
   let low = 0;
   for (let i = 0; i < 32; i++) {
-    if ((bitSums[i] ?? 0) > 0) high |= (1 << i);
-    if ((bitSums[i + 32] ?? 0) > 0) low |= (1 << i);
+    if ((bitSums[i] ?? 0) > 0) high |= 1 << i;
+    if ((bitSums[i + 32] ?? 0) > 0) low |= 1 << i;
   }
 
   // Convert to hex string (16 chars for 64 bits)
-  const highHex = (high >>> 0).toString(16).padStart(8, '0');
-  const lowHex = (low >>> 0).toString(16).padStart(8, '0');
+  const highHex = (high >>> 0).toString(16).padStart(8, "0");
+  const lowHex = (low >>> 0).toString(16).padStart(8, "0");
   return highHex + lowHex;
 }
 
@@ -92,8 +92,8 @@ export function simhash(text: string): string {
 export function hammingDistance(hash1: string, hash2: string): number {
   if (hash1.length !== hash2.length) return HASH_BITS;
 
-  const h1 = BigInt('0x' + hash1);
-  const h2 = BigInt('0x' + hash2);
+  const h1 = BigInt("0x" + hash1);
+  const h2 = BigInt("0x" + hash2);
   const xor = h1 ^ h2;
 
   // Count set bits (population count)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch } from "vue";
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -9,13 +9,13 @@ import {
   LayoutGrid,
   List,
   X,
-} from '@lucide/vue';
-import { useApi } from '../composables/useApi';
-import { useToast } from '../composables/useToast';
-import { Card, Button, SectionHeader, Badge, Select, Input } from '../components/ui';
-import LoadingSpinner from '../components/LoadingSpinner.vue';
-import ErrorState from '../components/ErrorState.vue';
-import NetworkIcon from '../components/NetworkIcon.vue';
+} from "@lucide/vue";
+import { useApi } from "../composables/useApi";
+import { useToast } from "../composables/useToast";
+import { Card, Button, SectionHeader, Badge, Select, Input } from "../components/ui";
+import LoadingSpinner from "../components/LoadingSpinner.vue";
+import ErrorState from "../components/ErrorState.vue";
+import NetworkIcon from "../components/NetworkIcon.vue";
 
 interface CalendarAccount {
   id: string;
@@ -41,52 +41,52 @@ const events = ref<CalendarEvent[]>([]);
 const loading = ref(false);
 const error = ref<string | null>(null);
 const currentDate = ref(new Date());
-const view = ref<'month' | 'week' | 'day'>('month');
-const filterNetwork = ref('');
-const filterStatus = ref('');
+const view = ref<"month" | "week" | "day">("month");
+const filterNetwork = ref("");
+const filterStatus = ref("");
 
 const selectedEvent = ref<CalendarEvent | null>(null);
-const scheduleValue = ref('');
+const scheduleValue = ref("");
 const scheduling = ref(false);
 
-const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const statusOptions = [
-  { value: '', label: 'All statuses' },
-  { value: 'DRAFT', label: 'Draft' },
-  { value: 'APPROVED', label: 'Approved' },
-  { value: 'POSTING', label: 'Posting' },
-  { value: 'POSTED', label: 'Posted' },
-  { value: 'FAILED', label: 'Failed' },
-  { value: 'REJECTED', label: 'Rejected' },
+  { value: "", label: "All statuses" },
+  { value: "DRAFT", label: "Draft" },
+  { value: "APPROVED", label: "Approved" },
+  { value: "POSTING", label: "Posting" },
+  { value: "POSTED", label: "Posted" },
+  { value: "FAILED", label: "Failed" },
+  { value: "REJECTED", label: "Rejected" },
 ];
 
 const networkOptions = [
-  { value: '', label: 'All networks' },
-  { value: 'X', label: 'X' },
-  { value: 'THREADS', label: 'Threads' },
-  { value: 'FACEBOOK', label: 'Facebook' },
+  { value: "", label: "All networks" },
+  { value: "X", label: "X" },
+  { value: "THREADS", label: "Threads" },
+  { value: "FACEBOOK", label: "Facebook" },
 ];
 
 const statusColor: Record<string, string> = {
-  DRAFT: 'border-l-gray-400 bg-surface',
-  APPROVED: 'border-l-blue-500 bg-blue-500/5',
-  POSTING: 'border-l-yellow-500 bg-yellow-500/5',
-  POSTED: 'border-l-green-500 bg-green-500/5',
-  FAILED: 'border-l-red-500 bg-red-500/5',
-  REJECTED: 'border-l-red-400 bg-red-400/5',
-  JUDGED: 'border-l-purple-500 bg-purple-500/5',
-  VERIFIED: 'border-l-teal-500 bg-teal-500/5',
+  DRAFT: "border-l-gray-400 bg-surface",
+  APPROVED: "border-l-blue-500 bg-blue-500/5",
+  POSTING: "border-l-yellow-500 bg-yellow-500/5",
+  POSTED: "border-l-green-500 bg-green-500/5",
+  FAILED: "border-l-red-500 bg-red-500/5",
+  REJECTED: "border-l-red-400 bg-red-400/5",
+  JUDGED: "border-l-purple-500 bg-purple-500/5",
+  VERIFIED: "border-l-teal-500 bg-teal-500/5",
 };
 
 const viewOptions = [
-  { value: 'month', label: 'Month' },
-  { value: 'week', label: 'Week' },
-  { value: 'day', label: 'Day' },
+  { value: "month", label: "Month" },
+  { value: "week", label: "Week" },
+  { value: "day", label: "Day" },
 ];
 
 function toISODate(d: Date): string {
-  return d.toISOString().split('T')[0] ?? '';
+  return d.toISOString().split("T")[0] ?? "";
 }
 
 function getMonthRange(d: Date): { from: string; to: string } {
@@ -120,9 +120,9 @@ async function loadEvents() {
   error.value = null;
   try {
     const range =
-      view.value === 'month'
+      view.value === "month"
         ? getMonthRange(currentDate.value)
-        : view.value === 'week'
+        : view.value === "week"
           ? getWeekRange(currentDate.value)
           : getDayRange(currentDate.value);
     const params: Record<string, string> = {
@@ -131,38 +131,47 @@ async function loadEvents() {
     };
     if (filterNetwork.value) params.network = filterNetwork.value;
     if (filterStatus.value) params.status = filterStatus.value;
-    const res = await api.get<CalendarEvent[]>('/posts/calendar', { params });
+    const res = await api.get<CalendarEvent[]>("/posts/calendar", { params });
     events.value = res.data;
   } catch (err) {
-    error.value = (err as Error).message ?? 'Failed to load calendar';
+    error.value = (err as Error).message ?? "Failed to load calendar";
   } finally {
     loading.value = false;
   }
 }
 
 const monthLabel = computed(() => {
-  return currentDate.value.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  return currentDate.value.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 });
 
 const weekLabel = computed(() => {
   const { from, to } = getWeekRange(currentDate.value);
   const start = new Date(from);
   const end = new Date(to);
-  return `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+  return `${start.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${end.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
 });
 
 const dayLabel = computed(() => {
-  return currentDate.value.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  return currentDate.value.toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
 });
 
 const headerLabel = computed(() => {
-  return view.value === 'month' ? monthLabel.value : view.value === 'week' ? weekLabel.value : dayLabel.value;
+  return view.value === "month"
+    ? monthLabel.value
+    : view.value === "week"
+      ? weekLabel.value
+      : dayLabel.value;
 });
 
 const eventsByDate = computed(() => {
   const map = new Map<string, CalendarEvent[]>();
   for (const event of events.value) {
-    const date = event.timestamp.split('T')[0] ?? '';
+    const date = event.timestamp.split("T")[0] ?? "";
     if (!map.has(date)) map.set(date, []);
     map.get(date)!.push(event);
   }
@@ -191,9 +200,13 @@ const calendarDays = computed(() => {
 });
 
 function prev() {
-  if (view.value === 'month') {
-    currentDate.value = new Date(currentDate.value.getFullYear(), currentDate.value.getMonth() - 1, 1);
-  } else if (view.value === 'week') {
+  if (view.value === "month") {
+    currentDate.value = new Date(
+      currentDate.value.getFullYear(),
+      currentDate.value.getMonth() - 1,
+      1,
+    );
+  } else if (view.value === "week") {
     currentDate.value = new Date(currentDate.value.getTime() - 7 * 24 * 60 * 60 * 1000);
   } else {
     currentDate.value = new Date(currentDate.value.getTime() - 24 * 60 * 60 * 1000);
@@ -202,9 +215,13 @@ function prev() {
 }
 
 function next() {
-  if (view.value === 'month') {
-    currentDate.value = new Date(currentDate.value.getFullYear(), currentDate.value.getMonth() + 1, 1);
-  } else if (view.value === 'week') {
+  if (view.value === "month") {
+    currentDate.value = new Date(
+      currentDate.value.getFullYear(),
+      currentDate.value.getMonth() + 1,
+      1,
+    );
+  } else if (view.value === "week") {
     currentDate.value = new Date(currentDate.value.getTime() + 7 * 24 * 60 * 60 * 1000);
   } else {
     currentDate.value = new Date(currentDate.value.getTime() + 24 * 60 * 60 * 1000);
@@ -235,22 +252,22 @@ async function saveSchedule() {
     await api.patch(`/posts/${selectedEvent.value.id}/schedule`, {
       scheduledAt: new Date(scheduleValue.value).toISOString(),
     });
-    toast.success('Post rescheduled');
+    toast.success("Post rescheduled");
     closeModal();
     await loadEvents();
   } catch (err) {
-    toast.error((err as Error).message ?? 'Failed to reschedule post');
+    toast.error((err as Error).message ?? "Failed to reschedule post");
   } finally {
     scheduling.value = false;
   }
 }
 
 function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  return new Date(iso).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 watch([filterNetwork, filterStatus], loadEvents, { immediate: false });
@@ -262,7 +279,10 @@ onMounted(() => {
 
 <template>
   <div>
-    <SectionHeader title="Content Calendar" description="Visual schedule of posts across networks (F7)." />
+    <SectionHeader
+      title="Content Calendar"
+      description="Visual schedule of posts across networks (F7)."
+    />
 
     <Card>
       <template #header>
@@ -279,9 +299,14 @@ onMounted(() => {
                 :key="v.value"
                 :class="[
                   'rounded px-3 py-1 text-xs font-medium transition-colors',
-                  view === v.value ? 'bg-primary text-white' : 'text-text-secondary hover:text-text-primary',
+                  view === v.value
+                    ? 'bg-primary text-white'
+                    : 'text-text-secondary hover:text-text-primary',
                 ]"
-                @click="view = v.value as 'month' | 'week' | 'day'; loadEvents()"
+                @click="
+                  view = v.value as 'month' | 'week' | 'day';
+                  loadEvents();
+                "
               >
                 {{ v.label }}
               </button>
@@ -313,7 +338,10 @@ onMounted(() => {
       <ErrorState v-else-if="error" :message="error" />
 
       <!-- Month view -->
-      <div v-else-if="view === 'month'" class="grid grid-cols-7 gap-px rounded-md border border-border bg-border">
+      <div
+        v-else-if="view === 'month'"
+        class="grid grid-cols-7 gap-px rounded-md border border-border bg-border"
+      >
         <div
           v-for="day in weekdays"
           :key="day"
@@ -374,10 +402,20 @@ onMounted(() => {
             >
               <div class="flex items-center gap-2">
                 <NetworkIcon :network="event.network" class="h-4 w-4" />
-                <Badge :variant="event.status === 'POSTED' ? 'success' : event.status === 'FAILED' || event.status === 'REJECTED' ? 'error' : 'default'">
+                <Badge
+                  :variant="
+                    event.status === 'POSTED'
+                      ? 'success'
+                      : event.status === 'FAILED' || event.status === 'REJECTED'
+                        ? 'error'
+                        : 'default'
+                  "
+                >
                   {{ event.status }}
                 </Badge>
-                <span class="ml-auto text-xs text-text-muted">{{ formatTime(event.timestamp) }}</span>
+                <span class="ml-auto text-xs text-text-muted">{{
+                  formatTime(event.timestamp)
+                }}</span>
               </div>
               <p class="mt-1 text-text-secondary">{{ event.content }}</p>
             </button>
@@ -406,7 +444,9 @@ onMounted(() => {
         </template>
 
         <div class="space-y-4" v-if="selectedEvent">
-          <div class="rounded-md border border-border bg-surface-elevated p-3 text-sm text-text-secondary">
+          <div
+            class="rounded-md border border-border bg-surface-elevated p-3 text-sm text-text-secondary"
+          >
             <p class="line-clamp-3">{{ selectedEvent.content }}</p>
             <div class="mt-2 flex items-center gap-2 text-xs text-text-muted">
               <NetworkIcon :network="selectedEvent.network" class="h-3 w-3" />

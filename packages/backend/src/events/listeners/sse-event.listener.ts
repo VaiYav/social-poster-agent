@@ -9,8 +9,8 @@
  * events that need custom payloads. The listener handles the standard
  * post lifecycle events.
  */
-import { Injectable, Logger } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
+import { Injectable, Logger } from "@nestjs/common";
+import { OnEvent } from "@nestjs/event-emitter";
 import type {
   PostDraftGeneratedEvent,
   PostApprovedEvent,
@@ -20,9 +20,9 @@ import type {
   PostVerifiedEvent,
   PostFailedEvent,
   OrchestratorCycleEndEvent,
-} from '@spa/shared';
-import { SseService } from '../../infrastructure/sse/sse.service';
-import { PostEvents, OrchestratorEvents } from '../enums/post-events.enum';
+} from "@spa/shared";
+import { SseService } from "../../infrastructure/sse/sse.service";
+import { PostEvents, OrchestratorEvents } from "../enums/post-events.enum";
 
 @Injectable()
 export class SseEventListener {
@@ -37,11 +37,17 @@ export class SseEventListener {
    */
   private async publishPostStatus(
     status: string,
-    payload: { postId: string; network: string; postUrl?: string; error?: string; retryable?: boolean },
+    payload: {
+      postId: string;
+      network: string;
+      postUrl?: string;
+      error?: string;
+      retryable?: boolean;
+    },
   ): Promise<void> {
     try {
       await this.sseService.publish({
-        type: 'post_status',
+        type: "post_status",
         status,
         postId: payload.postId,
         network: payload.network,
@@ -59,44 +65,44 @@ export class SseEventListener {
 
   @OnEvent(PostEvents.DRAFT_GENERATED)
   async handleDraftGenerated(payload: PostDraftGeneratedEvent): Promise<void> {
-    return this.publishPostStatus('DRAFT', payload);
+    return this.publishPostStatus("DRAFT", payload);
   }
 
   @OnEvent(PostEvents.APPROVED)
   async handleApproved(payload: PostApprovedEvent): Promise<void> {
-    return this.publishPostStatus('APPROVED', payload);
+    return this.publishPostStatus("APPROVED", payload);
   }
 
   @OnEvent(PostEvents.POSTING_STARTED)
   async handlePostingStarted(payload: PostingStartedEvent): Promise<void> {
-    return this.publishPostStatus('POSTING', payload);
+    return this.publishPostStatus("POSTING", payload);
   }
 
   @OnEvent(PostEvents.POSTED)
   async handlePosted(payload: PostPostedEvent): Promise<void> {
-    return this.publishPostStatus('POSTED', payload);
+    return this.publishPostStatus("POSTED", payload);
   }
 
   @OnEvent(PostEvents.VERIFIED)
   async handleVerified(payload: PostVerifiedEvent): Promise<void> {
-    return this.publishPostStatus('VERIFIED', payload);
+    return this.publishPostStatus("VERIFIED", payload);
   }
 
   @OnEvent(PostEvents.FAILED)
   async handleFailed(payload: PostFailedEvent): Promise<void> {
-    return this.publishPostStatus('FAILED', payload);
+    return this.publishPostStatus("FAILED", payload);
   }
 
   @OnEvent(PostEvents.REJECTED)
   async handleRejected(payload: PostRejectedEvent): Promise<void> {
-    return this.publishPostStatus('REJECTED', payload);
+    return this.publishPostStatus("REJECTED", payload);
   }
 
   @OnEvent(OrchestratorEvents.CYCLE_END)
   async handleOrchestratorCycleEnd(payload: OrchestratorCycleEndEvent): Promise<void> {
     try {
       await this.sseService.publish({
-        type: 'orchestrator_cycle_end',
+        type: "orchestrator_cycle_end",
         cycle: payload.cycle,
         action: payload.action,
         success: payload.success,

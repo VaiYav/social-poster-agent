@@ -4,14 +4,14 @@
 // Concrete engagers (XEngager, ThreadsEngager, FacebookEngager) implement
 // network-specific engagement logic using the selectors from the selector files.
 
-import { Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import type { Page } from '../../../domain/ports/browser-primitives.js';
-import type { SocialNetwork } from '@spa/shared';
-import type { IBrowserPort } from '../../../domain/ports/browser.port.js';
-import { BasePoster, type EngagementResult } from '../../posting/posters/base.poster.js';
-import { withTimeout } from '../../../infrastructure/util/with-timeout.js';
-import type { SelectorStrategy } from '../../posting/posters/selector-strategy.js';
+import { Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import type { Page } from "../../../domain/ports/browser-primitives.js";
+import type { SocialNetwork } from "@spa/shared";
+import type { IBrowserPort } from "../../../domain/ports/browser.port.js";
+import { BasePoster, type EngagementResult } from "../../posting/posters/base.poster.js";
+import { withTimeout } from "../../../infrastructure/util/with-timeout.js";
+import type { SelectorStrategy } from "../../posting/posters/selector-strategy.js";
 
 /**
  * Abstract base class for all network engagers.
@@ -89,7 +89,10 @@ export abstract class BaseEngager extends BasePoster {
    * Extract the visible text content of a post (for LLM decision-making).
    * Each engager implements this using its network's post text selector.
    */
-  abstract extractPostText(page: Page, postUrl: string): Promise<{ text: string; hasMedia: boolean; authorHandle?: string }>;
+  abstract extractPostText(
+    page: Page,
+    postUrl: string,
+  ): Promise<{ text: string; hasMedia: boolean; authorHandle?: string }>;
 
   /**
    * Open the comments thread of a post (to read replies — simulates a real user).
@@ -128,8 +131,8 @@ export abstract class BaseEngager extends BasePoster {
       .waitForSelector(
         'article, [data-testid="tweet"], [data-testid="post"], [role="article"], a[href*="/status/"], a[href*="/post/"], a[href*="/t/"]',
         {
-        timeout: 15000,
-        state: 'attached',
+          timeout: 15000,
+          state: "attached",
         },
       )
       .then(() => true)
@@ -177,9 +180,9 @@ export abstract class BaseEngager extends BasePoster {
               if (resolution) {
                 const links = await page.locator(resolution.selector).all();
                 for (const link of links) {
-                  const href = await link.getAttribute('href').catch(() => null);
+                  const href = await link.getAttribute("href").catch(() => null);
                   if (!href) continue;
-                  const postUrl = href.startsWith('http') ? href : this.resolveAbsoluteUrl(href);
+                  const postUrl = href.startsWith("http") ? href : this.resolveAbsoluteUrl(href);
                   if (this.isValidPostUrl(postUrl) && !postUrls.includes(postUrl)) {
                     postUrls.push(postUrl);
                     if (postUrls.length >= maxPostUrls) return;
@@ -202,9 +205,9 @@ export abstract class BaseEngager extends BasePoster {
                 for (const css of allPatterns) {
                   const links = await page.locator(css).all();
                   for (const link of links) {
-                    const href = await link.getAttribute('href').catch(() => null);
+                    const href = await link.getAttribute("href").catch(() => null);
                     if (!href) continue;
-                    const postUrl = href.startsWith('http') ? href : this.resolveAbsoluteUrl(href);
+                    const postUrl = href.startsWith("http") ? href : this.resolveAbsoluteUrl(href);
                     if (this.isValidPostUrl(postUrl) && !postUrls.includes(postUrl)) {
                       postUrls.push(postUrl);
                       if (postUrls.length >= maxPostUrls) return;
@@ -221,14 +224,16 @@ export abstract class BaseEngager extends BasePoster {
             await this.browser.randomDelay(2000, 5000);
           })(),
           30000,
-          'doScrollFeed iteration',
+          "doScrollFeed iteration",
         );
       } catch (err) {
         this.logger.warn(`doScrollFeed iteration timed out, continuing: ${(err as Error).message}`);
       }
     }
 
-    this.logger.log(`Scroll feed complete — collected ${postUrls.length} post URLs in ${durationSec}s`);
+    this.logger.log(
+      `Scroll feed complete — collected ${postUrls.length} post URLs in ${durationSec}s`,
+    );
     return postUrls;
   }
 
@@ -237,11 +242,11 @@ export abstract class BaseEngager extends BasePoster {
    */
   protected resolveAbsoluteUrl(href: string): string {
     const domains: Partial<Record<SocialNetwork, string>> = {
-      X: 'https://x.com',
-      THREADS: 'https://www.threads.com',
-      FACEBOOK: 'https://www.facebook.com',
+      X: "https://x.com",
+      THREADS: "https://www.threads.com",
+      FACEBOOK: "https://www.facebook.com",
     };
-    return href.startsWith('http') ? href : `${domains[this.network] ?? ""}${href}`;
+    return href.startsWith("http") ? href : `${domains[this.network] ?? ""}${href}`;
   }
 
   /**
@@ -265,19 +270,19 @@ export abstract class BaseEngager extends BasePoster {
     // Check if already liked via the "unlike" selector (e.g., X data-testid="unlike")
     const unlikeResolution = await this.tryResolve(page, unlikeSelector, 2000);
     if (unlikeResolution) {
-      this.logger.debug('Post already liked (unlike selector visible) — skipping');
+      this.logger.debug("Post already liked (unlike selector visible) — skipping");
       return { performed: false, alreadyLiked: true };
     }
 
     // Find the like button
-    let likeResolution = await this.resolve(page, likeSelector, 'like button');
+    let likeResolution = await this.resolve(page, likeSelector, "like button");
     await this.browser.scrollToElement(page, likeResolution.locator);
     await this.browser.waitForStable(likeResolution.locator, { timeoutMs: 5000 });
 
     // Additional check: some networks (X, Threads) toggle the same button and set aria-pressed.
     const wasPressed = await this.isAriaPressed(likeResolution.locator);
     if (wasPressed) {
-      this.logger.debug('Post already liked (aria-pressed=true) — skipping');
+      this.logger.debug("Post already liked (aria-pressed=true) — skipping");
       return { performed: false, alreadyLiked: true };
     }
 
@@ -321,8 +326,11 @@ export abstract class BaseEngager extends BasePoster {
 
     // Log a DOM snippet for debugging before giving up.
     try {
-      const body = await page.locator('body').textContent({ timeout: 2000 }).catch(() => '');
-      this.logger.debug(`Like failed on ${page.url()}; body snippet: ${body?.slice(0, 200) ?? ''}`);
+      const body = await page
+        .locator("body")
+        .textContent({ timeout: 2000 })
+        .catch(() => "");
+      this.logger.debug(`Like failed on ${page.url()}; body snippet: ${body?.slice(0, 200) ?? ""}`);
     } catch {
       // ignore
     }
@@ -333,11 +341,15 @@ export abstract class BaseEngager extends BasePoster {
   /**
    * Check if a locator has aria-pressed="true" or aria-checked="true".
    */
-  protected async isAriaPressed(locator: import('playwright-core').Locator): Promise<boolean> {
+  protected async isAriaPressed(locator: import("playwright-core").Locator): Promise<boolean> {
     try {
-      const pressed = await locator.getAttribute('aria-pressed', { timeout: 1000 }).catch(() => null);
-      const checked = await locator.getAttribute('aria-checked', { timeout: 1000 }).catch(() => null);
-      return pressed === 'true' || checked === 'true';
+      const pressed = await locator
+        .getAttribute("aria-pressed", { timeout: 1000 })
+        .catch(() => null);
+      const checked = await locator
+        .getAttribute("aria-checked", { timeout: 1000 })
+        .catch(() => null);
+      return pressed === "true" || checked === "true";
     } catch {
       return false;
     }
@@ -355,14 +367,14 @@ export abstract class BaseEngager extends BasePoster {
     text: string,
   ): Promise<void> {
     // Click comment button to open dialog
-    const commentBtn = await this.resolve(page, commentButtonSelector, 'comment button');
+    const commentBtn = await this.resolve(page, commentButtonSelector, "comment button");
     await this.browser.scrollToElement(page, commentBtn.locator);
     await this.humanClick(commentBtn.locator);
 
     // Wait for the dialog/input to appear before trying to type. Some networks (Threads)
     // mount the dialog asynchronously and the 200ms visibility check in resolveSelector
     // can fire before the element is rendered.
-    const input = await this.resolve(page, commentInputSelector, 'comment input', 10000);
+    const input = await this.resolve(page, commentInputSelector, "comment input", 10000);
     await this.browser.randomDelay(500, 1500);
     await this.humanClick(input.locator);
     await this.browser.randomDelay(500, 1500);
@@ -375,19 +387,21 @@ export abstract class BaseEngager extends BasePoster {
     await this.browser.randomDelay(1000, 2000);
 
     // Submit comment — check if button is disabled first (text may not have registered)
-    const submit = await this.resolve(page, commentSubmitSelector, 'comment submit button', 10000);
+    const submit = await this.resolve(page, commentSubmitSelector, "comment submit button", 10000);
     await this.browser.waitForStable(submit.locator, { timeoutMs: 5000 });
 
     // Check if submit button is disabled — if so, retry text entry with keyboard.type()
     const isDisabled = await this.isSubmitDisabled(submit.locator);
     if (isDisabled) {
-      this.logger.warn('Comment submit button is disabled — text may not have registered. Retrying with keyboard.type()...');
+      this.logger.warn(
+        "Comment submit button is disabled — text may not have registered. Retrying with keyboard.type()...",
+      );
       // Clear and re-type using keyboard.type() (last resort for React contenteditable)
       // Use Backspace (not Delete) and a slower delay to avoid dropped characters
       // in multilingual content, matching the X poster strategy.
       await input.locator.click({ force: true }).catch(() => {});
-      await page.keyboard.press('Control+a').catch(() => {});
-      await page.keyboard.press('Backspace').catch(() => {});
+      await page.keyboard.press("Control+a").catch(() => {});
+      await page.keyboard.press("Backspace").catch(() => {});
       await this.browser.randomDelay(200, 500);
       await page.keyboard.type(text, { delay: 50 });
       await this.browser.randomDelay(1000, 2000);
@@ -395,8 +409,12 @@ export abstract class BaseEngager extends BasePoster {
       // Re-check if button is now enabled
       const stillDisabled = await this.isSubmitDisabled(submit.locator);
       if (stillDisabled) {
-        this.logger.warn('Comment submit button still disabled after keyboard.type() retry — aborting comment');
-        throw new Error('Comment submit button is disabled — text not registered in contenteditable');
+        this.logger.warn(
+          "Comment submit button still disabled after keyboard.type() retry — aborting comment",
+        );
+        throw new Error(
+          "Comment submit button is disabled — text not registered in contenteditable",
+        );
       }
     }
 
@@ -412,7 +430,9 @@ export abstract class BaseEngager extends BasePoster {
       .isVisible({ timeout: 3000 })
       .catch(() => false);
     if (dialogStillOpen) {
-      this.logger.warn('Comment dialog still visible after submit — comment may not have been posted');
+      this.logger.warn(
+        "Comment dialog still visible after submit — comment may not have been posted",
+      );
     }
   }
 
@@ -422,25 +442,29 @@ export abstract class BaseEngager extends BasePoster {
    * its internal state and enables the submit button, then falls back to
    * keyboard.type() if text was not actually entered.
    */
-  protected async typeIntoContenteditable(page: Page, locator: import('playwright-core').Locator, text: string): Promise<void> {
+  protected async typeIntoContenteditable(
+    page: Page,
+    locator: import("playwright-core").Locator,
+    text: string,
+  ): Promise<void> {
     const inserted = await this.insertContenteditableText(page, locator, text, {
       delayMinMs: 20,
       delayMaxMs: 60,
     });
 
     if (inserted) {
-      this.logger.debug('Comment text entered via execCommand insertText');
+      this.logger.debug("Comment text entered via execCommand insertText");
       return;
     }
 
     // Strategy 2: keyboard.type() — sends real key events that React processes
-    this.logger.warn('execCommand insertText failed for comment — falling back to keyboard.type()');
+    this.logger.warn("execCommand insertText failed for comment — falling back to keyboard.type()");
     try {
       await locator.click({ force: true }).catch(() => {});
       await page.keyboard.type(text, { delay: 50 });
     } catch {
       // Strategy 3: last resort — pressSequentially
-      this.logger.warn('keyboard.type() failed for comment — falling back to pressSequentially');
+      this.logger.warn("keyboard.type() failed for comment — falling back to pressSequentially");
       await locator.pressSequentially(text, { delay: 50, timeout: 15000 }).catch(() => {});
     }
   }
@@ -448,12 +472,12 @@ export abstract class BaseEngager extends BasePoster {
   /**
    * Check if a submit button is disabled (aria-disabled or disabled attribute).
    */
-  protected async isSubmitDisabled(locator: import('playwright-core').Locator): Promise<boolean> {
+  protected async isSubmitDisabled(locator: import("playwright-core").Locator): Promise<boolean> {
     try {
-      const disabled = await locator.getAttribute('aria-disabled');
+      const disabled = await locator.getAttribute("aria-disabled");
       const isDisabledAttr = await locator.isEnabled();
       // aria-disabled="true" or disabled attribute means the button won't fire
-      return disabled === 'true' || !isDisabledAttr;
+      return disabled === "true" || !isDisabledAttr;
     } catch {
       return false;
     }
@@ -470,10 +494,10 @@ export abstract class BaseEngager extends BasePoster {
   ): Promise<{ performed: boolean; alreadyReposted: boolean }> {
     // Check if the post is already reposted by looking for an "unrepost" signal.
     // Some networks show the repost button as pressed/activated when already reposted.
-    const repostBtn = await this.resolve(page, repostButtonSelector, 'repost button');
+    const repostBtn = await this.resolve(page, repostButtonSelector, "repost button");
     const wasPressed = await this.isAriaPressed(repostBtn.locator);
     if (wasPressed) {
-      this.logger.debug('Post already reposted (aria-pressed=true) — skipping');
+      this.logger.debug("Post already reposted (aria-pressed=true) — skipping");
       return { performed: false, alreadyReposted: true };
     }
 
@@ -483,7 +507,7 @@ export abstract class BaseEngager extends BasePoster {
     await this.browser.randomDelay(500, 1500);
 
     // Select "Repost" from the menu
-    const repostItem = await this.resolve(page, repostMenuItemSelector, 'repost menu item', 10000);
+    const repostItem = await this.resolve(page, repostMenuItemSelector, "repost menu item", 10000);
     await this.humanClick(repostItem.locator);
     await this.browser.randomDelay(2000, 5000);
 
@@ -504,18 +528,18 @@ export abstract class BaseEngager extends BasePoster {
     quoteSubmitSelector: SelectorStrategy,
     text: string,
   ): Promise<void> {
-    const repostBtn = await this.resolve(page, repostButtonSelector, 'repost button');
+    const repostBtn = await this.resolve(page, repostButtonSelector, "repost button");
     await this.browser.scrollToElement(page, repostBtn.locator);
     await this.humanClick(repostBtn.locator);
     await this.browser.randomDelay(500, 1500);
 
     // Select "Quote" from the menu
-    const quoteItem = await this.resolve(page, quoteMenuItemSelector, 'quote menu item', 10000);
+    const quoteItem = await this.resolve(page, quoteMenuItemSelector, "quote menu item", 10000);
     await this.humanClick(quoteItem.locator);
     await this.browser.randomDelay(1000, 3000);
 
     // Wait for the quote composer to appear
-    const input = await this.resolve(page, quoteInputSelector, 'quote input', 10000);
+    const input = await this.resolve(page, quoteInputSelector, "quote input", 10000);
     await this.browser.randomDelay(500, 1500);
     await this.humanClick(input.locator);
     await this.browser.randomDelay(500, 1500);
@@ -525,21 +549,21 @@ export abstract class BaseEngager extends BasePoster {
     await this.browser.randomDelay(1000, 2000);
 
     // Submit quote — check if button is disabled first
-    const submit = await this.resolve(page, quoteSubmitSelector, 'quote submit button', 10000);
+    const submit = await this.resolve(page, quoteSubmitSelector, "quote submit button", 10000);
     await this.browser.waitForStable(submit.locator, { timeoutMs: 5000 });
 
     const isDisabled = await this.isSubmitDisabled(submit.locator);
     if (isDisabled) {
-      this.logger.warn('Quote submit button is disabled — retrying with keyboard.type()...');
+      this.logger.warn("Quote submit button is disabled — retrying with keyboard.type()...");
       await input.locator.click({ force: true }).catch(() => {});
-      await page.keyboard.press('Control+a').catch(() => {});
-      await page.keyboard.press('Backspace').catch(() => {});
+      await page.keyboard.press("Control+a").catch(() => {});
+      await page.keyboard.press("Backspace").catch(() => {});
       await this.browser.randomDelay(200, 500);
       await page.keyboard.type(text, { delay: 50 });
       await this.browser.randomDelay(1000, 2000);
       const stillDisabled = await this.isSubmitDisabled(submit.locator);
       if (stillDisabled) {
-        throw new Error('Quote submit button is disabled — text not registered in contenteditable');
+        throw new Error("Quote submit button is disabled — text not registered in contenteditable");
       }
     }
 
@@ -552,7 +576,7 @@ export abstract class BaseEngager extends BasePoster {
       .isVisible({ timeout: 3000 })
       .catch(() => false);
     if (dialogStillOpen) {
-      this.logger.warn('Quote dialog still visible after submit — quote may not have been posted');
+      this.logger.warn("Quote dialog still visible after submit — quote may not have been posted");
     }
   }
 
@@ -560,11 +584,8 @@ export abstract class BaseEngager extends BasePoster {
    * Follow a user/page using the given follow selector.
    * Checks if already following and skips if so.
    */
-  protected async performFollow(
-    page: Page,
-    followSelector: SelectorStrategy,
-  ): Promise<boolean> {
-    const followBtn = await this.resolve(page, followSelector, 'follow button');
+  protected async performFollow(page: Page, followSelector: SelectorStrategy): Promise<boolean> {
+    const followBtn = await this.resolve(page, followSelector, "follow button");
     await this.browser.scrollToElement(page, followBtn.locator);
     await this.browser.waitForStable(followBtn.locator, { timeoutMs: 5000 });
     await this.humanClick(followBtn.locator);
@@ -577,7 +598,7 @@ export abstract class BaseEngager extends BasePoster {
   /**
    * Hover over an element — simulates reading/considering before action.
    */
-  protected async hoverElement(locator: import('playwright-core').Locator): Promise<void> {
+  protected async hoverElement(locator: import("playwright-core").Locator): Promise<void> {
     await this.browser.hover(locator);
   }
 
@@ -587,7 +608,7 @@ export abstract class BaseEngager extends BasePoster {
    */
   protected async variedScroll(page: Page): Promise<void> {
     // 85% scroll down, 15% scroll up (re-reading / going back)
-    const direction: 'up' | 'down' = Math.random() < 0.85 ? 'down' : 'up';
+    const direction: "up" | "down" = Math.random() < 0.85 ? "down" : "up";
     const amountPx = 300 + Math.floor(Math.random() * 600); // 300-900px
     await this.browser.scrollPage(page, direction, amountPx);
   }
@@ -597,7 +618,7 @@ export abstract class BaseEngager extends BasePoster {
    * Public so HumanBehaviorEngine can call it during engagement loops.
    */
   async navigateBack(page: Page): Promise<void> {
-    await page.goBack({ waitUntil: 'domcontentloaded' }).catch(() => {
+    await page.goBack({ waitUntil: "domcontentloaded" }).catch(() => {
       // Back navigation is non-critical
     });
     await this.browser.randomDelay(1000, 3000);
@@ -619,7 +640,7 @@ export abstract class BaseEngager extends BasePoster {
    * Resolve a profile URL for the network from a handle.
    */
   protected resolveProfileUrl(handle: string): string {
-    const cleanHandle = handle.replace('@', '');
+    const cleanHandle = handle.replace("@", "");
     const domains: Partial<Record<SocialNetwork, string>> = {
       X: `https://x.com/${cleanHandle}`,
       THREADS: `https://www.threads.com/@${cleanHandle}`,
@@ -639,8 +660,8 @@ export abstract class BaseEngager extends BasePoster {
     mediaSelector?: SelectorStrategy,
   ): Promise<{ text: string; hasMedia: boolean; authorHandle?: string }> {
     // Ensure we're on the post page
-    if (!page.url().includes(postUrl.replace(/^https?:\/\/[^/]+/, ''))) {
-      await this.navigate(page, postUrl, 'domcontentloaded');
+    if (!page.url().includes(postUrl.replace(/^https?:\/\/[^/]+/, ""))) {
+      await this.navigate(page, postUrl, "domcontentloaded");
     }
 
     // Fast path: social networks often expose the post text in the meta description.
@@ -660,13 +681,17 @@ export abstract class BaseEngager extends BasePoster {
     ];
     const isGenericMeta = (value: string) => genericMetaPatterns.some((p) => p.test(value.trim()));
 
-    let text = '';
+    let text = "";
     try {
       const metaDescription = await page
         .locator('meta[name="description"]')
-        .getAttribute('content', { timeout: 2000 })
+        .getAttribute("content", { timeout: 2000 })
         .catch(() => null);
-      if (metaDescription && metaDescription.trim().length > 10 && !isGenericMeta(metaDescription)) {
+      if (
+        metaDescription &&
+        metaDescription.trim().length > 10 &&
+        !isGenericMeta(metaDescription)
+      ) {
         text = metaDescription.trim();
       }
     } catch {
@@ -681,7 +706,8 @@ export abstract class BaseEngager extends BasePoster {
         try {
           const resolution = await this.tryResolve(page, selector, 2000);
           if (resolution) {
-            const candidate = (await resolution.locator.textContent({ timeout: 2000 }).catch(() => '')) ?? '';
+            const candidate =
+              (await resolution.locator.textContent({ timeout: 2000 }).catch(() => "")) ?? "";
             if (candidate.trim().length > text.length) {
               text = candidate.trim();
             }
@@ -716,8 +742,8 @@ export abstract class BaseEngager extends BasePoster {
     replyItemSelector: SelectorStrategy,
   ): Promise<number> {
     // Ensure we're on the post page
-    if (!page.url().includes(postUrl.replace(/^https?:\/\/[^/]+/, ''))) {
-      await this.navigate(page, postUrl, 'domcontentloaded');
+    if (!page.url().includes(postUrl.replace(/^https?:\/\/[^/]+/, ""))) {
+      await this.navigate(page, postUrl, "domcontentloaded");
     }
 
     // Click the reply button to expand the thread
@@ -732,7 +758,10 @@ export abstract class BaseEngager extends BasePoster {
     // Count visible replies
     let replyCount = 0;
     try {
-      const replies = await page.locator(replyItemSelector.css?.[0] ?? '').count().catch(() => 0);
+      const replies = await page
+        .locator(replyItemSelector.css?.[0] ?? "")
+        .count()
+        .catch(() => 0);
       replyCount = replies;
     } catch {
       // Counting is best-effort

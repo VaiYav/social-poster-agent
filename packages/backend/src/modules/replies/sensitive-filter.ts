@@ -10,7 +10,7 @@
  */
 export interface SensitiveDetection {
   sensitive: boolean;
-  kind?: 'crisis' | 'complaint';
+  kind?: "crisis" | "complaint";
   /** Human-facing reason, suitable for the review queue. */
   reason?: string;
 }
@@ -26,19 +26,19 @@ const COMPLAINT_PATTERNS =
  * human review and never auto-replied.
  */
 export function detectSensitive(text: string): SensitiveDetection {
-  const t = text ?? '';
+  const t = text ?? "";
   if (CRISIS_PATTERNS.test(t)) {
     return {
       sensitive: true,
-      kind: 'crisis',
-      reason: 'Comment mentions mental health, crisis, or other sensitive topic',
+      kind: "crisis",
+      reason: "Comment mentions mental health, crisis, or other sensitive topic",
     };
   }
   if (COMPLAINT_PATTERNS.test(t)) {
     return {
       sensitive: true,
-      kind: 'complaint',
-      reason: 'Comment contains a complaint or negative sentiment',
+      kind: "complaint",
+      reason: "Comment contains a complaint or negative sentiment",
     };
   }
   return { sensitive: false };
@@ -52,7 +52,7 @@ export function detectSensitive(text: string): SensitiveDetection {
 const TROLL_PATTERNS = /\b(?:spam|scam|fake|bots?|stupid|idiot|hate|kill|die|racist|nazi)\b/i;
 
 export function isLikelyTroll(text: string): boolean {
-  return TROLL_PATTERNS.test(text ?? '');
+  return TROLL_PATTERNS.test(text ?? "");
 }
 
 // ── Low-value comment detector ─────────────────────────────────────────────
@@ -79,23 +79,85 @@ export interface LowValueDetection {
 }
 
 /** Strip emojis, hashtags, mentions, and whitespace to get "meaningful" text length. */
-const EMOJI_RE = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\uFE0F\u200D]/gu;
+const EMOJI_RE =
+  /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\uFE0F\u200D]/gu;
 const HASHTAG_RE = /#[\w\u0400-\u04FF]+/g;
 const MENTION_RE = /@[\w.]+/g;
 
 /** Generic one-word / short-phrase reactions that don't need a reply. EN + RU/UA. */
 const GENERIC_REACTIONS = new Set([
   // English
-  'nice', 'cool', 'great', 'good', 'wow', 'lol', 'lmao', 'rofl', 'ok', 'okay',
-  'yes', 'no', 'true', 'facts', 'agreed', 'this', 'same', 'first', 'second',
-  'omg', 'whoa', 'neat', 'sweet', 'dope', 'fire', 'based', 'fr', 'real',
-  'amen', 'thanks', 'thx', 'ty', 'w', 'ww', 'www', 'congrats', 'congratulations',
-  'beautiful', 'perfect', 'amazing', 'awesome', 'love', 'loved',
+  "nice",
+  "cool",
+  "great",
+  "good",
+  "wow",
+  "lol",
+  "lmao",
+  "rofl",
+  "ok",
+  "okay",
+  "yes",
+  "no",
+  "true",
+  "facts",
+  "agreed",
+  "this",
+  "same",
+  "first",
+  "second",
+  "omg",
+  "whoa",
+  "neat",
+  "sweet",
+  "dope",
+  "fire",
+  "based",
+  "fr",
+  "real",
+  "amen",
+  "thanks",
+  "thx",
+  "ty",
+  "w",
+  "ww",
+  "www",
+  "congrats",
+  "congratulations",
+  "beautiful",
+  "perfect",
+  "amazing",
+  "awesome",
+  "love",
+  "loved",
   // Russian / Ukrainian
-  'да', 'нет', 'ок', 'класс', 'супер', 'круто', 'согласен', 'согласна',
-  'первый', 'спасибо', 'дякую', 'красиво', 'чудово',
-  'правда', 'істина', 'істинно', 'так', 'нє', 'погоджуюсь', 'згода',
-  'огонь', 'вогонь', 'топ', 'топчик', 'база', 'факт', 'факти',
+  "да",
+  "нет",
+  "ок",
+  "класс",
+  "супер",
+  "круто",
+  "согласен",
+  "согласна",
+  "первый",
+  "спасибо",
+  "дякую",
+  "красиво",
+  "чудово",
+  "правда",
+  "істина",
+  "істинно",
+  "так",
+  "нє",
+  "погоджуюсь",
+  "згода",
+  "огонь",
+  "вогонь",
+  "топ",
+  "топчик",
+  "база",
+  "факт",
+  "факти",
 ]);
 
 /** Follow/subscribe bait patterns. EN + RU/UA. */
@@ -106,13 +168,16 @@ const FOLLOW_BAIT_CYR_RE =
 
 /** Pure hashtag check: after stripping hashtags, nothing meaningful remains. */
 function isPureHashtag(text: string): boolean {
-  const withoutHashtags = text.replace(HASHTAG_RE, '').replace(MENTION_RE, '').trim();
+  const withoutHashtags = text.replace(HASHTAG_RE, "").replace(MENTION_RE, "").trim();
   return withoutHashtags.length === 0 && /#/.test(text);
 }
 
 /** Check if text is only emojis (no meaningful alphabetic content). */
 function isEmojiOnly(text: string): boolean {
-  const stripped = text.replace(EMOJI_RE, '').replace(/[\s\p{P}]/gu, '').trim();
+  const stripped = text
+    .replace(EMOJI_RE, "")
+    .replace(/[\s\p{P}]/gu, "")
+    .trim();
   return stripped.length === 0 && text.trim().length > 0;
 }
 
@@ -121,45 +186,45 @@ function isEmojiOnly(text: string): boolean {
  * Returns { lowValue: true, reason } when the comment should be skipped.
  */
 export function isLowValueComment(text: string): LowValueDetection {
-  const t = (text ?? '').trim();
+  const t = (text ?? "").trim();
   if (t.length === 0) {
-    return { lowValue: true, reason: 'Empty comment' };
+    return { lowValue: true, reason: "Empty comment" };
   }
 
   // Emoji-only — no text to reply to
   if (isEmojiOnly(t)) {
-    return { lowValue: true, reason: 'Emoji-only comment — nothing to reply to' };
+    return { lowValue: true, reason: "Emoji-only comment — nothing to reply to" };
   }
 
   // Pure hashtags / mentions — no conversational content
   if (isPureHashtag(t)) {
-    return { lowValue: true, reason: 'Pure hashtag/mention comment — no conversational content' };
+    return { lowValue: true, reason: "Pure hashtag/mention comment — no conversational content" };
   }
 
   // Follow/subscribe bait — never engage with self-promo
   if (FOLLOW_BAIT_RE.test(t) || FOLLOW_BAIT_CYR_RE.test(t)) {
-    return { lowValue: true, reason: 'Follow/subscribe bait — not engaging with self-promo' };
+    return { lowValue: true, reason: "Follow/subscribe bait — not engaging with self-promo" };
   }
 
   // Strip emojis, hashtags, mentions to get meaningful text
   const meaningful = t
-    .replace(EMOJI_RE, '')
-    .replace(HASHTAG_RE, '')
-    .replace(MENTION_RE, '')
-    .replace(/[\s\p{P}]/gu, '')
+    .replace(EMOJI_RE, "")
+    .replace(HASHTAG_RE, "")
+    .replace(MENTION_RE, "")
+    .replace(/[\s\p{P}]/gu, "")
     .trim();
 
   // Very short meaningful content (≤ 3 chars) after stripping fluff
   if (meaningful.length > 0 && meaningful.length <= 3) {
-    return { lowValue: true, reason: 'Too short to warrant a reply (≤3 meaningful chars)' };
+    return { lowValue: true, reason: "Too short to warrant a reply (≤3 meaningful chars)" };
   }
 
   // Generic one-word / short-phrase reactions (only check short comments ≤ 40 chars
   // to avoid false positives on longer comments that happen to contain these words)
   if (t.length <= 40) {
     const normalized = t
-      .replace(EMOJI_RE, '')
-      .replace(/[\s\p{P}]/gu, '')
+      .replace(EMOJI_RE, "")
+      .replace(/[\s\p{P}]/gu, "")
       .toLowerCase()
       .trim();
     if (normalized.length > 0 && GENERIC_REACTIONS.has(normalized)) {

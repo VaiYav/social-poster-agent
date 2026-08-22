@@ -8,10 +8,10 @@
  *
  * Source: packages/backend/src/modules/autonomy/auto-check.service.ts
  */
-import { describe, it, expect, vi } from 'vitest';
-import { SocialNetwork } from '@prisma/client';
+import { describe, it, expect, vi } from "vitest";
+import { SocialNetwork } from "../../../src/generated/prisma/client";
 
-import { AutoCheckService } from '../../../src/modules/autonomy/auto-check.service';
+import { AutoCheckService } from "../../../src/modules/autonomy/auto-check.service";
 
 function build(recentPosts: Array<{ simhash: string | null; content: string }> = []) {
   const prisma = {
@@ -20,46 +20,49 @@ function build(recentPosts: Array<{ simhash: string | null; content: string }> =
   return { service: new AutoCheckService(prisma as never), prisma };
 }
 
-const CLEAN = 'Workflow stations direct today — a gentle nudge to revisit what felt stalled.';
+const CLEAN = "Workflow stations direct today — a gentle nudge to revisit what felt stalled.";
 
-describe('AutoCheckService (A1/BUG-12 — pure content-safety gate)', () => {
-  it('passes clean content and runs exactly the four content checks', async () => {
+describe("AutoCheckService (A1/BUG-12 — pure content-safety gate)", () => {
+  it("passes clean content and runs exactly the four content checks", async () => {
     const { service } = build();
     const res = await service.check(CLEAN, SocialNetwork.X);
 
     expect(res.passed).toBe(true);
     expect(res.checks.map((c) => c.name)).toEqual([
-      'engagement_bait',
-      'char_limit',
-      'forbidden_phrases',
-      'simhash_dedup',
+      "engagement_bait",
+      "char_limit",
+      "forbidden_phrases",
+      "simhash_dedup",
     ]);
   });
 
-  it('never emits a quality_score check — score is NOT AutoCheck’s job (BUG-12)', async () => {
+  it("never emits a quality_score check — score is NOT AutoCheck’s job (BUG-12)", async () => {
     const { service } = build();
     const res = await service.check(CLEAN, SocialNetwork.X);
 
-    expect(res.checks.find((c) => c.name === 'quality_score')).toBeUndefined();
+    expect(res.checks.find((c) => c.name === "quality_score")).toBeUndefined();
   });
 
-  it('fails char_limit when content exceeds the network maximum', async () => {
+  it("fails char_limit when content exceeds the network maximum", async () => {
     const { service } = build();
-    const res = await service.check('a'.repeat(281), SocialNetwork.X); // X limit = 280
+    const res = await service.check("a".repeat(281), SocialNetwork.X); // X limit = 280
 
     expect(res.passed).toBe(false);
     expect(res.rejectionReason).toMatch(/char_limit/);
   });
 
-  it('fails forbidden_phrases on brand-voice violations', async () => {
+  it("fails forbidden_phrases on brand-voice violations", async () => {
     const { service } = build();
-    const res = await service.check('Here is some financial advice for your sign.', SocialNetwork.THREADS);
+    const res = await service.check(
+      "Here is some financial advice for your sign.",
+      SocialNetwork.THREADS,
+    );
 
     expect(res.passed).toBe(false);
     expect(res.rejectionReason).toMatch(/forbidden_phrases/);
   });
 
-  it('fails simhash_dedup when a near-duplicate exists in recent posts', async () => {
+  it("fails simhash_dedup when a near-duplicate exists in recent posts", async () => {
     // loadRecentHashes computes simhash(content) when the stored simhash is null,
     // so an identical recent post yields Hamming distance 0 → duplicate.
     const { service } = build([{ simhash: null, content: CLEAN }]);
@@ -69,25 +72,28 @@ describe('AutoCheckService (A1/BUG-12 — pure content-safety gate)', () => {
     expect(res.rejectionReason).toMatch(/simhash_dedup/);
   });
 
-  it('BUG-1: excludes the evaluated post from the dedup corpus (prevents self-match)', async () => {
+  it("BUG-1: excludes the evaluated post from the dedup corpus (prevents self-match)", async () => {
     const { service, prisma } = build();
-    await service.check('any content', SocialNetwork.X, 'post-123');
+    await service.check("any content", SocialNetwork.X, "post-123");
     const where = (prisma.post.findMany.mock.calls[0]![0] as { where: { id?: unknown } }).where;
-    expect(where.id).toEqual({ not: 'post-123' });
+    expect(where.id).toEqual({ not: "post-123" });
   });
 
-  it('BUG-1: applies no id filter when no postId is supplied', async () => {
+  it("BUG-1: applies no id filter when no postId is supplied", async () => {
     const { service, prisma } = build();
-    await service.check('any content', SocialNetwork.X);
+    await service.check("any content", SocialNetwork.X);
     const where = (prisma.post.findMany.mock.calls[0]![0] as { where: { id?: unknown } }).where;
     expect(where.id).toBeUndefined();
   });
 
-  it('P2-2.2.2: loadRecentHashes filters to POSTED status and orders by createdAt desc', async () => {
+  it("P2-2.2.2: loadRecentHashes filters to POSTED status and orders by createdAt desc", async () => {
     const { service, prisma } = build();
-    await service.check('any content', SocialNetwork.X);
-    const args = prisma.post.findMany.mock.calls[0]![0] as { where: { status?: string }; orderBy: { createdAt: string } };
-    expect(args.where.status).toBe('POSTED');
-    expect(args.orderBy).toEqual({ createdAt: 'desc' });
+    await service.check("any content", SocialNetwork.X);
+    const args = prisma.post.findMany.mock.calls[0]![0] as {
+      where: { status?: string };
+      orderBy: { createdAt: string };
+    };
+    expect(args.where.status).toBe("POSTED");
+    expect(args.orderBy).toEqual({ createdAt: "desc" });
   });
 });

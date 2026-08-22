@@ -12,16 +12,24 @@
 // subscriber/publisher connections, use SHARED_REDIS_SUBSCRIBER and
 // SHARED_REDIS_PUBLISHER.
 
-import { Inject, Injectable, Logger, Module, Global, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import IORedis from 'ioredis';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  Module,
+  Global,
+  OnModuleDestroy,
+  OnModuleInit,
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import IORedis from "ioredis";
 
-export const SHARED_REDIS = Symbol('SHARED_REDIS');
-export const SHARED_REDIS_SUBSCRIBER = Symbol('SHARED_REDIS_SUBSCRIBER');
-export const SHARED_REDIS_PUBLISHER = Symbol('SHARED_REDIS_PUBLISHER');
+export const SHARED_REDIS = Symbol("SHARED_REDIS");
+export const SHARED_REDIS_SUBSCRIBER = Symbol("SHARED_REDIS_SUBSCRIBER");
+export const SHARED_REDIS_PUBLISHER = Symbol("SHARED_REDIS_PUBLISHER");
 
 function createRedisClient(config: ConfigService, connectionName: string): IORedis {
-  const url = config.get<string>('REDIS_URL', 'redis://localhost:6381');
+  const url = config.get<string>("REDIS_URL", "redis://localhost:6381");
   const client = new IORedis(url, {
     maxRetriesPerRequest: null,
     lazyConnect: true,
@@ -29,11 +37,15 @@ function createRedisClient(config: ConfigService, connectionName: string): IORed
     connectionName,
   });
 
-  client.on('error', (err) => {
-    Logger.error(`Redis ${connectionName} connection error: ${err.message}`, err.stack, 'RedisModule');
+  client.on("error", (err) => {
+    Logger.error(
+      `Redis ${connectionName} connection error: ${err.message}`,
+      err.stack,
+      "RedisModule",
+    );
   });
-  client.on('reconnecting', (delayMs: number) => {
-    Logger.warn(`Redis ${connectionName} reconnecting in ${delayMs}ms`, 'RedisModule');
+  client.on("reconnecting", (delayMs: number) => {
+    Logger.warn(`Redis ${connectionName} reconnecting in ${delayMs}ms`, "RedisModule");
   });
 
   return client;
@@ -52,16 +64,12 @@ export class RedisLifecycleService implements OnModuleInit, OnModuleDestroy {
   onModuleInit(): void {
     // connection-level error listeners are registered in createRedisClient;
     // this hook is reserved for any additional startup diagnostics if needed.
-    this.logger.log('Redis lifecycle service initialized');
+    this.logger.log("Redis lifecycle service initialized");
   }
 
   async onModuleDestroy(): Promise<void> {
-    await Promise.allSettled([
-      this.redis.quit(),
-      this.subscriber.quit(),
-      this.publisher.quit(),
-    ]);
-    this.logger.log('Redis connections closed');
+    await Promise.allSettled([this.redis.quit(), this.subscriber.quit(), this.publisher.quit()]);
+    this.logger.log("Redis connections closed");
   }
 }
 
@@ -86,17 +94,17 @@ export class RedisLifecycleService implements OnModuleInit, OnModuleDestroy {
     {
       provide: SHARED_REDIS,
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => createRedisClient(config, 'shared'),
+      useFactory: (config: ConfigService) => createRedisClient(config, "shared"),
     },
     {
       provide: SHARED_REDIS_SUBSCRIBER,
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => createRedisClient(config, 'subscriber'),
+      useFactory: (config: ConfigService) => createRedisClient(config, "subscriber"),
     },
     {
       provide: SHARED_REDIS_PUBLISHER,
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => createRedisClient(config, 'publisher'),
+      useFactory: (config: ConfigService) => createRedisClient(config, "publisher"),
     },
     RedisLifecycleService,
   ],

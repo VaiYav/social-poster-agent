@@ -1,10 +1,10 @@
-import { Injectable, Logger, Optional, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { SocialAccount, SocialNetwork } from '@prisma/client';
-import { WarmupService } from '../sessions/warmup.service.js';
-import { parseBool } from '../../infrastructure/config/parse-bool.js';
-import { isNetworkEnabled } from '../../domain/enabled-networks.js';
+import { Injectable, Logger, Optional, OnModuleInit } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service";
+import { SocialAccount, SocialNetwork } from "../../generated/prisma/client";
+import { WarmupService } from "../sessions/warmup.service.js";
+import { parseBool } from "../../infrastructure/config/parse-bool.js";
+import { isNetworkEnabled } from "../../domain/enabled-networks.js";
 
 /**
  * Credentials reference — env var names, never actual secrets.
@@ -23,7 +23,7 @@ export interface NextAccountOptions {
   /** Prefer this account if it is active. */
   preferredAccountId?: string;
   /** Rotation strategy (default: round-robin). */
-  strategy?: 'round-robin' | 'priority';
+  strategy?: "round-robin" | "priority";
 }
 
 /**
@@ -56,9 +56,9 @@ export class AccountsService implements OnModuleInit {
   async onModuleInit(): Promise<void> {
     try {
       await this.seedFromEnv();
-      this.logger.log('Accounts seeded from env');
+      this.logger.log("Accounts seeded from env");
     } catch {
-      this.logger.warn('Failed to seed accounts — continuing');
+      this.logger.warn("Failed to seed accounts — continuing");
     }
   }
 
@@ -81,37 +81,40 @@ export class AccountsService implements OnModuleInit {
 
       let index = 1;
       while (true) {
-        const usernameField = network === SocialNetwork.FACEBOOK ? 'EMAIL' : 'USERNAME';
+        const usernameField = network === SocialNetwork.FACEBOOK ? "EMAIL" : "USERNAME";
         const usernameRef = this.resolveIndexedEnv(network, usernameField, index);
 
         // Stop when no username/email var is configured for this index.
-        if (usernameRef.value === undefined || usernameRef.value.trim() === '') {
+        if (usernameRef.value === undefined || usernameRef.value.trim() === "") {
           break;
         }
 
-        const passwordRef = this.resolveIndexedEnv(network, 'PASSWORD', index);
-        const cookiesRef = this.resolveIndexedEnv(network, 'COOKIES', index);
-        const pageSlugRef = network === SocialNetwork.FACEBOOK ? this.resolveIndexedEnv(network, 'PAGE_SLUG', index) : undefined;
+        const passwordRef = this.resolveIndexedEnv(network, "PASSWORD", index);
+        const cookiesRef = this.resolveIndexedEnv(network, "COOKIES", index);
+        const pageSlugRef =
+          network === SocialNetwork.FACEBOOK
+            ? this.resolveIndexedEnv(network, "PAGE_SLUG", index)
+            : undefined;
 
         const username = usernameRef.value;
-        const password = passwordRef.value ?? '';
+        const password = passwordRef.value ?? "";
         const cookies = cookiesRef.value;
-        const pageSlug = pageSlugRef?.value ?? '';
-        const displayName = this.getIndexedEnv(network, 'DISPLAY_NAME', index);
-        const priorityRaw = this.getIndexedEnv(network, 'PRIORITY', index);
-        const proxyUrl = this.getIndexedEnv(network, 'PROXY_URL', index);
-        const fingerprintSeed = this.getIndexedEnv(network, 'FINGERPRINT_SEED', index);
-        const active = parseBool(this.getIndexedEnv(network, 'ACTIVE', index) ?? 'true');
-        const warmup = parseBool(this.getIndexedEnv(network, 'WARMUP', index) ?? 'false');
+        const pageSlug = pageSlugRef?.value ?? "";
+        const displayName = this.getIndexedEnv(network, "DISPLAY_NAME", index);
+        const priorityRaw = this.getIndexedEnv(network, "PRIORITY", index);
+        const proxyUrl = this.getIndexedEnv(network, "PROXY_URL", index);
+        const fingerprintSeed = this.getIndexedEnv(network, "FINGERPRINT_SEED", index);
+        const active = parseBool(this.getIndexedEnv(network, "ACTIVE", index) ?? "true");
+        const warmup = parseBool(this.getIndexedEnv(network, "WARMUP", index) ?? "false");
         const priority = Number.isNaN(Number(priorityRaw)) ? 0 : Number(priorityRaw);
 
         const handle = this.resolveHandle(network, username, pageSlug);
 
         const credentialsParts: string[] = [usernameRef.key, passwordRef.key];
-        if (cookies !== undefined && cookies.trim() !== '') {
+        if (cookies !== undefined && cookies.trim() !== "") {
           credentialsParts.push(cookiesRef.key);
         }
-        if (pageSlugRef && pageSlug.trim() !== '') {
+        if (pageSlugRef && pageSlug.trim() !== "") {
           credentialsParts.push(pageSlugRef.key);
         }
 
@@ -128,7 +131,7 @@ export class AccountsService implements OnModuleInit {
               priority,
               proxyUrl,
               fingerprintSeed,
-              credentialsRef: credentialsParts.join(','),
+              credentialsRef: credentialsParts.join(","),
               active,
               warmupEnabled: warmup,
             },
@@ -144,7 +147,7 @@ export class AccountsService implements OnModuleInit {
           // (for example SOCIAL_X_USERNAME -> SOCIAL_X_USERNAME_1). Existing
           // accounts must be updated because credentialsRef intentionally stores
           // env var names, not their values.
-          const credentialsRef = credentialsParts.join(',');
+          const credentialsRef = credentialsParts.join(",");
           if (existing.credentialsRef !== credentialsRef) {
             await this.prisma.socialAccount.update({
               where: { id: existing.id },
@@ -162,8 +165,8 @@ export class AccountsService implements OnModuleInit {
   async findAll(network?: SocialNetwork) {
     return this.prisma.socialAccount.findMany({
       where: { active: true, ...(network ? { network } : {}) },
-      include: { sessions: { orderBy: { createdAt: 'desc' }, take: 1 } },
-      orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
+      include: { sessions: { orderBy: { createdAt: "desc" }, take: 1 } },
+      orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
     });
   }
 
@@ -179,7 +182,7 @@ export class AccountsService implements OnModuleInit {
   async findByNetwork(network: SocialNetwork): Promise<SocialAccount[]> {
     return this.prisma.socialAccount.findMany({
       where: { network, active: true },
-      orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
+      orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
     });
   }
 
@@ -194,14 +197,14 @@ export class AccountsService implements OnModuleInit {
     if (defaultUsername) {
       const matching = await this.prisma.socialAccount.findFirst({
         where: { network, active: true, handle: defaultUsername },
-        orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
+        orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
       });
       if (matching) return matching;
     }
 
     return this.prisma.socialAccount.findFirst({
       where: { network, active: true },
-      orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
+      orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
     });
   }
 
@@ -223,7 +226,7 @@ export class AccountsService implements OnModuleInit {
       if (preferred) return preferred;
     }
 
-    if (opts.strategy === 'priority') {
+    if (opts.strategy === "priority") {
       return accounts[0] ?? null;
     }
 
@@ -239,21 +242,21 @@ export class AccountsService implements OnModuleInit {
    * Parses the account's `credentialsRef` string (comma-separated env var names).
    */
   getCredentials(account: SocialAccount): AccountCredentials {
-    const result: AccountCredentials = { username: '', password: '' };
+    const result: AccountCredentials = { username: "", password: "" };
     const refs = account.credentialsRef
-      .split(',')
+      .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
 
     for (const ref of refs) {
-      const value = this.configService.get<string>(ref, '');
-      if (ref.includes('_PASSWORD')) {
+      const value = this.configService.get<string>(ref, "");
+      if (ref.includes("_PASSWORD")) {
         result.password = value;
-      } else if (ref.includes('_COOKIES')) {
+      } else if (ref.includes("_COOKIES")) {
         result.cookies = value;
-      } else if (ref.includes('_PAGE_SLUG')) {
+      } else if (ref.includes("_PAGE_SLUG")) {
         result.extra = value;
-      } else if (ref.includes('_EMAIL') || ref.includes('_USERNAME')) {
+      } else if (ref.includes("_EMAIL") || ref.includes("_USERNAME")) {
         result.username = value;
       }
     }
@@ -264,7 +267,15 @@ export class AccountsService implements OnModuleInit {
   /**
    * Update non-credential account fields. Credentials remain env-driven.
    */
-  async update(id: string, data: Partial<Pick<SocialAccount, 'displayName' | 'priority' | 'groupId' | 'proxyUrl' | 'fingerprintSeed' | 'active'>>): Promise<SocialAccount> {
+  async update(
+    id: string,
+    data: Partial<
+      Pick<
+        SocialAccount,
+        "displayName" | "priority" | "groupId" | "proxyUrl" | "fingerprintSeed" | "active"
+      >
+    >,
+  ): Promise<SocialAccount> {
     return this.prisma.socialAccount.update({
       where: { id },
       data: {
@@ -302,7 +313,7 @@ export class AccountsService implements OnModuleInit {
     field: string,
     index: number,
   ): { value: string | undefined; key: string } {
-    const networkName = network === SocialNetwork.X ? 'X' : network;
+    const networkName = network === SocialNetwork.X ? "X" : network;
     const suffixedKey = `SOCIAL_${networkName}_${field}_${index}`;
     const suffixed = this.configService.get<string>(suffixedKey);
     if (suffixed !== undefined) {
@@ -325,14 +336,14 @@ export class AccountsService implements OnModuleInit {
   }
 
   private resolveHandle(network: SocialNetwork, username: string, pageSlug: string): string {
-    if (network === SocialNetwork.FACEBOOK && pageSlug && pageSlug.trim() !== '') {
+    if (network === SocialNetwork.FACEBOOK && pageSlug && pageSlug.trim() !== "") {
       return pageSlug.trim();
     }
     return username.trim();
   }
 
   private getNetworkDefaultUsername(network: SocialNetwork): string {
-    const usernameField = network === SocialNetwork.FACEBOOK ? 'EMAIL' : 'USERNAME';
-    return this.resolveIndexedEnv(network, usernameField, 1).value ?? '';
+    const usernameField = network === SocialNetwork.FACEBOOK ? "EMAIL" : "USERNAME";
+    return this.resolveIndexedEnv(network, usernameField, 1).value ?? "";
   }
 }

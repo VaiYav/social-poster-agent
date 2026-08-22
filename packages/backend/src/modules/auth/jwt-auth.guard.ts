@@ -26,17 +26,17 @@ import {
   ExecutionContext,
   UnauthorizedException,
   Logger,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
-import { Reflector } from '@nestjs/core';
-import type { Request } from 'express';
-import { parseBool } from '../../infrastructure/config/parse-bool.js';
-import type { JwtPayload } from './auth.service';
-import { IS_PUBLIC_KEY } from './public.decorator';
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { JwtService } from "@nestjs/jwt";
+import { Reflector } from "@nestjs/core";
+import type { Request } from "express";
+import { parseBool } from "../../infrastructure/config/parse-bool.js";
+import type { JwtPayload } from "./auth.service";
+import { IS_PUBLIC_KEY } from "./public.decorator";
 
 /** Cookie name — must match AuthController. */
-const COOKIE_NAME = 'spa_token';
+const COOKIE_NAME = "spa_token";
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -53,14 +53,16 @@ export class JwtAuthGuard implements CanActivate {
     private readonly config?: ConfigService,
     private readonly reflector?: Reflector,
   ) {
-    this.enabled = parseBool(this.config?.get<string>('AUTH_ENABLED', 'false') ?? 'false');
-    this.jwtSecret = this.config?.get<string>('JWT_SECRET', '') ?? '';
+    this.enabled = parseBool(this.config?.get<string>("AUTH_ENABLED", "false") ?? "false");
+    this.jwtSecret = this.config?.get<string>("JWT_SECRET", "") ?? "";
     if (this.enabled && !this.jwtSecret) {
       this.logger.error(
-        'AUTH_ENABLED=true but JWT_SECRET is empty — all non-public requests will be DENIED (fail-closed). Set JWT_SECRET.',
+        "AUTH_ENABLED=true but JWT_SECRET is empty — all non-public requests will be DENIED (fail-closed). Set JWT_SECRET.",
       );
     } else if (this.enabled) {
-      this.logger.log('JWT auth enabled — all routes require a valid token except those marked @Public().');
+      this.logger.log(
+        "JWT auth enabled — all routes require a valid token except those marked @Public().",
+      );
     }
   }
 
@@ -73,13 +75,13 @@ export class JwtAuthGuard implements CanActivate {
 
     // Enabled but no secret configured → fail closed.
     if (!this.jwtSecret) {
-      throw new UnauthorizedException('Authentication is misconfigured');
+      throw new UnauthorizedException("Authentication is misconfigured");
     }
 
     const token = this.extractToken(req);
     if (!token) {
       this.logger.warn(`Unauthorized access blocked (no token): ${req.method} ${req.path}`);
-      throw new UnauthorizedException('Authentication required');
+      throw new UnauthorizedException("Authentication required");
     }
 
     // Verify JWT — use verifyAsync with the secret (guard doesn't depend on
@@ -93,7 +95,7 @@ export class JwtAuthGuard implements CanActivate {
 
     if (!payload) {
       this.logger.warn(`Unauthorized access blocked (invalid token): ${req.method} ${req.path}`);
-      throw new UnauthorizedException('Invalid or expired token');
+      throw new UnauthorizedException("Invalid or expired token");
     }
 
     // Attach user to request for downstream handlers / @Req()
@@ -112,9 +114,9 @@ export class JwtAuthGuard implements CanActivate {
   private extractToken(req: Request): string | null {
     // 1. Cookie (primary — UI / EventSource)
     const cookieHeader = req.headers.cookie;
-    if (typeof cookieHeader === 'string') {
+    if (typeof cookieHeader === "string") {
       const match = cookieHeader
-        .split(';')
+        .split(";")
         .map((c) => c.trim())
         .find((c) => c.startsWith(`${COOKIE_NAME}=`));
       if (match) {
@@ -124,9 +126,9 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     // 2. Authorization: Bearer <token> (API clients / curl)
-    const auth = req.headers['authorization'];
-    if (typeof auth === 'string' && auth.startsWith('Bearer ')) {
-      const token = auth.slice('Bearer '.length).trim();
+    const auth = req.headers["authorization"];
+    if (typeof auth === "string" && auth.startsWith("Bearer ")) {
+      const token = auth.slice("Bearer ".length).trim();
       if (token.length > 0) return token;
     }
 

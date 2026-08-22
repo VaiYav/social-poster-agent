@@ -1,12 +1,12 @@
-import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { SchedulerRegistry } from '@nestjs/schedule';
-import { CronJob } from 'cron';
-import { GenerationService } from './generation.service';
-import { AccountsService } from '../accounts/accounts.service';
-import { GenerationTrigger } from '@prisma/client';
-import { parseBool } from '../../infrastructure/config/parse-bool.js';
-import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
+import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { SchedulerRegistry } from "@nestjs/schedule";
+import { CronJob } from "cron";
+import { GenerationService } from "./generation.service";
+import { AccountsService } from "../accounts/accounts.service";
+import { GenerationTrigger } from "../../generated/prisma/client";
+import { parseBool } from "../../infrastructure/config/parse-bool.js";
+import { isOrchestratorEnabled } from "../orchestrator/feature-flag.js";
 
 /**
  * Cron service — triggers generation on schedule.
@@ -28,7 +28,7 @@ export class CronService implements OnModuleInit {
     private readonly configService: ConfigService,
     private readonly schedulerRegistry: SchedulerRegistry,
   ) {
-    const rawJitter = this.configService?.get<string>('CRON_GENERATION_JITTER_MINUTES', '0');
+    const rawJitter = this.configService?.get<string>("CRON_GENERATION_JITTER_MINUTES", "0");
     const parsed = Number(rawJitter);
     this.jitterMinutes = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
   }
@@ -37,46 +37,46 @@ export class CronService implements OnModuleInit {
     // Minor-29: seedFromEnv moved to AccountsService.onModuleInit
 
     // SPA_DRY_RUN: skip cron registration in dry-run mode
-    const isDryRun = parseBool(this.configService?.get<string>('SPA_DRY_RUN', 'false'));
+    const isDryRun = parseBool(this.configService?.get<string>("SPA_DRY_RUN", "false"));
     if (isDryRun) {
-      this.logger.warn('SPA_DRY_RUN=true — cron jobs NOT registered');
+      this.logger.warn("SPA_DRY_RUN=true — cron jobs NOT registered");
       return;
     }
 
     // Orchestrator mode: generation is handled by the orchestrator decision loop,
     // no cron needed.
     if (isOrchestratorEnabled()) {
-      this.logger.log('Orchestrator is enabled — generation cron NOT registered');
+      this.logger.log("Orchestrator is enabled — generation cron NOT registered");
       return;
     }
 
     // B4: Register dynamic cron job from env
-    const cronExpr = this.configService?.get<string>(
-      'CRON_GENERATION_SCHEDULE',
-      '0 9,21 * * *',
-    ) ?? '0 9,21 * * *';
+    const cronExpr =
+      this.configService?.get<string>("CRON_GENERATION_SCHEDULE", "0 9,21 * * *") ?? "0 9,21 * * *";
 
     const job = new CronJob(cronExpr, async () => {
       // Spread cron start time by a random jitter to avoid exact-minute bursts
       // that look automated and trigger platform bans.
       if (this.jitterMinutes > 0) {
         const jitterMs = Math.floor(Math.random() * this.jitterMinutes * 60 * 1000);
-        this.logger.log(`Cron generation scheduled — applying ${Math.round(jitterMs / 1000)}s jitter`);
+        this.logger.log(
+          `Cron generation scheduled — applying ${Math.round(jitterMs / 1000)}s jitter`,
+        );
         await this.delay(jitterMs);
       }
       await this.handleCronGeneration();
     });
     try {
-      this.schedulerRegistry?.addCronJob('generation', job);
+      this.schedulerRegistry?.addCronJob("generation", job);
       job.start();
       this.logger.log(`Cron job "generation" registered with schedule: ${cronExpr}`);
     } catch {
-      this.logger.warn('SchedulerRegistry not available — cron job will not run');
+      this.logger.warn("SchedulerRegistry not available — cron job will not run");
     }
   }
 
   async handleCronGeneration(): Promise<void> {
-    this.logger.log('Cron generation triggered');
+    this.logger.log("Cron generation triggered");
     try {
       const runId = await this.generationService.generate(
         3, // 3 topics per run

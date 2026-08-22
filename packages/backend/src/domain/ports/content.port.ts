@@ -5,9 +5,9 @@
 // The adapter is auto-selected in ContentModule based on CAP path availability.
 // Unit tests can inject a mock with fixture data.
 
-import type { ContentTopic } from '@spa/shared';
+import type { ContentTopic } from "@spa/shared";
 
-export const IContentPort = Symbol('IContentPort');
+export const IContentPort = Symbol("IContentPort");
 
 export interface IContentPort {
   /**

@@ -1,7 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { QueueFactory } from '../../infrastructure/queue/queue.factory';
-import { SocialNetwork } from '@prisma/client';
-import type { Job } from 'bullmq';
+import { Injectable, Logger } from "@nestjs/common";
+import { QueueFactory } from "../../infrastructure/queue/queue.factory";
+import { SocialNetwork } from "../../generated/prisma/client";
+import type { Job } from "bullmq";
 
 /**
  * Serializable view of a failed/queued job for the REST API.
@@ -14,7 +14,7 @@ export interface QueueJobDto {
   failedReason?: string;
   attemptsMade: number;
   totalAttempts: number;
-  status: 'failed' | 'completed' | 'waiting' | 'active' | 'delayed' | 'unknown';
+  status: "failed" | "completed" | "waiting" | "active" | "delayed" | "unknown";
   timestamp: number;
   processedOn?: number;
   finishedOn?: number;
@@ -34,7 +34,11 @@ export class QueueService {
 
   constructor(private readonly queueFactory: QueueFactory) {}
 
-  async enqueuePosting(postId: string, network: SocialNetwork, opts?: { delay?: number }): Promise<void> {
+  async enqueuePosting(
+    postId: string,
+    network: SocialNetwork,
+    opts?: { delay?: number },
+  ): Promise<void> {
     await this.queueFactory.enqueuePosting(postId, network, opts);
   }
 
@@ -44,7 +48,7 @@ export class QueueService {
 
   async getFailedJobs(network: SocialNetwork): Promise<QueueJobDto[]> {
     const jobs = await this.queueFactory.getFailedJobs(network);
-    return jobs.map((job) => this.toJobDto(job, 'failed'));
+    return jobs.map((job) => this.toJobDto(job, "failed"));
   }
 
   async pauseQueue(network: SocialNetwork): Promise<void> {
@@ -73,7 +77,7 @@ export class QueueService {
     for (const job of failed) {
       try {
         if (!job.id) continue;
-        if (/rate.limit|daily limit reached|weekly limit reached/i.test(job.failedReason ?? '')) {
+        if (/rate.limit|daily limit reached|weekly limit reached/i.test(job.failedReason ?? "")) {
           continue;
         }
         await this.queueFactory.retryFailedJob(network, job.id);
@@ -94,7 +98,7 @@ export class QueueService {
     return this.queueFactory.clearCompletedJobs(network);
   }
 
-  private toJobDto(job: Job, status: QueueJobDto['status']): QueueJobDto {
+  private toJobDto(job: Job, status: QueueJobDto["status"]): QueueJobDto {
     return {
       id: job.id,
       name: job.name,

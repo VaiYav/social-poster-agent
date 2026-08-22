@@ -14,12 +14,12 @@ export interface ParsedTrend {
 
 function decodeEntities(s: string): string {
   return s
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
     .replace(/&quot;/gi, '"')
     .replace(/&#0*39;/g, "'")
     .replace(/&apos;/gi, "'")
-    .replace(/&amp;/gi, '&'); // decode &amp; last so "&amp;lt;" → "&lt;" not "<"
+    .replace(/&amp;/gi, "&"); // decode &amp; last so "&amp;lt;" → "&lt;" not "<"
 }
 
 const ITEM_RE = /<item\b[^>]*>([\s\S]*?)<\/item>/gi;
@@ -34,10 +34,10 @@ export function parseGoogleTrendsRss(xml: string, limit: number): ParsedTrend[] 
   ITEM_RE.lastIndex = 0; // module-level global regex retains state between calls
   let match: RegExpExecArray | null;
   while ((match = ITEM_RE.exec(xml)) !== null && out.length < limit) {
-    const itemXml = match[1] ?? '';
+    const itemXml = match[1] ?? "";
     const titleMatch = TITLE_RE.exec(itemXml);
-    const rawTitle = (titleMatch?.[1] ?? titleMatch?.[2] ?? '').trim();
-    const topic = decodeEntities(rawTitle).replace(/\s+/g, ' ').trim();
+    const rawTitle = (titleMatch?.[1] ?? titleMatch?.[2] ?? "").trim();
+    const topic = decodeEntities(rawTitle).replace(/\s+/g, " ").trim();
     if (!topic) continue;
 
     const traffic = TRAFFIC_RE.exec(itemXml)?.[1]?.trim();

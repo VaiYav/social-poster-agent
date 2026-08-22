@@ -11,27 +11,27 @@
  *
  * Feature flag: LLM_QUEUE_TRIAGE_ENABLED (default false).
  */
-import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { PostStatus, SocialNetwork } from '@prisma/client';
-import type { Job } from 'bullmq';
-import { z } from 'zod';
-import { QueueFactory } from '../../infrastructure/queue/queue.factory';
-import { FlowControlService } from '../flow-control/flow-control.service.js';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { SseService } from '../../infrastructure/sse/sse.service';
-import { ILlmPort, type LlmResponse } from '../../domain/ports/llm.port.js';
-import { IPromptPort } from '../../domain/ports/prompt.port.js';
-import { parseBool } from '../../infrastructure/config/parse-bool.js';
-import { getEnabledNetworks } from '../../domain/enabled-networks.js';
-import { interpolate } from '../../domain/prompt-interpolation.js';
+import { Injectable, Logger, Inject, Optional } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { PostStatus, SocialNetwork } from "../../generated/prisma/client";
+import type { Job } from "bullmq";
+import { z } from "zod";
+import { QueueFactory } from "../../infrastructure/queue/queue.factory";
+import { FlowControlService } from "../flow-control/flow-control.service.js";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service";
+import { SseService } from "../../infrastructure/sse/sse.service";
+import { ILlmPort, type LlmResponse } from "../../domain/ports/llm.port.js";
+import { IPromptPort } from "../../domain/ports/prompt.port.js";
+import { parseBool } from "../../infrastructure/config/parse-bool.js";
+import { getEnabledNetworks } from "../../domain/enabled-networks.js";
+import { interpolate } from "../../domain/prompt-interpolation.js";
 import {
   QUEUE_TRIAGE_FALLBACK,
   QUEUE_TRIAGE_SYSTEM_PROMPT,
   QUEUE_TRIAGE_USER_PROMPT_TEMPLATE,
-} from './prompts/queue-triage-prompt.js';
+} from "./prompts/queue-triage-prompt.js";
 
-export type TriageDecision = 'RETRY' | 'REQUEUE_DELAY' | 'REJECT' | 'ESCALATE';
+export type TriageDecision = "RETRY" | "REQUEUE_DELAY" | "REJECT" | "ESCALATE";
 
 export interface TriageDecisionItem {
   postId: string;
@@ -71,7 +71,7 @@ const TriageOutputSchema = z.object({
   decisions: z.array(
     z.object({
       postId: z.string(),
-      decision: z.enum(['RETRY', 'REQUEUE_DELAY', 'REJECT', 'ESCALATE']),
+      decision: z.enum(["RETRY", "REQUEUE_DELAY", "REJECT", "ESCALATE"]),
       delayMinutes: z.number().int().min(0).optional(),
       reason: z.string(),
     }),
@@ -94,27 +94,32 @@ export class QueueTriageService {
     @Optional() private readonly sseService?: SseService,
     @Optional() private readonly flowControl?: FlowControlService,
   ) {
-    this.enabled = parseBool(this.configService.get<string>('LLM_QUEUE_TRIAGE_ENABLED', 'false'));
-    const rawMaxJobs = Number(this.configService.get<string>('LLM_QUEUE_TRIAGE_MAX_JOBS', '20'));
+    this.enabled = parseBool(this.configService.get<string>("LLM_QUEUE_TRIAGE_ENABLED", "false"));
+    const rawMaxJobs = Number(this.configService.get<string>("LLM_QUEUE_TRIAGE_MAX_JOBS", "20"));
     this.maxJobs = Number.isFinite(rawMaxJobs) && rawMaxJobs > 0 ? Math.floor(rawMaxJobs) : 20;
-    const rawMaxTokens = Number(this.configService.get<string>('LLM_QUEUE_TRIAGE_MAX_TOKENS', '800'));
-    this.maxTokens = Number.isFinite(rawMaxTokens) && rawMaxTokens > 0 ? Math.floor(rawMaxTokens) : 800;
+    const rawMaxTokens = Number(
+      this.configService.get<string>("LLM_QUEUE_TRIAGE_MAX_TOKENS", "800"),
+    );
+    this.maxTokens =
+      Number.isFinite(rawMaxTokens) && rawMaxTokens > 0 ? Math.floor(rawMaxTokens) : 800;
   }
 
   /**
    * Triage all enabled networks in sequence. Returns per-network results.
    */
   async triageAll(options?: { dryRun?: boolean }): Promise<TriageResult[]> {
-    if (this.flowControl && await this.flowControl.isPaused('llm_triage')) {
-      this.logger.warn('LLM queue triage is paused via flow:pause_llm_triage — skipping');
+    if (this.flowControl && (await this.flowControl.isPaused("llm_triage"))) {
+      this.logger.warn("LLM queue triage is paused via flow:pause_llm_triage — skipping");
       return [];
     }
     if (!this.enabled) {
-      this.logger.warn('LLM queue triage is disabled — set LLM_QUEUE_TRIAGE_ENABLED=true to enable');
+      this.logger.warn(
+        "LLM queue triage is disabled — set LLM_QUEUE_TRIAGE_ENABLED=true to enable",
+      );
       return [];
     }
     if (!this.llm) {
-      this.logger.warn('No LLM port available — cannot triage queue');
+      this.logger.warn("No LLM port available — cannot triage queue");
       return [];
     }
 
@@ -129,8 +134,11 @@ export class QueueTriageService {
   /**
    * Triage failed jobs for a single network.
    */
-  async triageNetwork(network: SocialNetwork, options?: { dryRun?: boolean }): Promise<TriageResult> {
-    if (this.flowControl && await this.flowControl.isPaused('llm_triage')) {
+  async triageNetwork(
+    network: SocialNetwork,
+    options?: { dryRun?: boolean },
+  ): Promise<TriageResult> {
+    if (this.flowControl && (await this.flowControl.isPaused("llm_triage"))) {
       this.logger.warn(`LLM queue triage paused for ${network} — flow:pause_llm_triage`);
       return {
         network,
@@ -187,7 +195,9 @@ export class QueueTriageService {
     result.decisions = decisions;
 
     if (options?.dryRun) {
-      this.logger.log(`Queue triage dry-run for ${network}: ${decisions.length} proposed decisions`);
+      this.logger.log(
+        `Queue triage dry-run for ${network}: ${decisions.length} proposed decisions`,
+      );
       return result;
     }
 
@@ -195,7 +205,9 @@ export class QueueTriageService {
       try {
         await this.applyDecision(network, decision, result);
       } catch (err) {
-        this.logger.error(`Queue triage: failed to apply decision for ${decision.postId}: ${(err as Error).message}`);
+        this.logger.error(
+          `Queue triage: failed to apply decision for ${decision.postId}: ${(err as Error).message}`,
+        );
         result.errors += 1;
       }
     }
@@ -206,7 +218,7 @@ export class QueueTriageService {
   private async buildContexts(jobs: Job[], network: SocialNetwork): Promise<JobContext[]> {
     const postIds = jobs
       .map((job) => (job.data as { postId?: string } | undefined)?.postId ?? job.id)
-      .filter((id): id is string => typeof id === 'string');
+      .filter((id): id is string => typeof id === "string");
 
     const posts = await this.prisma.post.findMany({
       where: { id: { in: postIds } },
@@ -222,13 +234,13 @@ export class QueueTriageService {
     const postById = new Map(posts.map((p) => [p.id, p]));
 
     return jobs.map((job) => {
-      const postId = String((job.data as { postId?: string } | undefined)?.postId ?? job.id ?? '');
+      const postId = String((job.data as { postId?: string } | undefined)?.postId ?? job.id ?? "");
       const post = postById.get(postId);
       return {
         postId,
         jobId: job.id ?? postId,
         network,
-        failedReason: job.failedReason ?? '(no error message)',
+        failedReason: job.failedReason ?? "(no error message)",
         attemptsMade: job.attemptsMade ?? 0,
         totalAttempts: job.opts?.attempts ?? 1,
         postStatus: post?.status,
@@ -243,30 +255,33 @@ export class QueueTriageService {
     const batch = contexts
       .map(
         (ctx) =>
-          `- postId: ${ctx.postId}\n  network: ${ctx.network}\n  failedReason: ${ctx.failedReason}\n  attempts: ${ctx.attemptsMade}/${ctx.totalAttempts}\n  postStatus: ${ctx.postStatus ?? 'unknown'}\n  approvedAt: ${ctx.postApprovedAt ?? 'unknown'}\n  contentPreview: ${ctx.postContent ?? 'n/a'}`,
+          `- postId: ${ctx.postId}\n  network: ${ctx.network}\n  failedReason: ${ctx.failedReason}\n  attempts: ${ctx.attemptsMade}/${ctx.totalAttempts}\n  postStatus: ${ctx.postStatus ?? "unknown"}\n  approvedAt: ${ctx.postApprovedAt ?? "unknown"}\n  contentPreview: ${ctx.postContent ?? "n/a"}`,
       )
-      .join('\n\n');
+      .join("\n\n");
 
     const compiled = this.promptPort
       ? await this.promptPort.getCompiledChat(
-          'queue-triage',
+          "queue-triage",
           { batch, utcTime: new Date().toISOString() },
           QUEUE_TRIAGE_FALLBACK,
         )
       : {
           systemPrompt: interpolate(QUEUE_TRIAGE_SYSTEM_PROMPT, {}),
-          userPrompt: interpolate(QUEUE_TRIAGE_USER_PROMPT_TEMPLATE, { batch, utcTime: new Date().toISOString() }),
+          userPrompt: interpolate(QUEUE_TRIAGE_USER_PROMPT_TEMPLATE, {
+            batch,
+            utcTime: new Date().toISOString(),
+          }),
         };
 
     const response: LlmResponse = await this.llm!.generateChat(
       compiled.systemPrompt,
       compiled.userPrompt,
-      { temperature: 0.1, maxTokens: this.maxTokens, role: 'utility' },
+      { temperature: 0.1, maxTokens: this.maxTokens, role: "utility" },
     );
 
     const jsonMatch = response.content.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      throw new Error('No JSON in LLM triage response');
+      throw new Error("No JSON in LLM triage response");
     }
 
     const parsed = JSON.parse(jsonMatch[0]);
@@ -288,34 +303,34 @@ export class QueueTriageService {
     if (this.isRateLimit(reason)) {
       return {
         postId: ctx.postId,
-        decision: 'REQUEUE_DELAY',
+        decision: "REQUEUE_DELAY",
         delayMinutes: this.deriveDelayMinutes(reason),
-        reason: 'Hard-filter: rate-limit error',
+        reason: "Hard-filter: rate-limit error",
       };
     }
 
     // Post is already terminal or missing — the posting job is stale.
-    if (!ctx.postStatus || ['REJECTED', 'FAILED', 'POSTED'].includes(ctx.postStatus)) {
+    if (!ctx.postStatus || ["REJECTED", "FAILED", "POSTED"].includes(ctx.postStatus)) {
       return {
         postId: ctx.postId,
-        decision: 'REJECT',
-        reason: `Hard-filter: post status ${ctx.postStatus ?? 'missing'}`,
+        decision: "REJECT",
+        reason: `Hard-filter: post status ${ctx.postStatus ?? "missing"}`,
       };
     }
 
     if (this.isPermanentFailure(reason)) {
       return {
         postId: ctx.postId,
-        decision: 'REJECT',
-        reason: 'Hard-filter: permanent failure (banned/disabled/deleted)',
+        decision: "REJECT",
+        reason: "Hard-filter: permanent failure (banned/disabled/deleted)",
       };
     }
 
     if (ctx.attemptsMade < ctx.totalAttempts && this.isRetriableTransient(reason)) {
       return {
         postId: ctx.postId,
-        decision: 'RETRY',
-        reason: 'Hard-filter: transient error with retries remaining',
+        decision: "RETRY",
+        reason: "Hard-filter: transient error with retries remaining",
       };
     }
 
@@ -327,11 +342,15 @@ export class QueueTriageService {
   }
 
   private isPermanentFailure(reason: string): boolean {
-    return /banned|suspended|locked|disabled|not found|deleted|forbidden|unauthorized|invalid credentials|wrong password|account.*closed|post.*deleted|network.*disabled/.test(reason);
+    return /banned|suspended|locked|disabled|not found|deleted|forbidden|unauthorized|invalid credentials|wrong password|account.*closed|post.*deleted|network.*disabled/.test(
+      reason,
+    );
   }
 
   private isRetriableTransient(reason: string): boolean {
-    return /timeout|connection|network|temporary|session expired|element not found|context or browser|econnrefused|socket|reset|aborted|too busy|busy/.test(reason);
+    return /timeout|connection|network|temporary|session expired|element not found|context or browser|econnrefused|socket|reset|aborted|too busy|busy/.test(
+      reason,
+    );
   }
 
   private deriveDelayMinutes(reason: string): number {
@@ -342,7 +361,11 @@ export class QueueTriageService {
     return 15; // generic 429
   }
 
-  private async applyDecision(network: SocialNetwork, decision: TriageDecisionItem, result: TriageResult): Promise<void> {
+  private async applyDecision(
+    network: SocialNetwork,
+    decision: TriageDecisionItem,
+    result: TriageResult,
+  ): Promise<void> {
     const post = await this.prisma.post.findUnique({
       where: { id: decision.postId },
       select: { id: true, status: true, network: true },
@@ -350,7 +373,7 @@ export class QueueTriageService {
 
     // REJECT is allowed for terminal/missing posts so we can clear stale dead jobs.
     if (!post) {
-      if (decision.decision === 'REJECT') {
+      if (decision.decision === "REJECT") {
         result.decisions.push(decision);
         await this.applyReject(network, decision, result, undefined);
       } else {
@@ -361,19 +384,23 @@ export class QueueTriageService {
     }
 
     if (post.network !== network) {
-      this.logger.warn(`Queue triage: post ${decision.postId} network mismatch (${post.network} vs ${network}) — skipping`);
+      this.logger.warn(
+        `Queue triage: post ${decision.postId} network mismatch (${post.network} vs ${network}) — skipping`,
+      );
       result.skipped += 1;
       return;
     }
 
-    if (decision.decision === 'REJECT') {
+    if (decision.decision === "REJECT") {
       result.decisions.push(decision);
       await this.applyReject(network, decision, result, post.status);
       return;
     }
 
     if (post.status !== PostStatus.APPROVED) {
-      this.logger.warn(`Queue triage: post ${decision.postId} is ${post.status}, not APPROVED — skipping`);
+      this.logger.warn(
+        `Queue triage: post ${decision.postId} is ${post.status}, not APPROVED — skipping`,
+      );
       result.skipped += 1;
       return;
     }
@@ -381,29 +408,39 @@ export class QueueTriageService {
     result.decisions.push(decision);
 
     switch (decision.decision) {
-      case 'RETRY':
+      case "RETRY":
         await this.applyRetry(network, decision, result);
         break;
-      case 'REQUEUE_DELAY':
+      case "REQUEUE_DELAY":
         await this.applyRequeueDelay(network, decision, result);
         break;
-      case 'ESCALATE':
+      case "ESCALATE":
         await this.applyEscalate(network, decision, result);
         break;
     }
   }
 
-  private async applyRetry(network: SocialNetwork, decision: TriageDecisionItem, result: TriageResult): Promise<void> {
+  private async applyRetry(
+    network: SocialNetwork,
+    decision: TriageDecisionItem,
+    result: TriageResult,
+  ): Promise<void> {
     await this.queueFactory.retryFailedJob(network, decision.postId);
     this.logger.log(`Queue triage: RETRY ${decision.postId} — ${decision.reason}`);
     result.retried += 1;
   }
 
-  private async applyRequeueDelay(network: SocialNetwork, decision: TriageDecisionItem, result: TriageResult): Promise<void> {
+  private async applyRequeueDelay(
+    network: SocialNetwork,
+    decision: TriageDecisionItem,
+    result: TriageResult,
+  ): Promise<void> {
     const delayMinutes = decision.delayMinutes ?? 60;
     const delayMs = delayMinutes * 60 * 1000;
     await this.queueFactory.enqueuePosting(decision.postId, network, { delay: delayMs });
-    this.logger.log(`Queue triage: REQUEUE_DELAY ${decision.postId} for ${delayMinutes}min — ${decision.reason}`);
+    this.logger.log(
+      `Queue triage: REQUEUE_DELAY ${decision.postId} for ${delayMinutes}min — ${decision.reason}`,
+    );
     result.requeuedDelayed += 1;
   }
 
@@ -425,12 +462,16 @@ export class QueueTriageService {
         },
       });
     } else if (!postStatus) {
-      this.logger.warn(`Queue triage: REJECT ${decision.postId} — post record not found, removing stale job only`);
+      this.logger.warn(
+        `Queue triage: REJECT ${decision.postId} — post record not found, removing stale job only`,
+      );
     } else {
-      this.logger.warn(`Queue triage: REJECT ${decision.postId} — post is ${postStatus}, removing stale job only`);
+      this.logger.warn(
+        `Queue triage: REJECT ${decision.postId} — post is ${postStatus}, removing stale job only`,
+      );
     }
 
-    const queue = this.queueFactory.getQueue(network, 'posting');
+    const queue = this.queueFactory.getQueue(network, "posting");
     const job = await queue.getJob(decision.postId);
     if (job) {
       await job.remove();
@@ -440,12 +481,16 @@ export class QueueTriageService {
     result.rejected += 1;
   }
 
-  private async applyEscalate(network: SocialNetwork, decision: TriageDecisionItem, result: TriageResult): Promise<void> {
+  private async applyEscalate(
+    network: SocialNetwork,
+    decision: TriageDecisionItem,
+    result: TriageResult,
+  ): Promise<void> {
     const message = `Queue triage ESCALATE for post ${decision.postId} (${network}): ${decision.reason}`;
     this.logger.warn(message);
     await this.sseService?.publish({
-      type: 'health_alert',
-      severity: 'warning',
+      type: "health_alert",
+      severity: "warning",
       error: message,
     });
     result.escalated += 1;

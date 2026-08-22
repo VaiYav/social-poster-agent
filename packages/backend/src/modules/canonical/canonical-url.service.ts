@@ -1,7 +1,7 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service.js';
-import { DomainConfigService } from '../../domain/domain-config/domain-config.service.js';
+import { Injectable, Logger, Optional } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { DomainConfigService } from "../../domain/domain-config/domain-config.service.js";
 
 /**
  * CanonicalUrlService — manages POSSE canonical URLs for syndicated articles.
@@ -25,7 +25,9 @@ export class CanonicalUrlService {
     @Optional() private readonly domainConfig?: DomainConfigService,
   ) {
     // Blog base URL — set BLOG_BASE_URL in your .env, or provide it via DomainConfigService
-    this.blogBaseUrl = this.domainConfig?.blogBaseUrl || this.configService.get<string>('BLOG_BASE_URL', 'https://example.com');
+    this.blogBaseUrl =
+      this.domainConfig?.blogBaseUrl ||
+      this.configService.get<string>("BLOG_BASE_URL", "https://example.com");
   }
 
   /**
@@ -36,8 +38,8 @@ export class CanonicalUrlService {
     const cleanSlug = slug
       .toLowerCase()
       .trim()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '');
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
     if (!cleanSlug) {
       this.logger.warn('buildBlogUrl: slug is empty after cleaning — using "untitled"');
       return `${this.blogBaseUrl}/blog/untitled`;
@@ -100,9 +102,7 @@ export class CanonicalUrlService {
    * @returns true if the canonical URL matches
    */
   async verifyCanonical(postUrl: string, expectedCanonicalUrl: string): Promise<boolean> {
-    this.logger.debug(
-      `verifyCanonical stub: postUrl=${postUrl}, expected=${expectedCanonicalUrl}`,
-    );
+    this.logger.debug(`verifyCanonical stub: postUrl=${postUrl}, expected=${expectedCanonicalUrl}`);
     // Phase 1: fetch postUrl, parse HTML, check <link rel="canonical" href="...">
     // For now, return true (optimistic — LLM verify() will check at runtime)
     return true;
@@ -116,7 +116,7 @@ export class CanonicalUrlService {
     return title
       .toLowerCase()
       .trim()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '');
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
   }
 }

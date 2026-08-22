@@ -7,7 +7,7 @@
  * Variables use `{single-brace}` syntax for local `interpolate()`.
  */
 
-import type { CompiledChatPrompt } from '../../../domain/ports/prompt.port';
+import type { CompiledChatPrompt } from "../../../domain/ports/prompt.port";
 
 export const JUDGE_BATCH_SYSTEM_PROMPT = `You are a strict editor who evaluates social media posts for quality. You hate AI-sounding content and have very high standards.
 

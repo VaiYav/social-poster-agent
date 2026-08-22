@@ -3,14 +3,14 @@
  *
  * Covers REST endpoints for reply monitoring and human review.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { BadRequestException } from '@nestjs/common';
-import { RepliesController } from '../../../src/modules/replies/replies.controller';
-import { RepliesMonitorService } from '../../../src/modules/replies/replies-monitor.service';
-import { PrismaService } from '../../../src/infrastructure/prisma/prisma.service';
-import { CommentStatus } from '@prisma/client';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { BadRequestException } from "@nestjs/common";
+import { RepliesController } from "../../../src/modules/replies/replies.controller";
+import { RepliesMonitorService } from "../../../src/modules/replies/replies-monitor.service";
+import { PrismaService } from "../../../src/infrastructure/prisma/prisma.service";
+import { CommentStatus } from "../../../src/generated/prisma/client";
 
-describe('F4: RepliesController', () => {
+describe("F4: RepliesController", () => {
   let controller: RepliesController;
   let repliesMonitor: {
     isEnabled: ReturnType<typeof vi.fn>;
@@ -44,8 +44,8 @@ describe('F4: RepliesController', () => {
     );
   });
 
-  it('getPending() returns pending human-review comments', async () => {
-    const pending = [{ id: 'c1', text: 'hello' }];
+  it("getPending() returns pending human-review comments", async () => {
+    const pending = [{ id: "c1", text: "hello" }];
     repliesMonitor.getPendingHumanReview.mockResolvedValue(pending);
 
     const result = await controller.getPending();
@@ -54,7 +54,7 @@ describe('F4: RepliesController', () => {
     expect(repliesMonitor.getPendingHumanReview).toHaveBeenCalled();
   });
 
-  it('getStats() returns counts and enabled flag', async () => {
+  it("getStats() returns counts and enabled flag", async () => {
     prisma.incomingComment.count
       .mockResolvedValueOnce(5) // NEW
       .mockResolvedValueOnce(3) // REPLIED
@@ -74,45 +74,45 @@ describe('F4: RepliesController', () => {
     });
   });
 
-  it('manualReply() delegates to service with parsed replyText', async () => {
-    const result = await controller.manualReply('c1', { replyText: 'Hi there!' });
+  it("manualReply() delegates to service with parsed replyText", async () => {
+    const result = await controller.manualReply("c1", { replyText: "Hi there!" });
 
     expect(result).toEqual({ success: true });
-    expect(repliesMonitor.manualReply).toHaveBeenCalledWith('c1', 'Hi there!');
+    expect(repliesMonitor.manualReply).toHaveBeenCalledWith("c1", "Hi there!");
   });
 
-  it('manualReply() returns validation error for invalid body', async () => {
-    const result = await controller.manualReply('c1', { replyText: '' } as unknown);
+  it("manualReply() returns validation error for invalid body", async () => {
+    const result = await controller.manualReply("c1", { replyText: "" } as unknown);
 
     expect(result).toEqual({
       success: false,
-      error: expect.stringContaining('String must contain at least 1 character(s)'),
+      error: expect.stringContaining("replyText: Too small"),
     });
     expect(repliesMonitor.manualReply).not.toHaveBeenCalled();
   });
 
-  it('manualReply() throws when replies module is disabled', async () => {
+  it("manualReply() throws when replies module is disabled", async () => {
     repliesMonitor.isEnabled.mockReturnValue(false);
 
-    await expect(controller.manualReply('c1', { replyText: 'hello' })).rejects.toThrow(
+    await expect(controller.manualReply("c1", { replyText: "hello" })).rejects.toThrow(
       BadRequestException,
     );
   });
 
-  it('dismiss() delegates to service and returns success', async () => {
-    const result = await controller.dismiss('c1');
+  it("dismiss() delegates to service and returns success", async () => {
+    const result = await controller.dismiss("c1");
 
     expect(result).toEqual({ success: true });
-    expect(repliesMonitor.dismissReview).toHaveBeenCalledWith('c1');
+    expect(repliesMonitor.dismissReview).toHaveBeenCalledWith("c1");
   });
 
-  it('dismiss() throws when replies module is disabled', async () => {
+  it("dismiss() throws when replies module is disabled", async () => {
     repliesMonitor.isEnabled.mockReturnValue(false);
 
-    await expect(controller.dismiss('c1')).rejects.toThrow(BadRequestException);
+    await expect(controller.dismiss("c1")).rejects.toThrow(BadRequestException);
   });
 
-  it('runCycle() triggers monitoring and returns stats', async () => {
+  it("runCycle() triggers monitoring and returns stats", async () => {
     const result = await controller.runCycle();
 
     expect(result).toEqual({
@@ -125,7 +125,7 @@ describe('F4: RepliesController', () => {
     expect(repliesMonitor.runMonitoringCycle).toHaveBeenCalled();
   });
 
-  it('runCycle() throws when replies module is disabled', async () => {
+  it("runCycle() throws when replies module is disabled", async () => {
     repliesMonitor.isEnabled.mockReturnValue(false);
 
     await expect(controller.runCycle()).rejects.toThrow(BadRequestException);

@@ -1,7 +1,7 @@
-import { Global, Module } from '@nestjs/common';
-import { LangfuseService } from './langfuse.service.js';
-import { CircuitBreaker } from '../../domain/circuit-breaker.js';
-import { LANGFUSE_PROMPT_BREAKER } from './langfuse.tokens.js';
+import { Global, Module } from "@nestjs/common";
+import { LangfuseService } from "./langfuse.service.js";
+import { CircuitBreaker } from "../../domain/circuit-breaker.js";
+import { LANGFUSE_PROMPT_BREAKER } from "./langfuse.tokens.js";
 
 /**
  * LangfuseModule — global module providing LangfuseService.
@@ -22,7 +22,7 @@ import { LANGFUSE_PROMPT_BREAKER } from './langfuse.tokens.js';
     {
       provide: LANGFUSE_PROMPT_BREAKER,
       useFactory: (): CircuitBreaker =>
-        new CircuitBreaker('langfuse-prompts', {
+        new CircuitBreaker("langfuse-prompts", {
           failureThreshold: 3,
           resetTimeoutMs: 60_000, // 1 min cooldown after 3 consecutive failures
         }),

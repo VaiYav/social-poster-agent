@@ -13,7 +13,7 @@
  * Serious/poetic content styles skip the humor layer entirely.
  */
 
-import { SocialNetwork } from '@prisma/client';
+import { SocialNetwork } from "../../generated/prisma/client";
 
 export interface HumorMechanic {
   id: string;
@@ -23,59 +23,68 @@ export interface HumorMechanic {
 
 export const HUMOR_MECHANICS: HumorMechanic[] = [
   {
-    id: 'misdirection',
-    name: 'Misdirection',
-    guidance: 'Setup builds one expectation, the last line breaks it. The punchline is the FINAL line — never explain the joke after landing it.',
+    id: "misdirection",
+    name: "Misdirection",
+    guidance:
+      "Setup builds one expectation, the last line breaks it. The punchline is the FINAL line — never explain the joke after landing it.",
   },
   {
-    id: 'understatement',
-    name: 'Understatement',
-    guidance: 'Describe something dramatic or significant in deliberately flat, mundane terms. ("A major rebrand. Anyway, I fixed a typo.")',
+    id: "understatement",
+    name: "Understatement",
+    guidance:
+      'Describe something dramatic or significant in deliberately flat, mundane terms. ("A major rebrand. Anyway, I fixed a typo.")',
   },
   {
-    id: 'hyperbole_deadpan',
-    name: 'Deadpan hyperbole',
-    guidance: 'Absurd exaggeration delivered with total seriousness. No exclamation marks. The flatter the delivery, the funnier the absurdity.',
+    id: "hyperbole_deadpan",
+    name: "Deadpan hyperbole",
+    guidance:
+      "Absurd exaggeration delivered with total seriousness. No exclamation marks. The flatter the delivery, the funnier the absurdity.",
   },
   {
-    id: 'self_deprecation',
-    name: 'Self-deprecation',
-    guidance: 'The narrator is the punchline. Their own habits called them out and they know it. Punch at yourself, never at the reader.',
+    id: "self_deprecation",
+    name: "Self-deprecation",
+    guidance:
+      "The narrator is the punchline. Their own habits called them out and they know it. Punch at yourself, never at the reader.",
   },
   {
-    id: 'absurd_specificity',
-    name: 'Absurd specificity',
-    guidance: 'One detail so oddly specific it becomes funny. Not "cried" but "cried into a reusable grocery bag". Specificity IS the joke.',
+    id: "absurd_specificity",
+    name: "Absurd specificity",
+    guidance:
+      'One detail so oddly specific it becomes funny. Not "cried" but "cried into a reusable grocery bag". Specificity IS the joke.',
   },
   {
-    id: 'meta_irony',
-    name: 'Meta-irony',
-    guidance: 'Acknowledge you are a brand account doing brand-account things, wink at it, move on. Self-aware but not self-loathing.',
+    id: "meta_irony",
+    name: "Meta-irony",
+    guidance:
+      "Acknowledge you are a brand account doing brand-account things, wink at it, move on. Self-aware but not self-loathing.",
   },
   {
-    id: 'irony',
-    name: 'Irony',
-    guidance: 'Frame an outcome as if it were the plan all along when it obviously was not, or say the opposite of what actually happened. Let the gap between words and reality do the work — do not point it out.',
+    id: "irony",
+    name: "Irony",
+    guidance:
+      "Frame an outcome as if it were the plan all along when it obviously was not, or say the opposite of what actually happened. Let the gap between words and reality do the work — do not point it out.",
   },
   {
-    id: 'post_irony',
-    name: 'Post-irony',
-    guidance: 'Deliver something absurd or oddly vulnerable completely straight — no wink, no twist, no tell. It should be genuinely unclear whether you mean it. The ambiguity is the joke, not a reveal at the end.',
+    id: "post_irony",
+    name: "Post-irony",
+    guidance:
+      "Deliver something absurd or oddly vulnerable completely straight — no wink, no twist, no tell. It should be genuinely unclear whether you mean it. The ambiguity is the joke, not a reveal at the end.",
   },
   {
-    id: 'sarcasm',
-    name: 'Sarcasm',
-    guidance: 'Say the opposite of what you mean, dripping with obvious insincerity — aimed at the situation or the narrator\'s own choices, never at the reader. ("Sure, deadline, great timing, love this for me.")',
+    id: "sarcasm",
+    name: "Sarcasm",
+    guidance:
+      'Say the opposite of what you mean, dripping with obvious insincerity — aimed at the situation or the narrator\'s own choices, never at the reader. ("Sure, deadline, great timing, love this for me.")',
   },
 ];
 
 /** Shared safety + delivery rules appended whenever a mechanic is injected. */
 export const HUMOR_RULES = [
-  'The joke lives in ONE line. If you explain it, delete the explanation.',
-  'If the punchline is not the last line, move it there.',
-  'Punch at situations, systems, and the narrator — NEVER at people or groups.',
-  'If the joke does not land naturally, write the post straight instead of forcing it.',
-].join('\n- ');
+  "The joke lives in ONE line. If you explain it, delete the explanation.",
+  "If the punchline is not the last line, move it there.",
+  "Punch at situations, systems, and the narrator — NEVER at people or groups.",
+  "If the joke does not land naturally, write the post straight instead of forcing it.",
+].join("\n- ");
 
 export const HUMOR_MECHANICS_BY_ID: Record<string, HumorMechanic> = Object.fromEntries(
   HUMOR_MECHANICS.map((m) => [m.id, m]),
@@ -110,6 +119,6 @@ export function pickHumorMechanic(network: SocialNetwork, seed?: string): HumorM
  * Returns '' when the content style is not humor-compatible.
  */
 export function getHumorPromptGuidance(mechanic: HumorMechanic | null): string {
-  if (!mechanic) return '';
+  if (!mechanic) return "";
   return `\n\nHUMOR MECHANIC for this post — "${mechanic.name}":\n${mechanic.guidance}\nRULES:\n- ${HUMOR_RULES}\n`;
 }

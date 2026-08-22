@@ -8,15 +8,15 @@
  * orchestrator (which replaces all other crons) is always alive.
  */
 
-import { Injectable, Logger, OnModuleInit, Inject, Optional } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
-import { ConfigService } from '@nestjs/config';
-import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
-import { DiscordNotificationService } from '../../infrastructure/notifications/discord-notification.service.js';
-import { OrchestratorService } from './orchestrator.service.js';
-import { parseBool } from '../../infrastructure/config/parse-bool.js';
+import { Injectable, Logger, OnModuleInit, Inject, Optional } from "@nestjs/common";
+import { Cron } from "@nestjs/schedule";
+import { ConfigService } from "@nestjs/config";
+import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
+import { DiscordNotificationService } from "../../infrastructure/notifications/discord-notification.service.js";
+import { OrchestratorService } from "./orchestrator.service.js";
+import { parseBool } from "../../infrastructure/config/parse-bool.js";
 
-const HEARTBEAT_KEY_DEFAULT = 'spa:orchestrator:heartbeat';
+const HEARTBEAT_KEY_DEFAULT = "spa:orchestrator:heartbeat";
 const HEARTBEAT_TTL_MS_DEFAULT = 1_800_000;
 
 @Injectable()
@@ -29,19 +29,24 @@ export class WatchdogCron implements OnModuleInit {
 
   constructor(
     private readonly configService: ConfigService,
-    @Inject(SHARED_REDIS) private readonly redis: InstanceType<typeof import('ioredis').default>,
+    @Inject(SHARED_REDIS) private readonly redis: InstanceType<typeof import("ioredis").default>,
     @Optional() private readonly discord: DiscordNotificationService,
     @Optional() private readonly orchestratorService: OrchestratorService,
   ) {
-    this.heartbeatKey = this.configService.get<string>('ORCHESTRATOR_HEARTBEAT_KEY') ?? HEARTBEAT_KEY_DEFAULT;
-    this.heartbeatTtlMs = Number(this.configService.get<string>('ORCHESTRATOR_HEARTBEAT_TTL_MS') ?? HEARTBEAT_TTL_MS_DEFAULT);
-    this.restartDelayMs = Number(this.configService.get<string>('ORCHESTRATOR_WATCHDOG_RESTART_DELAY_MS') ?? '5000');
-    this.enabled = parseBool(this.configService.get<string>('ORCHESTRATOR_ENABLED') ?? 'false');
+    this.heartbeatKey =
+      this.configService.get<string>("ORCHESTRATOR_HEARTBEAT_KEY") ?? HEARTBEAT_KEY_DEFAULT;
+    this.heartbeatTtlMs = Number(
+      this.configService.get<string>("ORCHESTRATOR_HEARTBEAT_TTL_MS") ?? HEARTBEAT_TTL_MS_DEFAULT,
+    );
+    this.restartDelayMs = Number(
+      this.configService.get<string>("ORCHESTRATOR_WATCHDOG_RESTART_DELAY_MS") ?? "5000",
+    );
+    this.enabled = parseBool(this.configService.get<string>("ORCHESTRATOR_ENABLED") ?? "false");
   }
 
   onModuleInit() {
     if (this.enabled) {
-      this.logger.log('Watchdog enabled — monitoring orchestrator heartbeat every 5 min');
+      this.logger.log("Watchdog enabled — monitoring orchestrator heartbeat every 5 min");
     }
   }
 
@@ -49,7 +54,7 @@ export class WatchdogCron implements OnModuleInit {
    * Check orchestrator heartbeat every 5 minutes.
    * If stale → restart orchestrator + Discord alert.
    */
-  @Cron('*/5 * * * *')
+  @Cron("*/5 * * * *")
   async checkHeartbeat() {
     if (!this.enabled) return;
 
@@ -72,7 +77,7 @@ export class WatchdogCron implements OnModuleInit {
   }
 
   private async handleStaleHeartbeat(ageMs: number | null): Promise<void> {
-    const ageStr = ageMs ? `${Math.round(ageMs / 1000)}s` : 'missing';
+    const ageStr = ageMs ? `${Math.round(ageMs / 1000)}s` : "missing";
     this.logger.warn(`Orchestrator heartbeat stale (${ageStr}) — attempting restart`);
 
     // Attempt restart (OrchestratorService has its own lifecycle mutex)
@@ -81,7 +86,7 @@ export class WatchdogCron implements OnModuleInit {
         await this.orchestratorService.stop();
         await new Promise((r) => setTimeout(r, this.restartDelayMs)); // graceful shutdown window
         await this.orchestratorService.start();
-        this.logger.log('Orchestrator restarted by watchdog');
+        this.logger.log("Orchestrator restarted by watchdog");
       } catch (err) {
         this.logger.error(`Watchdog restart failed: ${(err as Error).message}`);
       }
@@ -91,7 +96,7 @@ export class WatchdogCron implements OnModuleInit {
     if (this.discord) {
       void this.discord
         .warning(
-          'Orchestrator Restarted by Watchdog',
+          "Orchestrator Restarted by Watchdog",
           `The orchestrator heartbeat was stale (${ageStr}). The watchdog attempted a restart.\n` +
             `If this recurs, investigate the orchestrator logs for hangs or crashes.`,
         )

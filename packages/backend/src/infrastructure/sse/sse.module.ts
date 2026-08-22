@@ -1,5 +1,5 @@
-import { Module, type OnModuleInit } from '@nestjs/common';
-import { SseService } from './sse.service';
+import { Module, type OnModuleInit } from "@nestjs/common";
+import { SseService } from "./sse.service";
 
 @Module({
   providers: [SseService],

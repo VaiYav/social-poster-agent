@@ -3,18 +3,18 @@
 //
 // Usage: node dist/dry-run/live-post-one.cli.js <post-id> [--yes]
 
-import 'reflect-metadata';
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from '../app.module';
-import { PostingService } from '../modules/posting/posting.service';
-import { PostsService } from '../modules/posts/posts.service';
+import "reflect-metadata";
+import { NestFactory } from "@nestjs/core";
+import { AppModule } from "../app.module";
+import { PostingService } from "../modules/posting/posting.service";
+import { PostsService } from "../modules/posts/posts.service";
 
 async function main(): Promise<void> {
   const postId = process.argv[2];
-  const yes = process.argv.includes('--yes');
+  const yes = process.argv.includes("--yes");
 
   if (!postId) {
-    console.error('Usage: node dist/dry-run/live-post-one.cli.js <post-id> [--yes]');
+    console.error("Usage: node dist/dry-run/live-post-one.cli.js <post-id> [--yes]");
     process.exit(1);
   }
 
@@ -23,22 +23,22 @@ async function main(): Promise<void> {
   if (!yes) {
     process.stdout.write('Type "yes" to proceed with REAL post: ');
     const answer = await new Promise<string>((r) => {
-      process.stdin.setEncoding('utf8');
+      process.stdin.setEncoding("utf8");
       process.stdin.resume();
-      process.stdin.once('data', (d) => {
+      process.stdin.once("data", (d) => {
         process.stdin.pause();
         r(String(d).trim());
       });
     });
-    if (answer !== 'yes') {
-      console.log('Cancelled.');
+    if (answer !== "yes") {
+      console.log("Cancelled.");
       process.exit(0);
     }
   }
 
   const app = await NestFactory.create(AppModule, {
     rawBody: true,
-    logger: ['error', 'warn', 'log', 'debug'],
+    logger: ["error", "warn", "log", "debug"],
   });
   await app.init();
 
@@ -50,8 +50,8 @@ async function main(): Promise<void> {
     console.log(`Post: network=${post.network} status=${post.status}`);
     console.log(`Content: ${post.content.slice(0, 100)}...`);
 
-    if (post.status !== 'APPROVED') {
-      console.log('Post is not APPROVED — approving first...');
+    if (post.status !== "APPROVED") {
+      console.log("Post is not APPROVED — approving first...");
       await postsService.approve(postId);
     }
 
@@ -73,6 +73,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((e) => {
-  console.error('Fatal:', e);
+  console.error("Fatal:", e);
   process.exit(1);
 });

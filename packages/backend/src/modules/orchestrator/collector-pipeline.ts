@@ -1,5 +1,5 @@
-import { Logger } from '@nestjs/common';
-import { ok, err, type Result } from '../../domain/result.js';
+import { Logger } from "@nestjs/common";
+import { ok, err, type Result } from "../../domain/result.js";
 
 export interface NamedCollector<T = unknown> {
   name: string;
@@ -17,9 +17,9 @@ export interface NamedCollector<T = unknown> {
 export class CollectorPipeline {
   private readonly logger = new Logger(CollectorPipeline.name);
 
-  async run<T extends Record<string, unknown>>(
-    collectors: { [K in keyof T]: NamedCollector<T[K]> },
-  ): Promise<{ [K in keyof T]: Result<T[K], Error> }> {
+  async run<T extends Record<string, unknown>>(collectors: {
+    [K in keyof T]: NamedCollector<T[K]>;
+  }): Promise<{ [K in keyof T]: Result<T[K], Error> }> {
     const names = Object.keys(collectors) as (keyof T)[];
     const entries = await Promise.all(
       names.map(async (name) => {

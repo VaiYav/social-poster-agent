@@ -5,12 +5,12 @@
  * recent cycle results for the REST API /api/v1/orchestrator/history.
  */
 
-import { Injectable, Logger, Inject } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
-import type { ActionResult } from './types.js';
+import { Injectable, Logger, Inject } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
+import type { ActionResult } from "./types.js";
 
-const HISTORY_KEY_DEFAULT = 'spa:orchestrator:history';
+const HISTORY_KEY_DEFAULT = "spa:orchestrator:history";
 const HISTORY_MAX = 200;
 
 @Injectable()
@@ -20,9 +20,10 @@ export class OrchestratorHistoryService {
 
   constructor(
     private readonly configService: ConfigService,
-    @Inject(SHARED_REDIS) private readonly redis: InstanceType<typeof import('ioredis').default>,
+    @Inject(SHARED_REDIS) private readonly redis: InstanceType<typeof import("ioredis").default>,
   ) {
-    this.historyKey = this.configService.get<string>('ORCHESTRATOR_HISTORY_KEY') ?? HISTORY_KEY_DEFAULT;
+    this.historyKey =
+      this.configService.get<string>("ORCHESTRATOR_HISTORY_KEY") ?? HISTORY_KEY_DEFAULT;
   }
 
   async record(cycle: number, result: ActionResult | null, sleepMs: number): Promise<void> {

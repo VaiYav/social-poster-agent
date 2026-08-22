@@ -1,11 +1,11 @@
-import { Inject, Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { CallbackHandler } from '@langfuse/langchain';
-import { LangfuseClient, type ChatPromptClient, type TextPromptClient } from '@langfuse/client';
-import { shutdownLangfuse } from '../../langfuse-instrumentation.js';
-import { CircuitBreaker } from '../../domain/circuit-breaker.js';
-import { getErrorMessage } from '../common/error-utils.js';
-import { LANGFUSE_PROMPT_BREAKER } from './langfuse.tokens.js';
+import { Inject, Injectable, Logger, type OnModuleDestroy } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { CallbackHandler } from "@langfuse/langchain";
+import { LangfuseClient, type ChatPromptClient, type TextPromptClient } from "@langfuse/client";
+import { shutdownLangfuse } from "../../langfuse-instrumentation.js";
+import { CircuitBreaker } from "../../domain/circuit-breaker.js";
+import { getErrorMessage } from "../common/error-utils.js";
+import { LANGFUSE_PROMPT_BREAKER } from "./langfuse.tokens.js";
 
 /**
  * Minimal chat message shape for SDK fallback parameter.
@@ -69,16 +69,21 @@ export class LangfuseService implements OnModuleDestroy {
     private readonly configService: ConfigService,
   ) {
     this.promptCircuitBreaker = promptCircuitBreaker;
-    this.isEnabled = !!this.configService.get<string>('LANGFUSE_PUBLIC_KEY');
+    this.isEnabled = !!this.configService.get<string>("LANGFUSE_PUBLIC_KEY");
     if (this.isEnabled) {
       try {
         this.client = new LangfuseClient({
-          publicKey: this.configService.get<string>('LANGFUSE_PUBLIC_KEY')!,
-          secretKey: this.configService.get<string>('LANGFUSE_SECRET_KEY')!,
-          baseUrl: this.configService.get<string>('LANGFUSE_BASE_URL', 'https://us.cloud.langfuse.com'),
+          publicKey: this.configService.get<string>("LANGFUSE_PUBLIC_KEY")!,
+          secretKey: this.configService.get<string>("LANGFUSE_SECRET_KEY")!,
+          baseUrl: this.configService.get<string>(
+            "LANGFUSE_BASE_URL",
+            "https://us.cloud.langfuse.com",
+          ),
         });
       } catch (err) {
-        this.logger.warn(`Failed to init LangfuseClient — prompt management disabled: ${getErrorMessage(err)}`);
+        this.logger.warn(
+          `Failed to init LangfuseClient — prompt management disabled: ${getErrorMessage(err)}`,
+        );
       }
     }
   }
@@ -126,7 +131,7 @@ export class LangfuseService implements OnModuleDestroy {
   async getChatPrompt(
     name: string,
     fallback?: FallbackChatMessage[],
-    label = 'production',
+    label = "production",
   ): Promise<ChatPromptClient | undefined> {
     const client = this.client;
     if (!client) return undefined;
@@ -134,7 +139,7 @@ export class LangfuseService implements OnModuleDestroy {
     try {
       return await this.promptCircuitBreaker.execute(() =>
         client.prompt.get(name, {
-          type: 'chat',
+          type: "chat",
           label,
           cacheTtlSeconds: 300,
           fetchTimeoutMs: 3000,
@@ -143,7 +148,9 @@ export class LangfuseService implements OnModuleDestroy {
         }),
       );
     } catch (err) {
-      this.logger.warn(`Failed to fetch chat prompt "${name}" (label: ${label}) from Langfuse: ${getErrorMessage(err)}`);
+      this.logger.warn(
+        `Failed to fetch chat prompt "${name}" (label: ${label}) from Langfuse: ${getErrorMessage(err)}`,
+      );
       return undefined;
     }
   }
@@ -162,7 +169,7 @@ export class LangfuseService implements OnModuleDestroy {
   async getTextPrompt(
     name: string,
     fallback?: string,
-    label = 'production',
+    label = "production",
   ): Promise<TextPromptClient | undefined> {
     const client = this.client;
     if (!client) return undefined;
@@ -170,7 +177,7 @@ export class LangfuseService implements OnModuleDestroy {
     try {
       return await this.promptCircuitBreaker.execute(() =>
         client.prompt.get(name, {
-          type: 'text',
+          type: "text",
           label,
           cacheTtlSeconds: 300,
           fetchTimeoutMs: 3000,
@@ -179,7 +186,9 @@ export class LangfuseService implements OnModuleDestroy {
         }),
       );
     } catch (err) {
-      this.logger.warn(`Failed to fetch text prompt "${name}" (label: ${label}) from Langfuse: ${getErrorMessage(err)}`);
+      this.logger.warn(
+        `Failed to fetch text prompt "${name}" (label: ${label}) from Langfuse: ${getErrorMessage(err)}`,
+      );
       return undefined;
     }
   }

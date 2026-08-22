@@ -6,7 +6,7 @@
  * or replyText fields do not cause over-matching.
  */
 export function extractFirstJsonObject<T = unknown>(raw: string): T | null {
-  const firstBrace = raw.indexOf('{');
+  const firstBrace = raw.indexOf("{");
   if (firstBrace === -1) return null;
 
   let depth = 0;
@@ -18,7 +18,7 @@ export function extractFirstJsonObject<T = unknown>(raw: string): T | null {
     if (inString) {
       if (escape) {
         escape = false;
-      } else if (c === '\\') {
+      } else if (c === "\\") {
         escape = true;
       } else if (c === '"') {
         inString = false;
@@ -26,9 +26,9 @@ export function extractFirstJsonObject<T = unknown>(raw: string): T | null {
     } else {
       if (c === '"') {
         inString = true;
-      } else if (c === '{') {
+      } else if (c === "{") {
         depth++;
-      } else if (c === '}') {
+      } else if (c === "}") {
         depth--;
         if (depth === 0) {
           const candidate = raw.slice(firstBrace, i + 1);

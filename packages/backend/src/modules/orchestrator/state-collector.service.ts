@@ -8,19 +8,33 @@
  * V-Model: WS-1 (critical — all decisions depend on accurate state)
  */
 
-import { Injectable, Logger, Inject } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
-import { SessionStatus, PostStatus, SocialNetwork, BrowsingSessionStatus, InteractionType, InteractionStatus } from '@prisma/client';
-import { RateLimitService } from '../rate-limit/rate-limit.service.js';
-import { FlowControlService } from '../flow-control/flow-control.service.js';
-import { AccountsService } from '../accounts/accounts.service';
-import { QueueFactory } from '../../infrastructure/queue/queue.factory.js';
-import { getEnabledNetworks } from '../../domain/enabled-networks.js';
-import { unwrap } from '../../domain/result.js';
-import { CollectorPipeline, type NamedCollector } from './collector-pipeline.js';
-import type { WorldState, SessionState, RateLimitState, HealthState, FlowControlState, PostMetricsSummary } from './types.js';
+import { Injectable, Logger, Inject } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service";
+import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
+import {
+  SessionStatus,
+  PostStatus,
+  SocialNetwork,
+  BrowsingSessionStatus,
+  InteractionType,
+  InteractionStatus,
+} from "../../generated/prisma/client";
+import { RateLimitService } from "../rate-limit/rate-limit.service.js";
+import { FlowControlService } from "../flow-control/flow-control.service.js";
+import { AccountsService } from "../accounts/accounts.service";
+import { QueueFactory } from "../../infrastructure/queue/queue.factory.js";
+import { getEnabledNetworks } from "../../domain/enabled-networks.js";
+import { unwrap } from "../../domain/result.js";
+import { CollectorPipeline, type NamedCollector } from "./collector-pipeline.js";
+import type {
+  WorldState,
+  SessionState,
+  RateLimitState,
+  HealthState,
+  FlowControlState,
+  PostMetricsSummary,
+} from "./types.js";
 
 @Injectable()
 export class StateCollectorService {
@@ -30,13 +44,13 @@ export class StateCollectorService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
-    @Inject(SHARED_REDIS) private readonly redis: InstanceType<typeof import('ioredis').default>,
+    @Inject(SHARED_REDIS) private readonly redis: InstanceType<typeof import("ioredis").default>,
     private readonly rateLimitService: RateLimitService,
     private readonly flowControlService: FlowControlService,
     private readonly queueFactory: QueueFactory,
     private readonly accountsService: AccountsService,
   ) {
-    this.topicPoolThreshold = Number(this.configService.get<string>('TOPIC_POOL_MIN', '30'));
+    this.topicPoolThreshold = Number(this.configService.get<string>("TOPIC_POOL_MIN", "30"));
   }
 
   /**
@@ -49,31 +63,31 @@ export class StateCollectorService {
     const pipeline = new CollectorPipeline();
 
     type PartialState = {
-      topicPool: Awaited<ReturnType<StateCollectorService['collectTopicPool']>>;
-      drafts: Awaited<ReturnType<StateCollectorService['collectDraftCounts']>>;
-      queueDepth: Awaited<ReturnType<StateCollectorService['collectQueueDepth']>>;
-      sessions: Awaited<ReturnType<StateCollectorService['collectSessions']>>;
-      rateLimits: Awaited<ReturnType<StateCollectorService['collectRateLimits']>>;
-      timing: Awaited<ReturnType<StateCollectorService['collectTiming']>>;
-      performance: Awaited<ReturnType<StateCollectorService['collectPerformance']>>;
-      engagement: Awaited<ReturnType<StateCollectorService['collectEngagement']>>;
-      health: Awaited<ReturnType<StateCollectorService['collectHealth']>>;
-      flowControl: Awaited<ReturnType<StateCollectorService['collectFlowControl']>>;
-      trends: Awaited<ReturnType<StateCollectorService['collectTrends']>>;
+      topicPool: Awaited<ReturnType<StateCollectorService["collectTopicPool"]>>;
+      drafts: Awaited<ReturnType<StateCollectorService["collectDraftCounts"]>>;
+      queueDepth: Awaited<ReturnType<StateCollectorService["collectQueueDepth"]>>;
+      sessions: Awaited<ReturnType<StateCollectorService["collectSessions"]>>;
+      rateLimits: Awaited<ReturnType<StateCollectorService["collectRateLimits"]>>;
+      timing: Awaited<ReturnType<StateCollectorService["collectTiming"]>>;
+      performance: Awaited<ReturnType<StateCollectorService["collectPerformance"]>>;
+      engagement: Awaited<ReturnType<StateCollectorService["collectEngagement"]>>;
+      health: Awaited<ReturnType<StateCollectorService["collectHealth"]>>;
+      flowControl: Awaited<ReturnType<StateCollectorService["collectFlowControl"]>>;
+      trends: Awaited<ReturnType<StateCollectorService["collectTrends"]>>;
     };
 
     const collectors: { [K in keyof PartialState]: NamedCollector<PartialState[K]> } = {
-      topicPool: { name: 'topicPool', collect: () => this.collectTopicPool() },
-      drafts: { name: 'drafts', collect: () => this.collectDraftCounts(networks) },
-      queueDepth: { name: 'queueDepth', collect: () => this.collectQueueDepth(networks) },
-      sessions: { name: 'sessions', collect: () => this.collectSessions(networks) },
-      rateLimits: { name: 'rateLimits', collect: () => this.collectRateLimits(networks) },
-      timing: { name: 'timing', collect: () => this.collectTiming() },
-      performance: { name: 'performance', collect: () => this.collectPerformance(networks) },
-      engagement: { name: 'engagement', collect: () => this.collectEngagement(networks) },
-      health: { name: 'health', collect: () => this.collectHealth(networks) },
-      flowControl: { name: 'flowControl', collect: () => this.collectFlowControl() },
-      trends: { name: 'trends', collect: () => this.collectTrends() },
+      topicPool: { name: "topicPool", collect: () => this.collectTopicPool() },
+      drafts: { name: "drafts", collect: () => this.collectDraftCounts(networks) },
+      queueDepth: { name: "queueDepth", collect: () => this.collectQueueDepth(networks) },
+      sessions: { name: "sessions", collect: () => this.collectSessions(networks) },
+      rateLimits: { name: "rateLimits", collect: () => this.collectRateLimits(networks) },
+      timing: { name: "timing", collect: () => this.collectTiming() },
+      performance: { name: "performance", collect: () => this.collectPerformance(networks) },
+      engagement: { name: "engagement", collect: () => this.collectEngagement(networks) },
+      health: { name: "health", collect: () => this.collectHealth(networks) },
+      flowControl: { name: "flowControl", collect: () => this.collectFlowControl() },
+      trends: { name: "trends", collect: () => this.collectTrends() },
     };
 
     const results = await pipeline.run(collectors);
@@ -84,27 +98,77 @@ export class StateCollectorService {
 
     const elapsed = Date.now() - startTime;
     if (degraded.length > 0) {
-      this.logger.warn(`State collected in ${elapsed}ms with ${degraded.length} degraded fields: ${degraded.join(', ')}`);
+      this.logger.warn(
+        `State collected in ${elapsed}ms with ${degraded.length} degraded fields: ${degraded.join(", ")}`,
+      );
     } else {
       this.logger.debug(`State collected in ${elapsed}ms — all sources OK`);
     }
 
     return {
       timestamp: Date.now(),
-      topicPool: unwrap(results.topicPool, { count: 0, threshold: this.topicPoolThreshold, oldestAgeMs: 0 }),
-      drafts: unwrap(results.drafts, { pending: 0, approved: 0, rejected: 0, approvedByNetwork: {} }),
+      topicPool: unwrap(results.topicPool, {
+        count: 0,
+        threshold: this.topicPoolThreshold,
+        oldestAgeMs: 0,
+      }),
+      drafts: unwrap(results.drafts, {
+        pending: 0,
+        approved: 0,
+        rejected: 0,
+        approvedByNetwork: {},
+      }),
       queueDepth: unwrap(results.queueDepth, {}),
       sessions: unwrap(results.sessions, {}),
       rateLimits: unwrap(results.rateLimits, {}),
-      now: unwrap(results.timing, { now: Date.now(), utcHour: new Date().getUTCHours(), utcDayOfWeek: new Date().getUTCDay() }).now,
-      utcHour: unwrap(results.timing, { now: Date.now(), utcHour: new Date().getUTCHours(), utcDayOfWeek: new Date().getUTCDay() }).utcHour,
-      utcDayOfWeek: unwrap(results.timing, { now: Date.now(), utcHour: new Date().getUTCHours(), utcDayOfWeek: new Date().getUTCDay() }).utcDayOfWeek,
+      now: unwrap(results.timing, {
+        now: Date.now(),
+        utcHour: new Date().getUTCHours(),
+        utcDayOfWeek: new Date().getUTCDay(),
+      }).now,
+      utcHour: unwrap(results.timing, {
+        now: Date.now(),
+        utcHour: new Date().getUTCHours(),
+        utcDayOfWeek: new Date().getUTCDay(),
+      }).utcHour,
+      utcDayOfWeek: unwrap(results.timing, {
+        now: Date.now(),
+        utcHour: new Date().getUTCHours(),
+        utcDayOfWeek: new Date().getUTCDay(),
+      }).utcDayOfWeek,
       postingWindows: {}, // Filled by PostingWindowService in Phase 2
       inPostingWindow: {},
       performance: unwrap(results.performance, {}),
-      engagement: unwrap(results.engagement, { lastBrowseMs: {}, uncheckedReplies: 0, warmupPhase: {}, lastSessionStatus: {}, lastSessionInteractions: {}, engagementDebt: 0, commentsTargetToday: 0, commentsActualToday: 0, likesTargetToday: 0, likesActualToday: 0, debt: 0 }),
-      health: unwrap(results.health, { bans: 0, dlqDepth: 0, stuckPosting: 0, stuckBrowsingSessions: 0, orphanedPosts: 0, killSwitch: false }),
-      flowControl: unwrap(results.flowControl, { pauseAll: false, pauseGeneration: false, pausePosting: false, pauseEngagement: false, pauseReplies: false, pauseLlmTriage: false, pauseAutoApprove: false }),
+      engagement: unwrap(results.engagement, {
+        lastBrowseMs: {},
+        uncheckedReplies: 0,
+        warmupPhase: {},
+        lastSessionStatus: {},
+        lastSessionInteractions: {},
+        engagementDebt: 0,
+        commentsTargetToday: 0,
+        commentsActualToday: 0,
+        likesTargetToday: 0,
+        likesActualToday: 0,
+        debt: 0,
+      }),
+      health: unwrap(results.health, {
+        bans: 0,
+        dlqDepth: 0,
+        stuckPosting: 0,
+        stuckBrowsingSessions: 0,
+        orphanedPosts: 0,
+        killSwitch: false,
+      }),
+      flowControl: unwrap(results.flowControl, {
+        pauseAll: false,
+        pauseGeneration: false,
+        pausePosting: false,
+        pauseEngagement: false,
+        pauseReplies: false,
+        pauseLlmTriage: false,
+        pauseAutoApprove: false,
+      }),
       trends: unwrap(results.trends, { lastRefreshMs: 0, count: 0 }),
       _degraded: degraded,
       _collectedAt: Date.now(),
@@ -114,10 +178,10 @@ export class StateCollectorService {
   // ── Individual collectors ────────────────────────────────────────────────
 
   private async collectTopicPool() {
-    const count = await this.prisma.topic.count({ where: { status: 'active' } });
+    const count = await this.prisma.topic.count({ where: { status: "active" } });
     const oldest = await this.prisma.topic.findFirst({
-      where: { status: 'active' },
-      orderBy: { createdAt: 'asc' },
+      where: { status: "active" },
+      orderBy: { createdAt: "asc" },
       select: { createdAt: true },
     });
     const oldestAgeMs = oldest ? Date.now() - oldest.createdAt.getTime() : 0;
@@ -138,15 +202,23 @@ export class StateCollectorService {
         }),
       ),
     ]);
-    return { pending, approved, rejected, approvedByNetwork: Object.fromEntries(approvedByNetworkEntries) };
+    return {
+      pending,
+      approved,
+      rejected,
+      approvedByNetwork: Object.fromEntries(approvedByNetworkEntries),
+    };
   }
 
   private async collectQueueDepth(networks: string[]): Promise<Record<string, number>> {
     const entries = await Promise.all(
       networks.map(async (network) => {
         try {
-          const counts = await this.queueFactory.getJobCounts(network, 'posting');
-          return [network, (counts.active ?? 0) + (counts.waiting ?? 0) + (counts.delayed ?? 0)] as const;
+          const counts = await this.queueFactory.getJobCounts(network, "posting");
+          return [
+            network,
+            (counts.active ?? 0) + (counts.waiting ?? 0) + (counts.delayed ?? 0),
+          ] as const;
         } catch {
           return [network, 0] as const;
         }
@@ -160,15 +232,20 @@ export class StateCollectorService {
     const entries = await Promise.all(
       networks.map(async (network) => {
         try {
-          const account = await this.accountsService.findFirstActiveByNetwork(network as SocialNetwork);
+          const account = await this.accountsService.findFirstActiveByNetwork(
+            network as SocialNetwork,
+          );
           if (!account) {
-            return [network, { status: 'unknown', lastCheckMs: 0, circuitBreaker: 'unknown' }] as const;
+            return [
+              network,
+              { status: "unknown", lastCheckMs: 0, circuitBreaker: "unknown" },
+            ] as const;
           }
 
           const [session, recentPosts] = await Promise.all([
             this.prisma.session.findFirst({
               where: { accountId: account.id, status: SessionStatus.ACTIVE },
-              orderBy: { createdAt: 'desc' },
+              orderBy: { createdAt: "desc" },
             }),
             // Check posts from the last 30 minutes only — a circuit breaker based
             // on the last 3 posts never recovers because old failures stay in the
@@ -180,7 +257,7 @@ export class StateCollectorService {
                 network: network as SocialNetwork,
                 approvedAt: { gte: new Date(Date.now() - 30 * 60 * 1000) },
               },
-              orderBy: { approvedAt: 'desc' },
+              orderBy: { approvedAt: "desc" },
               take: 10,
               select: { status: true },
             }),
@@ -191,18 +268,25 @@ export class StateCollectorService {
           // Open only if ≥3 failures in the last 30 min (active failure storm).
           // Half-open if 1-2 failures. Closed if no failures or no recent posts.
           const circuitBreaker =
-            recentFails >= 3 ? 'open' : recentFails >= 1 && recentTotal >= 2 ? 'half_open' : 'closed';
+            recentFails >= 3
+              ? "open"
+              : recentFails >= 1 && recentTotal >= 2
+                ? "half_open"
+                : "closed";
 
           return [
             network,
             {
               status: session?.status ?? SessionStatus.EXPIRED,
               lastCheckMs: session?.lastHealthCheck?.getTime() ?? 0,
-              circuitBreaker: circuitBreaker as SessionState['circuitBreaker'],
+              circuitBreaker: circuitBreaker as SessionState["circuitBreaker"],
             },
           ] as const;
         } catch {
-          return [network, { status: 'unknown', lastCheckMs: 0, circuitBreaker: 'unknown' }] as const;
+          return [
+            network,
+            { status: "unknown", lastCheckMs: 0, circuitBreaker: "unknown" },
+          ] as const;
         }
       }),
     );
@@ -217,9 +301,13 @@ export class StateCollectorService {
           // A limit of 0 means unlimited; represent remaining as a large positive value
           // so guardrails and posting logic don't treat it as exhausted.
           const dailyRemaining =
-            status.dailyLimit > 0 ? Math.max(0, status.dailyLimit - status.dailyCount) : Number.MAX_SAFE_INTEGER;
+            status.dailyLimit > 0
+              ? Math.max(0, status.dailyLimit - status.dailyCount)
+              : Number.MAX_SAFE_INTEGER;
           const weeklyRemaining =
-            status.weeklyLimit > 0 ? Math.max(0, status.weeklyLimit - status.weeklyCount) : Number.MAX_SAFE_INTEGER;
+            status.weeklyLimit > 0
+              ? Math.max(0, status.weeklyLimit - status.weeklyCount)
+              : Number.MAX_SAFE_INTEGER;
           return [
             network,
             {
@@ -233,7 +321,17 @@ export class StateCollectorService {
           ] as const;
         } catch {
           // Degraded — safe fallback: no remaining capacity so the orchestrator WAITs.
-          return [network, { dailyRemaining: 0, weeklyRemaining: 0, dailyLimit: 0, weeklyLimit: 0, minIntervalMs: 0, lastPostMs: 0 }] as const;
+          return [
+            network,
+            {
+              dailyRemaining: 0,
+              weeklyRemaining: 0,
+              dailyLimit: 0,
+              weeklyLimit: 0,
+              minIntervalMs: 0,
+              lastPostMs: 0,
+            },
+          ] as const;
         }
       }),
     );
@@ -255,7 +353,7 @@ export class StateCollectorService {
       try {
         const recentMetrics = await this.prisma.postMetrics.findMany({
           where: { post: { network: network as SocialNetwork } },
-          orderBy: { collectedAt: 'desc' },
+          orderBy: { collectedAt: "desc" },
           take: 10,
           include: { post: { select: { postedAt: true } } },
         });
@@ -266,9 +364,10 @@ export class StateCollectorService {
         }
 
         const lastMetrics = recentMetrics[0];
-        const avgEngagement = recentMetrics.reduce((sum, m) => {
-          return sum + (m.likes + m.comments * 2 + m.shares * 3);
-        }, 0) / recentMetrics.length;
+        const avgEngagement =
+          recentMetrics.reduce((sum, m) => {
+            return sum + (m.likes + m.comments * 2 + m.shares * 3);
+          }, 0) / recentMetrics.length;
 
         // Build hour histogram from post times
         const hourCounts = new Map<number, number>();
@@ -307,34 +406,34 @@ export class StateCollectorService {
       Promise.all(
         networks.map(async (network) => {
           try {
-            const account = await this.accountsService.findFirstActiveByNetwork(network as SocialNetwork);
+            const account = await this.accountsService.findFirstActiveByNetwork(
+              network as SocialNetwork,
+            );
             if (account) {
               const lastSession = await this.prisma.browsingSession.findFirst({
                 where: { accountId: account.id },
-                orderBy: { startedAt: 'desc' },
+                orderBy: { startedAt: "desc" },
                 select: { startedAt: true, endedAt: true, status: true, interactionsCount: true },
               });
               // Use endedAt when available (completed/failed session), otherwise startedAt for active sessions.
               // This prevents stuck ACTIVE sessions from being considered "fresh" forever.
               const lastBrowseMs =
-                lastSession?.endedAt?.getTime() ??
-                lastSession?.startedAt?.getTime() ??
-                0;
+                lastSession?.endedAt?.getTime() ?? lastSession?.startedAt?.getTime() ?? 0;
               return [
                 network,
                 lastBrowseMs,
-                account.warmupEnabled ? 'warmup' : 'full',
-                lastSession?.status ?? 'none',
+                account.warmupEnabled ? "warmup" : "full",
+                lastSession?.status ?? "none",
                 lastSession?.interactionsCount ?? 0,
               ] as const;
             }
-            return [network, 0, 'unknown', 'none', 0] as const;
+            return [network, 0, "unknown", "none", 0] as const;
           } catch {
-            return [network, 0, 'unknown', 'none', 0] as const;
+            return [network, 0, "unknown", "none", 0] as const;
           }
         }),
       ),
-      this.prisma.incomingComment.count({ where: { status: 'NEW' } }).catch(() => 0),
+      this.prisma.incomingComment.count({ where: { status: "NEW" } }).catch(() => 0),
     ]);
 
     const lastBrowseMs: Record<string, number> = {};
@@ -355,8 +454,8 @@ export class StateCollectorService {
     const fourHoursAgo = Date.now() - 4 * 60 * 60 * 1000;
     const engagementDebt = Object.keys(lastBrowseMs).filter(
       (network) =>
-        lastSessionStatus[network] !== 'none' &&
-        lastSessionStatus[network] !== 'unknown' &&
+        lastSessionStatus[network] !== "none" &&
+        lastSessionStatus[network] !== "unknown" &&
         (lastBrowseMs[network] ?? 0) < fourHoursAgo,
     ).length;
 
@@ -364,25 +463,38 @@ export class StateCollectorService {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
     const [commentsActualToday, likesActualToday] = await Promise.all([
-      this.prisma.interaction.count({
-        where: {
-          type: InteractionType.COMMENT,
-          status: InteractionStatus.COMPLETED,
-          completedAt: { gte: startOfDay },
-        },
-      }).catch(() => 0),
-      this.prisma.interaction.count({
-        where: {
-          type: InteractionType.LIKE,
-          status: InteractionStatus.COMPLETED,
-          completedAt: { gte: startOfDay },
-        },
-      }).catch(() => 0),
+      this.prisma.interaction
+        .count({
+          where: {
+            type: InteractionType.COMMENT,
+            status: InteractionStatus.COMPLETED,
+            completedAt: { gte: startOfDay },
+          },
+        })
+        .catch(() => 0),
+      this.prisma.interaction
+        .count({
+          where: {
+            type: InteractionType.LIKE,
+            status: InteractionStatus.COMPLETED,
+            completedAt: { gte: startOfDay },
+          },
+        })
+        .catch(() => 0),
     ]);
 
-    const sessionsPerDay = Math.max(1, Number(this.configService.get<string>('F1_BROWSING_SESSIONS_PER_DAY', '5')));
-    const commentsPerSession = Math.max(0, Number(this.configService.get<string>('F1_COMMENTS_MAX_PER_DAY', '10')));
-    const likesPerSession = Math.max(0, Number(this.configService.get<string>('F1_LIKES_MAX_PER_DAY', '25')));
+    const sessionsPerDay = Math.max(
+      1,
+      Number(this.configService.get<string>("F1_BROWSING_SESSIONS_PER_DAY", "5")),
+    );
+    const commentsPerSession = Math.max(
+      0,
+      Number(this.configService.get<string>("F1_COMMENTS_MAX_PER_DAY", "10")),
+    );
+    const likesPerSession = Math.max(
+      0,
+      Number(this.configService.get<string>("F1_LIKES_MAX_PER_DAY", "25")),
+    );
     const commentsTargetToday = commentsPerSession * sessionsPerDay;
     const likesTargetToday = likesPerSession * sessionsPerDay;
     const debt = Math.max(0, commentsTargetToday - commentsActualToday);
@@ -405,27 +517,31 @@ export class StateCollectorService {
   private async collectHealth(networks: string[]): Promise<HealthState> {
     // Run stuck-post count, stuck browsing session count, ban detection, and DLQ depth in parallel
     const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000);
-    const browsingMinutes = Number(this.configService.get('F1_BROWSING_SESSION_MINUTES', 15));
+    const browsingMinutes = Number(this.configService.get("F1_BROWSING_SESSION_MINUTES", 15));
     const browsingStuckGraceMs = browsingMinutes * 60 * 1000 + 180_000 + 5 * 60 * 1000;
     const browsingStuckCutoff = new Date(Date.now() - browsingStuckGraceMs);
 
     const [stuckPosting, stuckBrowsingSessions, banResults, dlqResults] = await Promise.all([
-      this.prisma.post.count({
-        // postedAt is only set once a post is live. While a post is POSTING,
-        // approvedAt is the timestamp that marks when it entered the pipeline.
-        where: {
-          status: PostStatus.POSTING,
-          approvedAt: { lt: tenMinAgo },
-          network: { in: networks as SocialNetwork[] },
-        },
-      }).catch(() => 0),
-      this.prisma.browsingSession.count({
-        where: {
-          status: BrowsingSessionStatus.ACTIVE,
-          startedAt: { lt: browsingStuckCutoff },
-          account: { network: { in: networks as SocialNetwork[] } },
-        },
-      }).catch(() => 0),
+      this.prisma.post
+        .count({
+          // postedAt is only set once a post is live. While a post is POSTING,
+          // approvedAt is the timestamp that marks when it entered the pipeline.
+          where: {
+            status: PostStatus.POSTING,
+            approvedAt: { lt: tenMinAgo },
+            network: { in: networks as SocialNetwork[] },
+          },
+        })
+        .catch(() => 0),
+      this.prisma.browsingSession
+        .count({
+          where: {
+            status: BrowsingSessionStatus.ACTIVE,
+            startedAt: { lt: browsingStuckCutoff },
+            account: { network: { in: networks as SocialNetwork[] } },
+          },
+        })
+        .catch(() => 0),
 
       // Ban detection — parallel per network
       // H9: 5 consecutive FAILED posts → ban detected → orchestrator WAITs.
@@ -435,16 +551,14 @@ export class StateCollectorService {
       Promise.all(
         networks.map(async (network): Promise<number> => {
           try {
-            const banWindowHours = Number(
-              this.configService.get('BAN_DETECTION_WINDOW_HOURS', 2),
-            );
+            const banWindowHours = Number(this.configService.get("BAN_DETECTION_WINDOW_HOURS", 2));
             const banWindowCutoff = new Date(Date.now() - banWindowHours * 60 * 60 * 1000);
             const recentPosts = await this.prisma.post.findMany({
               where: {
                 network: network as SocialNetwork,
                 approvedAt: { gt: banWindowCutoff },
               },
-              orderBy: { approvedAt: 'desc' },
+              orderBy: { approvedAt: "desc" },
               take: 5,
               select: { status: true },
             });
@@ -466,8 +580,10 @@ export class StateCollectorService {
       Promise.all(
         networks.map(async (network) => {
           try {
-            const failed = await this.queueFactory.getFailedJobs(network, 'posting');
-            return failed.filter((job) => !String(job.failedReason ?? '').startsWith('Rate limited:')).length;
+            const failed = await this.queueFactory.getFailedJobs(network, "posting");
+            return failed.filter(
+              (job) => !String(job.failedReason ?? "").startsWith("Rate limited:"),
+            ).length;
           } catch {
             return 0;
           }
@@ -496,8 +612,8 @@ export class StateCollectorService {
       pausePosting: status.flows?.posting ?? false,
       pauseEngagement: status.flows?.engagement ?? false,
       pauseReplies: status.flows?.replies ?? false,
-      pauseLlmTriage: status.flows?.['llm_triage'] ?? false,
-      pauseAutoApprove: status.flows?.['auto_approve'] ?? false,
+      pauseLlmTriage: status.flows?.["llm_triage"] ?? false,
+      pauseAutoApprove: status.flows?.["auto_approve"] ?? false,
     };
   }
 
@@ -506,13 +622,13 @@ export class StateCollectorService {
     // We approximate by checking when the last topic with sourceType 'trending' was created.
     try {
       const lastTrending = await this.prisma.topic.findFirst({
-        where: { sourceType: 'trending' },
-        orderBy: { createdAt: 'desc' },
+        where: { sourceType: "trending" },
+        orderBy: { createdAt: "desc" },
         select: { createdAt: true },
       });
       const lastRefreshMs = lastTrending?.createdAt?.getTime() ?? 0;
       const count = await this.prisma.topic.count({
-        where: { sourceType: 'trending', status: 'active' },
+        where: { sourceType: "trending", status: "active" },
       });
       return { lastRefreshMs, count };
     } catch {

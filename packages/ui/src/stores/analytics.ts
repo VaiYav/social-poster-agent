@@ -1,9 +1,9 @@
 /**
  * Analytics store — extended for autonomous metrics, hook performance, and reports.
  */
-import { defineStore } from 'pinia';
-import { ref } from 'vue';
-import { useApi } from '../composables/useApi';
+import { defineStore } from "pinia";
+import { ref } from "vue";
+import { useApi } from "../composables/useApi";
 
 interface AnalyticsSummary {
   totalPosts: number;
@@ -24,12 +24,18 @@ interface TopPost {
 }
 
 interface HookPerformanceStats {
-  networks: Record<string, Record<string, {
-    avg: number;
-    count: number;
-    avgQuality: number;
-    qualityCount: number;
-  }>>;
+  networks: Record<
+    string,
+    Record<
+      string,
+      {
+        avg: number;
+        count: number;
+        avgQuality: number;
+        qualityCount: number;
+      }
+    >
+  >;
   lastUpdated: number | null;
 }
 
@@ -43,7 +49,7 @@ interface AutonomousStats {
   rejectReasons: { reason: string; count: number }[];
 }
 
-export const useAnalyticsStore = defineStore('analytics', () => {
+export const useAnalyticsStore = defineStore("analytics", () => {
   const api = useApi();
   const summary = ref<AnalyticsSummary | null>(null);
   const topPosts = ref<TopPost[]>([]);
@@ -54,7 +60,7 @@ export const useAnalyticsStore = defineStore('analytics', () => {
 
   async function fetchSummary() {
     try {
-      const res = await api.get<AnalyticsSummary>('/analytics/summary');
+      const res = await api.get<AnalyticsSummary>("/analytics/summary");
       summary.value = res.data;
     } catch (err) {
       error.value = (err as Error).message;
@@ -72,7 +78,7 @@ export const useAnalyticsStore = defineStore('analytics', () => {
 
   async function fetchHookPerformance() {
     try {
-      const res = await api.get<HookPerformanceStats>('/analytics/hook-performance');
+      const res = await api.get<HookPerformanceStats>("/analytics/hook-performance");
       hookPerformance.value = res.data;
     } catch (err) {
       error.value = (err as Error).message;
@@ -81,7 +87,7 @@ export const useAnalyticsStore = defineStore('analytics', () => {
 
   async function triggerHookAggregation() {
     try {
-      await api.post('/analytics/hook-performance/aggregate');
+      await api.post("/analytics/hook-performance/aggregate");
       await fetchHookPerformance();
     } catch (err) {
       error.value = (err as Error).message;
@@ -90,7 +96,7 @@ export const useAnalyticsStore = defineStore('analytics', () => {
 
   async function fetchAutonomousStats() {
     try {
-      const res = await api.get<AutonomousStats>('/analytics/autonomous');
+      const res = await api.get<AutonomousStats>("/analytics/autonomous");
       autonomousStats.value = res.data;
     } catch {
       // Endpoint may not exist yet — graceful degradation

@@ -6,14 +6,14 @@
  *
  * Mastodon default post limit: 500 characters (grapheme count via checkContentLength).
  */
-import { Injectable, Logger, Inject } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { SocialNetwork } from '@prisma/client';
-import { z } from 'zod';
-import type { BrowserContext, Page } from '../../../domain/ports/browser-primitives.js';
-import { IBrowserPort } from '../../../domain/ports/browser.port.js';
-import { BasePoster, type PostResult } from './base.poster.js';
-import { checkContentLength } from '../../posts/network-limits.js';
+import { Injectable, Logger, Inject } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { SocialNetwork } from "../../../generated/prisma/client";
+import { z } from "zod";
+import type { BrowserContext, Page } from "../../../domain/ports/browser-primitives.js";
+import { IBrowserPort } from "../../../domain/ports/browser.port.js";
+import { BasePoster, type PostResult } from "./base.poster.js";
+import { checkContentLength } from "../../posts/network-limits.js";
 
 @Injectable()
 export class MastodonPoster extends BasePoster {
@@ -26,8 +26,8 @@ export class MastodonPoster extends BasePoster {
     @Inject(ConfigService) configService: ConfigService,
   ) {
     super(browser, configService);
-    const rawInstance = this.configService.get<string>('MASTODON_INSTANCE', 'mastodon.social');
-    this.instance = rawInstance.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    const rawInstance = this.configService.get<string>("MASTODON_INSTANCE", "mastodon.social");
+    this.instance = rawInstance.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
   }
 
   async post(
@@ -54,17 +54,17 @@ export class MastodonPoster extends BasePoster {
       this.registerCrashHandler(page, context);
 
       const homeUrl = `https://${this.instance}/home`;
-      this.assertPageAlive(page, 'navigate to Mastodon home');
-      await this.navigate(page, homeUrl, 'domcontentloaded');
+      this.assertPageAlive(page, "navigate to Mastodon home");
+      await this.navigate(page, homeUrl, "domcontentloaded");
 
       if (await this.isOnLoginPage(page)) {
-        this.logger.warn('Mastodon session expired — login page detected');
-        return { error: 'Not logged in — session expired, relogin needed', retryable: true };
+        this.logger.warn("Mastodon session expired — login page detected");
+        return { error: "Not logged in — session expired, relogin needed", retryable: true };
       }
 
       await this.detectShadowban(page);
 
-      await this.screenshot(page, 'before-compose');
+      await this.screenshot(page, "before-compose");
 
       // Try to open the composer from the home timeline.
       let composeResult = await this.browser.act(
@@ -77,17 +77,17 @@ export class MastodonPoster extends BasePoster {
           `Mastodon compose button not found on /home: ${composeResult.error} — trying /publish`,
         );
         const publishUrl = `https://${this.instance}/publish`;
-        this.assertPageAlive(page, 'navigate to Mastodon /publish');
-        await this.navigate(page, publishUrl, 'domcontentloaded');
+        this.assertPageAlive(page, "navigate to Mastodon /publish");
+        await this.navigate(page, publishUrl, "domcontentloaded");
 
         if (await this.isOnLoginPage(page)) {
-          return { error: 'Not logged in — session expired, relogin needed', retryable: true };
+          return { error: "Not logged in — session expired, relogin needed", retryable: true };
         }
 
         // On /publish the composer is already visible; verify it is there.
         composeResult = await this.browser.act(
           page,
-          'Confirm the Mastodon compose textarea is visible and ready for input',
+          "Confirm the Mastodon compose textarea is visible and ready for input",
         );
         if (!composeResult.success) {
           throw new Error(`Mastodon /publish has no composer: ${composeResult.error}`);
@@ -100,7 +100,7 @@ export class MastodonPoster extends BasePoster {
         `Find the Mastodon compose textarea and type the following content exactly:\n\n${content}`,
       );
       if (!typeResult.success) {
-        throw new Error(`Failed to type Mastodon post: ${typeResult.error ?? 'unknown error'}`);
+        throw new Error(`Failed to type Mastodon post: ${typeResult.error ?? "unknown error"}`);
       }
 
       // Submit.
@@ -109,11 +109,13 @@ export class MastodonPoster extends BasePoster {
         'Click the "Publish" or "Post" button to publish the Mastodon status',
       );
       if (!publishResult.success) {
-        throw new Error(`Failed to publish Mastodon post: ${publishResult.error ?? 'unknown error'}`);
+        throw new Error(
+          `Failed to publish Mastodon post: ${publishResult.error ?? "unknown error"}`,
+        );
       }
 
       await this.browser.randomDelay(3000, 6000);
-      await this.screenshot(page, 'after-submit');
+      await this.screenshot(page, "after-submit");
 
       // Extract the published post URL.
       const urlSchema = z.object({ url: z.string().url() });
@@ -129,7 +131,7 @@ export class MastodonPoster extends BasePoster {
       }
 
       if (!url) {
-        throw new Error('Could not extract or determine Mastodon post URL after publish');
+        throw new Error("Could not extract or determine Mastodon post URL after publish");
       }
 
       this.logger.log(`Mastodon post published: ${url}`);
@@ -142,10 +144,10 @@ export class MastodonPoster extends BasePoster {
           async () => {
             throw err;
           },
-          'mastodon post',
+          "mastodon post",
         );
       }
-      const classified = await this.classifyError(err, null, 'mastodon post');
+      const classified = await this.classifyError(err, null, "mastodon post");
       return {
         error: classified.message,
         screenshotPath: classified.screenshotPath,
@@ -162,8 +164,8 @@ export class MastodonPoster extends BasePoster {
    * and public permalink (/@handle/123456) forms.
    */
   private isMastodonPostUrl(url: string): boolean {
-    const instancePattern = this.instance.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    if (!new RegExp(`^https?://(www\\.)?${instancePattern}`, 'i').test(url)) {
+    const instancePattern = this.instance.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (!new RegExp(`^https?://(www\\.)?${instancePattern}`, "i").test(url)) {
       return false;
     }
     return /\/users\/[^/]+\/statuses\/[^/]+|\/statuses\/[^/]+|\/@[^/]+\/\d+/.test(url);

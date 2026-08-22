@@ -2,14 +2,23 @@ import { defineConfig } from 'vitest/config';
 import { resolve } from 'node:path';
 
 export default defineConfig({
+  // Vite 8 / Vitest 4 use the oxc transformer. Test files are excluded from
+  // tsconfig.json, so oxc does not pick up experimentalDecorators for them.
+  // Enable legacy decorators explicitly so test fixtures like @Public() work.
+  oxc: {
+    decorator: {
+      legacy: true,
+      emitDecoratorMetadata: true,
+    },
+  },
   resolve: {
     alias: {
-      '@': resolve(__dirname, 'src'),
-      '@domain': resolve(__dirname, 'src/domain'),
-      '@modules': resolve(__dirname, 'src/modules'),
-      '@infra': resolve(__dirname, 'src/infrastructure'),
-      '@config': resolve(__dirname, 'src/config'),
-      '@shared': resolve(__dirname, '../shared/src'),
+      '@': resolve(import.meta.dirname, 'src'),
+      '@domain': resolve(import.meta.dirname, 'src/domain'),
+      '@modules': resolve(import.meta.dirname, 'src/modules'),
+      '@infra': resolve(import.meta.dirname, 'src/infrastructure'),
+      '@config': resolve(import.meta.dirname, 'src/config'),
+      '@shared': resolve(import.meta.dirname, '../shared/src'),
     },
   },
   test: {
@@ -36,9 +45,7 @@ export default defineConfig({
     },
     setupFiles: ['tests/setup.ts'],
     pool: 'threads',
-    poolOptions: {
-      threads: { singleThread: true },
-    },
+    singleThread: true,
     testTimeout: 15000,
     hookTimeout: 15000,
   },

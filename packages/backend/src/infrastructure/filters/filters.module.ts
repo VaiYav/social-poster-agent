@@ -1,8 +1,8 @@
-import { Global, Module } from '@nestjs/common';
-import { APP_FILTER } from '@nestjs/core';
-import { SentryGlobalFilter } from '@sentry/nestjs/setup';
-import { ZodValidationFilter } from './zod-validation.filter';
-import { PrismaClientExceptionFilter } from './prisma-exception.filter';
+import { Global, Module } from "@nestjs/common";
+import { APP_FILTER } from "@nestjs/core";
+import { SentryGlobalFilter } from "@sentry/nestjs/setup";
+import { ZodValidationFilter } from "./zod-validation.filter";
+import { PrismaClientExceptionFilter } from "./prisma-exception.filter";
 
 /**
  * Filters module — registers global exception filters.

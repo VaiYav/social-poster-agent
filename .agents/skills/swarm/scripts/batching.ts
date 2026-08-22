@@ -169,10 +169,7 @@ function formatValue(value: unknown): string {
  * sees a column name as a name, never as template syntax.
  */
 function renderTaskBlock(instruction: string): string {
-  return instruction.replace(
-    /\{([^}]+)\}/g,
-    (_m, raw) => `\`${String(raw).trim()}\``,
-  );
+  return instruction.replace(/\{([^}]+)\}/g, (_m, raw) => `\`${String(raw).trim()}\``);
 }
 
 /**
@@ -185,10 +182,7 @@ function renderTaskBlock(instruction: string): string {
  *       col1: <value>
  *       col2: <value>
  */
-function renderItemsBlock(
-  rows: Array<Record<string, unknown>>,
-  placeholders: string[],
-): string {
+function renderItemsBlock(rows: Array<Record<string, unknown>>, placeholders: string[]): string {
   const lines: string[] = [];
 
   for (const row of rows) {

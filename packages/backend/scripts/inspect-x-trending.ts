@@ -1,15 +1,15 @@
 // Inspect X trending page — find current selectors.
 // Run from packages/backend: npx tsx scripts/inspect-x-trending.ts
 
-import 'reflect-metadata';
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from '../src/app.module';
-import { SessionsService } from '../src/modules/sessions/sessions.service';
-import { IBrowserPort } from '../src/domain/ports/browser.port';
-import { SocialNetwork } from '@prisma/client';
+import "reflect-metadata";
+import { NestFactory } from "@nestjs/core";
+import { AppModule } from "../src/app.module";
+import { SessionsService } from "../src/modules/sessions/sessions.service";
+import { IBrowserPort } from "../src/domain/ports/browser.port";
+import { SocialNetwork } from "../src/generated/prisma/client";
 
 async function main() {
-  const app = await NestFactory.create(AppModule, { logger: ['error', 'warn', 'log'] });
+  const app = await NestFactory.create(AppModule, { logger: ["error", "warn", "log"] });
   await app.init();
 
   const sessions = app.get(SessionsService);
@@ -18,7 +18,7 @@ async function main() {
   // Get X session
   const session = await sessions.getOrCreateSession(SocialNetwork.X);
   if (!session) {
-    console.log('No X session available');
+    console.log("No X session available");
     await app.close();
     return;
   }
@@ -27,14 +27,14 @@ async function main() {
   const page = await context.newPage();
 
   const urls = [
-    'https://x.com/explore/tabs/trending',
-    'https://x.com/explore',
-    'https://x.com/home',
+    "https://x.com/explore/tabs/trending",
+    "https://x.com/explore",
+    "https://x.com/home",
   ];
 
   for (const url of urls) {
     console.log(`\n=== Navigating to ${url} ===`);
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
     await page.waitForTimeout(5000); // longer wait
 
     const currentUrl = page.url();
@@ -62,19 +62,19 @@ async function main() {
       }
       return results;
     });
-    console.log('Alternative selectors:', JSON.stringify(altCounts, null, 2));
+    console.log("Alternative selectors:", JSON.stringify(altCounts, null, 2));
 
     // List all data-testid attributes on the page (first 30)
     const testIds = await page.evaluate(() => {
-      const els = document.querySelectorAll('[data-testid]');
+      const els = document.querySelectorAll("[data-testid]");
       const ids: string[] = [];
       els.forEach((el) => {
-        const id = el.getAttribute('data-testid');
+        const id = el.getAttribute("data-testid");
         if (id && !ids.includes(id)) ids.push(id);
       });
       return ids.slice(0, 50);
     });
-    console.log(`All data-testid values (${testIds.length}):`, testIds.join(', '));
+    console.log(`All data-testid values (${testIds.length}):`, testIds.join(", "));
 
     if (trendCount > 0) {
       // Extract trend text
@@ -83,12 +83,12 @@ async function main() {
         const results: string[] = [];
         els.forEach((el, i) => {
           if (i >= 10) return;
-          const text = el.textContent?.trim()?.split('\n')[0]?.trim();
+          const text = el.textContent?.trim()?.split("\n")[0]?.trim();
           if (text) results.push(text);
         });
         return results;
       });
-      console.log('Trend texts:', trends);
+      console.log("Trend texts:", trends);
       break; // Found trends, no need to try other URLs
     }
   }
@@ -98,4 +98,7 @@ async function main() {
   process.exit(0);
 }
 
-main().catch((e) => { console.error('Fatal:', e); process.exit(1); });
+main().catch((e) => {
+  console.error("Fatal:", e);
+  process.exit(1);
+});

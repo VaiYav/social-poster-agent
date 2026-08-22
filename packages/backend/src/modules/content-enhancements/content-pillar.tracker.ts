@@ -26,21 +26,21 @@
  *   `spa:pillar:last7`          — hash field per pillar with count
  */
 
-import { Inject, Injectable, Logger } from '@nestjs/common';
-import type { Redis } from 'ioredis';
-import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
+import { Inject, Injectable, Logger } from "@nestjs/common";
+import type { Redis } from "ioredis";
+import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
 
 /**
  * Generic content pillars.
  */
 export const CONTENT_PILLARS = [
-  'general',
-  'educational',
-  'product',
-  'opinion',
-  'behind-the-scenes',
-  'trending',
-  'blog_promo',
+  "general",
+  "educational",
+  "product",
+  "opinion",
+  "behind-the-scenes",
+  "trending",
+  "blog_promo",
 ] as const;
 export type ContentPillar = (typeof CONTENT_PILLARS)[number];
 
@@ -49,17 +49,17 @@ export type ContentPillar = (typeof CONTENT_PILLARS)[number];
  * Sums to 1.0. Tunable via env in future; defaults favor variety.
  */
 const DEFAULT_TARGET_RATIOS: Record<ContentPillar, number> = {
-  general: 0.20,
-  educational: 0.20,
+  general: 0.2,
+  educational: 0.2,
   product: 0.15,
-  opinion: 0.10,
-  'behind-the-scenes': 0.10,
-  trending: 0.10,
+  opinion: 0.1,
+  "behind-the-scenes": 0.1,
+  trending: 0.1,
   blog_promo: 0.15,
 };
 
 /** Redis key prefix. */
-const PILLAR_KEY_PREFIX = 'spa:pillar';
+const PILLAR_KEY_PREFIX = "spa:pillar";
 /** Rolling window for pillar counts (7 days in seconds). */
 const WINDOW_SECONDS = 7 * 24 * 60 * 60;
 
@@ -78,15 +78,27 @@ const WINDOW_SECONDS = 7 * 24 * 60 * 60;
  *   - default → general
  */
 export function classifyPillar(topic: string, keywords: string[]): ContentPillar {
-  const text = `${topic} ${keywords.join(' ')}`.toLowerCase();
+  const text = `${topic} ${keywords.join(" ")}`.toLowerCase();
 
-  if (/(new article|blog|read more|fresh|just published|new post)/.test(text)) return 'blog_promo';
-  if (/(opinion|hot take|controversial|unpopular|think|believe|argue|take on)/.test(text)) return 'opinion';
-  if (/(behind the scenes|behind-the-scenes|process|how we|team|building|making of|day in the life)/.test(text)) return 'behind-the-scenes';
-  if (/(product|feature|tool|demo|launch|release|update|app|service)/.test(text)) return 'product';
-  if (/(trending|trend|news|just happened|this week|today in|viral|breaking)/.test(text)) return 'trending';
-  if (/(did you know|how to|guide|tutorial|learn|tip|explainer|faq|explain|deep dive|what is|why does)/.test(text)) return 'educational';
-  return 'general';
+  if (/(new article|blog|read more|fresh|just published|new post)/.test(text)) return "blog_promo";
+  if (/(opinion|hot take|controversial|unpopular|think|believe|argue|take on)/.test(text))
+    return "opinion";
+  if (
+    /(behind the scenes|behind-the-scenes|process|how we|team|building|making of|day in the life)/.test(
+      text,
+    )
+  )
+    return "behind-the-scenes";
+  if (/(product|feature|tool|demo|launch|release|update|app|service)/.test(text)) return "product";
+  if (/(trending|trend|news|just happened|this week|today in|viral|breaking)/.test(text))
+    return "trending";
+  if (
+    /(did you know|how to|guide|tutorial|learn|tip|explainer|faq|explain|deep dive|what is|why does)/.test(
+      text,
+    )
+  )
+    return "educational";
+  return "general";
 }
 
 /**

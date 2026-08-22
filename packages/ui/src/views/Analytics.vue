@@ -1,16 +1,27 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
-import { BarChart3, TrendingUp, CheckCircle2, XCircle, Activity, ExternalLink, Zap, Award, RefreshCw, Bot } from '@lucide/vue';
-import { useApi } from '../composables/useApi';
-import { useToast } from '../composables/useToast';
-import { Card, ProgressBar, Badge, SectionHeader, Button } from '../components/ui';
-import StatCard from '../components/StatCard.vue';
-import LoadingSpinner from '../components/LoadingSpinner.vue';
-import ErrorState from '../components/ErrorState.vue';
-import NetworkIcon from '../components/NetworkIcon.vue';
-import { BarChart, DoughnutChart } from '../components/charts';
-import { useAnalyticsStore } from '../stores/analytics';
-import type { ABTest, ABTestVariant } from '@spa/shared';
+import { ref, computed, onMounted } from "vue";
+import {
+  BarChart3,
+  TrendingUp,
+  CheckCircle2,
+  XCircle,
+  Activity,
+  ExternalLink,
+  Zap,
+  Award,
+  RefreshCw,
+  Bot,
+} from "@lucide/vue";
+import { useApi } from "../composables/useApi";
+import { useToast } from "../composables/useToast";
+import { Card, ProgressBar, Badge, SectionHeader, Button } from "../components/ui";
+import StatCard from "../components/StatCard.vue";
+import LoadingSpinner from "../components/LoadingSpinner.vue";
+import ErrorState from "../components/ErrorState.vue";
+import NetworkIcon from "../components/NetworkIcon.vue";
+import { BarChart, DoughnutChart } from "../components/charts";
+import { useAnalyticsStore } from "../stores/analytics";
+import type { ABTest, ABTestVariant } from "@spa/shared";
 
 const api = useApi();
 const toast = useToast();
@@ -38,32 +49,38 @@ interface TopPost {
 }
 
 interface HookPerformanceStats {
-  networks: Record<string, Record<string, {
-    avg: number;
-    count: number;
-    avgQuality: number;
-    qualityCount: number;
-  }>>;
+  networks: Record<
+    string,
+    Record<
+      string,
+      {
+        avg: number;
+        count: number;
+        avgQuality: number;
+        qualityCount: number;
+      }
+    >
+  >;
   lastUpdated: number | null;
 }
 
 const summary = ref<AnalyticsSummary | null>(null);
 const topPosts = ref<TopPost[]>([]);
 const hookPerformance = ref<HookPerformanceStats | null>(null);
-const selectedNetwork = ref<'X' | 'THREADS' | 'FACEBOOK'>('X');
+const selectedNetwork = ref<"X" | "THREADS" | "FACEBOOK">("X");
 
 const abTests = ref<ABTest[]>([]);
 const abTestsLoading = ref(true);
 const abTestsError = ref<string | null>(null);
 const abDays = ref(30);
-const abNetwork = ref<'ALL' | 'X' | 'THREADS' | 'FACEBOOK'>('ALL');
+const abNetwork = ref<"ALL" | "X" | "THREADS" | "FACEBOOK">("ALL");
 
 const HOOK_TECHNIQUE_LABELS: Record<string, string> = {
-  question: 'Question',
-  bold: 'Bold',
-  counter_intuitive: 'Counter-intuitive',
-  story: 'Story',
-  data: 'Data',
+  question: "Question",
+  bold: "Bold",
+  counter_intuitive: "Counter-intuitive",
+  story: "Story",
+  data: "Data",
 };
 
 async function loadAnalytics() {
@@ -71,15 +88,17 @@ async function loadAnalytics() {
   error.value = null;
   try {
     const [summaryRes, topRes, hookRes] = await Promise.all([
-      api.get<AnalyticsSummary>('/analytics/summary'),
-      api.get<TopPost[]>('/analytics/top-posts?limit=10'),
-      api.get<HookPerformanceStats>('/analytics/hook-performance').catch(() => ({ data: { networks: {}, lastUpdated: null } })),
+      api.get<AnalyticsSummary>("/analytics/summary"),
+      api.get<TopPost[]>("/analytics/top-posts?limit=10"),
+      api
+        .get<HookPerformanceStats>("/analytics/hook-performance")
+        .catch(() => ({ data: { networks: {}, lastUpdated: null } })),
     ]);
     summary.value = summaryRes.data;
     topPosts.value = topRes.data;
     hookPerformance.value = hookRes.data;
   } catch (err) {
-    error.value = errorMessage(err) ?? 'Failed to load analytics';
+    error.value = errorMessage(err) ?? "Failed to load analytics";
   } finally {
     loading.value = false;
   }
@@ -94,10 +113,14 @@ onMounted(() => {
 async function scrapeMetrics() {
   scraping.value = true;
   try {
-    const res = await api.post<{ collected: number; failed: number; skipped: number }>('/analytics/scrape');
-    toast.success(`Metrics scraped: ${res.data.collected} collected, ${res.data.failed} failed, ${res.data.skipped} skipped`);
+    const res = await api.post<{ collected: number; failed: number; skipped: number }>(
+      "/analytics/scrape",
+    );
+    toast.success(
+      `Metrics scraped: ${res.data.collected} collected, ${res.data.failed} failed, ${res.data.skipped} skipped`,
+    );
   } catch (err) {
-    toast.error((err as Error).message ?? 'Failed to scrape metrics');
+    toast.error((err as Error).message ?? "Failed to scrape metrics");
   } finally {
     scraping.value = false;
   }
@@ -105,11 +128,11 @@ async function scrapeMetrics() {
 
 async function refreshHookStats() {
   try {
-    await api.post('/analytics/hook-performance/aggregate');
-    toast.success('Hook performance aggregation triggered');
+    await api.post("/analytics/hook-performance/aggregate");
+    toast.success("Hook performance aggregation triggered");
     await loadAnalytics();
   } catch {
-    toast.error('Failed to aggregate hook stats');
+    toast.error("Failed to aggregate hook stats");
   }
 }
 
@@ -118,18 +141,18 @@ async function loadAbTests() {
   abTestsError.value = null;
   try {
     const params: Record<string, string | number> = { days: abDays.value };
-    if (abNetwork.value !== 'ALL') params.network = abNetwork.value;
-    const res = await api.get<ABTest[]>('/analytics/ab-tests', { params });
+    if (abNetwork.value !== "ALL") params.network = abNetwork.value;
+    const res = await api.get<ABTest[]>("/analytics/ab-tests", { params });
     abTests.value = res.data;
   } catch (err) {
-    abTestsError.value = errorMessage(err) ?? 'Failed to load A/B tests';
+    abTestsError.value = errorMessage(err) ?? "Failed to load A/B tests";
   } finally {
     abTestsLoading.value = false;
   }
 }
 
 function formatDate(date: string): string {
-  return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return new Date(date).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 function errorMessage(err: unknown): string {
@@ -140,20 +163,20 @@ function errorMessage(err: unknown): string {
 const weeklyChartData = computed(() => {
   if (!summary.value) return { labels: [], datasets: [] };
   return {
-    labels: summary.value.last7Days.map(d => formatDate(d.date)),
+    labels: summary.value.last7Days.map((d) => formatDate(d.date)),
     datasets: [
       {
-        label: 'Posted',
-        data: summary.value.last7Days.map(d => d.posted),
-        backgroundColor: 'rgba(34, 197, 94, 0.6)',
-        borderColor: 'rgba(34, 197, 94, 1)',
+        label: "Posted",
+        data: summary.value.last7Days.map((d) => d.posted),
+        backgroundColor: "rgba(34, 197, 94, 0.6)",
+        borderColor: "rgba(34, 197, 94, 1)",
         borderWidth: 1,
       },
       {
-        label: 'Failed',
-        data: summary.value.last7Days.map(d => d.failed),
-        backgroundColor: 'rgba(239, 68, 68, 0.6)',
-        borderColor: 'rgba(239, 68, 68, 1)',
+        label: "Failed",
+        data: summary.value.last7Days.map((d) => d.failed),
+        backgroundColor: "rgba(239, 68, 68, 0.6)",
+        borderColor: "rgba(239, 68, 68, 1)",
         borderWidth: 1,
       },
     ],
@@ -166,26 +189,26 @@ const hookQualityChartData = computed(() => {
   const networkStats = hookPerformance.value.networks[selectedNetwork.value] || {};
   const techniques = Object.keys(HOOK_TECHNIQUE_LABELS);
   return {
-    labels: techniques.map(t => HOOK_TECHNIQUE_LABELS[t]),
+    labels: techniques.map((t) => HOOK_TECHNIQUE_LABELS[t]),
     datasets: [
       {
-        label: 'Avg Quality Score (1-10)',
-        data: techniques.map(t => {
+        label: "Avg Quality Score (1-10)",
+        data: techniques.map((t) => {
           const s = networkStats[t];
           return s && s.qualityCount > 0 ? Number(s.avgQuality.toFixed(1)) : 0;
         }),
-        backgroundColor: 'rgba(99, 102, 241, 0.6)',
-        borderColor: 'rgba(99, 102, 241, 1)',
+        backgroundColor: "rgba(99, 102, 241, 0.6)",
+        borderColor: "rgba(99, 102, 241, 1)",
         borderWidth: 1,
       },
       {
-        label: 'Avg Engagement',
-        data: techniques.map(t => {
+        label: "Avg Engagement",
+        data: techniques.map((t) => {
           const s = networkStats[t];
           return s && s.count > 0 ? Number(s.avg.toFixed(1)) : 0;
         }),
-        backgroundColor: 'rgba(234, 179, 8, 0.6)',
-        borderColor: 'rgba(234, 179, 8, 1)',
+        backgroundColor: "rgba(234, 179, 8, 0.6)",
+        borderColor: "rgba(234, 179, 8, 1)",
         borderWidth: 1,
       },
     ],
@@ -196,14 +219,16 @@ const hookQualityChartData = computed(() => {
 const qualityDistributionData = computed(() => {
   const dist = analyticsStore.autonomousStats?.qualityDistribution ?? [];
   return {
-    labels: dist.map(d => d.score.toString()),
-    datasets: [{
-      label: 'Posts',
-      data: dist.map(d => d.count),
-      backgroundColor: 'rgba(99, 102, 241, 0.6)',
-      borderColor: 'rgba(99, 102, 241, 1)',
-      borderWidth: 1,
-    }],
+    labels: dist.map((d) => d.score.toString()),
+    datasets: [
+      {
+        label: "Posts",
+        data: dist.map((d) => d.count),
+        backgroundColor: "rgba(99, 102, 241, 0.6)",
+        borderColor: "rgba(99, 102, 241, 1)",
+        borderWidth: 1,
+      },
+    ],
   };
 });
 
@@ -213,12 +238,18 @@ const networkDistributionData = computed(() => {
   const networks = Object.entries(summary.value.byNetwork);
   return {
     labels: networks.map(([n]) => n),
-    datasets: [{
-      data: networks.map(([, s]) => s.total),
-      backgroundColor: ['rgba(99, 102, 241, 0.7)', 'rgba(168, 85, 247, 0.7)', 'rgba(59, 130, 246, 0.7)'],
-      borderColor: ['rgba(99, 102, 241, 1)', 'rgba(168, 85, 247, 1)', 'rgba(59, 130, 246, 1)'],
-      borderWidth: 1,
-    }],
+    datasets: [
+      {
+        data: networks.map(([, s]) => s.total),
+        backgroundColor: [
+          "rgba(99, 102, 241, 0.7)",
+          "rgba(168, 85, 247, 0.7)",
+          "rgba(59, 130, 246, 0.7)",
+        ],
+        borderColor: ["rgba(99, 102, 241, 1)", "rgba(168, 85, 247, 1)", "rgba(59, 130, 246, 1)"],
+        borderWidth: 1,
+      },
+    ],
   };
 });
 
@@ -243,9 +274,24 @@ const statIcons = {
       <!-- Summary stat cards -->
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Total Posts" :value="summary.totalPosts" :icon="statIcons.total" />
-        <StatCard label="Posted" :value="summary.posted" :icon="statIcons.posted" color="text-status-posted" />
-        <StatCard label="Failed" :value="summary.failed" :icon="statIcons.failed" color="text-status-failed" />
-        <StatCard label="Success Rate" :value="`${summary.successRate}%`" :icon="statIcons.rate" color="text-status-approved" />
+        <StatCard
+          label="Posted"
+          :value="summary.posted"
+          :icon="statIcons.posted"
+          color="text-status-posted"
+        />
+        <StatCard
+          label="Failed"
+          :value="summary.failed"
+          :icon="statIcons.failed"
+          color="text-status-failed"
+        />
+        <StatCard
+          label="Success Rate"
+          :value="`${summary.successRate}%`"
+          :icon="statIcons.rate"
+          color="text-status-approved"
+        />
       </div>
 
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -257,7 +303,7 @@ const statIcons = {
               <h2 class="text-lg font-semibold text-text-primary">Last 7 Days</h2>
             </div>
           </template>
-          <div style="height: 200px;">
+          <div style="height: 200px">
             <BarChart :data="weeklyChartData" />
           </div>
         </Card>
@@ -270,7 +316,7 @@ const statIcons = {
               <h2 class="text-lg font-semibold text-text-primary">Network Distribution</h2>
             </div>
           </template>
-          <div style="height: 200px;">
+          <div style="height: 200px">
             <DoughnutChart :data="networkDistributionData" />
           </div>
         </Card>
@@ -306,7 +352,10 @@ const statIcons = {
             </div>
             <div class="mt-2 flex justify-between text-xs text-text-muted">
               <span>{{ stats.total }} total</span>
-              <span>{{ stats.total > 0 ? Math.round((stats.posted / stats.total) * 100) : 0 }}% success</span>
+              <span
+                >{{ stats.total > 0 ? Math.round((stats.posted / stats.total) * 100) : 0 }}%
+                success</span
+              >
             </div>
           </div>
         </div>
@@ -320,7 +369,9 @@ const statIcons = {
               <Bot class="h-5 w-5 text-primary" />
               <div>
                 <h2 class="text-lg font-semibold text-text-primary">Autonomous Pipeline</h2>
-                <p class="text-sm text-text-secondary">Auto-approve decisions and quality distribution</p>
+                <p class="text-sm text-text-secondary">
+                  Auto-approve decisions and quality distribution
+                </p>
               </div>
             </div>
             <Button size="sm" variant="outline" :loading="scraping" @click="scrapeMetrics">
@@ -336,10 +387,29 @@ const statIcons = {
         </div>
         <div v-else class="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <div class="grid grid-cols-2 gap-4">
-            <StatCard label="Total Generated" :value="analyticsStore.autonomousStats.totalGenerated" :icon="BarChart3" />
-            <StatCard label="Auto-Approved" :value="analyticsStore.autonomousStats.autoApproved" :icon="CheckCircle2" color="text-status-approved" />
-            <StatCard label="Human Review" :value="analyticsStore.autonomousStats.humanReview" :icon="Activity" color="text-status-pending" />
-            <StatCard label="Rejected" :value="analyticsStore.autonomousStats.rejected" :icon="XCircle" color="text-status-failed" />
+            <StatCard
+              label="Total Generated"
+              :value="analyticsStore.autonomousStats.totalGenerated"
+              :icon="BarChart3"
+            />
+            <StatCard
+              label="Auto-Approved"
+              :value="analyticsStore.autonomousStats.autoApproved"
+              :icon="CheckCircle2"
+              color="text-status-approved"
+            />
+            <StatCard
+              label="Human Review"
+              :value="analyticsStore.autonomousStats.humanReview"
+              :icon="Activity"
+              color="text-status-pending"
+            />
+            <StatCard
+              label="Rejected"
+              :value="analyticsStore.autonomousStats.rejected"
+              :icon="XCircle"
+              color="text-status-failed"
+            />
             <StatCard
               class="col-span-2"
               label="Avg Quality Score"
@@ -348,7 +418,7 @@ const statIcons = {
               color="text-primary"
             />
           </div>
-          <div style="height: 200px;">
+          <div style="height: 200px">
             <BarChart :data="qualityDistributionData" />
           </div>
         </div>
@@ -362,7 +432,9 @@ const statIcons = {
               <Award class="h-5 w-5 text-primary" />
               <div>
                 <h2 class="text-lg font-semibold text-text-primary">Hook Performance</h2>
-                <p class="text-sm text-text-secondary">Quality feedback loop — which hook techniques produce highest quality content</p>
+                <p class="text-sm text-text-secondary">
+                  Quality feedback loop — which hook techniques produce highest quality content
+                </p>
               </div>
             </div>
             <div class="flex items-center gap-3">
@@ -382,7 +454,7 @@ const statIcons = {
           </div>
         </template>
 
-        <div v-if="hookPerformance && hookPerformance.lastUpdated" style="height: 250px;">
+        <div v-if="hookPerformance && hookPerformance.lastUpdated" style="height: 250px">
           <BarChart :data="hookQualityChartData" />
         </div>
         <div v-else class="py-12 text-center text-text-muted">
@@ -391,7 +463,10 @@ const statIcons = {
           <p class="text-sm mt-1">Click "Aggregate" to compute stats from posted content.</p>
         </div>
 
-        <div v-if="hookPerformance && hookPerformance.lastUpdated" class="mt-3 text-xs text-text-muted">
+        <div
+          v-if="hookPerformance && hookPerformance.lastUpdated"
+          class="mt-3 text-xs text-text-muted"
+        >
           Last updated: {{ new Date(hookPerformance.lastUpdated).toLocaleString() }}
         </div>
       </Card>
@@ -468,20 +543,28 @@ const statIcons = {
                 class="rounded bg-surface-elevated p-3"
               >
                 <div class="flex items-center justify-between">
-                  <span class="font-semibold text-text-primary">Variant {{ variant.label.toUpperCase() }}</span>
+                  <span class="font-semibold text-text-primary"
+                    >Variant {{ variant.label.toUpperCase() }}</span
+                  >
                   <span class="text-xs text-text-muted">n={{ variant.sampleSize }}</span>
                 </div>
                 <div class="mt-2 grid grid-cols-3 gap-2 text-xs text-text-muted">
                   <div>
-                    <span class="block font-medium text-text-primary">{{ variant.avgEngagement.toFixed(1) }}</span>
+                    <span class="block font-medium text-text-primary">{{
+                      variant.avgEngagement.toFixed(1)
+                    }}</span>
                     engagement
                   </div>
                   <div>
-                    <span class="block font-medium text-text-primary">{{ variant.avgLikes.toFixed(1) }}</span>
+                    <span class="block font-medium text-text-primary">{{
+                      variant.avgLikes.toFixed(1)
+                    }}</span>
                     likes
                   </div>
                   <div v-if="variant.avgImpressions !== null">
-                    <span class="block font-medium text-text-primary">{{ variant.avgImpressions.toFixed(0) }}</span>
+                    <span class="block font-medium text-text-primary">{{
+                      variant.avgImpressions.toFixed(0)
+                    }}</span>
                     impressions
                   </div>
                 </div>
