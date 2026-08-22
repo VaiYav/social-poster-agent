@@ -171,3 +171,23 @@ Applied to both `launchBrowser()` (X/Threads pooled contexts) and `launchPersist
 - `BULLMQ_EVENTS_MAX_LENGTH` (default 100) caps the BullMQ events stream per queue. The app does not use `QueueEvents`, so setting it to 0 is safe and disables the stream entirely.
 - `BULLMQ_REMOVE_ON_COMPLETE` / `BULLMQ_REMOVE_ON_FAIL` control job retention.
 - **Railway / managed Redis:** do not set `maxmemory-policy` to `allkeys-lru` on the same Redis instance used by BullMQ. BullMQ requires `noeviction` to avoid silently losing jobs. If you want to use `allkeys-lru` for checkpoints, set `CHECKPOINT_REDIS_URL` to a separate Redis instance and keep `REDIS_URL` on `noeviction`.
+
+## Camoufox 0.12+ update (2026-08-22)
+
+`BrowserFactory` now passes the full `camoufox-js@0.12.0` `LaunchOptions` surface to `Camoufox()`, controlled from `.env`:
+
+- `CAMOUFOX_HEADLESS` accepts `true` | `false` | `virtual` (virtual uses an Xvfb buffer in headless environments).
+- `CAMOUFOX_BLOCK_WEBRTC` / `CAMOUFOX_BLOCK_WEBGL` / `CAMOUFOX_DISABLE_COOP` for privacy/fingerprint hardening.
+- `CAMOUFOX_MAIN_WORLD_EVAL` enables `page.evaluate("mw:...")` in the real page context.
+- `CAMOUFOX_DEBUG` prints the Camoufox launch config to stderr.
+- `CAMOUFOX_FF_VERSION` pins the Firefox version (e.g. `150`, `152`).
+- `CAMOUFOX_WINDOW` and `CAMOUFOX_SCREEN` constrain or fix window/screen dimensions.
+- `CAMOUFOX_FINGERPRINT_FILE` loads a BrowserForge fingerprint JSON to pin identity.
+- `CAMOUFOX_ADDONS` / `CAMOUFOX_EXCLUDE_ADDONS` load custom addons or exclude defaults (`UBO`).
+- `CAMOUFOX_VIRTUAL_DISPLAY` sets an explicit Xvfb display number.
+
+`CAMOUFOX_INSTALL_DIR` is wired for containers:
+- `docker/Dockerfile.backend` pre-fetches the binary into `/app/.cache/camoufox` during the build stage and copies it to the production image.
+- `docker-compose.prod.yml` mounts `browser_data` at `/app/.cache/camoufox` and sets `CAMOUFOX_INSTALL_DIR`.
+
+The `playwright-core` patch (`scripts/patch-playwright.js`) was verified to still apply on `playwright-core@1.60.0`; the `camoufox-js` peer constraint keeps Playwright below `1.61.0`.

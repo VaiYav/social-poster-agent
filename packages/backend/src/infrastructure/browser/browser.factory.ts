@@ -22,7 +22,7 @@ import type {
   LLMActionResult,
   ObservableElement,
 } from "../../domain/ports/browser.port.js";
-import { mkdirSync, existsSync, chmodSync } from "node:fs";
+import { mkdirSync, existsSync, chmodSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseBool } from "../config/parse-bool.js";
 import { withTimeout } from "../util/with-timeout.js";
@@ -48,7 +48,7 @@ import { ProxyRotationService, type ProxyConfig } from "../proxy/proxy-rotation.
 @Injectable()
 export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BrowserFactory.name);
-  private readonly headless: boolean;
+  private readonly headless: boolean | "virtual";
   private readonly humanize: boolean;
   private readonly geoip: boolean;
   private readonly locale: string;
@@ -110,6 +110,20 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
   // verification. Media + fonts are always blocked (no use case needs them).
   private readonly blockImagesReadOnly: boolean;
 
+  // New Camoufox 0.12+ launch options (see camoufox-js LaunchOptions).
+  private readonly blockWebRTC: boolean;
+  private readonly blockWebGL: boolean;
+  private readonly disableCOOP: boolean;
+  private readonly mainWorldEval: boolean;
+  private readonly debugCamoufox: boolean;
+  private readonly ffVersion: number | undefined;
+  private readonly windowSize: [number, number] | undefined;
+  private readonly screenConstraint: LaunchOptions["screen"] | undefined;
+  private readonly customFingerprint: LaunchOptions["fingerprint"] | undefined;
+  private readonly addons: string[] | undefined;
+  private readonly excludeAddons: LaunchOptions["exclude_addons"] | undefined;
+  private readonly virtualDisplay: string | undefined;
+
   // Sprint K: Context pool — reuse contexts per network to avoid repeated creation overhead.
   // Each network gets up to `poolSize` contexts. Idle contexts are returned to the pool.
   private readonly poolSize: number;
@@ -156,7 +170,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     @Optional() private readonly proxyRotation?: ProxyRotationService,
     @Optional() private readonly moduleRef?: ModuleRef,
   ) {
-    this.headless = parseBool(this.configService.get<string>("CAMOUFOX_HEADLESS", "true"));
+    this.headless = this.parseHeadless(this.configService.get<string>("CAMOUFOX_HEADLESS", "true"));
     this.humanize = parseBool(this.configService.get<string>("CAMOUFOX_HUMANIZE", "true"));
     this.geoip = parseBool(this.configService.get<string>("CAMOUFOX_GEOIP", "true"));
     this.locale = this.configService.get<string>("CAMOUFOX_LOCALE", "en-US");
@@ -236,6 +250,35 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     this.blockImagesReadOnly = parseBool(
       this.configService.get<string>("CAMOUFOX_BLOCK_IMAGES_READONLY", "true"),
     );
+
+    // New Camoufox 0.12+ launch options (controlled via .env).
+    this.blockWebRTC = parseBool(this.configService.get<string>("CAMOUFOX_BLOCK_WEBRTC", "false"));
+    this.blockWebGL = parseBool(this.configService.get<string>("CAMOUFOX_BLOCK_WEBGL", "false"));
+    this.disableCOOP = parseBool(this.configService.get<string>("CAMOUFOX_DISABLE_COOP", "false"));
+    this.mainWorldEval = parseBool(
+      this.configService.get<string>("CAMOUFOX_MAIN_WORLD_EVAL", "false"),
+    );
+    this.debugCamoufox = parseBool(this.configService.get<string>("CAMOUFOX_DEBUG", "false"));
+    this.ffVersion = this.parseOptionalNumber(
+      this.configService.get<string | undefined>("CAMOUFOX_FF_VERSION"),
+    );
+    this.windowSize = this.parseWindow(
+      this.configService.get<string | undefined>("CAMOUFOX_WINDOW"),
+    );
+    this.screenConstraint = this.parseScreen(
+      this.configService.get<string | undefined>("CAMOUFOX_SCREEN"),
+    );
+    this.customFingerprint = this.loadFingerprint(
+      this.configService.get<string | undefined>("CAMOUFOX_FINGERPRINT_FILE"),
+    );
+    this.addons = this.parseStringList(
+      this.configService.get<string | undefined>("CAMOUFOX_ADDONS"),
+    );
+    this.excludeAddons = this.parseStringList(
+      this.configService.get<string | undefined>("CAMOUFOX_EXCLUDE_ADDONS"),
+    ) as LaunchOptions["exclude_addons"];
+    this.virtualDisplay = this.configService.get<string | undefined>("CAMOUFOX_VIRTUAL_DISPLAY");
+
     // SEC2: the persistent profile stores plaintext auth cookies outside the DB encryption.
     // /tmp is broadly accessible; in production it must live on a restricted/encrypted volume.
     if (
@@ -299,6 +342,131 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
       // If URL parsing fails, treat as raw server address
       return { server: url };
     }
+  }
+
+  /**
+   * Parse CAMOUFOX_HEADLESS: true | false | virtual.
+   * "virtual" runs a real display buffer (useful on headless servers with Xvfb).
+   */
+  private parseHeadless(value: string | undefined): boolean | "virtual" {
+    if (value === undefined) return true;
+    const v = value.trim().toLowerCase();
+    if (v === "virtual") return "virtual";
+    return parseBool(value, true);
+  }
+
+  /**
+   * Parse an optional numeric env var (e.g. CAMOUFOX_FF_VERSION=150).
+   */
+  private parseOptionalNumber(value: string | undefined): number | undefined {
+    if (!value) return undefined;
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  }
+
+  /**
+   * Parse CAMOUFOX_WINDOW as "width,height" or "widthxheight" (e.g. 1280,720).
+   */
+  private parseWindow(value: string | undefined): [number, number] | undefined {
+    if (!value) return undefined;
+    const parts = value
+      .trim()
+      .split(/[,x]/)
+      .map((p) => Number(p.trim()))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    if (parts.length !== 2) return undefined;
+    return [parts[0]!, parts[1]!];
+  }
+
+  /**
+   * Parse CAMOUFOX_SCREEN as a JSON object or "minW,maxW,minH,maxH".
+   */
+  private parseScreen(value: string | undefined): LaunchOptions["screen"] | undefined {
+    if (!value) return undefined;
+    const v = value.trim();
+    // Try JSON first
+    try {
+      const parsed = JSON.parse(v) as LaunchOptions["screen"];
+      if (parsed && typeof parsed === "object") {
+        return parsed;
+      }
+    } catch {
+      // fall through to CSV
+    }
+    const parts = v.split(/[,;]/).map((p) => Number(p.trim()));
+    if (parts.length === 4 && parts.every((n) => Number.isFinite(n) && n > 0)) {
+      const [minWidth, maxWidth, minHeight, maxHeight] = parts;
+      return { minWidth, maxWidth, minHeight, maxHeight };
+    }
+    return undefined;
+  }
+
+  /**
+   * Load a BrowserForge fingerprint from a JSON file.
+   */
+  private loadFingerprint(filePath: string | undefined): LaunchOptions["fingerprint"] | undefined {
+    if (!filePath) return undefined;
+    try {
+      const data = readFileSync(filePath, "utf8");
+      const parsed = JSON.parse(data) as LaunchOptions["fingerprint"];
+      if (parsed && typeof parsed === "object" && "navigator" in parsed) {
+        return parsed;
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Failed to load CAMOUFOX_FINGERPRINT_FILE ${filePath}: ${(err as Error).message}`,
+      );
+    }
+    return undefined;
+  }
+
+  /**
+   * Parse a comma-separated list env var into a string array.
+   */
+  private parseStringList(value: string | undefined): string[] | undefined {
+    if (!value) return undefined;
+    const list = value
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return list.length > 0 ? list : undefined;
+  }
+
+  /**
+   * Build the common Camoufox LaunchOptions shared by pooled and persistent launches.
+   */
+  private buildCamoufoxLaunchOptions(network?: string): LaunchOptions {
+    const launchOpts: LaunchOptions = {
+      headless: this.headless,
+      humanize: this.humanize,
+      geoip: this.geoip,
+      locale: this.locale,
+      os: this.targetOs,
+    };
+
+    if (this.memoryPrefsEnabled) {
+      launchOpts.firefox_user_prefs = this.firefoxUserPrefs;
+    }
+
+    const proxy = this.getProxyConfig(network);
+    if (proxy) {
+      launchOpts.proxy = proxy;
+    }
+
+    if (this.blockWebRTC) launchOpts.block_webrtc = true;
+    if (this.blockWebGL) launchOpts.block_webgl = true;
+    if (this.disableCOOP) launchOpts.disable_coop = true;
+    if (this.mainWorldEval) launchOpts.main_world_eval = true;
+    if (this.debugCamoufox) launchOpts.debug = true;
+    if (this.ffVersion) launchOpts.ff_version = this.ffVersion;
+    if (this.windowSize) launchOpts.window = this.windowSize;
+    if (this.screenConstraint) launchOpts.screen = this.screenConstraint;
+    if (this.customFingerprint) launchOpts.fingerprint = this.customFingerprint;
+    if (this.addons?.length) launchOpts.addons = this.addons;
+    if (this.excludeAddons?.length) launchOpts.exclude_addons = this.excludeAddons;
+    if (this.virtualDisplay) launchOpts.virtual_display = this.virtualDisplay;
+
+    return launchOpts;
   }
 
   /**
@@ -398,30 +566,17 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
   }
 
   private async launchBrowser(): Promise<Browser> {
-    const launchOpts: LaunchOptions = {
-      headless: this.headless,
-      humanize: this.humanize,
-      geoip: this.geoip,
-      locale: this.locale,
-      os: this.targetOs,
-    };
+    const launchOpts = this.buildCamoufoxLaunchOptions();
 
-    // MEM: apply memory-saving firefox_user_prefs (cache caps, session history,
-    // JS GC tuning, image decode chunk, telemetry off). See constructor doc for
-    // the full list and research references.
-    if (this.memoryPrefsEnabled) {
-      launchOpts.firefox_user_prefs = this.firefoxUserPrefs;
-    }
-
-    // Proxy support for IP rotation (anti-detection)
-    const proxy = this.getProxyConfig();
+    // Proxy logging
+    const proxy = launchOpts.proxy;
     if (proxy) {
-      launchOpts.proxy = proxy;
-      this.logger.log(`Using proxy: ${proxy.server.replace(/\/\/.*@/, "//***@")}`);
+      const proxyStr = typeof proxy === "string" ? proxy : proxy.server;
+      this.logger.log(`Using proxy: ${proxyStr.replace(/\/\/.*@/, "//***@")}`);
     }
 
     // Camoufox() returns a Playwright-compatible Browser instance.
-    // The Camoufox binary is downloaded via `npx camoufox-js fetch` (postinstall).
+    // The Camoufox binary is downloaded via `npx camoufox-js fetch`.
     const browser = (await Camoufox(launchOpts)) as unknown as Browser;
 
     // When the browser process crashes (e.g. Camoufox/Playwright uncaughtError bug),
@@ -447,7 +602,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
 
     this.browserLaunchTime = Date.now();
     this.logger.log(
-      `Camoufox launched (headless=${this.headless}, os=${this.targetOs}, humanize=${this.humanize}, geoip=${this.geoip}, proxy=${!!this.proxyUrl}, memoryPrefs=${this.memoryPrefsEnabled})`,
+      `Camoufox launched (headless=${this.headless}, os=${this.targetOs}, humanize=${this.humanize}, geoip=${this.geoip}, proxy=${!!this.proxyUrl}, memoryPrefs=${this.memoryPrefsEnabled}, blockWebRTC=${this.blockWebRTC}, ffVersion=${this.ffVersion ?? "auto"})`,
     );
     return browser;
   }
@@ -519,28 +674,7 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
       // directory may already exist
     }
 
-    const launchOpts: LaunchOptions = {
-      headless: this.headless,
-      humanize: this.humanize,
-      geoip: this.geoip,
-      locale: this.locale,
-      os: this.targetOs,
-    };
-
-    // MEM: apply memory-saving firefox_user_prefs to persistent context too.
-    // For persistent contexts (user_data_dir), Playwright writes prefs to user.js
-    // in the profile dir. Some prefs from playwright.cfg may not be overridable
-    // (known Playwright limitation, #15405), but cache/session-history/JS-GC prefs
-    // apply fine.
-    if (this.memoryPrefsEnabled) {
-      launchOpts.firefox_user_prefs = this.firefoxUserPrefs;
-    }
-
-    // Proxy support (per-network rotation via ProxyRotationService)
-    const proxy = this.getProxyConfig(network);
-    if (proxy) {
-      launchOpts.proxy = proxy;
-    }
+    const launchOpts = this.buildCamoufoxLaunchOptions(network);
 
     // Camoufox with user_data_dir returns a BrowserContext (persistent)
     // instead of a Browser. The fingerprint and cookies are stored on disk.

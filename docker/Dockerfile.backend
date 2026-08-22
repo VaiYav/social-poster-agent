@@ -16,6 +16,10 @@ COPY packages/backend/package.json ./packages/backend/
 # Install dependencies
 RUN pnpm install --frozen-lockfile
 
+# Pre-fetch Camoufox browser binary so production does not download it at runtime.
+ENV CAMOUFOX_INSTALL_DIR=/app/.cache/camoufox
+RUN npx camoufox-js fetch
+
 # Copy source
 COPY packages/shared/ ./packages/shared/
 COPY packages/backend/ ./packages/backend/
@@ -61,6 +65,10 @@ COPY packages/backend/scripts/patch-playwright.js ./packages/backend/scripts/pat
 
 # Patch Playwright coreBundle.js — Camoufox/Juggler uncaughtError crash (camoufox#635).
 RUN node packages/backend/scripts/patch-playwright.js
+
+# Copy pre-fetched Camoufox browser binary and make it writable for the spa user.
+ENV CAMOUFOX_INSTALL_DIR=/app/.cache/camoufox
+COPY --from=builder /app/.cache/camoufox /app/.cache/camoufox
 
 # Copy built artifacts
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist

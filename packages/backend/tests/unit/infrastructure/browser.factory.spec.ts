@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ConfigService } from "@nestjs/config";
+import { join } from "node:path";
 
 // ── Mock camoufox-js ──
 // Camoufox() returns a Playwright-compatible Browser or BrowserContext.
@@ -647,6 +648,117 @@ describe("BrowserFactory", () => {
       );
 
       expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Camoufox patch verified"));
+    });
+  });
+
+  // ── Camoufox 0.12+ launch options ──
+
+  describe("new Camoufox launch options", () => {
+    it("UTC-420: CAMOUFOX_HEADLESS=virtual → launchOpts.headless = 'virtual'", async () => {
+      const virtualConfig = createMockConfigService({ CAMOUFOX_HEADLESS: "virtual" });
+      const virtualFactory = new BrowserFactory(virtualConfig);
+      await virtualFactory.createContext("X");
+
+      const launchOpts = mocks.camoufoxLaunch.mock.calls[0]![0];
+      expect(launchOpts.headless).toBe("virtual");
+    });
+
+    it("UTC-421: CAMOUFOX_BLOCK_WEBRTC=true → launchOpts.block_webrtc = true", async () => {
+      const cfg = createMockConfigService({ CAMOUFOX_BLOCK_WEBRTC: "true" });
+      const f = new BrowserFactory(cfg);
+      await f.createContext("X");
+
+      const launchOpts = mocks.camoufoxLaunch.mock.calls[0]![0];
+      expect(launchOpts.block_webrtc).toBe(true);
+    });
+
+    it("UTC-422: CAMOUFOX_MAIN_WORLD_EVAL=true → launchOpts.main_world_eval = true", async () => {
+      const cfg = createMockConfigService({ CAMOUFOX_MAIN_WORLD_EVAL: "true" });
+      const f = new BrowserFactory(cfg);
+      await f.createContext("X");
+
+      const launchOpts = mocks.camoufoxLaunch.mock.calls[0]![0];
+      expect(launchOpts.main_world_eval).toBe(true);
+    });
+
+    it("UTC-423: CAMOUFOX_FF_VERSION=150 → launchOpts.ff_version = 150", async () => {
+      const cfg = createMockConfigService({ CAMOUFOX_FF_VERSION: "150" });
+      const f = new BrowserFactory(cfg);
+      await f.createContext("X");
+
+      const launchOpts = mocks.camoufoxLaunch.mock.calls[0]![0];
+      expect(launchOpts.ff_version).toBe(150);
+    });
+
+    it("UTC-424: CAMOUFOX_WINDOW=1280,720 → launchOpts.window = [1280, 720]", async () => {
+      const cfg = createMockConfigService({ CAMOUFOX_WINDOW: "1280,720" });
+      const f = new BrowserFactory(cfg);
+      await f.createContext("X");
+
+      const launchOpts = mocks.camoufoxLaunch.mock.calls[0]![0];
+      expect(launchOpts.window).toEqual([1280, 720]);
+    });
+
+    it("UTC-425: CAMOUFOX_SCREEN CSV → launchOpts.screen parsed", async () => {
+      const cfg = createMockConfigService({ CAMOUFOX_SCREEN: "1280,1920,720,1080" });
+      const f = new BrowserFactory(cfg);
+      await f.createContext("X");
+
+      const launchOpts = mocks.camoufoxLaunch.mock.calls[0]![0];
+      expect(launchOpts.screen).toEqual({
+        minWidth: 1280,
+        maxWidth: 1920,
+        minHeight: 720,
+        maxHeight: 1080,
+      });
+    });
+
+    it("UTC-426: CAMOUFOX_FINGERPRINT_FILE loads a fingerprint", async () => {
+      const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+      const { tmpdir } = await import("node:os");
+      const dir = mkdtempSync(join(tmpdir(), "spa-fp-"));
+      const fpPath = join(dir, "fp.json");
+      const fingerprint = { navigator: { userAgent: "Mozilla/5.0" } };
+      writeFileSync(fpPath, JSON.stringify(fingerprint), "utf8");
+
+      try {
+        const cfg = createMockConfigService({ CAMOUFOX_FINGERPRINT_FILE: fpPath });
+        const f = new BrowserFactory(cfg);
+        await f.createContext("X");
+
+        const launchOpts = mocks.camoufoxLaunch.mock.calls[0]![0];
+        expect(launchOpts.fingerprint).toEqual(fingerprint);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("UTC-427: CAMOUFOX_ADDONS and EXCLUDE_ADDONS are passed", async () => {
+      const cfg = createMockConfigService({
+        CAMOUFOX_ADDONS: "/tmp/addon1.xpi,/tmp/addon2.xpi",
+        CAMOUFOX_EXCLUDE_ADDONS: "UBO",
+      });
+      const f = new BrowserFactory(cfg);
+      await f.createContext("X");
+
+      const launchOpts = mocks.camoufoxLaunch.mock.calls[0]![0];
+      expect(launchOpts.addons).toEqual(["/tmp/addon1.xpi", "/tmp/addon2.xpi"]);
+      expect(launchOpts.exclude_addons).toEqual(["UBO"]);
+    });
+
+    it("UTC-428: disabled flags are not passed to launch options", async () => {
+      const cfg = createMockConfigService({
+        CAMOUFOX_BLOCK_WEBRTC: "false",
+        CAMOUFOX_BLOCK_WEBGL: "false",
+        CAMOUFOX_DISABLE_COOP: "false",
+      });
+      const f = new BrowserFactory(cfg);
+      await f.createContext("X");
+
+      const launchOpts = mocks.camoufoxLaunch.mock.calls[0]![0];
+      expect(launchOpts.block_webrtc).toBeUndefined();
+      expect(launchOpts.block_webgl).toBeUndefined();
+      expect(launchOpts.disable_coop).toBeUndefined();
     });
   });
 });

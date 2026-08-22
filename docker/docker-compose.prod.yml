@@ -80,6 +80,7 @@ services:
       SESSION_ENCRYPTION_KEY: ${SESSION_ENCRYPTION_KEY:-}
       # SEC2: persistent browser profiles — mount encrypted/restricted volume at /app/profiles
       CAMOUFOX_PROFILE_DIR: ${CAMOUFOX_PROFILE_DIR:-/app/profiles}
+      CAMOUFOX_INSTALL_DIR: ${CAMOUFOX_INSTALL_DIR:-/app/.cache/camoufox}
       # Cron schedules
       CRON_GENERATION_SCHEDULE: ${CRON_GENERATION_SCHEDULE:-0 9,21 * * *}
       CRON_GENERATION_JITTER_MINUTES: ${CRON_GENERATION_JITTER_MINUTES:-30}
@@ -101,7 +102,7 @@ services:
     ports:
       - "3100:3100"
     volumes:
-      - browser_data:/app/.cache/ms-playwright
+      - browser_data:/app/.cache/camoufox
       - browser_profiles:/app/profiles
       - ${CONTENT_DIR:-../content}:/data:ro
       # Quote cards output — writable (content mount is read-only)
