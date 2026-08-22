@@ -38,7 +38,7 @@
     "concurrently": "^10.0.5",
     "oxfmt": "^0.64.0",
     "oxlint": "^1.79.0",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   },
   "engines": {
     "node": ">=24.0.0 <25.0.0",
