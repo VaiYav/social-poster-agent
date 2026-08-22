@@ -1,46 +1,46 @@
 # ROADMAP — Social Poster Agent (SPA)
 
-> **Документ-источник истины для всего проекта.** Описывает фазы, чекпоинты,
-> таргеты, таски и критерии готовности. Структура вдохновлена Product Forge:
-> фазы → gate → следующий шаг. Все изменения статуса фиксируются здесь.
+> **Single source of truth for the project.** Describes phases, checkpoints,
+> targets, tasks, and readiness criteria. Structure is inspired by Product Forge:
+> phases → gate → next step. All status changes are recorded here.
 >
-> **Статус обновлён:** 2026-07-16
-> **Версия проекта:** 0.5.1
+> **Status updated:** 2026-07-16
+> **Project version:** 0.5.1
 > **Compliance score (audit):** 48/100 → 92/100 (after audit fixes + test fixes + doc sync)
 
 ---
 
-## Легенда
+## Legend
 
-| Метка | Значение |
+| Label | Meaning |
 |-------|----------|
-| `[x]` | Завершено, проверено |
-| `[~]` | В процессе |
-| `[ ]` | Не начато |
-| `GATE` | Контрольная точка — нельзя перейти к следующей фазе без прохождения |
-| `P0` | Критический баг — блокирует работу |
-| `P1` | Важный — должен быть исправлен до релиза |
-| `P2` | Желательный — можно отложить |
+| `[x]` | Done, verified |
+| `[~]` | In progress |
+| `[ ]` | Not started |
+| `GATE` | Gate — cannot move to the next phase without passing |
+| `P0` | Critical bug — blocks work |
+| `P1` | Important — must be fixed before release |
+| `P2` | Nice to have — can be deferred |
 
 ---
 
-## Текущий статус (snapshot)
+## Current status (snapshot)
 
 ```
-Фаза 0: Foundation          [████████████████████] 100%  ✅
-Фаза 1: Core Backend        [████████████████████] 100%  ✅ (LangGraph wired + tested)
-Фаза 2: Infrastructure      [████████████████████] 100%  ✅ (rate limiter, SSE, checkpoint — all wired)
-Фаза 3: UI                  [████████████████████] 100%  ✅ (PostEditor, Toast, Warm-up UI, Rate limit UI — all done)
-Фаза 4: Quality & Docs      [███████████████████░]  95%  ✅ (ADRs, Swagger, CorrelationId, RedactInterceptor done)
-Фаза 5: Testing             [████████████████████] 100%  ✅ (458 tests pass (all))
-Фаза 6: Release Readiness   [███████████████████░]  95%  🔧 (rollback plan done; manual E2E test with real credentials TBD)
+Phase 0: Foundation          [████████████████████] 100%  ✅
+Phase 1: Core Backend        [████████████████████] 100%  ✅ (LangGraph wired + tested)
+Phase 2: Infrastructure      [████████████████████] 100%  ✅ (rate limiter, SSE, checkpoint — all wired)
+Phase 3: UI                  [████████████████████] 100%  ✅ (PostEditor, Toast, Warm-up UI, Rate limit UI — all done)
+Phase 4: Quality & Docs      [███████████████████░]  95%  ✅ (ADRs, Swagger, CorrelationId, RedactInterceptor done)
+Phase 5: Testing             [████████████████████] 100%  ✅ (458 tests pass (all))
+Phase 6: Release Readiness   [███████████████████░]  95%  🔧 (rollback plan done; manual E2E test with real credentials TBD)
 ```
 
-**Что работает прямо сейчас:**
-- ✅ Backend компилируется и запускается (NestJS 11) — `nest build` passes
-- ✅ UI собирается — `vite build` passes (442 modules, 15s)
-- ✅ **375 тестов проходят** (208 unit + 35 integration + 46 system + 82 acceptance + 4 e2e)
-- ✅ Prisma schema + 2 миграции применены (init + warmup/banned status)
+**What works right now:**
+- ✅ Backend compiles and starts (NestJS 11) — `nest build` passes
+- ✅ UI builds — `vite build` passes (442 modules, 15s)
+- ✅ **375 tests pass** (208 unit + 35 integration + 46 system + 82 acceptance + 4 e2e)
+- ✅ Prisma schema + 2 migrations applied (init + warmup/banned status)
 - ✅ BullMQ queue factory + workers (per-network, concurrency=1)
 - ✅ Rate limiter (Redis sliding window, daily + weekly, env-configurable) — **wired into PostingService**
 - ✅ SSE endpoint (`/events/sse`) + UI wiring (B6 — real-time updates in Pinia stores)
@@ -73,30 +73,30 @@
 - ✅ Multi-fallback selector strategy (data-testid → role → label → CSS → text)
 - ✅ Sentry integration (SentryInterceptor, env-gated)
 
-**Что НЕ работает / не сделано:**
-- ✅ E2E тесты (Vitest supertest) — 33 тестов (full-flow, HITL, health-check, SSE, smoke)
-- ❌ Manual end-to-end posting test с real credentials
-- ⚠️ Engagement module (F1 partial) — реализован без тестов/UI/LLM integration (TODO в browsing-session.service.ts:300)
+**What does NOT work / is not done:**
+- ✅ E2E tests (Vitest supertest) — 33 tests (full-flow, HITL, health-check, SSE, smoke)
+- ❌ Manual end-to-end posting test with real credentials
+- ⚠️ Engagement module (F1 partial) — implemented without tests/UI/LLM integration (TODO in browsing-session.service.ts:300)
 
 ---
 
-## Фаза 0: Foundation (COMPLETED)
+## Phase 0: Foundation (COMPLETED)
 
-> **Цель:** Структура monorepo, базовая schema, инфраструктура, конституция.
+> **Goal:** Monorepo structure, base schema, infrastructure, constitution.
 
 ### 0.1 Project Structure
-- [x] pnpm workspace (3 пакета: backend, ui, shared)
+- [x] pnpm workspace (3 packages: backend, ui, shared)
 - [x] tsconfig.base.json (shared TS strict config)
 - [x] nest-cli.json
 - [x] vite.config.ts (Vue + path aliases + proxy)
 - [x] tailwind.config.ts
-- [x] .env.example (все env vars документированы)
+- [x] .env.example (all env vars documented)
 - [x] Env var validation (Joi schema in `infrastructure/config/env.validation.ts`, called from `AppModule.onModuleInit`)
 - [x] .gitignore
 - [x] infra/docker-compose.yml (PostgreSQL :5433 + Redis :6381)
 
 ### 0.2 Documentation
-- [x] CONSTITUTION.md (919 строк — полная конституция)
+- [x] CONSTITUTION.md (919 lines — full constitution)
 - [x] README.md (quickstart)
 - [x] brand-voice.md (tone of voice)
 - [x] FEATURE_WISHLIST.md (F1-F22)
@@ -128,9 +128,9 @@
 
 ---
 
-## Фаза 1: Core Backend (100% — COMPLETED)
+## Phase 1: Core Backend (100% — COMPLETED)
 
-> **Цель:** Все REST endpoints работают, бизнес-логика реализована, DI через port interfaces.
+> **Goal:** All REST endpoints work, business logic implemented, DI via port interfaces.
 
 ### 1.1 Domain Layer
 - [x] DTOs (CreatePostDto, UpdatePostStatusDto, PostQueryDto — Zod-validated)
@@ -195,9 +195,9 @@
 
 ---
 
-## Фаза 2: Infrastructure Hardening (100% — COMPLETED)
+## Phase 2: Infrastructure Hardening (100% — COMPLETED)
 
-> **Цель:** BullMQ, rate limiter, SSE, checkpointing — всё работает и протестировано.
+> **Goal:** BullMQ, rate limiter, SSE, checkpointing — all work and are tested.
 
 ### 2.1 BullMQ Queue
 - [x] `QueueFactory` — queue + worker factory per network
@@ -257,9 +257,9 @@
 
 ---
 
-## Фаза 3: UI (90% — in progress)
+## Phase 3: UI (90% — in progress)
 
-> **Цель:** Functional Vue 3 SPA с 5 views, Pinia stores, shared components, SSE.
+> **Goal:** Functional Vue 3 SPA with 5 views, Pinia stores, shared components, SSE.
 
 ### 3.1 Views (DONE — SSE + states wired)
 - [x] Dashboard.vue — stats + recent posts (5 stat cards, PostCard, LoadingSpinner, ErrorState)
@@ -319,9 +319,9 @@
 
 ---
 
-## Фаза 4: Quality & Documentation (95% — in progress)
+## Phase 4: Quality & Documentation (95% — in progress)
 
-> **Цель:** ADRs, Swagger, logging, Constitution update — production-ready docs.
+> **Goal:** ADRs, Swagger, logging, Constitution update — production-ready docs.
 
 ### 4.1 ADRs (DONE — 5 key decisions)
 - [x] `docs/adr/ADR-001-camoufox-browser-automation.md` — why Camoufox (stealth, footprint)
@@ -356,7 +356,7 @@
 - [x] Update §6 structure diagram (match actual file layout) — Sprint A (v0.5.3)
 - [x] Add cron env vars to §8 (CRON_GENERATION_SCHEDULE)
 - [x] Add health check endpoint to §4.1
-- [ ] Mark Phase 0/1 checkbox'ы as `[x]` — Sprint A
+- [ ] Mark Phase 0/1 checkboxes as `[x]` — Sprint A
 
 ### 4.5 Lint & Format
 - [x] No `as never` casts (replaced with Prisma.InputJsonValue / Prisma.PostUpdateInput)
@@ -374,10 +374,10 @@
 
 ---
 
-## Фаза 5: Testing (95% — in progress)
+## Phase 5: Testing (95% — in progress)
 
-> **Цель:** Unit tests для critical paths, integration tests для API, E2E для browser flow.
-> **Статус:** 458 тестов проходят (208 unit + 35 integration + 46 system + 82 acceptance + 33 e2e + 54 other), 26 файлов.
+> **Goal:** Unit tests for critical paths, integration tests for API, E2E for browser flow.
+> **Status:** 458 tests pass (208 unit + 35 integration + 46 system + 82 acceptance + 33 e2e + 54 other), 26 files.
 
 ### 5.1 Vitest Setup (DONE)
 - [x] `vitest.config.ts` in packages/backend
@@ -445,9 +445,9 @@
 
 ---
 
-## Фаза 6: Release Readiness (85% — in progress)
+## Phase 6: Release Readiness (85% — in progress)
 
-> **Цель:** Production deploy ready — env vars, runbooks, monitoring, rollback plan.
+> **Goal:** Production deploy ready — env vars, runbooks, monitoring, rollback plan.
 
 ### 6.1 Environment
 - [x] `.env.example` complete and documented (131 lines, all env vars)
@@ -500,30 +500,30 @@
 
 ---
 
-## Приоритизированный план действий (next steps)
+## Prioritized action plan (next steps)
 
-> Что делать прямо сейчас, в порядке приоритета.
+> What to do right now, in priority order.
 > Sprints 1-5 (core backend, UI, quality, testing, release infra) — COMPLETED.
-> Новые sprints основаны на gap-анализе v0.5.1.
+> New sprints are based on the v0.5.1 gap analysis.
 
-### Sprint A: Documentation Sync (1-2 дня, P1) — IN PROGRESS
-1. **Update ROADMAP.md** — отметить выполненные пункты, пересчитать проценты ✅
+### Sprint A: Documentation Sync (1-2 days, P1) — IN PROGRESS
+1. **Update ROADMAP.md** — mark completed items, recalculate percentages ✅
 2. ✅ **Update CONSTITUTION.md §6** — structure tree synced with actual codebase (v0.5.3): added events/, analytics/, recycling/, quote-cards/, replies/, engagement/engagers/, warmup.module.ts, trending-scraper, infrastructure/{redis,captcha,proxy,selector-health}, UI additions, new migrations
-3. **Mark Phase 0/1 checkbox'ы** в CONSTITUTION.md §16 как `[x]`
-4. **Update Feature Wishlist Mapping** в ROADMAP (F20/F21 = done, engagement = WIP)
+3. **Mark Phase 0/1 checkboxes** in CONSTITUTION.md §16 as `[x]`
+4. **Update Feature Wishlist Mapping** in ROADMAP (F20/F21 = done, engagement = WIP)
 
-### Sprint B: UI Completion (3-5 дней, P1) — COMPLETED
-1. ✅ **PostEditor.vue** — modal для редактирования draft перед approve (backend D2 ready)
-2. ✅ **Warm-up статус в Sessions.vue** — warmupEnabled, warmupStartedAt, days remaining
-3. ✅ **Rate limit status в Sessions.vue** — GET /rate-limit/:network/status + отображение
-4. ✅ **Toast notifications** — useToast composable + ToastContainer.vue, feedback на approve/reject/generate
+### Sprint B: UI Completion (3-5 days, P1) — COMPLETED
+1. ✅ **PostEditor.vue** — modal for editing draft before approve (backend D2 ready)
+2. ✅ **Warm-up status in Sessions.vue** — warmupEnabled, warmupStartedAt, days remaining
+3. ✅ **Rate limit status in Sessions.vue** — GET /rate-limit/:network/status + display
+4. ✅ **Toast notifications** — useToast composable + ToastContainer.vue, feedback on approve/reject/generate
 
-### Sprint C: Engagement Module Decision (2-3 дня, P1) — COMPLETED (FROZEN)
-1. **Решение:** ЗАМОРОЗИТЬ за feature flag (ENGAGEMENT_ENABLED=false по умолчанию)
-2. ✅ `ENGAGEMENT_ENABLED=false` feature flag в app.module.ts — routes не регистрируются
-3. ✅ Env var добавлен в .env.example с документацией
-4. Код сохранён (1300 строк) — можно активировать когда будет время дооформить
-5. Известные gaps если активировать: LLM integration (TODO в generateComment), нет тестов, нет UI, нет Swagger decorators
+### Sprint C: Engagement Module Decision (2-3 days, P1) — COMPLETED (FROZEN)
+1. **Decision:** FREEZE behind a feature flag (ENGAGEMENT_ENABLED=false by default)
+2. ✅ `ENGAGEMENT_ENABLED=false` feature flag in app.module.ts — routes not registered
+3. ✅ Env var added to .env.example with documentation
+4. Code preserved (1,300 lines) — can be activated when there is time to finish it
+5. Known gaps if activated: LLM integration (TODO in generateComment), no tests, no UI, no Swagger decorators
 
 ### Sprint D: E2E Tests ✅ COMPLETE (33 tests, Vitest supertest)
 1. **Full flow E2E:** generate → approve → post (mocked browser) — 8 tests (`full-flow.e2e.spec.ts`)
@@ -535,9 +535,9 @@
 7. **SSE indicator green** verification — headers + connected event verified
 
 ### Sprint E: Content Quality ✅ COMPLETE
-1. ✅ **Category в ContentTopic** — ContentReader извлекает category из blog frontmatter (tags[0]), outline (heading), trending ('trending'), topics ('fresh')
-2. ✅ **B5 category diversity** — prioritizeTopics() round-robin по категориям (уже работало)
-3. ✅ **Fact extraction** — research_extract node усилен: LLM-вызов для извлечения 5-8 фактов из topic + keywords + outline (fallback на pre-extracted facts если есть)
+1. ✅ **Category in ContentTopic** — ContentReader extracts category from blog frontmatter (tags[0]), outline (heading), trending ('trending'), topics ('fresh')
+2. ✅ **B5 category diversity** — prioritizeTopics() round-robin across categories (already worked)
+3. ✅ **Fact extraction** — research_extract node strengthened: LLM call to extract 5-8 facts from topic + keywords + outline (fallback to pre-extracted facts if available)
 
 ### Sprint F: Phase 1.5 Features ✅ COMPLETE
 1. ✅ **F2: Multi-Stage Posting** — Backend done (multiStage param, PostThread, PostingService thread items); TODO: test with real threads
@@ -545,8 +545,8 @@
 3. ✅ **F10: Content Repurposing** — Backend done (repurposeFromArticles, /repurpose endpoint, UI button); TODO: deeper fact extraction
 4. ✅ **F22: Trending Topic Detection** — Backend done (TrendingModule, astro events calendar, UI display); TODO: Google Trends / X trending API
 
-### Sprint G: Production Deployment (2-3 дня, P1) — PARTIALLY DONE
-1. ❌ **Manual E2E test** с real credentials — первый end-to-end posting test (requires real social credentials)
+### Sprint G: Production Deployment (2-3 days, P1) — PARTIALLY DONE
+1. ❌ **Manual E2E test** with real credentials — first end-to-end posting test (requires real social credentials)
 2. ✅ **Health check** — `/health` returns green (verified in E2E tests: `smoke.e2e.spec.ts` D3-6)
 3. ✅ **Swagger** — `/docs` serves Swagger UI (verified in acceptance tests)
 4. ✅ **Graceful shutdown** — `app.enableShutdownHooks()` + `OnModuleDestroy` on 5 services (Prisma, Redis, Browser, SSE, QueueFactory)
@@ -573,7 +573,7 @@
 
 ## Feature Wishlist Mapping
 
-> Из `FEATURE_WISHLIST.md` — какие фичи в какой фазе.
+> From `FEATURE_WISHLIST.md` — which feature belongs to which phase.
 
 | Feature | Phase | Status | Notes |
 |---------|-------|--------|-------|
@@ -585,7 +585,7 @@
 | F10 (Content Repurposing) | Phase 1.5 | [~] | Partial — backend done: repurposeFromArticles() in GenerationService extracts facts from articles + generates posts, /repurpose endpoint, UI button in Generate.vue. TODO: deeper fact extraction, source variety |
 | F13 (Content Recycling) | Phase 1.5 | [ ] | Not started — no evergreen revival |
 | F22 (Trending Topics) | Phase 1.5 | [~] | Partial — backend done: TrendingModule with TrendingService (astro events calendar), TrendingController (/trending endpoint), UI display in Generate.vue. TODO: Google Trends / X trending API integration |
-| F1 (Autonomous Agent) | Phase 2-3 | [~] | ⚠️ FROZEN — 1300 lines implemented (EngagementService + BrowsingSessionService + 3 engagers), gated behind ENGAGEMENT_ENABLED=false. Gaps: LLM integration, tests, UI, Swagger |
+| F1 (Autonomous Agent) | Phase 2-3 | [~] | ⚠️ FROZEN — 1,300 lines implemented (EngagementService + BrowsingSessionService + 3 engagers), gated behind ENGAGEMENT_ENABLED=false. Gaps: LLM integration, tests, UI, Swagger |
 | F4 (Adaptive Replies) | Phase 2 | [ ] | Not started |
 | F6 (Analytics Dashboard) | Phase 2 | [ ] | Not started |
 | F7 (Content Calendar) | Phase 2 | [ ] | Not started |
