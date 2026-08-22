@@ -4,6 +4,7 @@ import { ILlmPort } from "../../domain/ports/llm.port.js";
 import type { BaseCallbackHandler } from "../../domain/ports/llm-primitives.js";
 import { ContentSourceService } from "../content-source/content-source.service";
 import { AccountsService } from "../accounts/accounts.service";
+import { AccountSettingsService } from "../accounts/account-settings.service";
 import { PostsService, extractSourcePath } from "../posts/posts.service";
 import { PrismaService } from "../../infrastructure/prisma/prisma.service";
 import type { Prisma } from "../../generated/prisma/client";
@@ -127,6 +128,8 @@ export class GenerationService {
     @Optional() private readonly langfuse?: LangfuseService,
     @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
     @Optional() private readonly domainConfig?: DomainConfigService,
+    // M1.3: per-account brand voice overrides (AccountSettings.brandVoice)
+    @Optional() private readonly accountSettings?: AccountSettingsService,
   ) {
     // Read POSTING_LANGUAGES from config — comma-separated ISO 639-1 codes.
     // Default: en only. Multilingual posting has been disabled; the agent now
@@ -1339,6 +1342,41 @@ export class GenerationService {
   }
 
   /**
+   * M1.3: group target networks by the effective brand voice of their primary
+   * account. Networks whose account has no settings.brandVoice override share
+   * the global brand-voice group; each distinct override gets its own group
+   * (and therefore its own graph invocation). Order is preserved.
+   */
+  private async groupNetworksByBrandVoice(
+    networks: SocialNetwork[],
+    accountsByNetwork: Map<SocialNetwork, AccountResult[]>,
+    globalVoice: string,
+  ): Promise<Map<string, SocialNetwork[]>> {
+    const groups = new Map<string, SocialNetwork[]>();
+    for (const network of networks) {
+      let effective = globalVoice;
+      const primary = accountsByNetwork.get(network)?.[0];
+      if (primary && this.accountSettings) {
+        try {
+          const { values } = await this.accountSettings.resolve(primary.id);
+          if (values.brandVoice && values.brandVoice.trim() !== "") {
+            effective = values.brandVoice;
+          }
+        } catch (err) {
+          this.logger.warn(
+            `Brand-voice override lookup failed for account ${primary.id} — using global voice`,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      }
+      const list = groups.get(effective);
+      if (list) list.push(network);
+      else groups.set(effective, [network]);
+    }
+    return groups;
+  }
+
+  /**
    * Generate posts for a single topic across all target networks.
    * Uses the §10.3 parallel LangGraph workflow — one invocation, 3 posts.
    */
@@ -1403,50 +1441,74 @@ export class GenerationService {
       return [];
     }
 
-    // Build initial state — graph will fan out to all active networks
-    const initialState = createInitialState(
-      topic,
+    // Build initial state — graph will fan out to all active networks.
+    // M1.3: networks whose primary account has a settings.brandVoice override
+    // are split into their own graph invocation so each account's posts sound
+    // like that account; the rest share the global brand-voice run.
+    const voiceGroups = await this.groupNetworksByBrandVoice(
       activeNetworks,
+      accountsByNetwork,
       brandVoice,
-      humanReview,
-      language,
     );
 
-    // Invoke the LangGraph workflow with checkpoint
-    // thread_id = runId:topic enables resume after crash (B6 mitigation)
-    const config: GraphInvokeConfig = {
-      configurable: { thread_id: `${runId}:${topic.topic}` },
-      recursionLimit: 50, // P3+P7 added 6 nodes; Q8 judge-retry adds up to 2 supersteps per network
-      signal,
-    };
+    const generatedPosts: GeneratedPost[] = [];
+    const finalFacts: string[] = [];
+    const promptLabelsAcc: Record<string, { label: string; isFallback?: boolean }> = {};
 
-    this.logger.debug(
-      `Invoking LangGraph for "${topic.topic}" → ${activeNetworks.join(", ")} (thread: ${config.configurable.thread_id})`,
-    );
+    for (const [effectiveVoice, groupNetworks] of voiceGroups) {
+      const initialState = createInitialState(
+        topic,
+        groupNetworks,
+        effectiveVoice,
+        humanReview,
+        language,
+      );
 
-    // Langfuse tracing: sessionId=runId groups all LLM calls across topics
-    // in the same run. tags + traceMetadata enable filtering in the Langfuse UI.
-    // promptNames links this trace to the Langfuse Prompt Management prompts used.
-    const { finalState, promptLabels } = await this.tracedGraphInvoke(
-      config,
-      {
-        sessionId: runId,
-        tags: ["generation", language, ...activeNetworks.map((n) => n.toLowerCase())],
-        traceMetadata: {
-          topic: topic.topic,
-          runId,
-          language,
-          networks: activeNetworks.join(","),
-          promptNames: "research-extract,hook-generation,draft-post,critique-post,refine-post",
+      // Invoke the LangGraph workflow with checkpoint
+      // thread_id = runId:topic[:group] enables resume after crash (B6 mitigation)
+      const config: GraphInvokeConfig = {
+        configurable: {
+          thread_id:
+            voiceGroups.size > 1
+              ? `${runId}:${topic.topic}:${groupNetworks.join("-").toLowerCase()}`
+              : `${runId}:${topic.topic}`,
         },
-      },
-      initialState,
-      runId,
-      model,
-    );
-    const generatedPosts = (finalState as { posts?: GeneratedPost[] }).posts ?? [];
-    // P4: Extract facts from final state for thread depth planning
-    const finalFacts = (finalState as { facts?: string[] }).facts ?? [];
+        recursionLimit: 50, // P3+P7 added 6 nodes; Q8 judge-retry adds up to 2 supersteps per network
+        signal,
+      };
+
+      this.logger.debug(
+        `Invoking LangGraph for "${topic.topic}" → ${groupNetworks.join(", ")} (thread: ${config.configurable.thread_id}, voice: ${effectiveVoice === brandVoice ? "global" : "account-override"})`,
+      );
+
+      // Langfuse tracing: sessionId=runId groups all LLM calls across topics
+      // in the same run. tags + traceMetadata enable filtering in the Langfuse UI.
+      // promptNames links this trace to the Langfuse Prompt Management prompts used.
+      const { finalState, promptLabels } = await this.tracedGraphInvoke(
+        config,
+        {
+          sessionId: runId,
+          tags: ["generation", language, ...groupNetworks.map((n) => n.toLowerCase())],
+          traceMetadata: {
+            topic: topic.topic,
+            runId,
+            language,
+            networks: groupNetworks.join(","),
+            promptNames: "research-extract,hook-generation,draft-post,critique-post,refine-post",
+          },
+        },
+        initialState,
+        runId,
+        model,
+      );
+      generatedPosts.push(...((finalState as { posts?: GeneratedPost[] }).posts ?? []));
+      // P4: Extract facts from final state for thread depth planning
+      finalFacts.push(...((finalState as { facts?: string[] }).facts ?? []));
+      // Merge per-group prompt labels (later groups win on name collisions —
+      // labels are identical across groups unless a per-account Langfuse label
+      // overrides them).
+      Object.assign(promptLabelsAcc, promptLabels);
+    }
 
     // Save each generated post as DRAFT
     // B5: SimHash dedup — skip near-duplicate posts (Hamming distance ≤ 8)
@@ -1464,7 +1526,7 @@ export class GenerationService {
         ...(topic.originalPostId ? { originalPostId: topic.originalPostId } : {}),
         ...(topic.originalTopic ? { originalTopic: topic.originalTopic } : {}),
       },
-      { language, recentHashes, promptLabels, canonicalUrl: topic.canonicalUrl },
+      { language, recentHashes, promptLabels: promptLabelsAcc, canonicalUrl: topic.canonicalUrl },
     );
 
     // F2/P4: Multi-Stage Posting with Thread Depth Service.
