@@ -1,5 +1,9 @@
 # ROADMAP — Social Poster Agent (SPA)
 
+> ⛔ **АРХИВ (2026-08-22).** Этот документ описывает завершённые фазы 0–6 и sprints A–G.
+> Актуальный план: **[ROADMAP_V2.md](./ROADMAP_V2.md)** (цели лидогенерации, зоны Z1–Z6,
+> фазы M0–M6). История статусов ниже сохранена без изменений.
+
 > **Single source of truth for the project.** Describes phases, checkpoints,
 > targets, tasks, and readiness criteria. Structure is inspired by Product Forge:
 > phases → gate → next step. All status changes are recorded here.

@@ -278,6 +278,10 @@ model Post {
   syndicatedUrls   Json?            // { [network: string]: string } — platform URLs after syndication
   judgeScores      Json?            // LLM-as-a-Judge scores { anti_ai_tone, hook_strength, factual_accuracy, ... }
   judgeRetried     Boolean          @default(false) // true if judge triggered a refine retry
+  // ── Link attribution (ROADMAP_V2 Z4 — my_zodiac_ai/back attribution-links client) ──
+  ctaUrl           String?          // final CTA URL in the post text (zodiac short link or direct UTM fallback)
+  attributionLinkId String?         // AttributionLink.id in my_zodiac_ai/back (null = direct UTM fallback was used)
+  attributionSlug  String?          // AttributionLink.slug (denormalized for funnel-report lookups)
   createdAt        DateTime         @default(now())
   approvedAt       DateTime?
   postedAt         DateTime?
@@ -294,6 +298,7 @@ model Post {
   @@index([sourcePath, network])
   @@index([contentType])
   @@index([canonicalUrl])
+  @@index([attributionSlug])
 }
 
 // A/B testing: variants generated for a post and their real-world outcomes.

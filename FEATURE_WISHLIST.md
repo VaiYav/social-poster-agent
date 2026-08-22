@@ -7,6 +7,10 @@ owner: Valentyn Yakovlev
 status: draft / brainstorm
 ---
 
+> ⛔ **АРХИВ (2026-08-22).** Пожелания F1-F22 разобраны и распределены по фазам
+> ROADMAP_V2 (см. §8 «Карта архива»). Не добавляйте новые пункты сюда — заводите
+> их в ROADMAP_V2 §9 Parking lot или через proposal в `docs/roadmap/`.
+
 # Feature Wishlist — Social Poster Agent
 
 > **Назначение документа.** Фиксация "хотелок" фичей до их формализации в

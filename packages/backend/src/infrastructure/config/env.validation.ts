@@ -522,6 +522,18 @@ const envSchema = Joi.object({
   BROWSER_AGENT_MAX_ITERATIONS: Joi.number().integer().min(1).max(50).default(10),
   // Screenshot cache TTL in ms (identical screenshots skip LLM call)
   BROWSER_AGENT_CACHE_TTL_MS: Joi.number().integer().min(0).default(300000), // 5 min
+
+  // ── Link attribution (ROADMAP_V2 Z4 — my_zodiac_ai/back attribution-links client) ──
+  // When ZODIAC_API_URL is empty, the link port is a no-op and posts fall back
+  // to buildDirectUtmUrl() (plain UTM-tagged destination URL).
+  ZODIAC_API_URL: Joi.string().uri({ scheme: ['http', 'https'] }).allow('').default(''),
+  // Shared secret for the /internal/attribution-links endpoint (MAIN_BACKEND_INTERNAL_TOKEN on zodiac-back)
+  ZODIAC_INTERNAL_TOKEN: Joi.string().allow('').default(''),
+  // Default redirect target for attribution links (quiz funnel = primary lead surface)
+  ZODIAC_DEFAULT_DESTINATION_URL: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .default('https://quiz.my-zodiac-ai.com'),
+  ZODIAC_TIMEOUT_MS: Joi.number().integer().min(500).default(5000),
 }).pattern(
   /^SOCIAL_(X|THREADS|FACEBOOK)_(USERNAME|EMAIL|PASSWORD|COOKIES|PAGE_SLUG|WARMUP|ACTIVE|PROXY_URL|DISPLAY_NAME|PRIORITY|FINGERPRINT_SEED)_\d+$/,
   Joi.string().allow(''),

@@ -1,5 +1,8 @@
 # 2026 SPA Product Expansion Roadmap
 
+> 📍 **Статус пропозалов (2026-08-22):** 01,02,04 → фазы M1-M2; 03 → M4; 05 → M5;
+> 06 → M3; 07 → M4-M5 в **[ROADMAP_V2.md](../../ROADMAP_V2.md)**.
+
 This directory holds feature proposals for the next wave of **Social Poster Agent (SPA)** capabilities. Each file below covers one product/technical area in enough detail for product and engineering to estimate, sequence, and break the work into tasks.
 
 > These are **proposals**, not implemented code. Before starting any of them re-verify file references against the current source tree.

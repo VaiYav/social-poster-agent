@@ -7,3 +7,13 @@ export { IContentPort, type IContentPort as IContentPortType } from './content.p
 export { IPromptPort, type IPromptPort as IPromptPortType, PROMPT_FALLBACK_PROVIDERS, type IPromptFallbackProvider } from './prompt.port.js';
 export { IEngagementDecisionPort, type EngagementAction, type EngagementSource, type PostContext, type ActionDecision, type IEngagementDecisionPort as IEngagementDecisionPortType } from './engagement-decision.port.js';
 export { IPostingQueuePort, type IPostingQueuePort as IPostingQueuePortType } from './posting-queue.port.js';
+export {
+  ILinkPort,
+  type ILinkPort as ILinkPortType,
+  type LinkNetwork,
+  type CreateTrackableLinkParams,
+  type TrackableLink,
+  type FunnelReportParams,
+  type LinkFunnelReport,
+  LinkServiceUnavailableError,
+} from './link.port.js';
