@@ -177,16 +177,29 @@ const envSchema = Joi.object({
   NODE_ENV: Joi.string().valid("development", "production", "test").default("development"),
 
   // ── Browser / Camoufox ──
-  CAMOUFOX_HEADLESS: Joi.string().valid("true", "false").default("true"),
+  CAMOUFOX_HEADLESS: Joi.string().valid("true", "false", "virtual").default("true"),
   CAMOUFOX_HUMANIZE: Joi.string().valid("true", "false").default("true"),
   CAMOUFOX_GEOIP: Joi.string().valid("true", "false").default("true"),
   CAMOUFOX_LOCALE: Joi.string().default("en-US"),
   CAMOUFOX_OS: Joi.string().valid("windows", "macos", "linux").default("windows"),
   CAMOUFOX_PROXY_URL: Joi.string().uri().allow("").default(""),
   CAMOUFOX_PROFILE_DIR: Joi.string().default("/tmp/spa-profiles"),
+  CAMOUFOX_INSTALL_DIR: Joi.string().allow("").default(""),
   CAMOUFOX_MEMORY_PREFS: Joi.string().valid("true", "false").default("true"),
   CAMOUFOX_IMAGE_DECODE_CHUNK: Joi.number().integer().min(1024).default(8192),
   CAMOUFOX_BLOCK_IMAGES_READONLY: Joi.string().valid("true", "false").default("true"),
+  CAMOUFOX_BLOCK_WEBRTC: Joi.string().valid("true", "false").default("false"),
+  CAMOUFOX_BLOCK_WEBGL: Joi.string().valid("true", "false").default("false"),
+  CAMOUFOX_DISABLE_COOP: Joi.string().valid("true", "false").default("false"),
+  CAMOUFOX_MAIN_WORLD_EVAL: Joi.string().valid("true", "false").default("false"),
+  CAMOUFOX_DEBUG: Joi.string().valid("true", "false").default("false"),
+  CAMOUFOX_FF_VERSION: Joi.number().integer().min(135).optional(),
+  CAMOUFOX_WINDOW: Joi.string().optional(),
+  CAMOUFOX_SCREEN: Joi.string().optional(),
+  CAMOUFOX_FINGERPRINT_FILE: Joi.string().optional(),
+  CAMOUFOX_ADDONS: Joi.string().optional(),
+  CAMOUFOX_EXCLUDE_ADDONS: Joi.string().optional(),
+  CAMOUFOX_VIRTUAL_DISPLAY: Joi.string().optional(),
   BROWSER_POOL_SIZE: Joi.number().integer().min(1).default(1),
   BROWSER_POOL_ACQUIRE_TIMEOUT_MS: Joi.number().integer().min(1000).default(60000),
   BROWSER_CONTEXT_IDLE_TTL_MS: Joi.number()
@@ -552,6 +565,9 @@ const envSchema = Joi.object({
     .uri({ scheme: ["http", "https"] })
     .default("https://quiz.my-zodiac-ai.com"),
   ZODIAC_TIMEOUT_MS: Joi.number().integer().min(500).default(5000),
+  // R7/M1.4: timeout for fetching a syndicated article while verifying its
+  // <link rel="canonical"> tag (CanonicalUrlService.verifyCanonical)
+  CANONICAL_VERIFY_TIMEOUT_MS: Joi.number().integer().min(500).default(8000),
 })
   .pattern(
     /^SOCIAL_(X|THREADS|FACEBOOK)_(USERNAME|EMAIL|PASSWORD|COOKIES|PAGE_SLUG|WARMUP|ACTIVE|PROXY_URL|DISPLAY_NAME|PRIORITY|FINGERPRINT_SEED)_\d+$/,

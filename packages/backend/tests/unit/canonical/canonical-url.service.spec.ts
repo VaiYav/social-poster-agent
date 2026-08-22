@@ -161,14 +161,65 @@ describe("CanonicalUrlService", () => {
     });
   });
 
-  describe("verifyCanonical()", () => {
-    it("CU-040: stub returns true (optimistic)", async () => {
-      const result = await service.verifyCanonical(
-        "https://dev.to/article",
-        "https://example.com/blog/test",
+  describe("verifyCanonical() — R7 real implementation", () => {
+    const ARTICLE_URL = "https://dev.to/author/my-article";
+    const EXPECTED = "https://example.com/blog/my-article";
+
+    function mockFetch(html: string | null, status = 200) {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(
+          html === null
+            ? { ok: false, status, text: async () => "" }
+            : { ok: true, status: 200, text: async () => html },
+        );
+      vi.stubGlobal("fetch", fetchMock);
+      return fetchMock;
+    }
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("CU-040: returns true when the canonical tag matches the expected blog URL", async () => {
+      mockFetch(
+        `<html><head><link rel="canonical" href="${EXPECTED}" /></head><body>x</body></html>`,
       );
-      // Phase 0 stub — always returns true
-      expect(result).toBe(true);
+      await expect(service.verifyCanonical(ARTICLE_URL, EXPECTED)).resolves.toBe(true);
+    });
+
+    it("CU-041: resolves relative canonical hrefs against the ARTICLE origin (→ mismatch = syndication bug)", async () => {
+      // A relative /blog/... href resolves against dev.to, NOT the blog —
+      // that means the platform article was published without a proper
+      // absolute canonical pointing back to our site, so verification must
+      // correctly report false.
+      mockFetch(`<link rel='canonical' href='/blog/my-article'/>`);
+      await expect(service.verifyCanonical(ARTICLE_URL, EXPECTED)).resolves.toBe(false);
+    });
+
+    it("CU-042: returns false when the canonical href points elsewhere", async () => {
+      mockFetch(`<link rel="canonical" href="https://other.com/blog/my-article" />`);
+      await expect(service.verifyCanonical(ARTICLE_URL, EXPECTED)).resolves.toBe(false);
+    });
+
+    it("CU-043: returns false when no canonical tag exists", async () => {
+      mockFetch("<html><head><title>t</title></head></html>");
+      await expect(service.verifyCanonical(ARTICLE_URL, EXPECTED)).resolves.toBe(false);
+    });
+
+    it("CU-044: returns false on non-2xx response (cannot confirm ≠ confirmed)", async () => {
+      mockFetch(null, 404);
+      await expect(service.verifyCanonical(ARTICLE_URL, EXPECTED)).resolves.toBe(false);
+    });
+
+    it("CU-045: returns false when fetch throws (timeout / DNS)", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("timeout")));
+      await expect(service.verifyCanonical(ARTICLE_URL, EXPECTED)).resolves.toBe(false);
+    });
+
+    it("CU-046: ignores trailing-slash and case differences in the host/path", async () => {
+      mockFetch(`<link rel="canonical" href="https://Example.com/blog/my-article/" />`);
+      await expect(service.verifyCanonical(ARTICLE_URL, EXPECTED)).resolves.toBe(true);
     });
   });
 });

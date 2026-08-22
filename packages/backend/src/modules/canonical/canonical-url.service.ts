@@ -92,20 +92,78 @@ export class CanonicalUrlService {
 
   /**
    * Verify that a published article has the correct canonical URL set.
-   * Fetches the platform article URL and checks for a canonical link tag.
+   * Fetches the platform article URL and checks the <link rel="canonical">
+   * href against the expected blog URL (normalised comparison).
    *
-   * Phase 0: stub — real implementation in Phase 1 (needs HTTP fetch + HTML parse).
-   * The LLM-in-the-loop verify() can also check this at runtime.
+   * R7 (ROADMAP_V2 M1.4): replaces the Phase-0 optimistic stub. Network or
+   * parse failures return false (cannot confirm ≠ confirmed) but never throw —
+   * callers treat canonical verification as advisory, not blocking.
    *
    * @param postUrl - URL of the published article on the platform
    * @param expectedCanonicalUrl - The canonical URL that should be set
-   * @returns true if the canonical URL matches
+   * @returns true if a canonical tag was found and matches the expectation
    */
   async verifyCanonical(postUrl: string, expectedCanonicalUrl: string): Promise<boolean> {
-    this.logger.debug(`verifyCanonical stub: postUrl=${postUrl}, expected=${expectedCanonicalUrl}`);
-    // Phase 1: fetch postUrl, parse HTML, check <link rel="canonical" href="...">
-    // For now, return true (optimistic — LLM verify() will check at runtime)
-    return true;
+    const timeoutMs = Number(this.configService.get<string>("CANONICAL_VERIFY_TIMEOUT_MS", "8000"));
+    let html: string;
+    try {
+      const res = await fetch(postUrl, {
+        headers: {
+          // Some platforms (Dev.to) render canonical server-side; a plain UA is fine.
+          "User-Agent": "Mozilla/5.0 (compatible; SocialPosterAgent-CanonicalVerify/1.0)",
+          Accept: "text/html",
+        },
+        signal: AbortSignal.timeout(timeoutMs),
+        redirect: "follow",
+      });
+      if (!res.ok) {
+        this.logger.warn(
+          `verifyCanonical: ${postUrl} responded ${res.status} — cannot confirm canonical`,
+        );
+        return false;
+      }
+      html = await res.text();
+    } catch (err) {
+      this.logger.warn(
+        `verifyCanonical: fetch failed for ${postUrl}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return false;
+    }
+
+    // First <link rel="canonical" href="..."> wins (platforms emit exactly one).
+    const linkTag = html.match(/<link\b[^>]*\brel=["']canonical["'][^>]*>/i);
+    const href = linkTag?.[0]?.match(/\bhref=["']([^"']+)["']/i)?.[1];
+    if (!href) {
+      this.logger.warn(`verifyCanonical: no canonical link tag found on ${postUrl}`);
+      return false;
+    }
+
+    const matches = this.canonicalEqual(href, expectedCanonicalUrl, postUrl);
+    this.logger.debug(
+      `verifyCanonical: ${postUrl} canonical=${href} expected=${expectedCanonicalUrl} → ${matches}`,
+    );
+    return matches;
+  }
+
+  /**
+   * Normalised canonical comparison: absolute-resolve both URLs against the
+   * article origin, then compare origin+path+query case-insensitively on the
+   * host with trailing slashes stripped.
+   */
+  private canonicalEqual(actual: string, expected: string, baseUrl: string): boolean {
+    const normalize = (raw: string): string | null => {
+      try {
+        const url = new URL(raw, baseUrl);
+        url.hash = "";
+        return `${url.origin.replace(/\/$/, "")}${url.pathname.replace(/\/+$/, "")}${url.search}`;
+      } catch {
+        return null;
+      }
+    };
+    const a = normalize(actual);
+    const b = normalize(expected);
+    if (!a || !b) return actual.trim() === expected.trim();
+    return a.toLowerCase() === b.toLowerCase();
   }
 
   /**
