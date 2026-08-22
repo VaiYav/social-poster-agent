@@ -10,3 +10,4 @@ export * from "./schemas/index.js";
 export * from "./schemas/content.js";
 export * from "./schemas/sse-event.js";
 export * from "./schemas/events.js";
+export * from "./schemas/account-settings.js";

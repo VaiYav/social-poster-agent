@@ -132,6 +132,9 @@ model SocialAccount {
   proxyUrl        String?        // optional per-account proxy override
   credentialsRef  String         // comma-separated env var names (never the password itself)
   active          Boolean        @default(true)
+  // M1.2: per-account settings overrides — validated by AccountSettingsSchema (@spa/shared).
+  // Inheritance: hard defaults → global env → AccountGroup (future) → this JSON.
+  settings        Json?
   // F20: Warm-up mode for new accounts (browse-only → gradual ramp)
   warmupEnabled   Boolean        @default(false) // true = account in warm-up phase
   warmupStartedAt DateTime?      // when warm-up started (for gradual ramp calculation)
