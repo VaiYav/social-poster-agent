@@ -9,52 +9,52 @@ parent_repo: astro-ai-landing (lives in `social-poster-agent/` subdirectory)
 
 # Constitution: Social Poster Agent (SPA)
 
-> **Назначение документа.** Это концептуальная конституция — фиксирует WHAT и WHY
-> на старте проекта, до написания кода. Архитектурные ADR-ы, технический план и
-> спецификации появятся позже как отдельные артефакты (`docs/adr/ADR-*.md`,
-> `docs/plan.md`). Этот документ — точка отсчёта: всё, что здесь не описано,
-> считается out-of-scope для MVP и требует явного изменения конституции.
+> **Purpose of this document.** This is a conceptual constitution — it captures WHAT and WHY
+> at project start, before writing code. Architectural ADRs, technical plans and
+> specifications will appear later as separate artifacts (`docs/adr/ADR-*.md`,
+> `docs/plan.md`). This document is the starting point: anything not described here
+> is considered out-of-scope for MVP and requires an explicit constitution amendment.
 
 ---
 
-## 1. Что мы строим (One-liner)
+## 1. What we are building (One-liner)
 
-**Внутренний автономный агент, который берёт контент из content-agent-platform,
-генерирует LLM-креативы для соц-сетей и постит их через браузерную автоматизацию
-(Camoufox — stealth Firefox fork) по принципу "cron генерит → человек ревьюит → агент постит".**
+**An internal autonomous agent that takes content from content-agent-platform,
+generates LLM creatives for social networks and posts them through browser automation
+(Camoufox — stealth Firefox fork) following the principle "cron generates → human reviews → agent posts".**
 
-> **Feature Wishlist:** дополнительные фичи (F1-F22) зафиксированы в
+> **Feature Wishlist:** additional features (F1-F22) are recorded in
 > [`FEATURE_WISHLIST.md`](./FEATURE_WISHLIST.md). MVP: F21 (Health Monitor),
 > F20 (Warm-up). MVP+ (Phase 1.5): F2, F3, F5, F10, F13, F22. Phase 2-3:
 > F1, F4, F6-F8, F11, F19.
 
 ---
 
-## 2. Проблема и мотивация
+## 2. Problem and motivation
 
-### Проблема
-- Ручной постинг в X.com / Threads / Facebook отнимает время и делается
-  нерегулярно.
-- Контент для постов выдумывается с нуля, хотя на сайте уже сотни
-  SEO-статей + content-agent-platform генерирует новые briefs/topics.
-- Нет истории что/когда/куда запостили, нет статуса, нет переиспользования.
+### Problem
+- Manual posting on X.com / Threads / Facebook takes time and happens
+  irregularly.
+- Post content is invented from scratch, although the site already has hundreds of
+  SEO articles + content-agent-platform generates new briefs/topics.
+- No history of what/when/where was posted, no status, no reuse.
 
-### Мотивация
-- **Автоматизировать рутину** генерации и постинга маркетинговых постов.
-- **Переиспользовать контент** сайта и content-agent-platform как источник
-  тем/фактов/хуков.
-- **Иметь UI** для контроля: что сгенерировано, статус очереди, история постов,
-  возможность ревьюить перед постингом.
-- **Масштабировать** на несколько аккаунтов/сетей в будущем без переписывания.
+### Motivation
+- **Automate the routine** of generating and posting marketing posts.
+- **Reuse content** from the site and content-agent-platform as a source of
+  topics/facts/hooks.
+- **Have a UI** for control: what was generated, queue status, post history,
+  ability to review before posting.
+- **Scale** to multiple accounts/networks in the future without rewriting.
 
-### Почему НЕ через официальные API соц-сетей
-- X API платный и ограниченный ($100+/mo за базовый постинг).
-- Threads API нестабильный и требует Facebook Graph API + бизнес-аккаунт.
-- Facebook Pages API требует верификацию приложения.
-- Браузерная автоматизация = $0 + полный контроль над UX поста (треды,
-  форматирование) + единый интерфейс для всех сетей.
-- **Трейд-офф:** выше риск бана аккаунта → поэтому Camoufox (C++ level stealth) +
-  HITL-гейт перед постингом + лимиты частоты.
+### Why NOT use the official social network APIs
+- X API is paid and limited ($100+/mo for basic posting).
+- Threads API is unstable and requires Facebook Graph API + business account.
+- Facebook Pages API requires app verification.
+- Browser automation = $0 + full control over post UX (threads,
+  formatting) + unified interface for all networks.
+- **Trade-off:** higher risk of account ban → therefore Camoufox (C++ level stealth) +
+  HITL gate before posting + rate limits.
 
 ---
 
@@ -62,48 +62,48 @@ parent_repo: astro-ai-landing (lives in `social-poster-agent/` subdirectory)
 
 ### 3.1 In-scope (MVP)
 
-| # | Возможность | Описание |
+| # | Capability | Description |
 |---|-------------|----------|
-| 1 | **3 соц-сети** | X.com (Twitter), Threads, Facebook — текстовые посты |
-| 2 | **Генерация креативов** | LLM (LangGraph.js) генерирует текст поста из контента content-agent-platform |
-| 3 | **Per-network angle** | Разный угол/хук для каждой сети (X=punchy, Threads=narrative, FB=conversational) |
-| 4 | **Cron-генерация** | По расписанию агент генерирует кандидаты-посты и складывает в очередь (статус `draft`) |
-| 5 | **HITL-ревью** | Оператор видит draft-посты в UI, одобряет/редактирует/отклоняет |
-| 6 | **Браузерный постинг** | После одобрения агент открывает Camoufox (stealth Firefox fork) сессию, логинится (persistent cookies), постит |
-| 7 | **Persistent sessions** | Cookies/session state сохраняются, релогин только когда протухли |
-| 8 | **Auto-retry постинга** | BullMQ: 3 попытки с exponential backoff (1мин, 5мин, 15мин), dead-letter queue |
-| 9 | **Configurable rate limits** | Лимиты постинга per network/day/week — в env, меняются без кода |
-| 10 | **История постов** | Каждый пост: сеть, текст, статус, timestamp, URL поста (если есть), ошибки |
-| 11 | **UI (Vue 3 + Vite SPA)** | REST + shared Zod типобезопасность; очередь, история, генерация, одобрение |
-| 12 | **Треды (X + Threads)** | Поддержка multi-post тредов — несколько постов как "паровоз" |
-| 13 | **1 аккаунт на сеть** | Один аккаунт на каждую соц-сеть, архитектура готова к расширению |
-| 14 | **Structured logging** | NestJS Logger (JSON format) для дебага и observability |
+| 1 | **3 social networks** | X.com (Twitter), Threads, Facebook — text posts |
+| 2 | **Creative generation** | LLM (LangGraph.js) generates post text from content-agent-platform content |
+| 3 | **Per-network angle** | Different angle/hook for each network (X=punchy, Threads=narrative, FB=conversational) |
+| 4 | **Cron generation** | On schedule the agent generates candidate posts and enqueues them (status `draft`) |
+| 5 | **HITL review** | Operator sees draft posts in the UI, approves/edits/rejects |
+| 6 | **Browser posting** | After approval the agent opens a Camoufox (stealth Firefox fork) session, logs in (persistent cookies), posts |
+| 7 | **Persistent sessions** | Cookies/session state are saved, re-login only when stale |
+| 8 | **Auto-retry posting** | BullMQ: 3 attempts with exponential backoff (1min, 5min, 15min), dead-letter queue |
+| 9 | **Configurable rate limits** | Posting limits per network/day/week — in env, changeable without code |
+| 10 | **Post history** | Each post: network, text, status, timestamp, post URL (if any), errors |
+| 11 | **UI (Vue 3 + Vite SPA)** | REST + shared Zod type safety; queue, history, generation, approval |
+| 12 | **Threads (X + Threads)** | Support multi-post threads — several posts as a "train" |
+| 13 | **1 account per network** | One account per social network, architecture ready for extension |
+| 14 | **Structured logging** | NestJS Logger (JSON format) for debugging and observability |
 
-### 3.2 Out-of-scope (пост-MVP, явно зафиксировано)
+### 3.2 Out-of-scope (post-MVP, explicitly recorded)
 
-- **Изображения/медиа** — только текст в MVP; image upload в phase 2.
+- **Images/media** — text only in MVP; image upload in phase 2.
 - **LinkedIn / Instagram / TikTok** — phase 2+.
-- **Несколько аккаунтов на сеть** — архитектура готова, но MVP = 1 аккаунт.
-- **Автономный постинг без HITL** — сознательно отложено (риск бана).
-- **Аналитика вовлечённости** (лайки/ретвиты/охват) — phase 2.
-- **A/B-тестирование креативов** — phase 2.
-- **Scheduling на конкретное время** — MVP = "постит сразу после одобрения";
-  scheduled-posting в phase 2.
-- **Multi-language посты** — MVP = English only.
-- **Residential proxies** — MVP = Camoufox stealth (C++ level) без proxy; proxy в
-  phase 2 если появятся баны.
+- **Multiple accounts per network** — architecture is ready, but MVP = 1 account.
+- **Autonomous posting without HITL** — deliberately deferred (ban risk).
+- **Engagement analytics** (likes/retweets/reach) — phase 2.
+- **A/B testing creatives** — phase 2.
+- **Scheduling for a specific time** — MVP = "posts immediately after approval";
+  scheduled-posting in phase 2.
+- **Multi-language posts** — MVP = English only.
+- **Residential proxies** — MVP = Camoufox stealth (C++ level) without proxy; proxy in
+  phase 2 if bans appear.
 
-### 3.3 Явные non-goals (НЕ будем делать никогда/в обозримом будущем)
+### 3.3 Explicit non-goals (we will NOT do this ever / in the foreseeable future)
 
-- **Спам / масс-постинг / бот-фермы** — это инструмент для ОДНОГО бренда
-  (My Zodiac AI), не SaaS для других.
-- **Fake engagement** (накрутка лайков/боты) — out of scope, этично-серая зона.
-- **DM / replies automation** — только исходящие посты, не взаимодействие.
-- **Scraping контента конкурентов** — только свой контент.
+- **Spam / mass-posting / bot farms** — this is a tool for ONE brand
+  (My Zodiac AI), not a SaaS for others.
+- **Fake engagement** (like boosting/bots) — out of scope, ethically gray zone.
+- **DM / replies automation** — only outgoing posts, no interaction.
+- **Scraping competitor content** — only own content.
 
 ---
 
-## 4. Архитектура (high-level)
+## 4. Architecture (high-level)
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
