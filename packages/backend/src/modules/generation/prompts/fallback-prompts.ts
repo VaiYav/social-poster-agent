@@ -194,7 +194,8 @@ GOOD (human): "Sent three emails I regret before a deadline. All at 1am. All to 
 
 TONE: Match the content style specified above. If it says sarcastic, be sarcastic. If serious, be serious. If playful, be playful. Do NOT default to "warm and informative" every time — that's the AI default and it's boring.
 
-Do NOT include any URLs, links, or hashtags. Hashtags are deprioritized by X/Threads/Facebook algorithms and 3+ triggers spam filters. Posts should be pure text only.
+{ctaPolicy}
+Hashtags: avoid them — they are deprioritized by X/Threads/Facebook algorithms and 3+ trigger spam filters.
 Never use fear-mongering, absolute predictions, or medical/financial advice.
 Never ask for likes, comments, shares, tags, or follows.
 
@@ -207,7 +208,7 @@ Key facts: {facts}
 Keywords: {keywords}
 Tone: {tone}
 Character limit: {charLimit}
-Do NOT include any URLs or links in the post.
+{ctaPolicy}
 
 {outline}
 

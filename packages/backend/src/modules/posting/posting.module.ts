@@ -10,6 +10,7 @@ import { PrismaModule } from "../../infrastructure/prisma/prisma.module";
 import { QueueModule as QueueInfraModule } from "../../infrastructure/queue/queue.module";
 import { FlowControlModule } from "../flow-control/flow-control.module";
 import { ContentEnhancementsModule } from "../content-enhancements/content-enhancements.module.js";
+import { LinkAttributionModule } from "../link-attribution/link-attribution.module";
 import { PostingService } from "./posting.service";
 import { PostingController } from "./posting.controller";
 import { ThreadProgressService } from "./thread-progress.service";
@@ -35,6 +36,7 @@ import { TelegramModule } from "../../infrastructure/telegram/telegram.module.js
     FlowControlModule,
     ContentEnhancementsModule,
     TelegramModule,
+    LinkAttributionModule,
   ],
   providers: [
     PostingService,

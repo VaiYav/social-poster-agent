@@ -673,7 +673,16 @@ function makeDraftNode(network: SocialNetwork, promptPort: IPromptPort, draftTem
 
     const { systemPrompt, userPrompt } = await promptPort.getCompiledChat(
       "draft-post",
-      variables,
+      {
+        ...variables,
+        // M2.2: CTA link policy. The posting pipeline appends/delivers the real
+        // link itself — the LLM must never invent one. X delivers the CTA as a
+        // first reply, so its body stays pure text.
+        ctaPolicy:
+          network === SocialNetwork.X
+            ? "No URLs or links in the post body — a call-to-action link is delivered separately as a first reply after publishing. Pure text only."
+            : "Never write or invent any URL yourself. A call-to-action link may be appended to your text automatically before publishing.",
+      },
       DRAFT_POST_PROMPT,
     );
 

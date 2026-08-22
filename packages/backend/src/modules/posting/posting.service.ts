@@ -10,6 +10,7 @@ import { PostsService } from "../posts/posts.service";
 import { RateLimitService } from "../rate-limit/rate-limit.service.js";
 import { QueueFactory } from "../../infrastructure/queue/queue.factory.js";
 import { ThreadProgressService } from "./thread-progress.service.js";
+import { LinkAttributionService } from "../link-attribution/link-attribution.service";
 import { FlowControlService } from "../flow-control/flow-control.service.js";
 import { XPoster } from "./posters/x.poster";
 import { ThreadsPoster } from "./posters/threads.poster";
@@ -109,6 +110,8 @@ export class PostingService {
     @Optional() private readonly mastodonPoster?: MastodonPoster,
     @Optional() private readonly linkedinSocialPoster?: LinkedinSocialPoster,
     @Optional() private readonly telegramAdapter?: TelegramAdapter,
+    // M2.1: lead-funnel CTA assignment (zodiac short link / UTM fallback)
+    @Optional() private readonly linkAttribution?: LinkAttributionService,
   ) {}
 
   /**
@@ -377,6 +380,30 @@ export class PostingService {
           .then((p) => (p ? { id: p.id, postUrl: p.postUrl } : null));
       }
 
+      // ── M2.1: lead-funnel CTA assignment ──
+      // Root posts only (continuations never carry links). X/Threads get the
+      // link delivered as an immediate first reply after verification; inline
+      // networks get it appended to the content below. Never blocks posting:
+      // assignForPost degrades to UTM fallback or no CTA.
+      const isContinuation = isMultiStage && post.threadPosition > 0;
+      let ctaContent = post.content;
+      let replyLinkUrl: string | undefined;
+      if (!isContinuation && !post.ctaUrl) {
+        const cta = await this.linkAttribution?.assignForPost(post);
+        if (cta) {
+          if (cta.mode === "inline") {
+            ctaContent = LinkAttributionService.appendInline(post.content, cta.ctaUrl);
+          } else {
+            replyLinkUrl = cta.ctaUrl;
+          }
+          if (cta.source === "utm-fallback") {
+            this.logger.warn(
+              `Post ${postId} ships with a direct UTM CTA (zodiac unreachable) — attribution limited to clicks`,
+            );
+          }
+        }
+      }
+
       let postAttempt = 0;
       const postFn = async (): Promise<PostResult> => {
         postAttempt++;
@@ -439,18 +466,18 @@ export class PostingService {
             return this.xPoster.post(
               context!,
               this.browser,
-              post.content,
+              ctaContent,
               threadItems.length > 0 ? threadItems : undefined,
             );
           case SocialNetwork.THREADS:
             return this.threadsPoster.post(
               context!,
               this.browser,
-              post.content,
+              ctaContent,
               threadItems.length > 0 ? threadItems : undefined,
             );
           case SocialNetwork.FACEBOOK:
-            return this.facebookPoster.post(context!, this.browser, post.content);
+            return this.facebookPoster.post(context!, this.browser, ctaContent);
           case SocialNetwork.BLUESKY:
             if (!this.blueskyPoster) {
               throw new Error("BlueskyPoster is not available — check PostingModule providers");
@@ -761,6 +788,22 @@ export class PostingService {
         status: PostStatus.POSTED,
         postUrl: result.url,
       });
+
+      // ── M2.3: first-reply link delivery (X/Threads) ──
+      // Fire after the root is POSTED; failure must never fail the job — the
+      // post is live, only the CTA reply would be missing (logged for retry).
+      if (replyLinkUrl && result.url && context) {
+        const linkReplyPoster =
+          post.network === SocialNetwork.X ? this.xPoster : this.threadsPoster;
+        try {
+          await linkReplyPoster.postThreadReply(context!, result.url, replyLinkUrl);
+          this.logger.log(`CTA reply with ${replyLinkUrl} posted under ${result.url}`);
+        } catch (err) {
+          this.logger.warn(
+            `CTA reply failed for ${postId} (${err instanceof Error ? err.message : String(err)}) — post is live, CTA missing`,
+          );
+        }
+      }
 
       // P7: Record the selected variant's outcome timestamp.
       await this.recordVariantPosted(postId);
