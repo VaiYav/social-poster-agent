@@ -1455,13 +1455,29 @@ export class SessionsService implements OnModuleInit {
 
   /**
    * P0-H3: Create session with encrypted storageState.
+   * M1.1 multi-account: callers that know WHICH account performed the login
+   * pass its id — the session is then bound to that exact account instead of
+   * the network's first-active account.
    */
-  async createSession(network: SocialNetwork, storageState: string): Promise<void> {
+  async createSession(network: SocialNetwork, storageState: string, accountId?: string): Promise<void> {
     if (!isNetworkEnabled(network)) {
       this.logger.debug(`createSession for disabled network ${network} — skipping`);
       return;
     }
-    const account = await this.accountsService.findFirstActiveByNetwork(network);
+    let account: SocialAccount | null = null;
+    if (accountId) {
+      const found = await this.accountsService.findById(accountId);
+      if (found && found.network !== network) {
+        this.logger.warn(
+          `createSession: account ${accountId} network mismatch (${found.network} ≠ ${network})`,
+        );
+        return;
+      }
+      account = found;
+    }
+    if (!account) {
+      account = await this.accountsService.findFirstActiveByNetwork(network);
+    }
     if (!account) return;
 
     const encrypted = this.encryptionService.encrypt(JSON.parse(storageState));

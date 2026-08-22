@@ -28,6 +28,37 @@ export interface SessionState {
   circuitBreaker: "closed" | "open" | "half_open" | "unknown";
 }
 
+/**
+ * M1.1 multi-account: runtime state of a single SocialAccount as observed
+ * during the OBSERVE cycle. Keyed in WorldState.accounts.accounts by
+ * `${network}:${handle}`.
+ */
+export interface AccountRuntimeState {
+  accountId: string;
+  network: string;
+  handle: string;
+  displayName?: string;
+  /** Latest ACTIVE session status for this account; "none" when it has none. */
+  sessionStatus: SessionStatus | "none";
+  lastHealthCheckMs: number;
+  circuitBreaker: "closed" | "open" | "half_open";
+  warmupEnabled: boolean;
+  /** F20 warm-up ramp day when warmupEnabled (0-based days since start). */
+  warmupDay?: number;
+}
+
+/**
+ * M1.1 multi-account: per-account view of the fleet.
+ * Network-level `WorldState.sessions` stays an AGGREGATE (best case across
+ * accounts) so HardRules/Guardrails/LLM consumers keep their per-network
+ * contract; the per-account detail lives here for account-aware decisions.
+ */
+export interface AccountsState {
+  total: number;
+  byNetwork: Record<string, number>;
+  accounts: Record<string, AccountRuntimeState>;
+}
+
 export interface RateLimitState {
   dailyRemaining: number;
   weeklyRemaining: number;
@@ -107,6 +138,8 @@ export interface WorldState {
   // Sessions + rate limits
   sessions: Record<string, SessionState>;
   rateLimits: Record<string, RateLimitState>;
+  /** M1.1: per-account runtime detail (key `${network}:${handle}`). */
+  accounts: AccountsState;
 
   // Timing
   now: number;

@@ -699,18 +699,21 @@ export class RepliesMonitorService implements OnModuleInit {
       return { action: "skip", reason: "Potential troll/spam — skipped" };
     }
 
-    // 2. Don't reply to our own comments — look up account by network, compare handle.
+    // 2. Don't reply to our own comments — compare against the handles of ALL
+    // active accounts on this network (M1.1 multi-account: a comment authored
+    // by our second account must also be recognized as self-reply).
     // 2.9.1: Prefer the author profile URL because display names can match other users.
     try {
-      const account = await this.accountsService.findFirstActiveByNetwork(
-        post.network as SocialNetwork,
-      );
-      if (account?.handle) {
-        const ownHandle = account.handle.toLowerCase().trim();
-        const commentHandle = comment.authorProfileUrl
-          ? extractHandleFromProfileUrl(comment.authorProfileUrl)
-          : normalizeHandle(comment.author ?? "");
-        if (commentHandle && commentHandle === ownHandle) {
+      const accounts = await this.accountsService.findByNetwork(post.network as SocialNetwork);
+      const commentHandle = comment.authorProfileUrl
+        ? extractHandleFromProfileUrl(comment.authorProfileUrl)
+        : normalizeHandle(comment.author ?? "");
+      if (commentHandle) {
+        const normalized = commentHandle.toLowerCase().trim();
+        const ownAccount = accounts.find(
+          (a) => a.handle.toLowerCase().trim() === normalized,
+        );
+        if (ownAccount) {
           return { action: "skip", reason: "Self-reply skipped (own account)" };
         }
       }

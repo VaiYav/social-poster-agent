@@ -88,6 +88,17 @@ export function buildOrchestratorUserPrompt(world: WorldState): string {
   }
   lines.push(`- Sessions: ${sessionParts.join(", ")}`);
 
+  // M1.1 multi-account: per-account fleet detail (only when >1 account exists,
+  // to keep the single-account prompt compact).
+  const accountEntries = Object.entries(world.accounts?.accounts ?? {});
+  if (accountEntries.length > 1) {
+    const accountParts = accountEntries.map(([, a]) => {
+      const warmup = a.warmupEnabled ? `,warmup${a.warmupDay !== undefined ? `:d${a.warmupDay}` : ""}` : "";
+      return `${a.network}:${a.handle}=${a.sessionStatus}/${a.circuitBreaker}${warmup}`;
+    });
+    lines.push(`- Accounts (${world.accounts.total}): ${accountParts.join("; ")}`);
+  }
+
   // Rate limits
   const rateParts: string[] = [];
   for (const [net, r] of Object.entries(world.rateLimits)) {

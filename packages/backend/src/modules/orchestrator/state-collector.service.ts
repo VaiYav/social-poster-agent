@@ -34,6 +34,8 @@ import type {
   HealthState,
   FlowControlState,
   PostMetricsSummary,
+  AccountRuntimeState,
+  AccountsState,
 } from "./types.js";
 
 @Injectable()
@@ -66,7 +68,7 @@ export class StateCollectorService {
       topicPool: Awaited<ReturnType<StateCollectorService["collectTopicPool"]>>;
       drafts: Awaited<ReturnType<StateCollectorService["collectDraftCounts"]>>;
       queueDepth: Awaited<ReturnType<StateCollectorService["collectQueueDepth"]>>;
-      sessions: Awaited<ReturnType<StateCollectorService["collectSessions"]>>;
+      fleet: Awaited<ReturnType<StateCollectorService["collectFleet"]>>;
       rateLimits: Awaited<ReturnType<StateCollectorService["collectRateLimits"]>>;
       timing: Awaited<ReturnType<StateCollectorService["collectTiming"]>>;
       performance: Awaited<ReturnType<StateCollectorService["collectPerformance"]>>;
@@ -80,7 +82,7 @@ export class StateCollectorService {
       topicPool: { name: "topicPool", collect: () => this.collectTopicPool() },
       drafts: { name: "drafts", collect: () => this.collectDraftCounts(networks) },
       queueDepth: { name: "queueDepth", collect: () => this.collectQueueDepth(networks) },
-      sessions: { name: "sessions", collect: () => this.collectSessions(networks) },
+      fleet: { name: "fleet", collect: () => this.collectFleet(networks) },
       rateLimits: { name: "rateLimits", collect: () => this.collectRateLimits(networks) },
       timing: { name: "timing", collect: () => this.collectTiming() },
       performance: { name: "performance", collect: () => this.collectPerformance(networks) },
@@ -105,6 +107,11 @@ export class StateCollectorService {
       this.logger.debug(`State collected in ${elapsed}ms — all sources OK`);
     }
 
+    const fleet = unwrap(results.fleet, {
+      sessions: {},
+      accounts: { total: 0, byNetwork: {}, accounts: {} } satisfies AccountsState,
+    });
+
     return {
       timestamp: Date.now(),
       topicPool: unwrap(results.topicPool, {
@@ -119,7 +126,8 @@ export class StateCollectorService {
         approvedByNetwork: {},
       }),
       queueDepth: unwrap(results.queueDepth, {}),
-      sessions: unwrap(results.sessions, {}),
+      sessions: fleet.sessions,
+      accounts: fleet.accounts,
       rateLimits: unwrap(results.rateLimits, {}),
       now: unwrap(results.timing, {
         now: Date.now(),
@@ -227,70 +235,136 @@ export class StateCollectorService {
     return Object.fromEntries(entries);
   }
 
-  private async collectSessions(networks: string[]): Promise<Record<string, SessionState>> {
-    // Parallelize per-network queries (was sequential for...of — N+1 pattern)
-    const entries = await Promise.all(
-      networks.map(async (network) => {
-        try {
-          const account = await this.accountsService.findFirstActiveByNetwork(
-            network as SocialNetwork,
-          );
-          if (!account) {
-            return [
-              network,
-              { status: "unknown", lastCheckMs: 0, circuitBreaker: "unknown" },
-            ] as const;
-          }
+  /**
+   * M1.1 multi-account: one DB pass over ALL active accounts of the enabled
+   * networks, producing (a) per-account runtime detail for WorldState.accounts
+   * and (b) the network-level SessionState aggregate consumed by HardRules /
+   * Guardrails / LLM prompt (keyed by network as before).
+   *
+   * Aggregate semantics (best case across accounts — a network can act while
+   * at least one healthy account remains):
+   * - status: ACTIVE if any member has an ACTIVE session; otherwise the first
+   *   non-"none" member status in priority order; "unknown" when no accounts.
+   * - circuitBreaker: closed if ANY member is closed; half_open if any
+   *   half_open; open only when every member is failing.
+   */
+  private async collectFleet(networks: string[]): Promise<{
+    sessions: Record<string, SessionState>;
+    accounts: AccountsState;
+  }> {
+    const emptyAccounts: AccountsState = { total: 0, byNetwork: {}, accounts: {} };
+    try {
+      const accounts = await this.prisma.socialAccount.findMany({
+        where: { network: { in: networks as SocialNetwork[] }, active: true },
+        orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
+      });
+      if (accounts.length === 0) {
+        return { sessions: {}, accounts: emptyAccounts };
+      }
 
-          const [session, recentPosts] = await Promise.all([
-            this.prisma.session.findFirst({
-              where: { accountId: account.id, status: SessionStatus.ACTIVE },
-              orderBy: { createdAt: "desc" },
-            }),
-            // Check posts from the last 30 minutes only — a circuit breaker based
-            // on the last 3 posts never recovers because old failures stay in the
-            // window forever. A time-based window auto-heals after 30 min.
-            // Use approvedAt (when the post was queued) instead of createdAt so
-            // generated drafts that fail later still count as recent attempts.
-            this.prisma.post.findMany({
-              where: {
-                network: network as SocialNetwork,
-                approvedAt: { gte: new Date(Date.now() - 30 * 60 * 1000) },
-              },
-              orderBy: { approvedAt: "desc" },
-              take: 10,
-              select: { status: true },
-            }),
-          ]);
+      const accountIds = accounts.map((a) => a.id);
 
-          const recentFails = recentPosts.filter((p) => p.status === PostStatus.FAILED).length;
-          const recentTotal = recentPosts.length;
-          // Open only if ≥3 failures in the last 30 min (active failure storm).
-          // Half-open if 1-2 failures. Closed if no failures or no recent posts.
-          const circuitBreaker =
-            recentFails >= 3
-              ? "open"
-              : recentFails >= 1 && recentTotal >= 2
-                ? "half_open"
-                : "closed";
+      // Latest ACTIVE session per account + recent approved-window posts per
+      // account (circuit breaker input) — two batched queries total.
+      const [activeSessions, recentPosts] = await Promise.all([
+        this.prisma.session.findMany({
+          where: { accountId: { in: accountIds }, status: SessionStatus.ACTIVE },
+          orderBy: { createdAt: "desc" },
+        }),
+        this.prisma.post.findMany({
+          where: {
+            accountId: { in: accountIds },
+            approvedAt: { gte: new Date(Date.now() - 30 * 60 * 1000) },
+          },
+          orderBy: { approvedAt: "desc" },
+          take: 100,
+          select: { accountId: true, status: true },
+        }),
+      ]);
 
-          return [
-            network,
-            {
-              status: session?.status ?? SessionStatus.EXPIRED,
-              lastCheckMs: session?.lastHealthCheck?.getTime() ?? 0,
-              circuitBreaker: circuitBreaker as SessionState["circuitBreaker"],
-            },
-          ] as const;
-        } catch {
-          return [
-            network,
-            { status: "unknown", lastCheckMs: 0, circuitBreaker: "unknown" },
-          ] as const;
+      const latestSessionByAccount = new Map<string, (typeof activeSessions)[number]>();
+      for (const s of activeSessions) {
+        if (!latestSessionByAccount.has(s.accountId)) latestSessionByAccount.set(s.accountId, s);
+      }
+
+      const failsByAccount = new Map<string, number>();
+      const totalsByAccount = new Map<string, number>();
+      for (const p of recentPosts) {
+        totalsByAccount.set(p.accountId, (totalsByAccount.get(p.accountId) ?? 0) + 1);
+        if (p.status === PostStatus.FAILED) {
+          failsByAccount.set(p.accountId, (failsByAccount.get(p.accountId) ?? 0) + 1);
         }
-      }),
-    );
-    return Object.fromEntries(entries);
+      }
+
+      const breakerFor = (accountId: string): AccountRuntimeState["circuitBreaker"] => {
+        const recentFails = failsByAccount.get(accountId) ?? 0;
+        const recentTotal = totalsByAccount.get(accountId) ?? 0;
+        // Same thresholds as the pre-multi-account network breaker:
+        // open on an active failure storm (≥3 fails/30 min), half_open earlier.
+        if (recentFails >= 3) return "open";
+        if (recentFails >= 1 && recentTotal >= 2) return "half_open";
+        return "closed";
+      };
+
+      const accountStates: Record<string, AccountRuntimeState> = {};
+      const byNetwork: Record<string, number> = {};
+      for (const account of accounts) {
+        const key = `${account.network}:${account.handle}`;
+        byNetwork[account.network] = (byNetwork[account.network] ?? 0) + 1;
+
+        const session = latestSessionByAccount.get(account.id);
+        const warmupDay =
+          account.warmupEnabled && account.warmupStartedAt
+            ? Math.floor((Date.now() - account.warmupStartedAt.getTime()) / 86_400_000)
+            : undefined;
+
+        accountStates[key] = {
+          accountId: account.id,
+          network: account.network,
+          handle: account.handle,
+          ...(account.displayName ? { displayName: account.displayName } : {}),
+          sessionStatus: session?.status ?? "none",
+          lastHealthCheckMs: session?.lastHealthCheck?.getTime() ?? 0,
+          circuitBreaker: breakerFor(account.id),
+          warmupEnabled: account.warmupEnabled,
+          ...(warmupDay !== undefined ? { warmupDay } : {}),
+        };
+      }
+
+      // Best-case aggregate per network across its members.
+      const sessionsAgg: Record<string, SessionState> = {};
+      for (const net of new Set(networks)) {
+        const members = Object.values(accountStates).filter((a) => a.network === net);
+        if (members.length === 0) continue;
+
+        const anyClosed = members.some((a) => a.circuitBreaker === "closed");
+        const anyHalfOpen = members.some((a) => a.circuitBreaker === "half_open");
+        const circuitBreaker = (
+          anyClosed ? "closed" : anyHalfOpen ? "half_open" : "open"
+        ) as SessionState["circuitBreaker"];
+
+        const activeMember = members.find((a) => a.sessionStatus === SessionStatus.ACTIVE);
+        const fallbackMember = members.find(
+          (a): a is AccountRuntimeState & { sessionStatus: Exclude<AccountRuntimeState["sessionStatus"], "none"> } =>
+            a.sessionStatus !== "none",
+        );
+
+        sessionsAgg[net] = {
+          status: activeMember
+            ? SessionStatus.ACTIVE
+            : (fallbackMember?.sessionStatus ?? "unknown"),
+          lastCheckMs: Math.max(...members.map((a) => a.lastHealthCheckMs)),
+          circuitBreaker,
+        };
+      }
+
+      return {
+        sessions: sessionsAgg,
+        accounts: { total: accounts.length, byNetwork, accounts: accountStates },
+      };
+    } catch {
+      return { sessions: {}, accounts: emptyAccounts };
+    }
   }
 
   private async collectRateLimits(networks: string[]): Promise<Record<string, RateLimitState>> {
