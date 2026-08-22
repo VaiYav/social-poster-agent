@@ -483,7 +483,7 @@ async function hookGenerationNode(
 /**
  * Node 3: angle_per_network — assign a different hook + angle to each network.
  *
- * §10.3: "Per-network angle = разный контент, не адаптация одного."
+ * §10.3: "Per-network angle = different content, not an adaptation of one."
  * Each network gets a DIFFERENT hook from the pool, with a network-specific angle.
  */
 function anglePerNetworkNode(state: GenerationStateType): Partial<GenerationStateType> {

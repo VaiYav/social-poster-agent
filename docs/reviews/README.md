@@ -29,7 +29,7 @@ This directory contains per-module deep-research reviews of the Social Poster Ag
 | [`modules/auth`](../../packages/backend/src/modules/auth) | [`auth.md`](./auth.md) | completed | full | `/auth/logout` not public, `/auth/me` fails when `AUTH_ENABLED=false`, `JwtAuthGuard` public routes via `endsWith`, no login rate limiting |
 | [`modules/orchestrator`](../../packages/backend/src/modules/orchestrator) | [`orchestrator.md`](./orchestrator.md) | completed | full | `WAIT` sleepMs ignored, `resetCheckpoint` deletes all checkpoints, `stop/start` can dual-loop, non-cancellable LLM timeout, heartbeat doesn't cover long `BROWSE` |
 | [`modules/events`](../../packages/backend/src/modules/events) | [`events.md`](./events.md) | completed | full | `REJECTED` never emitted, duplicate `post_status` paths, `AutoApproveListener` in wrong module, `EventsController` cleanup issues |
-| [`modules/quote-cards`](../../packages/backend/src/modules/quote-cards) | *none* | **pending** | missing | Sprint O / F19 — генерация quote-cards через Satori + `@resvg/resvg-js`; feature-gated `QUOTE_CARDS_ENABLED` (review not yet written) |
+| [`modules/quote-cards`](../../packages/backend/src/modules/quote-cards) | *none* | **pending** | missing | Sprint O / F19 — generation of quote-cards via Satori + `@resvg/resvg-js`; feature-gated `QUOTE_CARDS_ENABLED` (review not yet written) |
 
 ## Reviewed infrastructure
 

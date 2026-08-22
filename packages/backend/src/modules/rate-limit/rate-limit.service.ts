@@ -9,7 +9,7 @@ import { parseBool } from '../../infrastructure/config/parse-bool.js';
  *
  * CONSTITUTION §9: human-like delays + rate limits to avoid detection.
  * §8: max_posts_per_day: int ← default: 1
- * §9 red flags: «Постинг чаще 1/день/сеть»
+ * §9 red flags: "Posting more often than 1/day/network"
  *
  * Limits (env-configurable, defaults are CONSERVATIVE = 1/day, 5/week):
  * - X: 1 post/day, 5 posts/week, 5 min min interval

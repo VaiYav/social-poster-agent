@@ -57,7 +57,7 @@ import { ABVariantService } from '../content-enhancements/ab-variant.service.js'
  *     → save_to_db → END
  *
  * One graph invocation per topic generates posts for ALL target networks.
- * Each network gets a DIFFERENT hook + angle (OQ-16: per-network angle = разный контент).
+ * Each network gets a DIFFERENT hook + angle (OQ-16: per-network angle = different content).
  *
  * Checkpoint: RedisCheckpointSaver persists state after each node.
  *   thread_id = generationRunId (enables resume after crash — B6 mitigation).

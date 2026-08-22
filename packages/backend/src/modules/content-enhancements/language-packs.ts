@@ -6,10 +6,19 @@
  * These packs give 3 short NATIVE examples of the target voice per language so
  * burstiness/tone/register transfer into the right language.
  *
- * en returns '' — the English examples already live in the draft prompt.
+ * en now has its own pack too, so the prompt gets native examples consistently
+ * for all supported languages.
  */
 
 const PACKS: Record<string, string[]> = {
+  en: [
+    'Sprint review took three hours. That\'s it. That\'s the retro. And it still annoys everyone.',
+    'I\'ve been digging through logs for an hour and a half. I think I need a break.',
+    'Nobody talks about how annoying a Friday release is. Every fix becomes a new bug.',
+    'My manager asked why I check metrics before the demo. I couldn\'t explain it.',
+    'I thought the feature launch would be a triumph. Turned out it was fixing typos and a new config flag.',
+    'Hot take: the deadline isn\'t the problem. It\'s whoever believed in it.',
+  ],
   ru: [
     'Sprint review занял три часа. Всё. Это и есть ретро. И оно всё равно всех раздражает.',
     'Полтора часа разбираю логи. Кажется, мне нужно отдохнуть.',
@@ -46,7 +55,7 @@ const PACKS: Record<string, string[]> = {
 
 /**
  * Render the native-voice examples block for the draft prompt ({langExamples}).
- * Returns '' for English (examples are already inline) and unknown languages.
+ * Returns '' for unknown languages.
  */
 export function getLanguageExamples(language: string): string {
   const pack = PACKS[language];

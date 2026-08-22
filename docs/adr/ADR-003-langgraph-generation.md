@@ -56,4 +56,4 @@ Use **LangGraph.js** for the generation workflow.
 
 - [LangGraph.js docs](https://langchain-ai.github.io/langgraphjs/)
 - CONSTITUTION §10.3: LangGraph workflow diagram
-- OQ-16: Per-network angle = разный контент
+- OQ-16: Per-network angle = different content
