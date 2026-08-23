@@ -36,14 +36,8 @@ export class CaptchaSolverService {
       return false;
     }
 
-    const hasRecaptcha = await page
-      .locator('iframe[src*="recaptcha"]')
-      .count()
-      .catch(() => 0);
-    const hasHcaptcha = await page
-      .locator('iframe[src*="hcaptcha"]')
-      .count()
-      .catch(() => 0);
+    const hasRecaptcha = await this.countLocator(page, 'iframe[src*="recaptcha"]');
+    const hasHcaptcha = await this.countLocator(page, 'iframe[src*="hcaptcha"]');
 
     if (hasRecaptcha > 0) {
       this.logger.log("Detected reCAPTCHA — attempting to solve");
@@ -56,6 +50,14 @@ export class CaptchaSolverService {
     }
 
     return false;
+  }
+
+  private async countLocator(page: Page, selector: string): Promise<number> {
+    try {
+      return await page.locator(selector).count();
+    } catch {
+      return 0;
+    }
   }
 
   /**
