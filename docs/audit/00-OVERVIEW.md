@@ -19,7 +19,7 @@
 | `05-features-and-competitors.md` | Конкуренты, official API vs browser automation, пробелы и предложения по фичам |
 | `06-code-review-current-changes.md` | Ревью changeset'а: гигиена коммитов, миграции, тесты, что блокирует мёрдж |
 | `07-code-review-findings.md` | Подтверждённые баги max-review текущих изменений: `file:line`, код, готовый fix |
-| `08-BACKLOG.md` | Единый бэклог: оценки, майлстоуны, порядок исполнения, граф зависимостей |
+| `08-BACKLOG.md` | Замороженный audit-backlog июня 2026; актуальные задачи — `docs/planning/BACKLOG.md` |
 
 ## Методология
 

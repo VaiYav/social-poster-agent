@@ -1,5 +1,5 @@
 /**
- * Sprint Q: Monitoring store — real-time agent status, queue health, and control.
+ * REL-102: Monitoring store — real-time agent status, queue health, and control.
  *
  * Aggregates data from:
  * - SSE events (post_status, health_alert, generation_progress, replies_monitor)

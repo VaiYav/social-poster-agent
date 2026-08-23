@@ -1,19 +1,40 @@
 # 05 — LLM Token-Cost Optimization
 
-## Status
+## Document maturity (non-canonical)
 
-Proposal. SPA already routes across providers and has an in-memory response cache, but there is no semantic cache, prompt compression, or cost-aware routing.
+Feature status: `COST-001` in [the canonical register](../planning/FEATURES.md).
+
+Proposal and reconciliation. SPA now has shared Redis/in-memory response-cache adapters, a corrected cache key, token budgets, structured cost/usage telemetry, a durable provider-attempt ledger, optional prompt compression/cost ordering and a local cost dashboard. Semantic cache, hook-cache Redis runtime and degradation actions remain future scope.
+
+## Verified current state (2026-08-23)
+
+The following local source/unit evidence is current at SHA `f95ff84`:
+
+- `LlmService` cache keys include provider, model, max tokens, temperature, role and
+  image identity where applicable; creative and vision calls bypass the response cache.
+- Cache adapters support shared Redis and in-memory modes; this does not prove external
+  Redis availability or multi-instance production behavior.
+- Token budgets are orchestrator-hourly or generation-run scoped. Reservation, actual
+  charge and release use an atomic Redis script; a denied reservation does not mutate
+  usage counters.
+- Attempt telemetry records usage, latency, provider/model identity, cost provenance and
+  cache hits. EVAL-104 provides local synthetic redaction/coverage evidence only.
+- `LlmUsageEvent` persists available provider attempts and `/analytics/cost` plus the Analytics
+  cost card expose local account/provider/day aggregates. External billing and database evidence
+  remain unverified.
+- Semantic cache, prompt compression, cost-quality routing and per-account daily budget enforcement
+  remain partially unverified: compression, opt-in price ordering and daily reservation are local;
+  semantic cache, hook-cache Redis runtime and degradation actions remain open.
 
 ## Problem
 
-As the platform adds multi-account, per-account prompts, image generation, and engagement, LLM spend grows quickly. Today:
+As the platform adds multi-account, per-account prompts, image generation, and engagement, LLM spend grows quickly. Remaining gaps are:
 
-- `LlmService` caches by SHA-256 of `systemPrompt + userPrompt + temperature` only; it omits `model`, `maxTokens`, `role`, `provider` from the key.
-- The cache is in-process, so multi-instance deployments duplicate calls.
+- Semantic cache and prompt compression are not implemented.
+- Cost-quality routing is not implemented; provider selection still follows configured chains.
 - The same brand-voice/system prompt is sent repeatedly, uncompressed.
 - Creative roles (`draft`, `hook`) bypass the cache entirely.
-- There is no cost budget per account or per run.
-- Provider selection is based on env chain, not on the actual cost/quality needs of the call.
+- There is no enforced per-account daily spend cap or degradation policy when a cap is reached.
 
 ## Product Outcome
 
@@ -29,6 +50,10 @@ Research sources:
 ## Proposed Changes
 
 ### 1. Shared Redis L2 Response Cache
+
+Status: implemented locally through the cache port and Redis/in-memory adapters; the
+exact-key and cache-eligibility claims are source/unit verified. External Redis and
+multi-instance behavior remain unverified.
 
 Replace or extend the in-process `Map` in `LlmService` with a cache port:
 
@@ -196,13 +221,13 @@ LLM_DAILY_BUDGET_PER_ACCOUNT_USD=10.0
 
 ## Acceptance Criteria
 
-- [ ] `ILlmCachePort` exists with Redis and in-memory adapters.
-- [ ] Cache key includes model/provider/maxTokens/temperature/role.
-- [ ] `LlmUsageEvent` records every LLM call with cost.
-- [ ] Per-account daily cost budget is enforced.
+- [x] `ILlmCachePort` exists with Redis and in-memory adapters.
+- [x] Cache key includes model/provider/maxTokens/temperature/role.
+- [x] Durable `LlmUsageEvent` records every available LLM provider attempt with cost.
+- [x] Per-account daily cost budget is enforced through an optional conservative pre-call reservation.
 - [ ] `hookCache` is backed by Redis.
-- [ ] Prompt compression sidecar integration is documented and optional.
-- [ ] Dashboard shows cost analytics.
+- [x] Prompt compression sidecar integration is documented and optional.
+- [x] Dashboard shows local cost analytics.
 
 ## Open Questions
 

@@ -7,7 +7,6 @@
 import { describe, it, expect } from "vitest";
 import { createInitialState } from "../../../src/modules/generation/generation.graph.js";
 import { createArticleInitialState } from "../../../src/modules/generation/article-graph.js";
-import { GenerationService } from "../../../src/modules/generation/generation.service.js";
 import {
   RESEARCH_EXTRACT_PROMPT,
   HOOK_GENERATION_PROMPT,
@@ -21,7 +20,6 @@ import {
 } from "../../../src/modules/generation/prompts/fallback-prompts.js";
 import { TOPIC_GENERATION_PROMPT } from "../../../src/infrastructure/content/prompts/topic-generation-prompt.js";
 import { SocialNetwork } from "../../../src/generated/prisma/client.js";
-import { createMockConfigService } from "../../mocks/index.js";
 
 function createTopic() {
   return {
@@ -84,44 +82,5 @@ describe("English-only generation state", () => {
   it("createArticleInitialState forces language to en", () => {
     const state = createArticleInitialState({ topic: "test", language: "uk" }, "article-run-id");
     expect(state.language).toBe("en");
-  });
-});
-
-describe("GenerationService posting languages", () => {
-  function buildService(config: any): any {
-    // Only the ConfigService matters for postingLanguages; everything else can be undefined.
-    return new GenerationService(
-      undefined as any,
-      undefined as any,
-      undefined as any,
-      undefined as any,
-      undefined as any,
-      undefined as any,
-      undefined as any,
-      config,
-      undefined as any,
-      undefined as any,
-      undefined as any,
-      undefined as any,
-      undefined as any,
-      undefined as any,
-      undefined as any,
-      undefined as any,
-      undefined as any,
-      undefined as any,
-      undefined as any,
-    );
-  }
-
-  it("filters non-English POSTING_LANGUAGES to en only", () => {
-    const config = createMockConfigService({ POSTING_LANGUAGES: "en,ru,uk,es" });
-    const service = buildService(config);
-    expect(service.postingLanguages).toEqual(["en"]);
-  });
-
-  it("defaults to en when POSTING_LANGUAGES is missing", () => {
-    const config = createMockConfigService({});
-    const service = buildService(config);
-    expect(service.postingLanguages).toEqual(["en"]);
   });
 });

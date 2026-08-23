@@ -6,7 +6,7 @@ import { GenerationService } from "./generation.service.js";
 import { AccountsService } from "../accounts/accounts.service.js";
 import { GenerationTrigger } from "../../generated/prisma/client.js";
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
-import { isOrchestratorEnabled } from "../orchestrator/feature-flag.js";
+import { isOrchestratorEnabled } from "../../domain/feature-flags.js";
 
 /**
  * Cron service — triggers generation on schedule.

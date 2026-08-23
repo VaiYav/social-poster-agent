@@ -118,6 +118,7 @@ vi.mock("ioredis", () => {
       emit,
       removeAllListeners: () => inst,
       get: (k: string) => Promise.resolve(store.get(k) ?? null),
+      mget: (keys: string[]) => Promise.resolve(keys.map((key) => store.get(key) ?? null)),
       set: (k: string, v: unknown) => {
         store.set(k, String(v));
         return Promise.resolve("OK");

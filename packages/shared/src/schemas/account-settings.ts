@@ -14,8 +14,6 @@ export const AccountSettingsSchema = z.object({
   active: z.boolean().optional(),
 
   // ── Posting ──
-  /** Primary ISO 639-1 language for generated posts on this account. */
-  postingLanguage: z.string().min(2).max(5).optional(),
   rateLimitDaily: z.number().int().min(0).optional(),
   rateLimitWeekly: z.number().int().min(0).optional(),
   /** Minimum gap between consecutive posts (ms). */
@@ -41,11 +39,10 @@ export const AccountSettingsSchema = z.object({
   // ── Visuals (consumed by image gen in M4.2) ──
   imageGenerationEnabled: z.boolean().optional(),
   imageDailyLimit: z.number().int().min(0).optional(),
+  imageCostBudgetUsdPerDay: z.number().min(0).optional(),
   imageModel: z.string().max(100).optional(),
   imageResolution: z.enum(["0.5K", "1K", "2K", "4K"]).optional(),
-  imageStyle: z
-    .enum(["quote_card", "aesthetic_photo", "chart_visualization"])
-    .optional(),
+  imageStyle: z.enum(["quote_card", "aesthetic_photo", "chart_visualization"]).optional(),
 
   // ── Stealth ──
   proxyUrl: z.string().max(500).optional(),

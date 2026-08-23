@@ -1,5 +1,9 @@
 # Deep Analysis: LLM-генерация SPA — корректность, качество, оптимизация
 
+> **HISTORICAL RESEARCH SNAPSHOT.** Re-verify every finding against source. Current
+> evaluation design is `docs/evaluation/`; implementation status is canonical only in
+> `docs/planning/`.
+
 > Дата: 2026-07-05. Скоуп: `modules/generation`, `infrastructure/llm`, `infrastructure/prompt`,
 > `modules/content-enhancements`, `brand-voice.md`. Метод: чтение исходников + EXA-ресёрч
 > (anti-AI-detection 2025-26, humor generation research: HumorGen/HumorPlanSearch/arXiv 2405.20956,
@@ -374,4 +378,3 @@ Langfuse datasets. Без этого любой тюнинг промптов �
 - «A Robot Walks into a Bar» (arXiv 2405.20956, DeepMind): LLM даёт setup, панч — от механик; «bland/generic» — главный failure mode.
 - Perplexity/burstiness guides 2025-26 (Postibo, IntellectualLead, NetusAI): структурные директивы > vague-инструкций; em-dash tell; prompt-level > post-hoc.
 - Threads/X playbooks 2026 (Postory, PostEverywhere): Threads = короткие confession/question-посты, X-тон на Threads не работает; reply velocity решает.
-

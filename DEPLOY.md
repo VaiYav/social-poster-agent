@@ -5,8 +5,9 @@ This is the private, deployable fork of the public [`VaiYav/social-poster-agent`
 ## What lives here (private)
 
 - `brand-voice.md` — the brand voice for My Zodiac AI.
-- `CONSTITUTION.md`, `FEATURE_WISHLIST.md`, `ROADMAP.md` — internal design docs.
-- `docs/` — ADRs, runbooks, audits, research, and roadmap docs.
+- `CONSTITUTION.md`, `FEATURE_WISHLIST.md`, `ROADMAP.md` — historical design snapshots.
+- `ROADMAP_V2.md` — product sequencing; `docs/planning/` — canonical feature/task status.
+- `docs/` — planning hub, ADRs, domain specs, runbooks, audits and research.
 - `packages/backend/config/*.json` — real (non-example) domain configs: content pillars, trending niches/events, humor mechanics, slop lexicon, visual styles, etc. These override the generic defaults at runtime via the `*_PATH` env variables.
 
 ## What lives in the public repo

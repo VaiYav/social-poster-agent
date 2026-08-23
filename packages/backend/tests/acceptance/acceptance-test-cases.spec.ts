@@ -78,6 +78,7 @@ import { PrismaService } from "../../src/infrastructure/prisma/prisma.service.js
 import { ILlmPort } from "../../src/domain/ports/llm.port.js";
 import { IBrowserPort } from "../../src/domain/ports/browser.port.js";
 import { IContentPort } from "../../src/domain/ports/content.port.js";
+import { IRuntimeActionAuthorizer } from "../../src/modules/policy/policy.types.js";
 
 // Infrastructure
 import { BrowserFactory } from "../../src/infrastructure/browser/browser.factory.js";
@@ -144,6 +145,7 @@ import {
   createMockLlmPort,
   createMockBrowserPort,
   createMockPrismaService,
+  createMockRuntimeActionAuthorizer,
 } from "../mocks/index.js";
 
 // ── Environment variables for credential-based tests ──────────────────────────
@@ -620,6 +622,7 @@ async function buildAndStartApp(): Promise<void> {
   llmPort = createMockLlmPort();
   browserPort = createMockBrowserPort();
   const queueFactory = createMockQueueFactory();
+  const actionAuthorizer = createMockRuntimeActionAuthorizer();
 
   mockXPoster = {
     post: vi.fn().mockResolvedValue({ url: "https://x.com/test_x_user/status/123" }),
@@ -658,6 +661,8 @@ async function buildAndStartApp(): Promise<void> {
     .useValue(mockThreadsPoster)
     .overrideProvider(FacebookPoster)
     .useValue(mockFacebookPoster)
+    .overrideProvider(IRuntimeActionAuthorizer)
+    .useValue(actionAuthorizer)
     .overrideProvider(EncryptionService)
     .useValue({
       encrypt: (data: unknown) => data,
@@ -820,6 +825,16 @@ function applyStatefulPostMocks(): void {
       const updated = { ...existing, ...args.data };
       postStore.set(args.where.id, updated);
       return Promise.resolve(updated);
+    },
+  );
+  prisma.post.updateMany.mockImplementation(
+    (args: { where: { id: string; status?: string }; data: Record<string, unknown> }) => {
+      const existing = postStore.get(args.where.id);
+      if (!existing || (args.where.status && existing.status !== args.where.status)) {
+        return Promise.resolve({ count: 0 });
+      }
+      postStore.set(args.where.id, { ...existing, ...args.data });
+      return Promise.resolve({ count: 1 });
     },
   );
 }
@@ -1271,7 +1286,7 @@ describe("Acceptance Test Cases — Social Poster Agent (48 ATPs)", () => {
       expect(res.body.status).toBe("APPROVED");
 
       // Verify updateStatus called with APPROVED and approvedAt set
-      const updateCall = prisma.post.update.mock.calls.find(
+      const updateCall = prisma.post.updateMany.mock.calls.find(
         (c: unknown[]) => c[0]?.data?.status === PostStatus.APPROVED,
       );
       expect(updateCall).toBeDefined();
@@ -1300,7 +1315,7 @@ describe("Acceptance Test Cases — Social Poster Agent (48 ATPs)", () => {
 
       expect(res.status).toBe(200);
       expect(res.body.status).toBe("REJECTED");
-      const updateCall = prisma.post.update.mock.calls.find(
+      const updateCall = prisma.post.updateMany.mock.calls.find(
         (c: unknown[]) => c[0]?.data?.status === PostStatus.REJECTED,
       );
       expect(updateCall).toBeDefined();

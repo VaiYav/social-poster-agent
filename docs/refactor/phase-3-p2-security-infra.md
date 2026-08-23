@@ -1,5 +1,8 @@
 # Phase 3 — P2: Stability, Security, Env Validation, Infra Hardening
 
+> **FROZEN CHECKLIST SNAPSHOT.** Status below is historical. Reproduce through
+> `PLAN-005` before creating/updating work in `docs/planning/BACKLOG.md`.
+
 Security hardening, environment variable validation, and infrastructure resilience improvements.
 
 ---

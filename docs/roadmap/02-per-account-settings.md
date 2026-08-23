@@ -1,6 +1,8 @@
 # 02 — Per-Account Settings
 
-## Status
+## Document maturity (non-canonical)
+
+Feature status: `ACCOUNT-002` in [the canonical register](../planning/FEATURES.md).
 
 Proposal. Today almost all configuration is global (`process.env` / `ConfigService`).
 
@@ -24,7 +26,6 @@ Every configurable knob in SPA can be overridden at the account level. Settings 
 | Identity | `warmupDaysTotal` | `WARMUP_DAYS_TOTAL` | How long warm-up lasts |
 | Auth | `credentialsRef` | `SOCIAL_*_USERNAME/PASSWORD` | Points to env var names |
 | Auth | `cookies` | `SOCIAL_*_COOKIES` | Cookie string for session restore |
-| Posting | `postingLanguage` | `POSTING_LANGUAGES` | Primary language for this account |
 | Posting | `rateLimitDaily` | `RATE_LIMIT_{NETWORK}_MAX_PER_DAY` | Posts per day for this account |
 | Posting | `rateLimitWeekly` | `RATE_LIMIT_{NETWORK}_MAX_PER_WEEK` | Posts per week for this account |
 | Posting | `minDelayMs` | `RATE_LIMIT_MIN_DELAY_MS` | Minimum gap between posts |
@@ -62,7 +63,7 @@ Example:
 
 ```ts
 const settings = await accountSettingsResolver.resolve(accountId, {
-  required: ['postingLanguage', 'rateLimitDaily'],
+  required: ['rateLimitDaily'],
 });
 // returns merged, fully-typed settings
 ```
@@ -83,7 +84,6 @@ Zod schema in `packages/shared/src/schemas/account-settings.ts`:
 ```ts
 export const AccountSettingsSchema = z.object({
   active: z.boolean().optional(),
-  postingLanguage: z.string().min(2).max(5).optional(),
   rateLimitDaily: z.number().int().min(0).optional(),
   rateLimitWeekly: z.number().int().min(0).optional(),
   minDelayMs: z.number().int().min(0).optional(),
@@ -116,7 +116,7 @@ Using `packages/shared` keeps backend and UI in sync: changing the schema breaks
 | Service | Change |
 |---------|--------|
 | `AccountsService` | Load and expose `settings`; merge with group/env |
-| `GenerationService` | Pass account `brandVoice`, `postingLanguage`, `persona` to graph state |
+| `GenerationService` | Pass account `brandVoice` and `persona` to graph state; language remains English-only |
 | `PostingService` | Use account `rateLimitDaily/Weekly`, `minDelayMs`, `postingWindowHours` |
 | `SessionsService` | Use account `proxyUrl`, `browserLocale`, `fingerprintProfile` |
 | `RateLimitService` | Accept account-specific limits when constructing keys |
@@ -128,7 +128,7 @@ Using `packages/shared` keeps backend and UI in sync: changing the schema breaks
 - New tab "Settings" on the account detail page.
 - Inheritance indicator: show which value is inherited and from where.
 - "Copy settings from account" action.
-- Bulk edit for `active`, `imageGenerationEnabled`, `postingLanguage`.
+- Bulk edit for `active`, `imageGenerationEnabled`.
 
 ## Environment Variables for Seeding
 
@@ -136,7 +136,7 @@ To keep env-driven deployments possible, support:
 
 ```text
 SOCIAL_THREADS_USERNAME_1=...
-SOCIAL_THREADS_SETTINGS_1='{"postingLanguage":"ru","rateLimitDaily":3,"imageDailyLimit":2,"proxyUrl":"http://..."}'
+SOCIAL_THREADS_SETTINGS_1='{"rateLimitDaily":3,"imageDailyLimit":2,"proxyUrl":"http://..."}'
 ```
 
 A single `*_SETTINGS_{N}` JSON blob is easier to maintain than one env var per field.

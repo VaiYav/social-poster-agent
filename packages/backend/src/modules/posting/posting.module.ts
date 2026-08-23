@@ -19,6 +19,8 @@ import { ThreadsPoster } from "./posters/threads.poster.js";
 import { FacebookPoster } from "./posters/facebook.poster.js";
 import { BlueskyPoster } from "./posters/bluesky.poster.js";
 import { MastodonPoster } from "./posters/mastodon.poster.js";
+import { BlueskyApiPoster } from "./posters/bluesky-api.poster.js";
+import { MastodonApiPoster } from "./posters/mastodon-api.poster.js";
 import { LinkedinSocialPoster } from "./posters/linkedin-social.poster.js";
 import { TelegramModule } from "../../infrastructure/telegram/telegram.module.js";
 import { PolicyModule } from "../policy/policy.module.js";
@@ -54,6 +56,8 @@ import { CtaAttributionService } from "./cta-attribution.service.js";
     FacebookPoster,
     BlueskyPoster,
     MastodonPoster,
+    BlueskyApiPoster,
+    MastodonApiPoster,
     LinkedinSocialPoster,
     PostingGuardChain,
     PostingDispatcher,
@@ -68,6 +72,8 @@ import { CtaAttributionService } from "./cta-attribution.service.js";
     ThreadProgressService,
     BlueskyPoster,
     MastodonPoster,
+    BlueskyApiPoster,
+    MastodonApiPoster,
     LinkedinSocialPoster,
   ],
 })

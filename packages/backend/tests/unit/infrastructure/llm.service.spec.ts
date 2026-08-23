@@ -617,7 +617,7 @@ describe("LlmService (MOD-05 — Infrastructure Adapters)", () => {
     expect(typeof status[0]!.consecutive429s).toBe("number");
   });
 
-  // ── Sprint Q: Rate-limit backoff ──
+  // ── REL-102: Rate-limit backoff ──
 
   it("EVAL-102: same-provider rate-limit retry has a new index without fallback depth", async () => {
     service.onModuleInit();

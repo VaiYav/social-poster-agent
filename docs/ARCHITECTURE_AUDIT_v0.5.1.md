@@ -1,5 +1,9 @@
 # Архитектурный аудит Social Poster Agent v0.5.1
 
+> **HISTORICAL AUDIT SNAPSHOT.** Percentages/findings below describe v0.5.1 and are not
+> current readiness. Reproduce findings before creating canonical tasks through
+> `PLAN-005` in `docs/planning/BACKLOG.md`.
+
 ## Полный отчёт по результатам глубокого исследования кодовой базы
 
 > **Важно о контексте:** Промпт ссылается на паттерны My Zodiac AI (EventEmitterService, BaseApiService, Socket.io, FSD, tier1/2/3, MongoDB/Mongoose). SPA — **отдельный проект** со своим стеком: SSE вместо WebSocket, flat UI вместо FSD, Prisma/PostgreSQL вместо Mongoose/MongoDB, Symbol-token DI вместо string tokens. Отчёт фокусируется на реальной архитектуре SPA, а не на шаблонах MZAI. Где применимы EDA/DDD принципы — отмечаю явно.

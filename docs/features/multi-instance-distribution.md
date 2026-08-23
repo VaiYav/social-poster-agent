@@ -1,6 +1,8 @@
 # Feature Proposal: Multi-Instance Distribution
 
-## Status
+## Document maturity (non-canonical)
+
+Feature status: `DIST-001` in [the canonical register](../planning/FEATURES.md).
 
 Backlog / proposal. The system runs on a single Node instance per deployment today.
 

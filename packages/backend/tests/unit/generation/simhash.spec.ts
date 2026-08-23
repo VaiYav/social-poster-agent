@@ -259,14 +259,17 @@ describe("SimHash (B5 — Dedup)", () => {
 
   // ── Performance ──
 
-  it("PERF-001: hashing 200 posts completes in under 100ms", () => {
-    const posts = Array.from(
-      { length: 200 },
-      (_, i) => `productivity post ${i}: Workflow Trends affects sign number ${i} today`,
-    );
-    const start = performance.now();
-    for (const post of posts) simhash(post);
-    const elapsed = performance.now() - start;
-    expect(elapsed).toBeLessThan(100);
-  });
+  it.skipIf(process.env.SPA_COVERAGE === "1")(
+    "PERF-001: hashing 200 posts completes in under 100ms",
+    () => {
+      const posts = Array.from(
+        { length: 200 },
+        (_, i) => `productivity post ${i}: Workflow Trends affects sign number ${i} today`,
+      );
+      const start = performance.now();
+      for (const post of posts) simhash(post);
+      const elapsed = performance.now() - start;
+      expect(elapsed).toBeLessThan(100);
+    },
+  );
 });

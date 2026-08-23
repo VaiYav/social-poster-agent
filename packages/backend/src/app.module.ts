@@ -130,7 +130,7 @@ const syndicationImports = parseBool(process.env.SYNDICATION_ENABLED)
     BrowserModule,
     LlmModule,
     LangfuseModule, // Langfuse LLM observability (no-op when LANGFUSE_PUBLIC_KEY not set)
-    PromptRegistryModule, // Sprint P: Versioned prompt templates (audit finding)
+    PromptRegistryModule, // EVAL-103: Versioned prompt templates (audit finding)
     ContentModule,
     QueueInfraModule,
     HealthModule,
@@ -160,7 +160,6 @@ const syndicationImports = parseBool(process.env.SYNDICATION_ENABLED)
     ...captchaImports, // Sprint O: Captcha solver — gated by CAPTCHA_SOLVER_ENABLED
     ...quoteCardImports, // Sprint O / F19: Quote cards — gated by QUOTE_CARDS_ENABLED
     ...repliesImports, // Sprint O / F4: Adaptive replies — gated by REPLIES_ENABLED
-    ...controlBotImports, // TGBOT-101: operator control bot — gated by CONTROL_BOT_ENABLED
     ...controlBotImports, // TGBOT-101: operator control bot — gated by CONTROL_BOT_ENABLED
     FlowControlModule, // ADR-006: Flow control (pause/resume, crisis mode)
     AutonomyModule, // ADR-006: Auto-check, auto-approve, autonomous runner

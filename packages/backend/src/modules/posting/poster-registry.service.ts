@@ -12,6 +12,8 @@ import { HashnodePoster } from "./posters/hashnode.poster.js";
 import { LinkedinPoster } from "./posters/linkedin.poster.js";
 import { BlueskyPoster } from "./posters/bluesky.poster.js";
 import { MastodonPoster } from "./posters/mastodon.poster.js";
+import { BlueskyApiPoster } from "./posters/bluesky-api.poster.js";
+import { MastodonApiPoster } from "./posters/mastodon-api.poster.js";
 import { LinkedinSocialPoster } from "./posters/linkedin-social.poster.js";
 import { TelegramAdapter } from "../../infrastructure/telegram/telegram.adapter.js";
 import type { PostResult } from "./posters/base.poster.js";
@@ -46,6 +48,8 @@ export class PostingDispatcher {
     @Optional() private readonly mastodonPoster?: MastodonPoster,
     @Optional() private readonly linkedinSocialPoster?: LinkedinSocialPoster,
     @Optional() private readonly telegramAdapter?: TelegramAdapter,
+    @Optional() private readonly blueskyApiPoster?: BlueskyApiPoster,
+    @Optional() private readonly mastodonApiPoster?: MastodonApiPoster,
   ) {}
 
   /** Resolve the concrete browser poster for a network, or null when unverifiable. */
@@ -58,9 +62,13 @@ export class PostingDispatcher {
       case SocialNetwork.FACEBOOK:
         return this.facebookPoster;
       case SocialNetwork.BLUESKY:
-        return this.blueskyPoster ?? null;
+        return this.transportFor(SocialNetwork.BLUESKY) === "api"
+          ? (this.blueskyApiPoster ?? null)
+          : (this.blueskyPoster ?? null);
       case SocialNetwork.MASTODON:
-        return this.mastodonPoster ?? null;
+        return this.transportFor(SocialNetwork.MASTODON) === "api"
+          ? (this.mastodonApiPoster ?? null)
+          : (this.mastodonPoster ?? null);
       case SocialNetwork.TELEGRAM:
         // Telegram has no browser profile/verifyPosted; it reports its URL directly from the API response.
         return null;
@@ -82,7 +90,7 @@ export class PostingDispatcher {
    */
   async dispatch(
     post: Post,
-    context: BrowserContext,
+    context: BrowserContext | null,
     browser: IBrowserPort,
     opts: DispatchOptions,
   ): Promise<PostResult> {
@@ -92,26 +100,38 @@ export class PostingDispatcher {
     switch (post.network) {
       case SocialNetwork.X:
         return opts.imagePath
-          ? this.xPoster.post(context, browser, opts.content, threadItems, opts.imagePath)
-          : this.xPoster.post(context, browser, opts.content, threadItems);
+          ? this.xPoster.post(context!, browser, opts.content, threadItems, opts.imagePath)
+          : this.xPoster.post(context!, browser, opts.content, threadItems);
       case SocialNetwork.THREADS:
         return opts.imagePath
-          ? this.threadsPoster.post(context, browser, opts.content, threadItems, opts.imagePath)
-          : this.threadsPoster.post(context, browser, opts.content, threadItems);
+          ? this.threadsPoster.post(context!, browser, opts.content, threadItems, opts.imagePath)
+          : this.threadsPoster.post(context!, browser, opts.content, threadItems);
       case SocialNetwork.FACEBOOK:
         return opts.imagePath
-          ? this.facebookPoster.post(context, browser, opts.content, undefined, opts.imagePath)
-          : this.facebookPoster.post(context, browser, opts.content);
+          ? this.facebookPoster.post(context!, browser, opts.content, undefined, opts.imagePath)
+          : this.facebookPoster.post(context!, browser, opts.content);
       case SocialNetwork.BLUESKY:
+        if (this.transportFor(SocialNetwork.BLUESKY) === "api") {
+          if (!this.blueskyApiPoster) {
+            throw new Error("BlueskyApiPoster is not available — check PostingModule providers");
+          }
+          return this.blueskyApiPoster.post(context, browser, opts.content, threadItems);
+        }
         if (!this.blueskyPoster) {
           throw new Error("BlueskyPoster is not available — check PostingModule providers");
         }
-        return this.blueskyPoster.post(context, browser, post.content);
+        return this.blueskyPoster.post(context!, browser, post.content);
       case SocialNetwork.MASTODON:
+        if (this.transportFor(SocialNetwork.MASTODON) === "api") {
+          if (!this.mastodonApiPoster) {
+            throw new Error("MastodonApiPoster is not available — check PostingModule providers");
+          }
+          return this.mastodonApiPoster.post(context, browser, opts.content, threadItems);
+        }
         if (!this.mastodonPoster) {
           throw new Error("MastodonPoster is not available — check PostingModule providers");
         }
-        return this.mastodonPoster.post(context, browser, post.content);
+        return this.mastodonPoster.post(context!, browser, post.content);
       case SocialNetwork.TELEGRAM:
         if (!this.telegramAdapter) {
           throw new Error("TelegramAdapter is not available — check PostingModule providers");
@@ -119,17 +139,17 @@ export class PostingDispatcher {
         return this.telegramAdapter.postMessage(post.content);
       case SocialNetwork.DEVTO:
       case SocialNetwork.HASHNODE:
-        return this.postArticle(context, post);
+        return this.postArticle(context!, post);
       case SocialNetwork.LINKEDIN:
         // LinkedIn has two posters: long-form articles (SyndicationModule) and
         // short social updates (LinkedinSocialPoster, in PostingModule).
         if (post.contentType === ContentType.ARTICLE) {
-          return this.postArticle(context, post);
+          return this.postArticle(context!, post);
         }
         if (!this.linkedinSocialPoster) {
           throw new Error("LinkedinSocialPoster is not available — check PostingModule providers");
         }
-        return this.linkedinSocialPoster.post(context, browser, post.content);
+        return this.linkedinSocialPoster.post(context!, browser, post.content);
       default: {
         // Unimplemented syndication networks (Phase 3+)
         throw new Error(`Posting not yet implemented for network: ${post.network}`);
@@ -142,6 +162,18 @@ export class PostingDispatcher {
     if (network === SocialNetwork.X) return this.xPoster;
     if (network === SocialNetwork.THREADS) return this.threadsPoster;
     return null;
+  }
+
+  usesApiTransport(network: SocialNetwork): boolean {
+    return (
+      (network === SocialNetwork.BLUESKY || network === SocialNetwork.MASTODON) &&
+      this.transportFor(network) === "api"
+    );
+  }
+
+  private transportFor(network: SocialNetwork): "api" | "browser" {
+    const key = network === SocialNetwork.BLUESKY ? "BLUESKY_TRANSPORT" : "MASTODON_TRANSPORT";
+    return this.configService.get<string>(key, "api") === "browser" ? "browser" : "api";
   }
 
   /**
@@ -211,4 +243,3 @@ export class PostingDispatcher {
     }
   }
 }
-

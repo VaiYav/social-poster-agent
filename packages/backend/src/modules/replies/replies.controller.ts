@@ -1,5 +1,5 @@
 /**
- * Sprint Q: Replies Controller — REST API for reply monitoring.
+ * ENGAGE-101: Replies Controller — REST API for reply monitoring.
  *
  * Endpoints:
  *   GET    /api/v1/replies/pending          — comments pending human review

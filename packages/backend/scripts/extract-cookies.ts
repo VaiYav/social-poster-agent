@@ -2,7 +2,7 @@
 // Run from packages/backend: npx tsx scripts/extract-cookies.ts
 
 import "reflect-metadata";
-import { PrismaClient } from "../src/generated/prisma/client";
+import { PrismaClient } from "../src/generated/prisma/client.js";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";

@@ -28,7 +28,7 @@ import type { Redis } from "ioredis";
 import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
 import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import { SocialNetwork, PostStatus, Prisma } from "../../generated/prisma/client.js";
-import { isOrchestratorEnabled } from "../orchestrator/feature-flag.js";
+import { isOrchestratorEnabled } from "../../domain/feature-flags.js";
 
 /**
  * Hook techniques — matches the categories in the hook_generation prompt.

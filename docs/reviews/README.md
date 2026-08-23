@@ -1,5 +1,9 @@
 # Code Review Index — `packages/backend`
 
+> **Snapshot index, not a backlog.** Findings may be useful, but current feature/task
+> status is canonical only in [`docs/planning/`](../planning/README.md). Reproduce old
+> findings before creating work through `PLAN-005`.
+
 This directory contains per-module deep-research reviews of the Social Poster Agent backend. Each file documents the module's purpose, public API, key findings (bugs, performance, architecture, security, new-feature ideas), and cross-references.
 
 > **Docs vs. code** — `AGENTS.md` and `CLAUDE.md` are the project conventions; prior ADR/audit docs may drift. The reviews below were written against snapshots of `packages/backend/src/` and may fall behind active development. When a detail matters, grep the source, not this index.
@@ -28,7 +32,7 @@ This directory contains per-module deep-research reviews of the Social Poster Ag
 | [`modules/analytics`](../../packages/backend/src/modules/analytics) | [`analytics.md`](./analytics.md) | completed | full | `getTopPosts` by recency not engagement, `getDailyStats` uses `createdAt`, hardcoded scraper limits, `process.env` usage, no concurrent-run protection |
 | [`modules/auth`](../../packages/backend/src/modules/auth) | [`auth.md`](./auth.md) | completed | full | `/auth/logout` not public, `/auth/me` fails when `AUTH_ENABLED=false`, `JwtAuthGuard` public routes via `endsWith`, no login rate limiting |
 | [`modules/orchestrator`](../../packages/backend/src/modules/orchestrator) | [`orchestrator.md`](./orchestrator.md) | completed | full | `WAIT` sleepMs ignored, `resetCheckpoint` deletes all checkpoints, `stop/start` can dual-loop, non-cancellable LLM timeout, heartbeat doesn't cover long `BROWSE` |
-| [`modules/events`](../../packages/backend/src/modules/events) | [`events.md`](./events.md) | completed | full | `REJECTED` never emitted, duplicate `post_status` paths, `AutoApproveListener` in wrong module, `EventsController` cleanup issues |
+| [`events`](../../packages/backend/src/events) | [`events.md`](./events.md) | completed | full | `REJECTED` never emitted, duplicate `post_status` paths, `AutoApproveListener` in wrong module, `EventsController` cleanup issues |
 | [`modules/quote-cards`](../../packages/backend/src/modules/quote-cards) | *none* | **pending** | missing | Sprint O / F19 — generation of quote-cards via Satori + `@resvg/resvg-js`; feature-gated `QUOTE_CARDS_ENABLED` (review not yet written) |
 
 ## Reviewed infrastructure
@@ -56,8 +60,8 @@ This directory contains per-module deep-research reviews of the Social Poster Ag
 After the per-module reviews, a consolidated synthesis was written to surface cross-cutting themes and a unified action backlog:
 
 - [`cross-module-synthesis.md`](./cross-module-synthesis.md) — cross-cutting themes, module interaction map, consolidated prioritized backlog, quick wins, and strategic refactors.
-- [`ACTION_PLAN.md`](./ACTION_PLAN.md) — executable, effort-sized task list derived from the reviews (living document; re-verify file/line references before implementing).
-- [`../features/README.md`](../features/README.md) — high-level feature proposals that are not yet in `ACTION_PLAN.md` (A/B testing, content adapters, operator dashboard, multi-instance scaling, browser replay, prompt versioning).
+- [`ACTION_PLAN.md`](./ACTION_PLAN.md) — frozen review-derived inventory; not executable status.
+- [`../features/README.md`](../features/README.md) — evidence dossiers/supporting proposals; canonical mapping is in `docs/planning/FEATURES.md`.
 
 ## In progress / pending
 

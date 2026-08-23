@@ -146,11 +146,514 @@ model SocialAccount {
   threads         PostThread[]
   interactions    Interaction[]
   browsingSessions BrowsingSession[]
+  personaAssignments AccountPersonaAssignment[]
+  compiledExecutionPolicies CompiledExecutionPolicy[]
+  engagementSuggestions EngagementSuggestion[]
+  reputationStates AccountReputationState[]
+  reputationSignals ReputationSignal[]
+  reputationIncidents ReputationIncident[]
+  editorialAssignments EditorialAssignmentRecord[]
+  creatorRelationships CreatorRelationship[]
 
   @@unique([network, handle])
   @@index([network])
   @@index([priority])
   @@index([groupId])
+}
+
+model EditorialPersona {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  displayName String
+  status      String   @default("DRAFT")
+  revisions   PersonaRevision[]
+  assignments AccountPersonaAssignment[]
+  memories    PersonaMemory[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model PersonaRevision {
+  id                  String   @id @default(uuid())
+  personaId           String
+  persona             EditorialPersona @relation(fields: [personaId], references: [id], onDelete: Cascade)
+  version             Int
+  profile             Json
+  checksum            String
+  safetyPolicyVersion String
+  createdBy           String?
+  createdAt           DateTime @default(now())
+  assignments         AccountPersonaAssignment[]
+  posts               Post[]
+  engagementSuggestions EngagementSuggestion[]
+  editorialAssignments EditorialAssignmentRecord[]
+  creatorRelationships CreatorRelationship[]
+
+  @@unique([personaId, version])
+  @@unique([personaId, checksum])
+  @@index([personaId, createdAt])
+}
+
+model AccountPersonaAssignment {
+  id                String   @id @default(uuid())
+  accountId         String
+  account           SocialAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  personaId         String
+  persona           EditorialPersona @relation(fields: [personaId], references: [id], onDelete: Restrict)
+  personaRevisionId String
+  personaRevision   PersonaRevision @relation(fields: [personaRevisionId], references: [id], onDelete: Restrict)
+  defaultVoiceMode  String
+  active            Boolean  @default(true)
+  startsAt          DateTime @default(now())
+  endsAt            DateTime?
+
+  @@index([accountId, active])
+  @@index([personaId, startsAt])
+}
+
+// ADR-012: versioned, human-approved policy evidence and compiled runtime
+// decisions. Statuses are intentionally strings so policy lifecycle additions
+// do not require a database enum migration.
+model PlatformPolicyEvidence {
+  id           String   @id @default(uuid())
+  network      SocialNetwork
+  sourceUrl    String
+  sourceType   String
+  contentHash  String
+  snapshotRef  String?
+  fetchedAt    DateTime @default(now())
+  verifiedAt   DateTime?
+  expiresAt    DateTime?
+  status       String   @default("DRAFT")
+  reviewer     String?
+  reviewNotes  String?
+  createdAt    DateTime @default(now())
+  versions     PlatformActionPolicy[]
+
+  @@unique([sourceUrl, contentHash])
+  @@index([network, status, expiresAt])
+}
+
+model PlatformActionPolicy {
+  id                 String   @id @default(uuid())
+  policyKey          String
+  version            Int
+  network            SocialNetwork
+  action             String
+  transport          String
+  targetRelationship String
+  executionMode      String
+  requirements       Json
+  limits             Json?
+  evidenceId         String
+  evidence           PlatformPolicyEvidence @relation(fields: [evidenceId], references: [id], onDelete: Restrict)
+  status             String   @default("DRAFT")
+  effectiveAt        DateTime?
+  expiresAt          DateTime?
+  approvedBy         String?
+  approvedAt         DateTime?
+  supersedesId       String?
+  createdAt          DateTime @default(now())
+
+  @@unique([policyKey, version])
+  @@index([network, action, status])
+  @@index([expiresAt])
+}
+
+model CompiledExecutionPolicy {
+  id              String   @id @default(uuid())
+  accountId       String?
+  account         SocialAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  network         SocialNetwork
+  action          String
+  contextClass    String
+  executionMode   String
+  sourcePolicyIds Json
+  reputationState String
+  policyHash      String
+  validUntil      DateTime
+  createdAt       DateTime @default(now())
+
+  @@unique([accountId, network, action, contextClass, policyHash])
+  @@index([accountId, network, action])
+}
+
+// ADR-012: reputation is a separate state machine from technical health and
+// policy evidence. Signals are immutable facts; state transitions are audited.
+model AccountReputationState {
+  id          String   @id @default(uuid())
+  accountId   String
+  account     SocialAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  network     SocialNetwork
+  state       String   @default("HEALTHY")
+  version     Int      @default(1)
+  reason      String?
+  changedAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([accountId, network])
+  @@index([state, updatedAt])
+}
+
+model ReputationSignal {
+  id           String   @id @default(uuid())
+  accountId    String
+  account      SocialAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  network      SocialNetwork
+  signalType   String
+  signalFamily String
+  severity     String
+  trustLevel   String
+  sourceRef    Json
+  evidenceHash String
+  classification Json?
+  occurredAt   DateTime
+  expiresAt    DateTime?
+  createdAt    DateTime @default(now())
+
+  @@unique([accountId, network, signalType, evidenceHash])
+  @@index([accountId, network, occurredAt])
+  @@index([signalFamily, severity])
+}
+
+model ReputationIncident {
+  id               String   @id @default(uuid())
+  accountId        String
+  account          SocialAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  network          SocialNetwork
+  status           String
+  stateBefore     String
+  stateAfter      String
+  severity        String
+  signalIds       Json
+  decisionRules   Json
+  automaticActions Json
+  operatorActions Json?
+  owner           String?
+  acknowledgedAt  DateTime?
+  resolvedAt      DateTime?
+  recoveryPlan    Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([accountId, network, status])
+  @@index([severity, createdAt])
+}
+
+// ADR-008: deterministic cross-account portfolio planning. These records
+// explain why an opportunity was assigned, deferred or skipped.
+model EditorialOpportunity {
+  id             String   @id @default(uuid())
+  sourceType     String
+  sourceRef      Json
+  domain         String
+  canonicalTopic String
+  thesisHash     String
+  riskTier       String
+  funnelIntent   String
+  validFrom      DateTime?
+  validUntil     DateTime?
+  status         String   @default("OPEN")
+  createdAt      DateTime @default(now())
+  assignments    EditorialAssignmentRecord[]
+
+  @@index([status, validUntil])
+  @@index([domain, createdAt])
+  @@index([thesisHash])
+}
+
+model EditorialAssignmentRecord {
+  id                     String   @id @default(uuid())
+  opportunityId          String
+  opportunity            EditorialOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  accountId              String?
+  account                SocialAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  personaRevisionId      String?
+  personaRevision        PersonaRevision? @relation(fields: [personaRevisionId], references: [id], onDelete: SetNull)
+  action                 String
+  thesis                 String
+  thesisHash             String
+  angle                  String
+  voiceMode              String?
+  funnelIntent           String
+  scoreComponents        Json
+  constraintResults      Json
+  status                 String   @default("PLANNED")
+  experimentAssignmentId String?
+  validUntil             DateTime
+  createdAt              DateTime @default(now())
+
+  @@index([accountId, status, createdAt])
+  @@index([personaRevisionId, createdAt])
+  @@index([thesisHash, createdAt])
+}
+
+model PersonaMemory {
+  id             String   @id @default(uuid())
+  personaId      String
+  persona        EditorialPersona @relation(fields: [personaId], references: [id], onDelete: Cascade)
+  kind           String
+  text           String
+  sourceType     String
+  sourceRef      Json?
+  status         String   @default("CANDIDATE")
+  reviewedBy     String?
+  confidence     Float?
+  importance     Float    @default(0.5)
+  occurredAt     DateTime?
+  validFrom      DateTime?
+  validTo        DateTime?
+  expiresAt      DateTime?
+  contentHash    String
+  embeddingModel String?
+  lastUsedAt     DateTime?
+  usageCount     Int      @default(0)
+  supersededById String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([personaId, kind, contentHash])
+  @@index([personaId, status, kind])
+  @@index([expiresAt])
+}
+
+model KnowledgeEvidence {
+  id           String   @id @default(uuid())
+  domain       String
+  riskClass    String
+  title        String
+  text         String
+  sourceUrl    String?
+  sourceType   String
+  reviewStatus String   @default("NEEDS_REVIEW")
+  reviewedBy   String?
+  reviewedAt   DateTime?
+  validFrom    DateTime?
+  validTo      DateTime?
+  contentHash  String   @unique
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([domain, reviewStatus])
+  @@index([validTo])
+}
+
+// COST-001: durable, secret-free accounting for every provider attempt.
+model LlmUsageEvent {
+  id          String   @id @default(uuid())
+  accountId   String?
+  postId      String?
+  runId       String?
+  provider    String
+  model       String
+  role        String
+  tokensIn    Int      @default(0)
+  tokensOut   Int      @default(0)
+  costUsd     Decimal  @db.Decimal(10, 6)
+  cached      Boolean  @default(false)
+  durationMs  Int?
+  outcome     String
+  costSource  String
+  createdAt   DateTime @default(now())
+
+  @@index([accountId, createdAt])
+  @@index([runId])
+  @@index([role, createdAt])
+}
+
+model AudienceSignal {
+  id                 String   @id @default(uuid())
+  sourceType         String
+  sourceRef          Json
+  network            SocialNetwork
+  accountId          String?
+  personaRevisionId  String?
+  signalType         String
+  domain             String
+  normalizedQuestion String
+  languagePattern    String?
+  extractedClaims    Json?
+  riskTier           String
+  privacyStatus      String   @default("ELIGIBLE")
+  sourceAuthorHash   String?
+  sourceSnapshotHash String
+  occurredAt         DateTime
+  expiresAt          DateTime?
+  createdAt          DateTime @default(now())
+  memberships        AudienceClusterMembership[]
+
+  @@unique([network, sourceSnapshotHash, signalType])
+  @@index([domain, signalType, occurredAt])
+  @@index([privacyStatus, expiresAt])
+}
+
+model AudienceQuestionCluster {
+  id                   String   @id @default(uuid())
+  clusterKey           String   @unique
+  label                String
+  canonicalQuestion    String
+  domain               String
+  signalTypes          Json
+  riskTier             String
+  status               String   @default("NEW")
+  sourceCount          Int      @default(0)
+  distinctAuthorCount  Int      @default(0)
+  firstSeenAt          DateTime
+  lastSeenAt           DateTime
+  demandScore          Float    @default(0)
+  scoreComponents      Json
+  answerState          Json?
+  linkedTopicId        String?
+  reviewedBy           String?
+  reviewedAt           DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  memberships          AudienceClusterMembership[]
+  insights             ProductInsightProposal[]
+
+  @@index([status, demandScore])
+  @@index([domain, lastSeenAt])
+}
+
+model AudienceClusterMembership {
+  clusterId  String
+  signalId   String
+  similarity Float?
+  method     String
+  createdAt  DateTime @default(now())
+  cluster    AudienceQuestionCluster @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+  signal     AudienceSignal @relation(fields: [signalId], references: [id], onDelete: Cascade)
+
+  @@id([clusterId, signalId])
+  @@index([signalId])
+}
+
+model ProductInsightProposal {
+  id             String   @id @default(uuid())
+  clusterId      String
+  cluster        AudienceQuestionCluster @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+  insightType    String
+  summary        String
+  evidence       Json
+  privacyReview  String
+  status         String   @default("DRAFT")
+  destinationRef String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([clusterId])
+}
+
+model CreatorProfile {
+  id                  String   @id @default(uuid())
+  network             SocialNetwork
+  handleCanonical     String
+  handleHash          String
+  displayName         String?
+  profileUrl          String
+  publicTopics        Json
+  status              String   @default("ACTIVE")
+  sourceRefs          Json
+  lastVerifiedAt      DateTime?
+  rawProfileExpiresAt DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  relationships         CreatorRelationship[]
+  outgoingIdentityLinks CreatorIdentityLink[] @relation("CreatorIdentityLinkSource")
+  incomingIdentityLinks CreatorIdentityLink[] @relation("CreatorIdentityLinkTarget")
+
+  @@unique([network, handleCanonical])
+  @@index([network, status])
+  @@index([handleHash])
+}
+
+model CreatorIdentityLink {
+  id              String         @id @default(uuid())
+  sourceCreatorId String
+  targetCreatorId String
+  evidence        Json
+  status          String         @default("REVIEWED")
+  reviewedBy      String
+  reviewedAt      DateTime       @default(now())
+  reviewReason    String
+  createdAt       DateTime       @default(now())
+  source          CreatorProfile @relation("CreatorIdentityLinkSource", fields: [sourceCreatorId], references: [id], onDelete: Cascade)
+  target          CreatorProfile @relation("CreatorIdentityLinkTarget", fields: [targetCreatorId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceCreatorId, targetCreatorId])
+  @@index([sourceCreatorId, status])
+  @@index([targetCreatorId, status])
+}
+
+model CreatorRelationship {
+  id                    String   @id @default(uuid())
+  creatorId             String
+  accountId             String
+  personaRevisionId     String?
+  stage                 String   @default("DISCOVERED")
+  stageEvidence         Json
+  sharedDomains         Json
+  interactionCount      Int      @default(0)
+  substantiveReplyCount Int      @default(0)
+  reciprocalCount       Int      @default(0)
+  lastInteractionAt     DateTime?
+  cooldownUntil         DateTime?
+  ownerNote             String?
+  manualPriority        String?
+  status                String   @default("ACTIVE")
+  version               Int      @default(1)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  creator               CreatorProfile @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  account               SocialAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  personaRevision       PersonaRevision? @relation(fields: [personaRevisionId], references: [id], onDelete: SetNull)
+  evidence              CreatorInteractionEvidence[]
+  opportunities         CollaborationOpportunity[]
+
+  @@unique([creatorId, accountId])
+  @@index([accountId, stage, status])
+  @@index([personaRevisionId, lastInteractionAt])
+}
+
+model CreatorInteractionEvidence {
+  id             String   @id @default(uuid())
+  relationshipId String
+  interactionId  String?
+  evidenceType   String
+  sourceRef      Json
+  evidenceHash   String
+  weight         Float?
+  occurredAt     DateTime
+  expiresAt      DateTime?
+  createdAt      DateTime @default(now())
+  relationship   CreatorRelationship @relation(fields: [relationshipId], references: [id], onDelete: Cascade)
+
+  @@unique([relationshipId, evidenceType, evidenceHash])
+  @@index([relationshipId, occurredAt])
+}
+
+model CollaborationOpportunity {
+  id                String   @id @default(uuid())
+  relationshipId    String
+  opportunityType   String
+  topic             String
+  rationale         Json
+  risks             Json
+  proposedAccountId String
+  proposedPersonaId String?
+  status            String   @default("PROPOSED")
+  version           Int      @default(1)
+  reviewedBy        String?
+  outreachRef       Json?
+  campaignRef       Json?
+  validUntil        DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  relationship      CreatorRelationship @relation(fields: [relationshipId], references: [id], onDelete: Cascade)
+
+  @@index([status, validUntil])
+  @@index([proposedAccountId, createdAt])
 }
 
 model Session {
@@ -275,6 +778,7 @@ model Post {
   errorMessage     String?
   retryCount       Int              @default(0) // BullMQ retry count (0-3)
   llmMetadata      Json?            // { model, tokens, cost, promptVersion, angleType }
+  media            Json?            // generated image metadata; text-only posts keep null
   simhash          String?          // Sprint L: precomputed SimHash for fast dedup
   // ── Syndication fields (Phase 0-1) ──
   contentType      ContentType      @default(SOCIAL_POST) // SOCIAL_POST | ARTICLE | ANSWER | PIN
@@ -286,12 +790,17 @@ model Post {
   ctaUrl           String?          // final CTA URL in the post text (zodiac short link or direct UTM fallback)
   attributionLinkId String?         // AttributionLink.id in my_zodiac_ai/back (null = direct UTM fallback was used)
   attributionSlug  String?          // AttributionLink.slug (denormalized for funnel-report lookups)
+  personaRevisionId String?
+  personaRevision   PersonaRevision? @relation(fields: [personaRevisionId], references: [id], onDelete: SetNull)
+  voiceMode         String?
+  experimentAssignmentId String?
   createdAt        DateTime         @default(now())
   approvedAt       DateTime?
   postedAt         DateTime?
   metrics          PostMetrics[]    @relation("PostMetricsToPost")
   incomingComments IncomingComment[] @relation("PostIncomingComments") // Sprint Q: tracked comments for reply monitoring
   variants         PostVariant[]
+  reviewDecisions  PostReviewDecision[]
 
   @@index([status])
   @@index([network])
@@ -303,6 +812,36 @@ model Post {
   @@index([contentType])
   @@index([canonicalUrl])
   @@index([attributionSlug])
+}
+
+// Durable operator feedback. PostgreSQL is the product truth; Langfuse sync is
+// asynchronous and must never roll back a valid review decision.
+model PostReviewDecision {
+  id                    String   @id @default(uuid())
+  postId                String
+  post                  Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  version               Int      @default(1)
+  actorId               String?
+  decision              String   // APPROVE_UNCHANGED | APPROVE_EDITED | REJECT
+  reasonCodes           Json
+  rubric                Json?
+  comment               String?
+  originalContentHash   String
+  finalContentHash      String?
+  normalizedEditDistance Float?
+  generationRunId       String?
+  langfuseTraceId       String?
+  langfuseObservationId String?
+  syncStatus            String   @default("PENDING")
+  syncAttempts          Int      @default(0)
+  lastSyncError         String?
+  langfuseSyncedAt      DateTime?
+  createdAt             DateTime @default(now())
+
+  @@unique([postId, version])
+  @@index([decision, createdAt])
+  @@index([syncStatus, createdAt])
+  @@index([langfuseTraceId])
 }
 
 // A/B testing: variants generated for a post and their real-world outcomes.
@@ -359,6 +898,12 @@ model Interaction {
   targetUrl     String?            // URL of the post being liked/commented/replied to
   targetHandle  String?            // handle of the account being followed/interacted with
   content       String?            // comment text (for COMMENT/REPLY)
+  personaRevisionId String?
+  voiceMode      String?
+  intent         String?
+  policyMode     String?
+  suggestionId   String?            @unique
+  suggestion     EngagementSuggestion? @relation("SuggestionInteraction", fields: [suggestionId], references: [id], onDelete: SetNull)
   errorMessage  String?
   screenshotPath String?           // screenshot for debugging
   browsingSessionId String?
@@ -371,6 +916,41 @@ model Interaction {
   @@index([status])
   @@index([browsingSessionId])
   @@index([createdAt])
+}
+
+// ADR-008: every conversational reply/quote starts as a durable suggestion.
+// Approval changes state only; execution remains separately authorized by
+// POLICY-101 immediately before a network side effect.
+model EngagementSuggestion {
+  id                     String   @id @default(uuid())
+  accountId              String
+  account               SocialAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  personaRevisionId      String
+  personaRevision        PersonaRevision @relation(fields: [personaRevisionId], references: [id], onDelete: Restrict)
+  network                SocialNetwork
+  targetUrl              String
+  targetAuthorHandleHash String?
+  sourceSnapshotHash     String
+  threadContextRef       Json?
+  voiceMode              String
+  intent                 String
+  content                String
+  claimTrace             Json?
+  memoryTrace            Json?
+  judgeScores            Json?
+  policyMode             String
+  status                 String   @default("PROPOSED")
+  version                Int      @default(1)
+  reviewedBy             String?
+  reviewedAt             DateTime?
+  executedInteractionId  String?
+  expiresAt              DateTime
+  createdAt              DateTime @default(now())
+  executedInteraction    Interaction? @relation("SuggestionInteraction")
+
+  @@index([accountId, status, createdAt])
+  @@index([personaRevisionId, createdAt])
+  @@index([network, status])
 }
 
 /// Sprint Q / F4: Incoming comments on our posts, tracked for automated reply monitoring.

@@ -107,4 +107,26 @@ describe("PostCard component", () => {
     });
     expect(wrapper.text()).toContain("Browser timeout");
   });
+
+  it("renders generated media through the API URL with lazy loading and an accessible alt", () => {
+    const wrapper = mount(PostCard, {
+      props: {
+        post: makePost({
+          media: { url: "/api/v1/posts/post-1/media", altText: "Blue abstract composition" },
+        }),
+      },
+    });
+    const image = wrapper.find("img");
+    expect(image.attributes("src")).toBe("/api/v1/posts/post-1/media");
+    expect(image.attributes("alt")).toBe("Blue abstract composition");
+    expect(image.attributes("loading")).toBe("lazy");
+  });
+
+  it("shows a text-only fallback when media preview fails", async () => {
+    const wrapper = mount(PostCard, {
+      props: { post: makePost({ media: { url: "/api/v1/posts/post-1/media" } }) },
+    });
+    await wrapper.find("img").trigger("error");
+    expect(wrapper.text()).toContain("Visual preview unavailable");
+  });
 });

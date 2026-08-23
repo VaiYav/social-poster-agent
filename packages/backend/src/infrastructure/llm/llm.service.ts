@@ -480,7 +480,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
   private readonly cacheMaxSize: number;
   private readonly cacheShared: boolean;
 
-  // Sprint Q: Per-provider rate-limit cooldown (separate from circuit breaker)
+  // REL-102: Per-provider rate-limit cooldown (separate from circuit breaker)
   private readonly rateLimitBackoff: LlmProviderRateLimit;
 
   // Empty-content cooldown — when a provider returns empty content (model refused
@@ -492,7 +492,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
   private readonly emptyContentCooldownMs = 60_000;
 
   // Sprint J: Prompt version — bumped when prompts change, stored in llmMetadata
-  // Sprint P: Now sourced from PromptRegistry when available, falls back to static constant
+  // EVAL-103: Now sourced from PromptRegistry when available, falls back to static constant
   static readonly PROMPT_VERSION = "0.5.0-quality-pass";
 
   // Q1: Per-role provider chains — parsed from LLM_ROLE_CHAINS env.
@@ -1009,7 +1009,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
   }
 
   /**
-   * Sprint J/Q: Circuit breaker + rate-limit cooldown — check if a provider is available.
+   * COST-001: Circuit breaker + rate-limit cooldown — check if a provider is available.
    * Returns false if the provider is in a rate-limit penalty box or has a tripped breaker.
    */
   private isProviderAvailable(providerName: string): boolean {
@@ -1250,7 +1250,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
           }
         }
 
-        // Sprint J/Q: Skip providers with tripped circuit breaker or rate-limit cooldown
+        // COST-001: Skip providers with tripped circuit breaker or rate-limit cooldown
         if (!this.isProviderAvailable(provider.name)) {
           const rl = this.rateLimitBackoff.getStatus(provider.name);
           if (rl.rateLimitUntil > Date.now()) {
@@ -1295,7 +1295,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
         // Q2: up to 2 attempts on the same provider — a 429 means "wait",
         // not "switch": failing over on rate limits cascades the whole chain
         // down to the weakest model (Ollama) during bursts.
-        // Sprint Q: 429s now update a dedicated rate-limit cooldown; we only
+        // REL-102: 429s now update a dedicated rate-limit cooldown; we only
         // retry same provider if the provider tells us it will recover quickly.
         const maxAttempts = 2;
         let lastErr: unknown;
@@ -1831,8 +1831,8 @@ export class LlmService implements ILlmPort, OnModuleInit {
   }
 
   /**
-   * Sprint J/P: Get the current prompt version for tracking in llmMetadata.
-   * Sprint P: Sources from PromptRegistry when available, falls back to static constant.
+   * EVAL-103: Get the current prompt version for tracking in llmMetadata.
+   * EVAL-103: Sources from PromptRegistry when available, falls back to static constant.
    */
   getPromptVersion(): string {
     if (this.promptPort) {

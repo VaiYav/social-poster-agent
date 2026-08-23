@@ -1,5 +1,8 @@
 # Phase 2 — P1: Correctness Bugs
 
+> **FROZEN CHECKLIST SNAPSHOT.** Status below is historical. Reproduce through
+> `PLAN-005` before creating/updating work in `docs/planning/BACKLOG.md`.
+
 Bugs that produce wrong behavior but don't crash the system. Grouped by module.
 
 > Items 2.6.1–2.6.4 (Orchestrator) are already fixed — see [README.md](README.md).

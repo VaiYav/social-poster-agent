@@ -505,7 +505,7 @@ export class GenerationService {
     try {
       let topics = await this.contentSourceService.getTopics(count);
 
-      // Sprint P / F22: Enrich topics with trending topics (Google Trends + X + domain calendar)
+      // INTEL-101 / F22: Enrich topics with trending topics (Google Trends + X + domain calendar)
       // Trending topics are ADDED ON TOP of content-source topics (not replacing them).
       // This way, if the trend guardrail rejects trending topics, we still have
       // the full set of content-source topics to fall back on.
@@ -2008,7 +2008,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
    * Topics without a publishedAt are sorted last (stable).
    */
   /**
-   * Sprint P / F22: Fetch trending topics (Google Trends + X + domain calendar) and
+   * INTEL-101 / F22: Fetch trending topics (Google Trends + X + domain calendar) and
    * convert them to ContentTopic format so they can be used by the generation
    * graph alongside content-source topics.
    *
@@ -2033,7 +2033,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
     }
 
     // Get merged trending (domain calendar + Google Trends + X)
-    const skipXInDryRun = parseBool(process.env.SPA_DRY_RUN ?? "false");
+    const skipXInDryRun = parseBool(this.configService.get<string>("SPA_DRY_RUN", "false"));
     const merged = await this.trendingScraper.getMergedTrending(calendarTopics, {
       includeX: !skipXInDryRun,
     });

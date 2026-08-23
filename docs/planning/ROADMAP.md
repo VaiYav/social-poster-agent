@@ -26,7 +26,7 @@
 | **Z1–Z6** | Ownership zones (§2). Every task maps to one zone |
 | **M0…M6** | Roadmap phases (§4). Phases partially overlap |
 | **GATE** | Measurable phase-closure criterion. Next phase does not start until the GATE passes |
-| **R1…R8** | Refactor register items (§6) |
+| **R1…R9** | Refactor register items (§6) |
 | **P1/P2/P3** | Priority within a phase (must / should / nice-to-have) |
 | *(NN)* | Reference to a proposal in `docs/roadmap/01..16`; status lives under the feature ID in `docs/planning/FEATURES.md` |
 
@@ -178,9 +178,11 @@ own pre-release and external-policy evidence.
   editorial persona + portfolio planner, reviewed engagement suggestions, durable review
   truth + calibration dashboards, demand radar, creator CRM, grounding, reputation state,
   image-gen quota foundation, article syndication slice.
-- Hardening track (HARDEN-001) executing: CI coverage+UI gates enforced, prod Redis
-  `noeviction` fix, posting/generation god-class decomposition, unified import convention
-  in flight, dead multilingual config removal queued.
+- Hardening track (HARDEN-001) locally verified through the current refactor/design slices:
+  CI coverage+UI gates, prod Redis `noeviction` fix, posting/generation god-class
+  decomposition, unified import convention, English-only config cleanup, cron/config hygiene
+  and the initial UI primitive set. CI first-green, clean-worktree formatting, visual/manual
+  accessibility and external/live gates remain separate.
 - Observability: Sentry + Langfuse traces with judge metadata.
 
 **Still missing (the primary gap remains revenue evidence):**
@@ -341,14 +343,14 @@ Source: `docs/refactor/phase-1..7` + August 2026 audit; execution status tracked
 | ID | P | What | When |
 |---|---|---|---|
 | R1 | P1 | Revive `source-url.util.ts` as the direct-UTM fallback core | M0.6 ✅ (ATTR-102) |
-| R2 | P1 | Unify relative-import style (explicit `.js` extensions repo-wide) + lint gate | REFACTOR-105 (in flight) |
+| R2 | P1 | Unify relative-import style (explicit `.js` extensions repo-wide) + lint gate | REFACTOR-105 (VERIFY; CI first green and deployment remain) |
 | R3 | P1 | Delete cron/orchestrator dual path after the 30-day GA gate | M3.4 / ORCH-102 |
 | R4 | P1 | Split frozen engagement code behind ports before the conversational pilot | M2.6 |
-| R5 | P2 | Direct `process.env` reads outside sanctioned list → ConfigService | REFACTOR-108 |
+| R5 | P2 | Direct `process.env` reads outside sanctioned list → ConfigService | REFACTOR-108 (VERIFY) |
 | R6 | P2 | Planning-doc consolidation, archive banners | M0.5 ✅ |
 | R7 | P2 | Real `CanonicalUrlService.verifyCanonical()` | M1.4 ✅ (SYND-100) |
 | R8 | P3 | UI component/view tests | DESIGN-101/102 + CI ui job (partial) |
-| R9 | P0 | God-class decomposition (generation.service, posting.service, x.poster) + platform-knowledge single source | REFACTOR-101..106 (HARDEN-001) |
+| R9 | P0 | God-class decomposition (generation.service, posting.service, x.poster) + platform-knowledge single source | REFACTOR-101..108 (HARDEN-001; VERIFY evidence recorded) |
 
 ---
 

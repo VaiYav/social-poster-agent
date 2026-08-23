@@ -106,7 +106,7 @@ export const NETWORK_PROFILES: Readonly<Partial<Record<SocialNetwork, NetworkPro
     toneGuidance: "Warm, community-minded and sincere. No hashtags or engagement bait.",
     angle: "sincere, community-rooted take with one niche observation",
     ctaPolicy: "Never invent URLs in the post body; use only a controlled pipeline CTA.",
-    verificationPattern: /\/[^/]+\/\d{5,}/,
+    verificationPattern: /\/@?[^/]+\/\d+(?:[/?#].*)?$/,
   },
   [SocialNetwork.TELEGRAM]: {
     charLimit: 4096,

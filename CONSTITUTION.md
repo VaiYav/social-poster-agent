@@ -1,6 +1,6 @@
 ---
 project: Social Poster Agent (SPA)
-status: concept / pre-implementation
+status: historical / requirements snapshot
 version: 0.5.0
 last_updated: 2026-07-15
 owner: Valentyn Yakovlev (solo)
@@ -8,6 +8,12 @@ parent_repo: astro-ai-landing (lives in `social-poster-agent/` subdirectory)
 ---
 
 # Constitution: Social Poster Agent (SPA)
+
+> **HISTORICAL REQUIREMENTS SNAPSHOT.** Product principles and resolved decisions are
+> useful context, but phase/checklist/feature status below is not current. Use
+> `ROADMAP_V2.md` for sequencing and `docs/planning/FEATURES.md` / `BACKLOG.md` for
+> canonical status. New scope is introduced through the feature register, a primary
+> specification and an ADR when architectural.
 
 > **Purpose of this document.** This is a conceptual constitution — it captures WHAT and WHY
 > at project start, before writing code. Architectural ADRs, technical plans and
@@ -23,7 +29,7 @@ parent_repo: astro-ai-landing (lives in `social-poster-agent/` subdirectory)
 generates LLM creatives for social networks and posts them through browser automation
 (Camoufox — stealth Firefox fork) following the principle "cron generates → human reviews → agent posts".**
 
-> **Feature Wishlist:** additional features (F1-F22) are recorded in
+> **Historical Feature Wishlist:** F1-F22 brainstorm history is preserved in
 > [`FEATURE_WISHLIST.md`](./FEATURE_WISHLIST.md). MVP: F21 (Health Monitor),
 > F20 (Warm-up). MVP+ (Phase 1.5): F2, F3, F5, F10, F13, F22. Phase 2-3:
 > F1, F4, F6-F8, F11, F19.
@@ -826,7 +832,9 @@ _Пока нет — все стартовые закрыты. Новые OQ д�
 
 ---
 
-## 16. Roadmap (фазы)
+## 16. Historical roadmap (superseded)
+
+> Snapshot only. Do not start or close work from the checkboxes below.
 
 ### Phase 0 — Scaffold (эта конституция) — COMPLETED
 - [x] Зафиксировать концепцию (этот документ)
@@ -950,11 +958,10 @@ _Пока нет — все стартовые закрыты. Новые OQ д�
 
 ## 19. Изменение конституции
 
-Эта конституция — living document. Любое изменение scope, стека, или принципов
-требует:
-1. Явного edit этого файла с bump `version` (semver).
-2. Краткого changelog-коммита: `chore(spa): constitution v0.4.0 — revert to REST, Vue+Vite, Swagger, SSE`.
-3. Обновления связанных ADR-ов если изменение архитектурное.
+Эта конституция больше не владеет текущим scope/status. Исправления исторических
+фактов допустимы, но новый scope проходит через `docs/planning/FEATURES.md`, primary
+spec и ADR (если решение архитектурное). История исходной конституции сохраняется в
+changelog ниже.
 
 ---
 

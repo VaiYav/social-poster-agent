@@ -1,0 +1,78 @@
+name: Deterministic evaluation
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evaluation-static-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evaluation-static:
+    name: Deterministic evaluation (no secrets)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.21.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared contracts
+        run: pnpm --filter @spa/shared build
+
+      - name: Run deterministic evaluation unit tests
+        run: pnpm --filter @spa/backend exec vitest run tests/unit/evaluation/ --reporter=dot
+
+      - name: Run EVAL-104 no-secret telemetry self-test
+        run: >-
+          pnpm --filter @spa/backend exec tsx scripts/telemetry-self-test.ts
+          --fixture complete
+          --output artifacts/evaluation/evaluation-static-telemetry.json
+
+      - name: Typecheck evaluation dependencies
+        run: pnpm --filter @spa/backend exec tsc -p tsconfig.build.json --noEmit --pretty false
+
+      - name: Lint evaluation surfaces
+        run: >-
+          pnpm exec oxlint
+          packages/backend/src/modules/evaluation
+          packages/backend/src/infrastructure/telemetry
+          packages/backend/tests/unit/evaluation
+          packages/backend/scripts/telemetry-self-test.ts
+
+      - name: Check evaluation formatting
+        run: >-
+          pnpm exec oxfmt --check
+          'packages/backend/src/modules/evaluation/**/*.ts'
+          'packages/backend/src/infrastructure/telemetry/**/*.ts'
+          'packages/backend/tests/unit/evaluation/**/*.ts'
+          'packages/backend/scripts/telemetry-self-test.ts'
+
+      - name: Retain bounded no-secret report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evaluation-static-${{ github.run_id }}
+          path: packages/backend/artifacts/evaluation/evaluation-static-telemetry.json
+          if-no-files-found: ignore
+          retention-days: 7

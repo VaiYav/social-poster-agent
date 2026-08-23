@@ -15,7 +15,7 @@ import {
   BrowsingSessionStatus,
 } from "../../generated/prisma/client.js";
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
-import { isOrchestratorEnabled } from "../orchestrator/feature-flag.js";
+import { isOrchestratorEnabled } from "../../domain/feature-flags.js";
 import { getEnabledNetworks, isNetworkEnabled } from "../../domain/enabled-networks.js";
 import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
 import {

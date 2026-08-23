@@ -39,7 +39,7 @@ import { parseGoogleTrendsRss as parseGoogleTrendsRssPure } from "../../infrastr
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
 import { sanitizeUntrustedInput } from "../../infrastructure/llm/sanitize-untrusted-input.js";
 import { interpolate } from "../../domain/prompt-interpolation.js";
-import { isOrchestratorEnabled } from "../orchestrator/feature-flag.js";
+import { isOrchestratorEnabled } from "../../domain/feature-flags.js";
 import { TRENDING_RELEVANCE_PROMPT } from "./prompts/trending-relevance-prompt.js";
 
 // ── Types ──
@@ -152,7 +152,7 @@ export class TrendingScraperService implements OnModuleInit {
   }
 
   /**
-   * Sprint Q: Register a cron job to proactively refresh the trending cache.
+   * INTEL-101: Register a cron job to proactively refresh the trending cache.
    * Default: every 2 hours (TRENDING_SCRAPER_SCHEDULE).
    * This ensures generation runs always have fresh cached trends without
    * waiting for inline scraping (which blocks generation for ~20-30s).

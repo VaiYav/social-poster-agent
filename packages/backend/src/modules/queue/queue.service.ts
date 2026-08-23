@@ -65,7 +65,7 @@ export class QueueService {
   }
 
   /**
-   * Sprint Q: Retry all failed jobs in a network's posting queue.
+   * REL-102: Retry all failed jobs in a network's posting queue.
    * Returns the number of jobs that were successfully retried.
    *
    * We skip jobs whose failure is a rate-limit exhaustion: retrying those

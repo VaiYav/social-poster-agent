@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { BrowserFactory } from "./browser.factory.js";
 import { SelectorHealthService } from "./selector-health.service.js";
 import { IBrowserPort } from "../../domain/ports/browser.port.js";
@@ -12,17 +13,17 @@ import { ProxyModule } from "../proxy/proxy.module.js";
     SelectorHealthService,
     {
       provide: IBrowserPort,
-      useFactory: (real: BrowserFactory) => {
+      useFactory: (real: BrowserFactory, configService: ConfigService) => {
         // Dry-run mode: wrap BrowserFactory with DryRunBrowserPort that intercepts submit clicks.
         // Lazy import to avoid circular dependency (DryRunBrowserPort imports BrowserFactory type).
-        if (parseBool(process.env.SPA_DRY_RUN)) {
+        if (parseBool(configService.get<string>("SPA_DRY_RUN", "false"))) {
           // eslint-disable-next-line @typescript-eslint/no-require-imports
           const { DryRunBrowserPort } = require("../../dry-run/dry-run.browser-port.js");
           return new DryRunBrowserPort(real);
         }
         return real;
       },
-      inject: [BrowserFactory],
+      inject: [BrowserFactory, ConfigService],
     },
   ],
   exports: [BrowserFactory, SelectorHealthService, IBrowserPort],

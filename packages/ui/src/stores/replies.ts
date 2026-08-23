@@ -1,5 +1,5 @@
 /**
- * Sprint Q: Replies store — human-review queue and reply monitoring controls.
+ * ENGAGE-101: Replies store — human-review queue and reply monitoring controls.
  *
  * Aggregates data from:
  * - REST API (/api/v1/replies/pending, /api/v1/replies/stats)

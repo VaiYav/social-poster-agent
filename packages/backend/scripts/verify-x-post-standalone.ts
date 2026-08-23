@@ -1,7 +1,7 @@
 // Verify X post by checking profile — standalone (no NestJS DI, uses compiled dist).
 // Run from packages/backend: npx tsx scripts/verify-x-post-standalone.ts <post-id>
 
-import { PrismaClient } from "../src/generated/prisma/client";
+import { PrismaClient } from "../src/generated/prisma/client.js";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";

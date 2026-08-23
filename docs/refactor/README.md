@@ -1,10 +1,14 @@
-# Refactor Task Tracker — SPA Backend
+# Legacy Refactor Task Tracker — SPA Backend
+
+> **FROZEN SNAPSHOT.** Checkboxes/status/“current sprint” below are historical and do
+> not authorize implementation. Reproduce a still-relevant finding through `PLAN-005`
+> and create one task in [`docs/planning/BACKLOG.md`](../planning/BACKLOG.md).
 
 Structured task breakdown derived from `docs/reviews/ACTION_PLAN.md`, `docs/audit/`, and `docs/reviews/cross-module-synthesis.md`. Each phase file contains detailed task descriptions (2-5 sentences), affected files, step-by-step checklists, and acceptance criteria.
 
 > **Trust source, not prose.** Re-verify file/line references against current source before implementing. See `CLAUDE.md` — "The docs lag the code".
 
-## Status legend
+## Historical status legend
 
 - `[ ]` — not started
 - `[~]` — in progress
@@ -41,12 +45,12 @@ These items were confirmed fixed in the codebase and are excluded from the activ
 
 See [quick-wins.md](quick-wins.md) for a consolidated checklist of all XS tasks that can be done in one pass.
 
-## Recommended execution order
+## Historical recommended execution order
 
 ```
-Phase 1 (P0)   ← do now
-Phase 2 (P1)   ← current sprint
-Phase 3 (P2a)  ← next sprint (security + env + infra)
+Phase 1 (P0)   ← historical order 1
+Phase 2 (P1)   ← historical order 2
+Phase 3 (P2a)  ← historical order 3
 Phase 4 (P2b)  ← architecture / DRY
 Phase 5 (P2c)  ← performance
 Phase 6 (P3a)  ← strategic refactors (backlog)

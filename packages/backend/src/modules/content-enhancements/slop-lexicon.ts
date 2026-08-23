@@ -4,7 +4,8 @@
  *
  * Previously three slightly different banned-word lists lived in the draft
  * prompt, the critique prompt, and the judge prompt — and all three were
- * English-only while posting runs in 5 languages (POSTING_LANGUAGES).
+ * English-only generation is the current runtime contract; engagement input
+ * language detection remains a separate safety concern.
  * Russian/Ukrainian/Spanish/Italian AI slop was never caught.
  *
  * Consumers:

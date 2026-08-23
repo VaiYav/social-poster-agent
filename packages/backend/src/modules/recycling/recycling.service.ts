@@ -13,7 +13,7 @@ import { PostStatus } from "../../generated/prisma/client.js";
 import { simhash, isDuplicateAgainstCorpus } from "../generation/simhash.js";
 import { GenerationService } from "../generation/generation.service.js";
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
-import { isOrchestratorEnabled } from "../orchestrator/feature-flag.js";
+import { isOrchestratorEnabled } from "../../domain/feature-flags.js";
 
 @Injectable()
 export class RecyclingService implements OnModuleInit {

@@ -8,8 +8,8 @@ import { QueueTriageService } from "./queue-triage.service.js";
  * Queue controller — inspect BullMQ job state per network + pause/resume (F5).
  * Used by the UI Queue page to show pending/active/failed jobs and control flow.
  *
- * Sprint Q: Added aggregated GET /stats (all networks) and POST /:network/retry-failed.
- * Sprint T: Added POST /triage and POST /:network/triage for LLM-in-the-loop queue triage.
+ * REL-102: Added aggregated GET /stats (all networks) and POST /:network/retry-failed.
+ * CONTROL-001: Added POST /triage and POST /:network/triage for LLM-in-the-loop queue triage.
  */
 @ApiTags("queue")
 @Controller("queue")
@@ -20,7 +20,7 @@ export class QueueController {
   ) {}
 
   @Get("stats")
-  @ApiOperation({ summary: "Get aggregated BullMQ job counts for all networks (Sprint Q)" })
+  @ApiOperation({ summary: "Get aggregated BullMQ job counts for all networks (REL-102)" })
   @ApiResponse({ status: 200, description: "Array of per-network job counts with paused status" })
   async getAllStats() {
     const networks = [SocialNetwork.X, SocialNetwork.THREADS, SocialNetwork.FACEBOOK];
@@ -110,7 +110,7 @@ export class QueueController {
 
   @Post(":network/retry-failed")
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: "Retry all failed jobs in a network queue (Sprint Q)" })
+  @ApiOperation({ summary: "Retry all failed jobs in a network queue (REL-102)" })
   @ApiParam({ name: "network", enum: ["X", "THREADS", "FACEBOOK"] })
   @ApiResponse({ status: 200, description: "Number of jobs retried" })
   async retryFailed(@Param("network", new ParseEnumPipe(SocialNetwork)) network: SocialNetwork) {
@@ -130,7 +130,7 @@ export class QueueController {
 
   @Post("triage")
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: "Run LLM triage on all enabled network queues (Sprint T)" })
+  @ApiOperation({ summary: "Run LLM triage on all enabled network queues (CONTROL-001)" })
   @ApiResponse({ status: 200, description: "Per-network triage results" })
   async triageAll() {
     const results = await this.queueTriageService.triageAll();
@@ -139,7 +139,7 @@ export class QueueController {
 
   @Post(":network/triage")
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: "Run LLM triage on a single network queue (Sprint T)" })
+  @ApiOperation({ summary: "Run LLM triage on a single network queue (CONTROL-001)" })
   @ApiParam({ name: "network", enum: ["X", "THREADS", "FACEBOOK"] })
   @ApiResponse({ status: 200, description: "Triage result for the network" })
   async triageNetwork(@Param("network", new ParseEnumPipe(SocialNetwork)) network: SocialNetwork) {

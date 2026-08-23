@@ -1,6 +1,9 @@
 # 07 — Additional Feature Research
 
-## Status
+## Document maturity (non-canonical)
+
+This is a research inbox, not a feature/task backlog. Decomposed feature status belongs
+in [the canonical register](../planning/FEATURES.md).
 
 Research / idea backlog. This file collects researched capabilities that can improve SPA quality and competitiveness, independent of the six core features.
 

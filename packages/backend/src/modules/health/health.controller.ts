@@ -43,11 +43,22 @@ export class HealthController {
    * merely waiting for dependencies to come up.
    */
   @Get()
-  @Get("live")
   @Public()
   @ApiOperation({ summary: "Liveness probe — always 200" })
   @ApiResponse({ status: 200, description: "Liveness status" })
   live(@Res() res: Response): void {
+    this.writeLiveness(res);
+  }
+
+  @Get("live")
+  @Public()
+  @ApiOperation({ summary: "Liveness probe — always 200" })
+  @ApiResponse({ status: 200, description: "Liveness status" })
+  liveNamed(@Res() res: Response): void {
+    this.writeLiveness(res);
+  }
+
+  private writeLiveness(res: Response): void {
     res.status(200).json({
       status: "ok",
       timestamp: new Date().toISOString(),

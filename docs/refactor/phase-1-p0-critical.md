@@ -1,5 +1,8 @@
 # Phase 1 — P0: Critical Bugs and Resource Leaks
 
+> **FROZEN CHECKLIST SNAPSHOT.** Status below is historical. Reproduce through
+> `PLAN-005` before creating/updating work in `docs/planning/BACKLOG.md`.
+
 Production blockers, resource leaks, data corruption risks. These should be done first.
 
 ---

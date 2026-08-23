@@ -21,7 +21,7 @@ import { ConfigService } from "@nestjs/config";
 import { SocialNetwork } from "../../generated/prisma/client.js";
 import { QueueFactory } from "../../infrastructure/queue/queue.factory.js";
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
-import { isOrchestratorEnabled } from "../orchestrator/feature-flag.js";
+import { isOrchestratorEnabled } from "../../domain/feature-flags.js";
 import { getEnabledNetworks, isNetworkEnabled } from "../../domain/enabled-networks.js";
 import type { WorldState } from "../orchestrator/types.js";
 

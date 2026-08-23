@@ -1,5 +1,8 @@
 # Phase 6+7 — P3: Strategic Refactors & New Features (Backlog)
 
+> **FROZEN CHECKLIST SNAPSHOT.** This is not the active feature backlog. Map surviving
+> findings through `PLAN-005` into `docs/planning/FEATURES.md` / `BACKLOG.md`.
+
 Large-scale architectural refactors and new feature development. These are long-term backlog items.
 
 ---

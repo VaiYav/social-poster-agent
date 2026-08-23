@@ -44,10 +44,8 @@ describe("AccountSettingsService.resolve", () => {
       settings: null,
     });
     const { values, sources } = await service.resolve(ACCOUNT_ID);
-    expect(values.postingLanguage).toBe("en");
     expect(values.rateLimitDaily).toBe(1);
     expect(values.minDelayMs).toBe(300_000);
-    expect(sources.postingLanguage).toBe("default");
   });
 
   it("resolves the persisted account active switch into the shared settings contract", async () => {
@@ -64,19 +62,16 @@ describe("AccountSettingsService.resolve", () => {
     expect(sources.active).toBe("account");
   });
 
-  it("env layer overrides defaults", async () => {
+  it("env layer overrides numeric defaults", async () => {
     const { service } = buildService(
       { id: ACCOUNT_ID, network: "X", settings: null },
       {
-        POSTING_LANGUAGES: "ru,en",
         RATE_LIMIT_X_MAX_PER_DAY: "3",
         AUTO_APPROVE_ENABLED: "true",
         AUTO_APPROVE_MIN_SCORE: "8",
       },
     );
     const { values, sources } = await service.resolve(ACCOUNT_ID);
-    expect(values.postingLanguage).toBe("ru");
-    expect(sources.postingLanguage).toBe("env");
     expect(values.rateLimitDaily).toBe(3);
     expect(values.autoApproveEnabled).toBe(true);
     expect(values.autoApproveMinScore).toBe(8);
@@ -87,13 +82,11 @@ describe("AccountSettingsService.resolve", () => {
       {
         id: ACCOUNT_ID,
         network: "X",
-        settings: { postingLanguage: "uk", brandVoice: "warm, witty", rateLimitDaily: 5 },
+        settings: { brandVoice: "warm, witty", rateLimitDaily: 5 },
       },
-      { POSTING_LANGUAGES: "en", RATE_LIMIT_X_MAX_PER_DAY: "3" },
+      { RATE_LIMIT_X_MAX_PER_DAY: "3" },
     );
     const { values, sources } = await service.resolve(ACCOUNT_ID);
-    expect(values.postingLanguage).toBe("uk");
-    expect(sources.postingLanguage).toBe("account");
     expect(values.rateLimitDaily).toBe(5); // account beats env
     expect(values.brandVoice).toBe("warm, witty");
     expect(sources.rateLimitWeekly).toBe("default"); // untouched keys stay default
@@ -119,14 +112,14 @@ describe("AccountSettingsService.updateOverrides", () => {
     const { service, prisma } = buildService({
       id: ACCOUNT_ID,
       network: "X",
-      settings: { postingLanguage: "en" },
+      settings: {},
     });
     const result = await service.updateOverrides(ACCOUNT_ID, { rateLimitDaily: 4 });
-    expect(result).toMatchObject({ postingLanguage: "en", rateLimitDaily: 4 });
+    expect(result).toMatchObject({ rateLimitDaily: 4 });
     expect(prisma.socialAccount.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: ACCOUNT_ID },
-        data: { settings: expect.objectContaining({ postingLanguage: "en", rateLimitDaily: 4 }) },
+        data: { settings: expect.objectContaining({ rateLimitDaily: 4 }) },
       }),
     );
   });

@@ -1,6 +1,8 @@
 # Feature Proposal: A/B Testing Infrastructure
 
-## Status
+## Document maturity (non-canonical)
+
+Feature status: `PLATFORM-001` in [the canonical register](../planning/FEATURES.md).
 
 **Implemented.** The `PostVariant` model, persistence, metrics capture, `/analytics/ab-tests` endpoint, and the full feedback loop are in place. The only remaining work is optional calibration logging (item 4 below).
 

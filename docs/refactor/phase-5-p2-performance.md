@@ -1,5 +1,8 @@
 # Phase 5 — P2: Performance
 
+> **FROZEN CHECKLIST SNAPSHOT.** Status below is historical. Reproduce through
+> `PLAN-005` before creating/updating work in `docs/planning/BACKLOG.md`.
+
 Database query optimizations, Redis efficiency, concurrency control, and caching.
 
 > **5.2 (`SCAN` instead of `KEYS` in orchestrator) is already fixed.** See [README.md](README.md).

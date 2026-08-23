@@ -1,6 +1,8 @@
 # 04 — Per-Account Prompts & Brand Voice
 
-## Status
+## Document maturity (non-canonical)
+
+Feature status: `PERSONA-001` in [the canonical register](../planning/FEATURES.md).
 
 Proposal. Today all posts share one `brand-voice.md` and a per-network persona injected by `GenerationService`.
 

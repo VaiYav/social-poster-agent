@@ -2,6 +2,9 @@ import { Module } from "@nestjs/common";
 import { PostsModule } from "../posts/posts.module.js";
 import { FlowControlModule } from "../flow-control/flow-control.module.js";
 import { TelegramModule } from "../../infrastructure/telegram/telegram.module.js";
+import { PrismaModule } from "../../infrastructure/prisma/prisma.module.js";
+import { QueueInfraModule } from "../../infrastructure/queue/queue.module.js";
+import { RedisModule } from "../../infrastructure/redis/redis.module.js";
 import { ControlBotService } from "./control-bot.service.js";
 
 /**
@@ -11,7 +14,7 @@ import { ControlBotService } from "./control-bot.service.js";
  * a second brain). See docs/roadmap/16-telegram-control-bot.md.
  */
 @Module({
-  imports: [PostsModule, FlowControlModule, TelegramModule],
+  imports: [PostsModule, FlowControlModule, TelegramModule, PrismaModule, QueueInfraModule, RedisModule],
   providers: [ControlBotService],
   exports: [ControlBotService],
 })

@@ -118,7 +118,7 @@ export class PostVerificationService {
    */
   async verifyPublishedPost(
     post: Post,
-    context: BrowserContext,
+    context: BrowserContext | null,
     url: string,
   ): Promise<string | null> {
     // Article networks: re-open the published URL and ask the LLM to confirm it is live.
@@ -132,7 +132,15 @@ export class PostVerificationService {
         this.logger.warn(`Article ${post.id} is visible but canonical URL is missing`);
         return null;
       }
+      if (!context) return null;
       return poster.verifyPosted(context, url, post.canonicalUrl);
+    }
+
+    const transportPoster = this.posterRegistry.getPoster(post.network, post.contentType) as {
+      verifyPermalink?: (permalink: string) => Promise<string | null>;
+    } | null;
+    if (transportPoster?.verifyPermalink) {
+      return transportPoster.verifyPermalink(url);
     }
 
     if (this.isValidPostUrl(url, post.network)) {

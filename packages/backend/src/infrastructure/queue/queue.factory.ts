@@ -7,6 +7,7 @@ import {
   type OnModuleDestroy,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { EventEmitter2 } from "@nestjs/event-emitter";
 import { Queue, Worker, type Job } from "bullmq";
 import IORedis from "ioredis";
 import { DiscordNotificationService } from "../notifications/discord-notification.service.js";
@@ -72,6 +73,7 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
     @Optional() @Inject(SHARED_REDIS) private readonly injectedClient?: IORedis,
     @Optional() @Inject(SHARED_REDIS_SUBSCRIBER) private readonly injectedSubscriber?: IORedis,
     @Optional() @Inject(IResiliencePort) private readonly resilience?: ResiliencePort,
+    @Optional() private readonly eventEmitter?: EventEmitter2,
   ) {
     this.redisUrl = this.configService.get<string>("REDIS_URL", "redis://localhost:6381");
     // NOTE: parse env ints with an explicit fallback that preserves a valid 0.
@@ -432,6 +434,15 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
 
       // Send Discord alert when job exhausts all retries → enters DLQ
       if (attemptsMade >= effectiveMaxRetries) {
+        this.eventEmitter?.emit("queue.dlq_entered", {
+          jobId: job?.id,
+          queue: queueName,
+          network,
+          action,
+          attempts: attemptsMade,
+          maxAttempts: effectiveMaxRetries,
+          error: err.message,
+        });
         this.discord
           .critical(
             "Job Entered DLQ — Manual Intervention Needed",

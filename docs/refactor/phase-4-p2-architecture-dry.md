@@ -1,5 +1,8 @@
 # Phase 4 — P2: Architecture & DRY
 
+> **FROZEN CHECKLIST SNAPSHOT.** Status below is historical. Reproduce through
+> `PLAN-005` before creating/updating work in `docs/planning/BACKLOG.md`.
+
 Architecture improvements, DRY violations, module boundary fixes, and shared schema extraction.
 
 ---

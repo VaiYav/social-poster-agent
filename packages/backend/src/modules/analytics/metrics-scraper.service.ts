@@ -32,7 +32,7 @@ import { IBrowserPort } from "../../domain/ports/browser.port.js";
 import { Inject } from "@nestjs/common";
 import { getEnabledNetworks, isNetworkEnabled } from "../../domain/enabled-networks.js";
 import { SocialNetwork, PostStatus } from "../../generated/prisma/client.js";
-import { isOrchestratorEnabled } from "../orchestrator/feature-flag.js";
+import { isOrchestratorEnabled } from "../../domain/feature-flags.js";
 import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
 import type { IMetricsSource, PostMetricsData } from "./metrics-sources/metrics-source.port.js";
 import { ThreadsInsightsSource } from "./metrics-sources/threads-insights.source.js";

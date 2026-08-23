@@ -1,8 +1,15 @@
 # Feature Proposals — SPA Backend
 
-> See also the active product expansion roadmap in `docs/roadmap/README.md` for the next wave of multi-account, per-account settings, image generation, token optimization, and resilience work.
+> **Legacy feature dossiers and implementation evidence.** Current feature status is
+> owned only by [the canonical feature register](../planning/FEATURES.md); active tasks
+> live in [the canonical backlog](../planning/BACKLOG.md). Do not create new status
+> checklists in this directory.
 
-This directory contains high-level feature proposals that are **not yet prioritized** in `docs/reviews/ACTION_PLAN.md`. They are intentionally separate from the bug-fix and hardening backlog because most of them require schema, UI, or cross-module architecture work.
+> See also the product expansion specifications in `docs/roadmap/README.md`.
+
+This directory preserves high-level proposals and evidence dossiers. New cross-module
+features receive a stable ID in the planning hub and one primary specification in
+`docs/roadmap/` or the relevant domain folder.
 
 Each proposal explains:
 
@@ -13,11 +20,12 @@ Each proposal explains:
 - effort estimate,
 - related review files.
 
-> **⚠️ Living documents.** These proposals are written against the current source tree. Before implementing, re-verify file references and update the proposal if the code has moved on.
+> **⚠️ Dossiers may drift.** Re-verify source references before implementation; update
+> design/evidence here but update live status only in `docs/planning/`.
 
 ## Proposals
 
-| Feature | Status | Effort | Why it matters | Related reviews |
+| Feature | Dossier snapshot (non-canonical) | Effort | Why it matters | Related reviews |
 |---------|--------|--------|----------------|-----------------|
 | [A/B Testing Infrastructure](./ab-testing-infrastructure.md) | Implemented | S–M | Closes the feedback loop between `abVariants`, `judgeScores`, and real-world approve/reject/engagement. | `content-enhancements.md`, `infrastructure-llm.md`, `analytics.md` |
 | [Content Adapters Beyond CAP](./content-adapters.md) | Implemented | M | Decouples content discovery from the sibling `content-agent-platform` repo; enables RSS, APIs, Google Trends, etc. | `content-source.md`, `infrastructure-prisma.md`, `recycling.md` |
@@ -26,13 +34,15 @@ Each proposal explains:
 | [Browser E2E Replay Harness](./browser-e2e-replay.md) | Proposal | L | Records and replays real browser flows from `dry-run`, giving CI coverage for selector drift. | `infrastructure-browser.md`, `posting.md`, `engagement.md`, `replies.md` |
 | [Prompt Versioning & A/B in Langfuse](./prompt-versioning-langfuse.md) | Implemented | S–M | `PROMPT_VERSION` wired to Langfuse labels, per-prompt overrides, fallback chain, and `pnpm prompts:diff` CLI. | `infrastructure-llm.md`, `ab-testing-infrastructure.md` |
 
-## How these relate to `docs/reviews/`
+## How these relate to planning and reviews
 
-The review files (`docs/reviews/*.md`) describe the **current state and its bugs**. The proposals here describe **what to build next**. Before any feature here is added to the active backlog, its underlying review files should be stable and the quick wins in `ACTION_PLAN.md` should be closed — otherwise the new feature is built on top of known leaks and inconsistencies.
+The review files (`docs/reviews/*.md`) describe historical/current findings. Dossiers
+here explain a feature. Neither owns status. `docs/planning/FEATURES.md` records feature
+state and `docs/planning/BACKLOG.md` records all non-terminal tasks.
 
 ## How to use
 
 1. Pick a proposal.
 2. Re-verify all source references and update the proposal if needed.
 3. Create a `docs/adr/ADR-00X-*.md` if the feature has architectural consequences.
-4. Break the proposal into tasks in `docs/reviews/ACTION_PLAN.md` when the team is ready to start it.
+4. Break the proposal into stable task IDs in `docs/planning/BACKLOG.md`.

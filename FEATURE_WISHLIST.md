@@ -8,8 +8,9 @@ status: draft / brainstorm
 ---
 
 > ⛔ **АРХИВ (2026-08-22).** Пожелания F1-F22 разобраны и распределены по фазам
-> ROADMAP_V2 (см. §8 «Карта архива»). Не добавляйте новые пункты сюда — заводите
-> их в ROADMAP_V2 §9 Parking lot или через proposal в `docs/roadmap/`.
+> ROADMAP_V2 (см. §8 «Карта архива»). Не добавляйте новые пункты сюда: сначала
+> создайте/reuse feature ID в `docs/planning/FEATURES.md`, затем primary spec по
+> правилам `docs/planning/DOCUMENT_MAP.md`.
 
 # Feature Wishlist — Social Poster Agent
 

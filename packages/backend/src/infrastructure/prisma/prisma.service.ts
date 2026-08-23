@@ -4,7 +4,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { Prisma, PrismaClient } from "../../generated/prisma/client.js";
 
 function buildPrismaUrl(configService: ConfigService): string | undefined {
-  const rawUrl = configService.get<string>("DATABASE_URL") ?? process.env.DATABASE_URL;
+  const rawUrl = configService.get<string>("DATABASE_URL");
   if (!rawUrl) return undefined;
 
   const connectionLimit = configService.get<string>("PRISMA_CONNECTION_LIMIT", "20");

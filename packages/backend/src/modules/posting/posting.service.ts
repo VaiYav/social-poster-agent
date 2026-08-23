@@ -166,6 +166,7 @@ export class PostingService {
       (post.llmMetadata as { multiStage?: boolean; threadDepth?: number } | null) ?? {};
     const isMultiStage = llmMetadata.multiStage === true;
     const imagePath = getImagePath(post.media);
+    const usesApiTransport = this.posterRegistry.usesApiTransport(post.network);
 
     // G-3: Rate limit check — if not allowed, return a rate-limit result so the
     // queue worker can use BullMQ's RateLimitError (queue-wide delay) instead of
@@ -188,28 +189,32 @@ export class PostingService {
 
     // P0-H1: Context leak fix — track context so it's always released in finally.
     let context: Awaited<ReturnType<IBrowserPort["acquireContext"]>> | null = null;
+    let session: Awaited<ReturnType<SessionsService["getOrCreateSession"]>> = null;
+    let storageStateStr: string | undefined;
 
     try {
-      // Get or create session (auto-login if needed — OQ-8).
-      // SE1: defer inline username/password form login off the posting path when
-      // SESSION_DEFERRED_LOGIN is on — return null → retry while the out-of-band
-      // refreshSessionsCron performs the controlled re-login.
-      const session = await this.sessionsService.getOrCreateSession(post.accountId, post.network, {
-        deferFormLogin: true,
-      });
-      if (!session) {
-        throw new RetryableError(
-          post.network,
-          `No active session for ${post.network} — auto-login deferred or failed (will retry)`,
-        );
-      }
+      if (!usesApiTransport) {
+        // Get or create session (auto-login if needed — OQ-8).
+        // SE1: defer inline username/password form login off the posting path when
+        // SESSION_DEFERRED_LOGIN is on — return null → retry while the out-of-band
+        // refreshSessionsCron performs the controlled re-login.
+        session = await this.sessionsService.getOrCreateSession(post.accountId, post.network, {
+          deferFormLogin: true,
+        });
+        if (!session) {
+          throw new RetryableError(
+            post.network,
+            `No active session for ${post.network} — auto-login deferred or failed (will retry)`,
+          );
+        }
 
-      // Acquire browser context from pool (reuses idle contexts, waits if at capacity)
-      // P0-H3: Decrypt storageState if encrypted (v1: prefix).
-      const storageStateStr = session.storageState
-        ? this.sessionsService.decryptStorageState(session)
-        : undefined;
-      context = await this.browser.acquireContext(post.network, storageStateStr, post.accountId);
+        // Acquire browser context from pool (reuses idle contexts, waits if at capacity)
+        // P0-H3: Decrypt storageState if encrypted (v1: prefix).
+        storageStateStr = session.storageState
+          ? this.sessionsService.decryptStorageState(session)
+          : undefined;
+        context = await this.browser.acquireContext(post.network, storageStateStr, post.accountId);
+      }
 
       // Threads: legacy items (+ per-reply progress init) or multi-stage log line.
       const plan = await this.threads.buildThreadPlan(post, isMultiStage);
@@ -260,11 +265,11 @@ export class PostingService {
         }
 
         // F2: multi-stage continuation posts as a reply to the root thread.
-        if (isContinuation) {
+        if (isContinuation && !usesApiTransport) {
           return this.threads.postMultiStageContinuation(context!, post, rootPostForThread);
         }
 
-        return this.posterRegistry.dispatch(post, context!, this.browser, {
+        return this.posterRegistry.dispatch(post, context, this.browser, {
           content: preparedCta.content,
           threadItems,
           imagePath,
@@ -350,26 +355,28 @@ export class PostingService {
         throw retryErr;
       }
 
-      result = await this.recoverFromSessionExpiryIfNeeded(
-        post,
-        result,
-        {
-          contextRef: () => context,
-          setContext: (c) => {
-            context = c;
+      if (session) {
+        result = await this.recoverFromSessionExpiryIfNeeded(
+          post,
+          result,
+          {
+            contextRef: () => context,
+            setContext: (c) => {
+              context = c;
+            },
+            lastSessionId: session.id,
           },
-          lastSessionId: session.id,
-        },
-        postFn,
-      );
+          postFn,
+        );
+      }
 
       // Save updated session state (context may be null if self-recovery released it)
-      if (context) {
+      if (context && session) {
         await this.persistSessionState(context, session.id, postId);
       }
 
       if (result.error) {
-        return this.handlePosterError(post, result, session.id);
+        return this.handlePosterError(post, result, session?.id);
       }
 
       // Validate post URL — reject homepage URLs (post likely didn't publish correctly)
@@ -437,7 +444,7 @@ export class PostingService {
       // Verification is network-specific: article posters re-open the published URL,
       // social posts are validated by URL pattern. If it fails we keep POSTED and let
       // BullMQ retry via `reverifyPost`.
-      if (result.url && context) {
+      if (result.url) {
         const verifiedUrl = await this.verification.verifyPublishedPost(post, context, result.url);
         if (verifiedUrl) {
           await this.postsService.updateStatus(postId, {
@@ -674,7 +681,7 @@ export class PostingService {
   private async handlePosterError(
     post: Post,
     result: PostResult,
-    sessionId: string,
+    sessionId?: string,
   ): Promise<PostingResult> {
     const retryable = this.isRetryableError(undefined, result);
 
@@ -707,7 +714,7 @@ export class PostingService {
       ) ||
       (/(Account restricted|is restricted|is locked|is suspended)/i.test(error) &&
         !/temporarily|sensitive content/i.test(error));
-    if (isPermanentRestriction) {
+    if (isPermanentRestriction && sessionId) {
       await this.sessionsService.markSessionBanned(post.network, sessionId, error).catch(() => {});
     }
 

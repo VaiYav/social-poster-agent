@@ -128,7 +128,7 @@ describe("Engagement Prompts", () => {
     expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain("NO self-promotion");
   });
 
-  // ── Language Adaptation (Sprint Q+) ──
+  // ── Language Adaptation (ENGAGE-101) ──
 
   it("PR-018a: comment system prompt contains LANGUAGE section", () => {
     expect(ENGAGEMENT_COMMENT_PROMPT.systemPrompt).toContain("LANGUAGE");

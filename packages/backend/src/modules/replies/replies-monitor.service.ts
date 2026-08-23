@@ -1,5 +1,5 @@
 /**
- * Sprint Q / F4: Replies Monitor Service — automated comment monitoring and reply posting.
+ * ENGAGE-101 / F4: Replies Monitor Service — automated comment monitoring and reply posting.
  *
  * This service runs on a cron (default: every 4 hours) and:
  *   1. Finds posts posted in the last 24h that have a postUrl
@@ -49,7 +49,7 @@ import type { IncomingComment } from "../../generated/prisma/client.js";
 import type { Locator, Page } from "../../domain/ports/browser-primitives.js";
 import { IPromptPort } from "../../domain/ports/prompt.port.js";
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
-import { isOrchestratorEnabled } from "../orchestrator/feature-flag.js";
+import { isOrchestratorEnabled } from "../../domain/feature-flags.js";
 import { matchesScript, normalizeLanguage } from "../../infrastructure/util/script-check.js";
 import { detectLanguage } from "../../infrastructure/util/language-detector.js";
 import { getEnabledNetworks } from "../../domain/enabled-networks.js";
@@ -137,7 +137,7 @@ export class RepliesMonitorService implements OnModuleInit {
     // blocking the cron with an inline setTimeout. Absent in unit tests (inline fallback).
     @Optional() private readonly queueFactory?: QueueFactory,
     @Optional() private readonly flowControl?: FlowControlService,
-    // Sprint P: versioned reply-decision prompt via PromptRegistry; absent in unit tests.
+    // EVAL-103: versioned reply-decision prompt via PromptRegistry; absent in unit tests.
     @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
     @Optional() private readonly commentSafetyClassifier?: CommentSafetyClassifierService,
     @Optional() @Inject(SHARED_REDIS) private readonly redis?: IORedis,

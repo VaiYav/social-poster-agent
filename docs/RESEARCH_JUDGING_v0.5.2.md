@@ -1,5 +1,9 @@
 # Judging стороннего ресерча по Social Poster Agent
 
+> **HISTORICAL RESEARCH SNAPSHOT.** This remains evidence about a prior review.
+> Current judge/calibration design is `docs/evaluation/07-*`; live task status is in
+> `docs/planning/BACKLOG.md`.
+
 > **Версия SPA:** 0.5.2 | **Дата:** 2026-07-10 | **Автор проверки:** AI-агент (сверка с исходниками)
 > **Предмет:** «Обзор Social Poster Agent: текущая концепция и приоритеты»
 >

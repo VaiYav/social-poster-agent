@@ -35,10 +35,60 @@ export const CreatePostDtoSchema = z.object({
 });
 export type CreatePostDto = z.infer<typeof CreatePostDtoSchema>;
 
+export const ReviewReasonCodeSchema = z.enum([
+  "FACT_UNSUPPORTED",
+  "FACT_INCORRECT",
+  "VOICE_AI_GENERIC",
+  "HOOK_WEAK",
+  "PLATFORM_MISMATCH",
+  "LANGUAGE_QUALITY",
+  "POLICY_RISK",
+  "CTA_INVALID",
+  "TOO_LONG",
+  "DUPLICATE",
+  "OTHER_REVIEWED",
+]);
+export type ReviewReasonCode = z.infer<typeof ReviewReasonCodeSchema>;
+
+const RubricScoreSchema = z.union([z.literal(0), z.literal(1), z.literal(2)]);
+
+export const PostReviewRubricSchema = z.object({
+  publishability: RubricScoreSchema,
+  factualSupport: RubricScoreSchema,
+  humanVoice: RubricScoreSchema,
+  hookStrength: RubricScoreSchema,
+  platformFit: RubricScoreSchema,
+});
+export type PostReviewRubric = z.infer<typeof PostReviewRubricSchema>;
+
+export const PostReviewFeedbackSchema = z
+  .object({
+    reasonCodes: z.array(ReviewReasonCodeSchema).max(11).optional(),
+    rubric: PostReviewRubricSchema.optional(),
+    comment: z.string().trim().max(500).optional(),
+  })
+  .superRefine((feedback, ctx) => {
+    if (!feedback.reasonCodes) return;
+    if (new Set(feedback.reasonCodes).size !== feedback.reasonCodes.length) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["reasonCodes"],
+        message: "reasonCodes must not contain duplicates",
+      });
+    }
+  });
+export type PostReviewFeedback = z.infer<typeof PostReviewFeedbackSchema>;
+
 export const ApprovePostDtoSchema = z.object({
   editedContent: z.string().min(1).max(5000).optional(),
+  feedback: PostReviewFeedbackSchema.optional(),
 });
 export type ApprovePostDto = z.infer<typeof ApprovePostDtoSchema>;
+
+export const RejectPostDtoSchema = z.object({
+  feedback: PostReviewFeedbackSchema.optional(),
+});
+export type RejectPostDto = z.infer<typeof RejectPostDtoSchema>;
 
 export const UpdatePostStatusDtoSchema = z.object({
   status: z.enum([
@@ -115,6 +165,22 @@ export const SchedulePostDtoSchema = z.object({
   scheduledAt: z.coerce.date(),
 });
 export type SchedulePostDto = z.infer<typeof SchedulePostDtoSchema>;
+
+export {
+  PersonaAssignmentSchema,
+  PersonaContentPillarSchema,
+  PersonaNetworkAdapterSchema,
+  PersonaProfileSchema,
+  PersonaVoiceModeSchema,
+  CreatePersonaSchema,
+  CreatePersonaRevisionSchema,
+  type PersonaAssignment,
+  type PersonaContentPillar,
+  type PersonaProfile,
+  type PersonaVoiceMode,
+  type CreatePersona,
+  type CreatePersonaRevision,
+} from "./persona.js";
 
 // ============================================================
 // Generation schemas

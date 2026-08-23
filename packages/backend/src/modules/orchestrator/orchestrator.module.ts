@@ -13,7 +13,7 @@
  *   - OrchestratorController: REST endpoints for status/control (Phase 7)
  */
 
-import { Module } from "@nestjs/common";
+import { DynamicModule, Module } from "@nestjs/common";
 import { PrismaModule } from "../../infrastructure/prisma/prisma.module.js";
 import { RedisModule } from "../../infrastructure/redis/redis.module.js";
 import { RateLimitModule } from "../rate-limit/rate-limit.module.js";
@@ -22,7 +22,6 @@ import { QueueModule } from "../queue/queue.module.js";
 import { NotificationsModule } from "../../infrastructure/notifications/notifications.module.js";
 import { LlmModule } from "../../infrastructure/llm/llm.module.js";
 import { CheckpointModule } from "../../infrastructure/checkpoint/checkpoint.module.js";
-import { parseBool } from "../../infrastructure/config/parse-bool.js";
 import { EngagementModule } from "../engagement/engagement.module.js";
 import { AccountsModule } from "../accounts/accounts.module.js";
 import { StateCollectorService } from "./state-collector.service.js";
@@ -55,12 +54,6 @@ import { OrchestratorController } from "./orchestrator.controller.js";
 import { WatchdogCron } from "./watchdog.cron.js";
 import { EvaluationModule } from "../evaluation/evaluation.module.js";
 
-// Conditionally import EngagementModule so EngagementSchedulerService is available
-// for the parallel engagement check (checkStaleAndEnqueue). Without this, the
-// @Optional() engagementScheduler in OrchestratorService is undefined and engagement
-// silently never runs.
-const engagementImports = parseBool(process.env.ENGAGEMENT_ENABLED) ? [EngagementModule] : [];
-
 @Module({
   imports: [
     PrismaModule,
@@ -74,7 +67,6 @@ const engagementImports = parseBool(process.env.ENGAGEMENT_ENABLED) ? [Engagemen
     AccountsModule,
     PostingWindowModule,
     EvaluationModule,
-    ...engagementImports,
     // EventEmitter2 is provided globally by EventsEdaModule in app.module.ts
     // SseModule no longer needed — orchestrator emits domain events via EventEmitter2,
     // SseEventListener bridges them to SSE
@@ -114,4 +106,16 @@ const engagementImports = parseBool(process.env.ENGAGEMENT_ENABLED) ? [Engagemen
     OrchestratorService,
   ],
 })
-export class OrchestratorModule {}
+export class OrchestratorModule {
+  /**
+   * AppModule owns bootstrap-time feature flags. Keeping the conditional import
+   * here as a dynamic-module option avoids a second process.env read in the
+   * orchestrator module while preserving the optional engagement wiring.
+   */
+  static forRoot(engagementEnabled: boolean): DynamicModule {
+    return {
+      module: OrchestratorModule,
+      imports: engagementEnabled ? [EngagementModule] : [],
+    };
+  }
+}

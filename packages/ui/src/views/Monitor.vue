@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * Sprint Q: Monitor View — real-time agent monitoring dashboard.
+ * REL-102: Monitor View — real-time agent monitoring dashboard.
  *
  * Shows:
  * - Queue health (waiting/active/failed per network) with pause/resume controls

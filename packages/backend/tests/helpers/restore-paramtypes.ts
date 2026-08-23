@@ -25,6 +25,7 @@ import { RedisCheckpointSaver } from "../../src/infrastructure/checkpoint/redis-
 import { DiscordNotificationService } from "../../src/infrastructure/notifications/discord-notification.service.js";
 import { IndexNowService } from "../../src/infrastructure/indexnow/indexnow.service.js";
 import { TelegramAdapter } from "../../src/infrastructure/telegram/telegram.adapter.js";
+import { ControlBotService } from "../../src/modules/control-bot/control-bot.service.js";
 import { TopicGenerationService } from "../../src/infrastructure/content/topic-generation.service.js";
 import { EmailReaderService } from "../../src/infrastructure/email/email-reader.service.js";
 import { LangfuseService } from "../../src/infrastructure/langfuse/langfuse.service.js";
@@ -74,6 +75,8 @@ import { ThreadsPoster } from "../../src/modules/posting/posters/threads.poster.
 import { FacebookPoster } from "../../src/modules/posting/posters/facebook.poster.js";
 import { BlueskyPoster } from "../../src/modules/posting/posters/bluesky.poster.js";
 import { MastodonPoster } from "../../src/modules/posting/posters/mastodon.poster.js";
+import { BlueskyApiPoster } from "../../src/modules/posting/posters/bluesky-api.poster.js";
+import { MastodonApiPoster } from "../../src/modules/posting/posters/mastodon-api.poster.js";
 import { LinkedinSocialPoster } from "../../src/modules/posting/posters/linkedin-social.poster.js";
 
 // Sessions
@@ -248,6 +251,7 @@ export function restoreAllDesignParamtypes(): void {
     Object,
     Object,
     Object,
+    EventEmitter2,
   ]); // Object = Redis, subscriber, resilience
   defineParamtypes(EncryptionService, [ConfigService]);
   defineParamtypes(DiscordNotificationService, [ConfigService]);
@@ -330,7 +334,7 @@ export function restoreAllDesignParamtypes(): void {
 
   // ── Posts ────────────────────────────────────────────────────────────────
   defineParamtypes(PostsService, [PrismaService, EventEmitter2, ConfigService]);
-  defineParamtypes(PostsController, [PostsService, Object, PostingWindowService]); // Object = @Inject(IPostingQueuePort)
+  defineParamtypes(PostsController, [PostsService, Object, PostingWindowService, ConfigService]); // Object = @Inject(IPostingQueuePort)
 
   // ── Posting ──────────────────────────────────────────────────────────────
   defineParamtypes(ThreadProgressService, [PrismaService]);
@@ -376,6 +380,8 @@ export function restoreAllDesignParamtypes(): void {
     MastodonPoster,
     LinkedinSocialPoster,
     TelegramAdapter,
+    BlueskyApiPoster,
+    MastodonApiPoster,
   ]);
   defineParamtypes(PostVerificationService, [
     PostsService,
@@ -408,6 +414,7 @@ export function restoreAllDesignParamtypes(): void {
     EmailReaderService,
     SchedulerRegistry,
     Object, // @Optional() @Inject(IResiliencePort)
+    EventEmitter2,
   ]);
   defineParamtypes(WarmupService, [PrismaService, ConfigService]);
   defineParamtypes(SessionsController, [SessionsService]);
@@ -563,7 +570,7 @@ export function restoreAllDesignParamtypes(): void {
   defineParamtypes(HealthMonitorController, [HealthMonitorService]);
 
   // ── Trending ─────────────────────────────────────────────────────────────
-  defineParamtypes(TrendingService, []);
+  defineParamtypes(TrendingService, [ConfigService]);
   defineParamtypes(TrendingScraperService, [
     ConfigService,
     SchedulerRegistry,
@@ -687,6 +694,15 @@ export function restoreAllDesignParamtypes(): void {
   defineParamtypes(RecyclingController, [RecyclingService]);
   defineParamtypes(QuoteCardService, [ConfigService]);
   defineParamtypes(QuoteCardController, [QuoteCardService]);
+  defineParamtypes(ControlBotService, [
+    ConfigService,
+    TelegramAdapter,
+    PostsService,
+    FlowControlService,
+    Object, // @Optional() QueueFactory
+    Object, // @Optional() PrismaService
+    Object, // @Optional() @Inject(SHARED_REDIS)
+  ]);
 
   // ── Auth ─────────────────────────────────────────────────────────────────
   defineParamtypes(AuthService, [PrismaService, JwtService, ConfigService]);

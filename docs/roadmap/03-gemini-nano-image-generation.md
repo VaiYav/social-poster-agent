@@ -1,6 +1,8 @@
 # 03 — Gemini Nano Banana Image Generation
 
-## Status
+## Document maturity (non-canonical)
+
+Feature status: `MEDIA-001` in [the canonical register](../planning/FEATURES.md).
 
 Proposal. SPA is text-only today. A `VisualConceptService` exists but only produces a concept/prompt, not an actual image.
 

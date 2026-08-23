@@ -9,7 +9,7 @@
  *   npx tsx --env-file=../../.env scripts/calibrate-judge.ts
  *   npx tsx --env-file=../../.env scripts/calibrate-judge.ts --since=7d --json
  */
-import { PrismaClient, PostStatus, Prisma } from "../src/generated/prisma/client";
+import { PrismaClient, PostStatus, Prisma } from "../src/generated/prisma/client.js";
 import type { JudgeScores } from "@spa/shared";
 
 const JUDGE_DIMENSIONS: Array<keyof JudgeScores> = [

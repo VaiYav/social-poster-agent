@@ -60,6 +60,19 @@ export function formatPending(
 export interface StatusSnapshot {
   draftsPending: number;
   flows: Record<string, boolean>; // true = paused
+  queue?: {
+    waiting: number;
+    active: number;
+    delayed: number;
+    failed: number;
+  };
+  orchestrator?: {
+    enabled: boolean;
+    running: boolean | null;
+    cycle: number | null;
+    heartbeatAgeMs: number | null;
+  };
+  todayCostUsd?: number | null;
 }
 
 export function formatStatus(snap: StatusSnapshot): string {
@@ -69,8 +82,18 @@ export function formatStatus(snap: StatusSnapshot): string {
   });
   return [
     "SPA pipeline status:",
+    snap.orchestrator
+      ? `  orchestrator: ${snap.orchestrator.enabled ? (snap.orchestrator.running === true ? "RUNNING" : snap.orchestrator.running === false ? "STOPPED" : "UNKNOWN") : "disabled"}` +
+        (snap.orchestrator.cycle === null ? "" : ` (cycle ${snap.orchestrator.cycle})`)
+      : null,
     `  drafts pending review: ${snap.draftsPending}`,
+    snap.queue
+      ? `  queue: ${snap.queue.waiting} waiting, ${snap.queue.active} active, ${snap.queue.delayed} delayed, ${snap.queue.failed} failed`
+      : null,
+    snap.todayCostUsd === undefined
+      ? null
+      : `  today's LLM cost: $${(snap.todayCostUsd ?? 0).toFixed(6)}`,
     "flows:",
     ...flowLines,
-  ].join("\n");
+  ].filter((line): line is string => line !== null).join("\n");
 }

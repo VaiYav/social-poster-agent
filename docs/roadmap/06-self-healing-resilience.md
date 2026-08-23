@@ -1,6 +1,8 @@
 # 06 — Self-Healing & Graceful Degradation
 
-## Status
+## Document maturity (non-canonical)
+
+Feature status: `REL-001` in [the canonical register](../planning/FEATURES.md).
 
 Proposal. SPA has retries, circuit breakers, and a `HealthMonitorService`, but no unified model of degradation levels and automatic recovery.
 

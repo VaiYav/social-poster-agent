@@ -20,7 +20,6 @@ import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 /** Hard defaults — layer 0 of the chain. Mirrors current env defaults. */
 const HARD_DEFAULTS: Required<AccountSettings> = {
   active: true,
-  postingLanguage: "en",
   rateLimitDaily: 1,
   rateLimitWeekly: 5,
   minDelayMs: 300_000,

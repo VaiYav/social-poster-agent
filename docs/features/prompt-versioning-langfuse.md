@@ -1,6 +1,8 @@
 # Feature: Prompt Versioning & A/B with Langfuse
 
-## Status
+## Document maturity (non-canonical)
+
+Feature status: `PLATFORM-004` in [the canonical register](../planning/FEATURES.md).
 
 Implemented. All production prompts are fetched from Langfuse Prompt Management with label resolution, per-prompt overrides, fallback chains, and recorded prompt labels in `Post.llmMetadata`. A CLI diff tool is available.
 

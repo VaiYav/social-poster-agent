@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, Optional, type OnModuleInit } from "@nestjs/common";
 import { SchedulerRegistry } from "@nestjs/schedule";
+import { EventEmitter2 } from "@nestjs/event-emitter";
 import { CronJob } from "cron";
 import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
@@ -17,7 +18,7 @@ import {
 import { navigateWithRetry } from "../../domain/retry.js";
 import { CircuitBreakerRegistry, CircuitOpenError } from "../../domain/circuit-breaker.js";
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
-import { isOrchestratorEnabled } from "../orchestrator/feature-flag.js";
+import { isOrchestratorEnabled } from "../../domain/feature-flags.js";
 import { getEnabledNetworks, isNetworkEnabled } from "../../domain/enabled-networks.js";
 import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
 import { EmailReaderService } from "../../infrastructure/email/email-reader.service.js";
@@ -26,6 +27,7 @@ import {
   IResiliencePort,
   type IResiliencePort as ResiliencePort,
 } from "../../domain/ports/resilience.port.js";
+import { SessionEvents } from "../../events/enums/post-events.enum.js";
 
 /** Thrown when an auto-login attempt fails in an expected way (wrong credentials, captcha, 2FA, etc.). */
 class AutoLoginFailedError extends Error {
@@ -162,6 +164,7 @@ export class SessionsService implements OnModuleInit {
     private readonly emailReader: EmailReaderService,
     private readonly schedulerRegistry: SchedulerRegistry,
     @Inject(IResiliencePort) @Optional() private readonly resilience?: ResiliencePort,
+    @Optional() private readonly eventEmitter?: EventEmitter2,
   ) {
     // Default 0 = cooldown disabled (opt-in). Operators set FORM_LOGIN_COOLDOWN_MS in prod
     // (e.g. 1800000 = 30 min) to throttle the riskiest action; keeping it off by default
@@ -1790,6 +1793,11 @@ export class SessionsService implements OnModuleInit {
       this.logger.log(
         `Marked session ${sessionId} for ${network} as BANNED: ${reason ?? "no reason provided"}`,
       );
+      this.eventEmitter?.emit(SessionEvents.SESSION_BANNED, {
+        accountId: sessionId,
+        network,
+        reason,
+      });
     } catch (err) {
       this.logger.warn(`Failed to mark session ${sessionId} as BANNED: ${(err as Error).message}`);
     }

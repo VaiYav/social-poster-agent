@@ -13,7 +13,7 @@
  *   npx tsx --env-file=../../.env scripts/queue-triage-audit.ts --network=X --posting --limit=50
  */
 import { Queue, type Job } from "bullmq";
-import { PrismaClient, type Post, type Interaction } from "../src/generated/prisma/client";
+import { PrismaClient, type Post, type Interaction } from "../src/generated/prisma/client.js";
 import { isJobInFlight } from "../src/infrastructure/queue/queue-state-utils.js";
 
 type PostLike = Pick<Post, "status">;

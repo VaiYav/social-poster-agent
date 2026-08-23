@@ -125,7 +125,7 @@ const envSchema = Joi.object({
   // Q2: Global concurrency cap and 429 retry delay
   LLM_MAX_CONCURRENT: Joi.number().integer().min(1).default(4),
   LLM_RATE_LIMIT_RETRY_MS: Joi.number().integer().min(0).default(2500),
-  // Sprint Q: per-provider rate-limit backoff
+  // REL-102: per-provider rate-limit backoff
   LLM_RATE_LIMIT_MAX_COOLDOWN_MS: Joi.number().default(2 * 60 * 60 * 1000),
   LLM_RATE_LIMIT_BASE_BACKOFF_MS: Joi.number().default(10000),
   LLM_RATE_LIMIT_STRIKE_WINDOW_MS: Joi.number().default(10 * 60 * 1000),
@@ -506,7 +506,17 @@ const envSchema = Joi.object({
   LINKEDIN_PASSWORD: Joi.string().allow("").default(""),
   BLUESKY_HANDLE: Joi.string().allow("").default(""),
   BLUESKY_APP_PASSWORD: Joi.string().allow("").default(""),
+  BLUESKY_TRANSPORT: Joi.string().valid("api", "browser").default("api"),
+  BLUESKY_SERVICE_URL: Joi.string().uri().default("https://bsky.social"),
+  BLUESKY_PUBLIC_API_URL: Joi.string().uri().default("https://public.api.bsky.app"),
   MASTODON_INSTANCE: Joi.string().default("mastodon.social"),
+  MASTODON_BASE_URL: Joi.string().uri().allow("").default(""),
+  MASTODON_TRANSPORT: Joi.string().valid("api", "browser").default("api"),
+  MASTODON_ACCESS_TOKEN: Joi.string().allow("").default(""),
+  MASTODON_USERNAME: Joi.string().allow("").default(""),
+  MASTODON_VISIBILITY: Joi.string()
+    .valid("public", "unlisted", "private", "direct")
+    .default("public"),
   MASTODON_EMAIL: Joi.string().allow("").default(""),
   MASTODON_PASSWORD: Joi.string().allow("").default(""),
   MEDIUM_EMAIL: Joi.string().allow("").default(""),

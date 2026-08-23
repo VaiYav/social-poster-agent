@@ -114,11 +114,11 @@ class GeneratePostsRule implements Rule {
       };
     }
 
-    return WAIT_ACTION(
-      "No approved drafts and no healthy network for generation",
-      120_000,
-      "rules_fallback",
-    );
+    // Do not terminate the rules chain here. A missing generation network must
+    // not starve higher-value maintenance rules (reply checks, DLQ triage and
+    // stale-trend refresh). WaitRule remains the final fallback when none of
+    // those rules has actionable work.
+    return null;
   }
 }
 

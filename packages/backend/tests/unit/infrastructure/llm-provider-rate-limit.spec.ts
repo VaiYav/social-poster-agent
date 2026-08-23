@@ -1,5 +1,5 @@
 /**
- * Sprint Q: LlmProviderRateLimit unit tests.
+ * REL-102: LlmProviderRateLimit unit tests.
  *
  * Tests retry-after header parsing and per-provider exponential cooldown.
  */

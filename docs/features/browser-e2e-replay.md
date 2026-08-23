@@ -1,6 +1,8 @@
 # Feature Proposal: Browser E2E Replay Harness
 
-## Status
+## Document maturity (non-canonical)
+
+Feature status: `BROWSER-001` in [the canonical register](../planning/FEATURES.md).
 
 Backlog / proposal. Browser automation is not covered by real E2E tests in CI.
 

@@ -1,5 +1,5 @@
 /**
- * Sprint Q+: Question classifier for incoming comments.
+ * ENGAGE-101: Question classifier for incoming comments.
  *
  * Determines whether a comment is a genuine question and what kind.
  * Used by DialogueGraph to decide whether to answer or skip.

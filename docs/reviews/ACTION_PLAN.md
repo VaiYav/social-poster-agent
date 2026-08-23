@@ -1,8 +1,16 @@
 # Action Plan — SPA Backend
 
+> **FROZEN LEGACY REGISTER.** Do not add or update active task status here. Findings
+> remain useful historical input, but canonical feature/task status now lives in
+> [`docs/planning/FEATURES.md`](../planning/FEATURES.md) and
+> [`docs/planning/BACKLOG.md`](../planning/BACKLOG.md). Completed/cancelled work is
+> moved to [`docs/planning/archive/`](../planning/archive/).
+
 Consolidated work plan derived from the per-module deep reviews in `docs/reviews/` and the cross-module synthesis. Every item traces back to a specific finding in the corresponding review file.
 
-> **⚠️ This is a living document.** The reviews it is based on were written against snapshots of `packages/backend/src/` and may drift behind active commits. Before implementing any item, re-verify the file/line references against the current source. See `CLAUDE.md` — "The docs lag the code — trust source, not prose".
+> **Historical note:** the reviews were written against snapshots of
+> `packages/backend/src/` and may drift behind active commits. Reproduce a finding and
+> create a canonical task through `PLAN-005`; do not update status in this file.
 
 ## Priority levels
 
@@ -297,9 +305,9 @@ Affected modules (does NOT include intentional reads from AGENTS.md: `getEnabled
 ## Recommended execution order
 
 ```
-Phase 1 (P0)   ████████████████████  ← do now
-Phase 2 (P1)   ████████████████████████████████████  ← current sprint
-Phase 3 (P2a)  ██████████████████████████████  ← next sprint (security + env + infra)
+Phase 1 (P0)   ████████████████████  ← historical order 1
+Phase 2 (P1)   ████████████████████████████████████  ← historical order 2
+Phase 3 (P2a)  ██████████████████████████████  ← historical order 3
 Phase 4 (P2b)  ██████████████████████████  ← architecture / DRY
 Phase 5 (P2c)  ██████████████████████  ← performance
 Phase 6 (P3a)  ████████████████████  ← strategic refactors (backlog)

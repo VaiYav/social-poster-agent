@@ -1,5 +1,8 @@
 # Quick Wins — XS Tasks (Single-Pass Batch)
 
+> **FROZEN CHECKLIST SNAPSHOT.** Completion marks are historical evidence, not current
+> task status. New work is created only in `docs/planning/BACKLOG.md`.
+
 All XS tasks that can be done in a single pass. Estimated total: ~4-6 hours if done back-to-back.
 
 ---

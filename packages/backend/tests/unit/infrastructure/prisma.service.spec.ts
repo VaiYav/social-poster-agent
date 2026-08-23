@@ -3,24 +3,22 @@
  *
  * Traces to: Phase 5.12 — slow-query logging middleware via Prisma $on('query').
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { PrismaService } from "../../../src/infrastructure/prisma/prisma.service.js";
 import { createMockConfigService } from "../../mocks/index.js";
 
 describe("PrismaService", () => {
   let service: PrismaService;
 
-  beforeEach(() => {
-    vi.stubEnv("DATABASE_URL", "postgresql://spa:spa@localhost:5433/social_poster");
-  });
-
   afterEach(() => {
-    vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
 
   it("PR-001: registers a query event listener on module init and logs slow queries", async () => {
-    const config = createMockConfigService({ SLOW_QUERY_THRESHOLD_MS: "100" });
+    const config = createMockConfigService({
+      DATABASE_URL: "postgresql://spa:spa@localhost:5433/social_poster",
+      SLOW_QUERY_THRESHOLD_MS: "100",
+    });
     service = new PrismaService(config as any);
 
     const connectSpy = vi.spyOn(service, "$connect").mockResolvedValue(undefined);
@@ -48,7 +46,10 @@ describe("PrismaService", () => {
   });
 
   it("PR-002: disables slow-query logging when threshold is 0", async () => {
-    const config = createMockConfigService({ SLOW_QUERY_THRESHOLD_MS: "0" });
+    const config = createMockConfigService({
+      DATABASE_URL: "postgresql://spa:spa@localhost:5433/social_poster",
+      SLOW_QUERY_THRESHOLD_MS: "0",
+    });
     service = new PrismaService(config as any);
 
     vi.spyOn(service, "$connect").mockResolvedValue(undefined);

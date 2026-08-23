@@ -150,6 +150,33 @@ describe("MOD-06 / posts store", () => {
     expect(store.drafts).toHaveLength(0);
   });
 
+  it("EVAL-501: reject(id, feedback) sends durable review feedback", async () => {
+    (api.post as ReturnType<typeof vi.fn>).mockResolvedValue({ data: {} });
+
+    const store = usePostsStore();
+    store.$patch({ drafts: [makePost({ id: "p1", status: "DRAFT" })] });
+    const feedback = { reasonCodes: ["FACT_UNSUPPORTED"] as const, comment: "Add a source" };
+
+    await store.reject("p1", feedback);
+
+    expect(api.post).toHaveBeenCalledWith("/posts/p1/reject", { feedback });
+  });
+
+  it("EVAL-501: approve(id, feedback) preserves edited content and feedback", async () => {
+    (api.post as ReturnType<typeof vi.fn>).mockResolvedValue({ data: {} });
+
+    const store = usePostsStore();
+    store.$patch({ drafts: [makePost({ id: "p1", status: "DRAFT" })] });
+    const feedback = { reasonCodes: ["VOICE_AI_GENERIC"] as const };
+
+    await store.approve("p1", "Edited content", feedback);
+
+    expect(api.post).toHaveBeenCalledWith("/posts/p1/approve", {
+      editedContent: "Edited content",
+      feedback,
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // UTC-104 — approve(id) on API failure: drafts unchanged
   //

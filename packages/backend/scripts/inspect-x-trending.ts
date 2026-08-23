@@ -3,10 +3,10 @@
 
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
-import { AppModule } from "../src/app.module";
-import { SessionsService } from "../src/modules/sessions/sessions.service";
-import { IBrowserPort } from "../src/domain/ports/browser.port";
-import { SocialNetwork } from "../src/generated/prisma/client";
+import { AppModule } from "../src/app.module.js";
+import { SessionsService } from "../src/modules/sessions/sessions.service.js";
+import { IBrowserPort } from "../src/domain/ports/browser.port.js";
+import { SocialNetwork } from "../src/generated/prisma/client.js";
 
 async function main() {
   const app = await NestFactory.create(AppModule, { logger: ["error", "warn", "log"] });

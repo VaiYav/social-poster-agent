@@ -12,7 +12,7 @@ import { NotFoundException } from "@nestjs/common";
 import { ModuleRef } from "@nestjs/core";
 import { PostsController } from "../../../src/modules/posts/posts.controller.js";
 import { PostsService } from "../../../src/modules/posts/posts.service.js";
-import { fixturePost } from "../../mocks/index.js";
+import { createMockConfigService, fixturePost } from "../../mocks/index.js";
 
 describe("MOD-02: PostsController", () => {
   let controller: PostsController;
@@ -61,6 +61,7 @@ describe("MOD-02: PostsController", () => {
       // A5: PostsController now injects IPostingQueuePort directly (no ModuleRef).
       queueService as never,
       postingWindowService as never,
+      createMockConfigService(),
     );
   });
 

@@ -183,7 +183,10 @@ function buildContext(
   const mastodonPoster = createMockPoster();
   const linkedinSocialPoster = createMockPoster();
   const telegramAdapter = createMockTelegramAdapter();
-  const configService = createMockConfigService();
+  const configService = createMockConfigService({
+    BLUESKY_TRANSPORT: "browser",
+    MASTODON_TRANSPORT: "browser",
+  });
 
   // P1-10: syndication article poster resolved lazily via ModuleRef
   const devtoPoster = {

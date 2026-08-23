@@ -1,5 +1,5 @@
 /**
- * Sprint O / F4 / Sprint Q: Replies Module — monitor and respond to comments.
+ * Sprint O / F4 / ENGAGE-101: Replies Module — monitor and respond to comments.
  *
  * Provides:
  * - RepliesMonitorService: cron-based comment scraping + LLM reply generation + auto-posting

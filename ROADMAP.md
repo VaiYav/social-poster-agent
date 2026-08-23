@@ -4,9 +4,9 @@
 > Актуальный план: **[ROADMAP_V2.md](./ROADMAP_V2.md)** (цели лидогенерации, зоны Z1–Z6,
 > фазы M0–M6). История статусов ниже сохранена без изменений.
 
-> **Single source of truth for the project.** Describes phases, checkpoints,
-> targets, tasks, and readiness criteria. Structure is inspired by Product Forge:
-> phases → gate → next step. All status changes are recorded here.
+> **Historical source-of-truth claim (superseded).** This file preserves the old
+> phases/checkpoints exactly as evidence. Current sequencing is in `ROADMAP_V2.md`;
+> feature/task status is in `docs/planning/FEATURES.md` and `BACKLOG.md`.
 >
 > **Status updated:** 2026-07-16
 > **Project version:** 0.5.1

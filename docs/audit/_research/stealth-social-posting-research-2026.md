@@ -1,5 +1,9 @@
 # Stealth Browser Automation for Social Posting (X / Threads / Facebook) — Technical Best-Practices Report
 
+> **RESEARCH RECOMMENDATION CHECKLIST, not implementation backlog.** Boxes near the
+> end express recommendations at the research snapshot. Reproduce/map relevant work
+> through `docs/planning/FEATURES.md` and `BACKLOG.md` before implementation.
+
 **Date:** June 2026
 **Subject:** Anti-detection, anti-ban, session, selector, reliability, and ToS best practices for a tool that posts to X.com, Threads, and Facebook via Camoufox (patched Firefox) + `playwright-core`, with `concurrency=1`, saved `storageState`, a context pool, optional residential-proxy rotation, and an optional CAPTCHA solver.
 

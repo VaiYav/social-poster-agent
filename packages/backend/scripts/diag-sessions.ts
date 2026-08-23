@@ -2,7 +2,7 @@
  * Diagnostic script — check raw storageState in the DB.
  * Run inside Railway: railway run --service spa-backend -- npx tsx packages/backend/scripts/diag-sessions.ts
  */
-import { PrismaClient } from "../src/generated/prisma/client";
+import { PrismaClient } from "../src/generated/prisma/client.js";
 
 const prisma = new PrismaClient();
 

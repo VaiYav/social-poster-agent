@@ -3,11 +3,11 @@
 
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
-import { AppModule } from "../src/app.module";
-import { SessionsService } from "../src/modules/sessions/sessions.service";
-import { IBrowserPort } from "../src/domain/ports/browser.port";
-import { SocialNetwork } from "../src/generated/prisma/client";
-import { PostsService } from "../src/modules/posts/posts.service";
+import { AppModule } from "../src/app.module.js";
+import { SessionsService } from "../src/modules/sessions/sessions.service.js";
+import { IBrowserPort } from "../src/domain/ports/browser.port.js";
+import { SocialNetwork } from "../src/generated/prisma/client.js";
+import { PostsService } from "../src/modules/posts/posts.service.js";
 
 async function main() {
   const postId = process.argv[2];

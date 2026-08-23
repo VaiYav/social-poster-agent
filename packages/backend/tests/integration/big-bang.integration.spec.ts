@@ -198,6 +198,7 @@ vi.mock("ioredis", () => {
         return inst;
       },
       get: (k: string) => Promise.resolve(store.get(k) ?? null),
+      mget: (keys: string[]) => Promise.resolve(keys.map((key) => store.get(key) ?? null)),
       set: (k: string, v: unknown, ...args: unknown[]) => {
         // Naive position-based parser: NX|XX and PX/EX flags.
         let i = 0;
