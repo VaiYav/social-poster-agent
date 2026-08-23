@@ -26,6 +26,7 @@ content was enabled by default.
 
 ## Remaining boundary
 
-`EXTRACT-001` remains `VERIFY` while the parent persona slice and deployment-specific
-Markdown configuration are reconciled on a clean SHA. Local source/config extraction is
-complete; this evidence does not claim a production persona rollout.
+`EXTRACT-001` local source/config extraction is complete on clean SHA `462374d`.
+The task remains `VERIFY` only because deployment-specific persona Markdown has not been
+selected/enabled in a production environment; this evidence does not claim a production
+persona rollout.

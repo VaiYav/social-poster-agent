@@ -1,7 +1,7 @@
 # CI-001 coverage and UI enforcement local evidence
 
 Date: 2026-08-24
-Source SHA: `ad43065` plus current dirty worktree changes
+Source SHA: `462374d` plus current dirty user AGENTS.md change
 Boundary: local CI command and UI lane only; no GitHub Actions run or clean-SHA evidence.
 
 ## Implemented
@@ -76,8 +76,8 @@ Boundary: local CI command and UI lane only; no GitHub Actions run or clean-SHA 
   fixtures, eliminating inter-file 404s under coverage.
 - UI typecheck — exit 0.
 - UI Vitest suite — exit 0, 29 files / 136 tests.
-- Latest backend unit lane on the current worktree (`pnpm --filter
-  @spa/backend test:unit`, 2026-08-24) — exit 0, 206 files / 2,192 tests.
+- Latest backend unit lane on clean SHA (`pnpm --filter @spa/backend test:unit`,
+  2026-08-24) — exit 0, 207 files / 2,195 tests.
 - Latest backend integration lane (`pnpm --filter @spa/backend test:integration`,
   2026-08-24) — exit 0, 5 files / 39 tests.
 - Latest backend system lane (`pnpm --filter @spa/backend test:system`,
@@ -86,12 +86,12 @@ Boundary: local CI command and UI lane only; no GitHub Actions run or clean-SHA 
   2026-08-24) — exit 0, 2 files / 82 tests.
 - Latest backend E2E lane (`pnpm --filter @spa/backend test:e2e`, 2026-08-24)
   — exit 0, 7 files / 47 tests.
-- Full layered suite without coverage — PASS_LOCAL, 223 files / 2,406 tests and
-  0 failures in the worktree based on `ad43065`.
+- Full layered suite with coverage — PASS_LOCAL, 224 files / 2,409 tests,
+  2,408 passed, 1 skipped, 0 failed on clean SHA `462374d`.
 - Full serialized coverage suite — PASS_LOCAL in the latest terminal run
-  (2026-08-24, 232.63s):
-  223 files, 2,405 passed, 1 skipped, 0 failed; Statements `75.75%`, Branches
-  `66.58%`, Functions `73.82%`, Lines `77.19%`. All current ratchet floors
+  (2026-08-24, 142.63s):
+  224 files, 2,408 passed, 1 skipped, 0 failed; Statements `75.71%`, Branches
+  `66.54%`, Functions `73.75%`, Lines `77.16%`. All current ratchet floors
   `73/64/70/74` passed. The earlier full-flow 404 and STC-022 failures were
   non-reproducible under the final serialized run; the affected files also pass
   in isolation. This is local evidence only, not production or GitHub Actions
