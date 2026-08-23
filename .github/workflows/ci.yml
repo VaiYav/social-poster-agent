@@ -49,6 +49,9 @@ jobs:
         # test or lint runs.
         run: pnpm --filter @spa/shared build
 
+      - name: Validate planning documents
+        run: pnpm planning:check
+
       - name: Lint (oxlint)
         run: pnpm lint
 

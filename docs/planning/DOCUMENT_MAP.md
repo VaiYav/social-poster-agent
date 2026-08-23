@@ -40,8 +40,8 @@ current sprint, feature register or single source of status.
 
 | Document | Feature ID | Role | Overlap decision |
 |---|---|---|---|
-| `roadmap/01-multi-account.md` | `ACCOUNT-001` | Product/component proposal | Primary concise proposal. |
-| `roadmap/01-multi-account-plan.md` | `ACCOUNT-001` | Companion implementation detail | Keep temporarily; consolidate after current account work (`PLAN-004`). |
+| `roadmap/01-multi-account.md` | `ACCOUNT-001` | Product/component summary | Primary product outcome, scope and acceptance summary. |
+| `roadmap/01-multi-account-plan.md` | `ACCOUNT-001` | Companion implementation detail | Explicit summary/detail split selected by `PLAN-004`; implementation sequencing and technical decisions live here, while status remains canonical in planning. |
 | `roadmap/02-per-account-settings.md` | `ACCOUNT-002` | Component specification | Distinct child of multi-account. |
 | `roadmap/03-gemini-nano-image-generation.md` | `MEDIA-001` | Feature specification | No duplicate runtime image feature found. |
 | `roadmap/04-per-account-prompts-brand-voice.md` | `PERSONA-001` | Supporting component specification | Account voice/profile mechanics; roadmap 08 owns the broader persona product. |
@@ -138,9 +138,11 @@ to product scope/milestones and keep technical contracts only in `docs/evaluatio
 
 ### `PLAN-004`: two multi-account documents
 
-The proposal and companion plan are highly similar. Wait for `ACCOUNT-101` ownership to
-finish, then merge stable implementation detail into one specification or retain an
-explicit short product-summary/technical-plan split.
+The explicit non-overlapping summary/detail split is selected: `01-multi-account.md`
+owns product outcome and scope; `01-multi-account-plan.md` owns implementation detail,
+technical decisions and sequencing. Neither document owns current task status, and the
+two files are retained without destructive consolidation while `ACCOUNT-101` remains
+in external verification.
 
 ### `PLAN-005`: unchecked legacy refactor tasks
 

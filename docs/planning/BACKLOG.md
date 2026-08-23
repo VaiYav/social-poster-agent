@@ -60,9 +60,7 @@ WIP limits:
 
 | Task | Status | Owner | Depends on | Deliverable / acceptance |
 |---|---|---|---|---|
-| `PLAN-003` Reduce roadmap 09/evaluation duplication | `BLOCKED` | product/documentation owner | approve large spec rewrite | Keep roadmap 09 as product/milestone summary; technical contracts only in `docs/evaluation/`. |
-| `PLAN-004` Consolidate multi-account proposal/companion plan | `BLOCKED` | account workstream owner | `ACCOUNT-101` | One authoritative spec or an explicit non-overlapping summary/detail split. |
-| `PLAN-006` Add automated planning-document guard | `TODO` | unassigned | `PLAN-003..005` | CI rejects new non-canonical backlog/source-of-status claims and unmapped feature specs. |
+| `PLAN-006` Add automated planning-document guard | `VERIFY` | current user/parallel worktree | `PLAN-003..005` ✅ | `scripts/validate-planning-docs.mjs` and the `planning:check` CI step validate canonical task/feature/archive rows, duplicate IDs, roadmap-spec mapping and non-canonical active status rows; local evidence is in `packages/backend/artifacts/evaluation/PLAN-006-local-evidence-2026-08-23.md`; first clean GitHub Actions run remains. evidence: manual |
 
 ## Current worktree ownership
 
