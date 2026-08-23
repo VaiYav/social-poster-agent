@@ -81,6 +81,8 @@ Boundary: local CI command and UI lane only; no GitHub Actions run or clean-SHA 
   2026-08-24) — exit 0, 3 files / 46 tests.
 - Latest backend acceptance lane (`pnpm --filter @spa/backend test:acceptance`,
   2026-08-24) — exit 0, 2 files / 82 tests.
+- Latest backend E2E lane (`pnpm --filter @spa/backend test:e2e`, 2026-08-24)
+  — exit 0, 7 files / 47 tests.
 - Full layered suite without coverage — PASS_LOCAL, 223 files / 2,406 tests and
   0 failures in the worktree based on `92ffc15`.
 - Full serialized coverage suite — PASS_LOCAL in the latest terminal run:
