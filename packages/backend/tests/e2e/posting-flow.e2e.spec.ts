@@ -468,7 +468,13 @@ describe("E2E: Posting flow with mocked browser", () => {
         verifyPosted: vi.fn().mockResolvedValue("https://www.linkedin.com/pulse/test-article-123"),
       })
       .overrideProvider(HealthController)
-      .useValue({ check: vi.fn() })
+      .useValue({
+        live: vi.fn(),
+        liveNamed: vi.fn(),
+        ready: vi.fn(),
+        degradation: vi.fn(),
+        getError: vi.fn(),
+      })
       .overrideProvider(GenerationService)
       .useValue({ generate: vi.fn().mockResolvedValue("run-1") })
       .overrideProvider(SchedulerRegistry)

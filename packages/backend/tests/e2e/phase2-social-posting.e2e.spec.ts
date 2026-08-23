@@ -64,6 +64,7 @@ vi.mock("ioredis", () => {
       on: vi.fn(),
       removeAllListeners: () => ({}),
       get: (k: string) => Promise.resolve(store.get(k) ?? null),
+      mget: (keys: string[]) => Promise.resolve(keys.map((key) => store.get(key) ?? null)),
       set: (k: string, v: unknown) => {
         store.set(k, String(v));
         return Promise.resolve("OK");
@@ -160,11 +161,19 @@ describe("E2E: Phase 2 social posting (Bluesky, Mastodon, Telegram, LinkedIn)", 
   let moduleRef: TestingModule;
   let prisma: ReturnType<typeof createMockPrismaService>;
   let originalEnabledNetworks: string | undefined;
+  let originalBlueskyTransport: string | undefined;
+  let originalMastodonTransport: string | undefined;
 
   beforeAll(async () => {
     sharedRedisStore.clear();
     originalEnabledNetworks = process.env.ENABLED_NETWORKS;
+    originalBlueskyTransport = process.env.BLUESKY_TRANSPORT;
+    originalMastodonTransport = process.env.MASTODON_TRANSPORT;
     process.env.ENABLED_NETWORKS = "X,THREADS,FACEBOOK,BLUESKY,MASTODON,TELEGRAM,LINKEDIN";
+    // These scenarios exercise the existing browser poster mocks. API-first
+    // transport is covered by NETWORK-101 unit/API tests and live evidence.
+    process.env.BLUESKY_TRANSPORT = "browser";
+    process.env.MASTODON_TRANSPORT = "browser";
 
     prisma = createMockPrismaService();
 
@@ -314,7 +323,13 @@ describe("E2E: Phase 2 social posting (Bluesky, Mastodon, Telegram, LinkedIn)", 
         generateSocialPromo: vi.fn().mockResolvedValue(null),
       })
       .overrideProvider(HealthController)
-      .useValue({ check: vi.fn() })
+      .useValue({
+        live: vi.fn(),
+        liveNamed: vi.fn(),
+        ready: vi.fn(),
+        degradation: vi.fn(),
+        getError: vi.fn(),
+      })
       .overrideProvider(SchedulerRegistry)
       .useValue({
         getTimeouts: () => [],
@@ -366,6 +381,16 @@ describe("E2E: Phase 2 social posting (Bluesky, Mastodon, Telegram, LinkedIn)", 
       process.env.ENABLED_NETWORKS = originalEnabledNetworks;
     } else {
       delete process.env.ENABLED_NETWORKS;
+    }
+    if (originalBlueskyTransport !== undefined) {
+      process.env.BLUESKY_TRANSPORT = originalBlueskyTransport;
+    } else {
+      delete process.env.BLUESKY_TRANSPORT;
+    }
+    if (originalMastodonTransport !== undefined) {
+      process.env.MASTODON_TRANSPORT = originalMastodonTransport;
+    } else {
+      delete process.env.MASTODON_TRANSPORT;
     }
   });
 
