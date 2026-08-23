@@ -1,7 +1,7 @@
 # CI-001 coverage and UI enforcement local evidence
 
-Date: 2026-08-23
-Source SHA: `92ffc15` plus current dirty worktree changes
+Date: 2026-08-24
+Source SHA: `ad43065` plus current dirty worktree changes
 Boundary: local CI command and UI lane only; no GitHub Actions run or clean-SHA evidence.
 
 ## Implemented
@@ -71,6 +71,9 @@ Boundary: local CI command and UI lane only; no GitHub Actions run or clean-SHA 
 - Fixed a deterministic fallback starvation bug: `GeneratePostsRule` now yields
   to reply checks, DLQ triage and trend refresh when no generation network is
   healthy; the regression matrix is covered in the RulesEngine lane.
+- Fixed stale E2E `HealthController` mocks that exposed only the removed `check`
+  handler; all registered health route handlers are now present in posting-flow
+  fixtures, eliminating inter-file 404s under coverage.
 - UI typecheck — exit 0.
 - UI Vitest suite — exit 0, 29 files / 136 tests.
 - Latest backend unit lane on the current worktree (`pnpm --filter
@@ -84,8 +87,9 @@ Boundary: local CI command and UI lane only; no GitHub Actions run or clean-SHA 
 - Latest backend E2E lane (`pnpm --filter @spa/backend test:e2e`, 2026-08-24)
   — exit 0, 7 files / 47 tests.
 - Full layered suite without coverage — PASS_LOCAL, 223 files / 2,406 tests and
-  0 failures in the worktree based on `92ffc15`.
-- Full serialized coverage suite — PASS_LOCAL in the latest terminal run:
+  0 failures in the worktree based on `ad43065`.
+- Full serialized coverage suite — PASS_LOCAL in the latest terminal run
+  (2026-08-24, 232.63s):
   223 files, 2,405 passed, 1 skipped, 0 failed; Statements `75.75%`, Branches
   `66.58%`, Functions `73.82%`, Lines `77.19%`. All current ratchet floors
   `73/64/70/74` passed. The earlier full-flow 404 and STC-022 failures were
