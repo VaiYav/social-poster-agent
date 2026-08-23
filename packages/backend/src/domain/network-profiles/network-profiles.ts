@@ -76,7 +76,9 @@ export const NETWORK_PROFILES: Readonly<Partial<Record<SocialNetwork, NetworkPro
     angle: "bold take or counter-intuitive observation — make someone stop mid-scroll",
     ctaPolicy:
       "No URLs or links in the post body — a CTA link is delivered separately as a first reply after publishing.",
-    verificationPattern: /(?:x\.com|twitter\.com)\/[^/]+\/status\/[A-Za-z0-9]+/,
+    // Handle segment is OPTIONAL: posters may capture permalinks without the
+    // screen name (legacy behaviour accepted both shapes).
+    verificationPattern: /(?:x\.com|twitter\.com)(?:\/[^/]+)?\/status\/[A-Za-z0-9]+/,
   },
   [SocialNetwork.THREADS]: {
     charLimit: 500,

@@ -337,6 +337,12 @@ export class PostingService {
       } catch (retryErr) {
         // All retries exhausted — classify and return error
         if (retryErr instanceof CircuitOpenError) {
+          this.eventEmitter.emit("circuit.open", {
+            name: `posting:${post.network}`,
+            message: retryErr.message,
+            postId,
+            network: post.network,
+          });
           throw retryErr;
         }
         const message = (retryErr as Error).message;
@@ -673,10 +679,20 @@ export class PostingService {
     const retryable = this.isRetryableError(undefined, result);
 
     // Retryable poster errors (e.g. transient network failures) must not mark the
-    // post FAILED. Revert to APPROVED so the next BullMQ attempt can retry cleanly.
+    // post FAILED and must not reject the caller: revert to APPROVED so the next
+    // BullMQ attempt retries cleanly, emit the FAILED(retryable) SSE event here,
+    // and return the deferred result directly (no throw — the outer catch would
+    // just re-classify it back into the same outcome).
     if (retryable) {
       await this.postsService.updateStatus(post.id, { status: PostStatus.APPROVED });
-      throw new RetryableError(post.network, result.error!);
+      // G-4: SSE event — FAILED (retryable flag tells UI this will be retried)
+      this.eventEmitter.emit(PostEvents.FAILED, {
+        postId: post.id,
+        network: String(post.network),
+        error: result.error!,
+        retryable: true,
+      } satisfies PostFailedEvent);
+      return { success: false, error: result.error!, retryable: true };
     }
 
     // Permanent account restrictions (WAF/graduated-access blocks, suspensions,
