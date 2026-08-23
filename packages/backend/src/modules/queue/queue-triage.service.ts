@@ -375,7 +375,6 @@ export class QueueTriageService {
     // REJECT is allowed for terminal/missing posts so we can clear stale dead jobs.
     if (!post) {
       if (decision.decision === "REJECT") {
-        result.decisions.push(decision);
         await this.applyReject(network, decision, result, undefined);
       } else {
         this.logger.warn(`Queue triage: post ${decision.postId} not found — skipping`);
@@ -393,7 +392,6 @@ export class QueueTriageService {
     }
 
     if (decision.decision === "REJECT") {
-      result.decisions.push(decision);
       await this.applyReject(network, decision, result, post.status);
       return;
     }
@@ -405,8 +403,6 @@ export class QueueTriageService {
       result.skipped += 1;
       return;
     }
-
-    result.decisions.push(decision);
 
     switch (decision.decision) {
       case "RETRY":
