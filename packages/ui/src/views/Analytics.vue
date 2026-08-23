@@ -86,7 +86,7 @@ interface ConversionPost {
   ctaUrl?: string;
   attributionSlug?: string;
   deliveryMode: "inline" | "reply";
-  source: "zodiac" | "utm-fallback";
+  source: "provider" | "utm-fallback";
   clicks: number;
   conversions: number;
 }
@@ -536,8 +536,8 @@ const statIcons = {
                   </td>
                   <td class="px-3 py-3 text-text-secondary">{{ post.network }}</td>
                   <td class="px-3 py-3">
-                    <Badge :variant="post.source === 'zodiac' ? 'primary' : 'neutral'">
-                      {{ post.source === "zodiac" ? "Trackable" : "UTM fallback" }}
+                    <Badge :variant="post.source === 'provider' ? 'primary' : 'neutral'">
+                      {{ post.source === "provider" ? "Trackable" : "UTM fallback" }}
                     </Badge>
                   </td>
                   <td class="px-3 py-3 text-right text-text-secondary">{{ post.clicks }}</td>

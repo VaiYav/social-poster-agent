@@ -52,12 +52,12 @@ export class LinkAttributionController {
     const rows = await Promise.all(
       posts.map(async (post) => {
         const source = post.ctaUrl?.includes("/r/")
-          ? "zodiac"
+          ? "provider"
           : ("utm-fallback" as const);
         let clicks = 0;
         let conversions = 0;
 
-        if (post.attributionLinkId && source === "zodiac") {
+        if (post.attributionLinkId && source === "provider") {
           try {
             const report = await this.linkPort.getFunnelReport(post.attributionLinkId);
             if (report.found) {

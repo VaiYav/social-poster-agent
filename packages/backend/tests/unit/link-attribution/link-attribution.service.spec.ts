@@ -94,7 +94,7 @@ describe("LinkAttributionService.assignForPost", () => {
     expect(res).toEqual({
       ctaUrl: "https://quiz.my-zodiac-ai.com/r/Ab3xYz9_",
       mode: "reply",
-      source: "zodiac",
+      source: "provider",
     });
     expect(linkPort.createTrackableLink).toHaveBeenCalledWith(
       expect.objectContaining({ network: "X", postId: POST_ID, campaign: expect.stringMatching(/^astrology-daily-\d{4}-\d{2}$/) }),

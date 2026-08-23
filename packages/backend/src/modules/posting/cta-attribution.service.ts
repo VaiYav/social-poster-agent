@@ -69,7 +69,7 @@ export class CtaAttributionService {
       }
       if (cta.source === "utm-fallback") {
         this.logger.warn(
-          `Post ${post.id} ships with a direct UTM CTA (zodiac unreachable) — attribution limited to clicks`,
+          `Post ${post.id} ships with a direct UTM CTA (attribution provider unreachable) — attribution limited to clicks`,
         );
       }
     }

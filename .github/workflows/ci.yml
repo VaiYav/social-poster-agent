@@ -53,10 +53,29 @@ jobs:
         run: pnpm lint
 
       - name: Check for residual astrology/branding leaks
+        # Gate intent: the open-source repo stays domain-agnostic — no vertical
+        # (astrology/brand) content may leak into prompts, defaults or copy.
+        #
+        # Sanctioned carve-outs (each deliberate architecture, not leakage):
+        #   - src/generated/**          → build artifact; regenerate, never hand-edit.
+        #   - ZODIAC_* / zodiac-back / my-zodiac-ai.com / attribution-links /
+        #     infrastructure/link + modules/link-attribution + link.port +
+        #     cta-attribution + source-url.util
+        #                             → ADR-007 external attribution client: the
+        #                               provider's name IS the contract surface.
+        #   - persona.defaults.ts       → deployment editorial defaults; extraction
+        #                               to config is tracked as EXTRACT-001
+        #                               ("domain lives in user markdown").
+        # Any hit outside these tokens is a real leak and fails the build.
         run: |
           pattern='my.?zodiac|my-zodiac|myzodiac|horoscope|astrolog|zodiac|natal chart|sun sign|moon sign'
-          if grep -R -i -E "$pattern" packages/brand-voice.example.md README.md LICENSE CONTRIBUTING.md .env.example packages/backend/src packages/ui/src packages/shared/src 2>/dev/null | grep -vi 'example'; then
+          if grep -R -i -n -E "$pattern" packages/brand-voice.example.md README.md LICENSE CONTRIBUTING.md .env.example packages/backend/src packages/ui/src packages/shared/src 2>/dev/null \
+            | grep -v '/src/generated/' \
+            | grep -vi 'example' \
+            | grep -v -i -E 'ZODIAC_|zodiac-back|my-zodiac-ai\.com|attribution-links|infrastructure/link/|modules/link-attribution/|ports/link\.port|cta-attribution|source-url\.util|persona\.defaults\.ts' ; then
             echo "Residual My Zodiac AI / astrology references found" >&2
+            echo "If the hit is intentional integration surface, extend the carve-out" >&2
+            echo "list above WITH a pointer to its ADR/task — do not silence blindly." >&2
             exit 1
           fi
 

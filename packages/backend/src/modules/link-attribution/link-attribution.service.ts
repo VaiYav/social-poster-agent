@@ -29,7 +29,7 @@ export type CtaDeliveryMode = "inline" | "reply";
 export interface AssignedCta {
   ctaUrl: string;
   mode: CtaDeliveryMode;
-  source: "zodiac" | "utm-fallback";
+  source: "provider" | "utm-fallback";
 }
 
 const REPLY_MODE_NETWORKS = new Set<string>(["X", "THREADS"]);
@@ -67,7 +67,7 @@ export class LinkAttributionService {
       return {
         ctaUrl: post.ctaUrl,
         mode: LinkAttributionService.deliveryModeFor(post.network),
-        source: post.ctaUrl.includes("/r/") ? "zodiac" : "utm-fallback",
+        source: post.ctaUrl.includes("/r/") ? "provider" : "utm-fallback",
       };
     }
 
@@ -92,7 +92,7 @@ export class LinkAttributionService {
       return {
         ctaUrl: link.shortUrl,
         mode: LinkAttributionService.deliveryModeFor(post.network),
-        source: "zodiac",
+        source: "provider",
       };
     } catch (err) {
       const message =
