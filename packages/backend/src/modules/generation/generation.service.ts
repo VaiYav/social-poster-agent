@@ -1,13 +1,14 @@
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import { ConfigService } from "@nestjs/config";
 import { ILlmPort } from "../../domain/ports/llm.port.js";
 import type { BaseCallbackHandler } from "../../domain/ports/llm-primitives.js";
-import { ContentSourceService } from "../content-source/content-source.service";
-import { AccountsService } from "../accounts/accounts.service";
-import { AccountSettingsService } from "../accounts/account-settings.service";
-import { PostsService, extractSourcePath } from "../posts/posts.service";
-import { PrismaService } from "../../infrastructure/prisma/prisma.service";
-import type { Prisma } from "../../generated/prisma/client";
+import { ContentSourceService } from "../content-source/content-source.service.js";
+import { AccountsService } from "../accounts/accounts.service.js";
+import { AccountSettingsService } from "../accounts/account-settings.service.js";
+import { PostsService, extractSourcePath } from "../posts/posts.service.js";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import type { Prisma } from "../../generated/prisma/client.js";
 import { RedisCheckpointSaver } from "../../infrastructure/checkpoint/redis-checkpoint.js";
 import { SseService } from "../../infrastructure/sse/sse.service.js";
 import { TrendingService } from "../trending/trending.service.js";
@@ -33,7 +34,7 @@ import {
   PostStatus,
   ContentType,
   Post as PrismaPost,
-} from "../../generated/prisma/client";
+} from "../../generated/prisma/client.js";
 import type {
   ContentTopic,
   GenerateArticleOptions,
@@ -49,8 +50,7 @@ import {
 import { buildArticleGraph, createArticleInitialState } from "./article-graph.js";
 import { CanonicalUrlService } from "../canonical/canonical-url.service.js";
 import type { JudgeScores } from "@spa/shared";
-import { Command } from "@langchain/langgraph";
-import { simhash, isDuplicateHash } from "./simhash.js";
+import { simhash } from "./simhash.js";
 import { prioritizeTopics as prioritizeTopicsByFreshness } from "./topic-prioritization.js";
 import { checkTrendSafety } from "../content-enhancements/trend-guardrail.js";
 import { ContentPillarTracker } from "../content-enhancements/content-pillar.tracker.js";
@@ -59,6 +59,24 @@ import { VisualConceptService } from "../content-enhancements/visual-concept.ser
 import { ThreadDepthService } from "../content-enhancements/thread-depth.service.js";
 import { ABVariantGenerator } from "../content-enhancements/ab-variant.generator.js";
 import { ABVariantService } from "../content-enhancements/ab-variant.service.js";
+import { OnlineEvaluationService } from "../evaluation/online-evaluation.service.js";
+import {
+  IAuthorContextPort,
+  type AuthorContextResult,
+  type IAuthorContextPort as AuthorContextPort,
+} from "../../domain/ports/author-context.port.js";
+import { EditorialPortfolioService } from "../persona/editorial-portfolio.service.js";
+import type { EditorialAccountCandidate } from "../persona/editorial-portfolio-planner.js";
+import {
+  GenerationPersistenceService,
+  type GenerationAccount,
+  type GenerationPersistenceOptions,
+  type GenerationSourceRef,
+  type PersistedGenerationPost,
+} from "./generation-persistence.service.js";
+import { PostFactory } from "./post.factory.js";
+import { GenerationRunLifecycleService } from "./generation-run-lifecycle.service.js";
+import { ReviewResumeService } from "./review-resume.service.js";
 
 /**
  * Generation service — uses LangGraph workflow for creating social post drafts.
@@ -90,6 +108,7 @@ interface GraphInvokeConfig {
   configurable: { thread_id: string };
   recursionLimit: number;
   callbacks?: BaseCallbackHandler[];
+  runName?: string;
   /** AbortSignal passed to graph.invoke so pause/resume can cancel the run. */
   signal?: AbortSignal;
 }
@@ -101,12 +120,9 @@ export class GenerationService {
   private compiledGraph: CompiledGraph | null = null;
   /** Article generation graph (lazy-compiled, like social graph) */
   private compiledArticleGraph: Awaited<ReturnType<typeof buildArticleGraph>> | null = null;
-  /** Active run cancellations — runId → AbortController */
-  private readonly activeRuns = new Map<string, AbortController>();
-  /** Languages for multilingual post generation (ISO 639-1 codes) */
-  private readonly postingLanguages: string[];
-  /** Counter for round-robin language rotation across topics */
-  private languageRotationIndex = 0;
+  private readonly persistenceService: GenerationPersistenceService;
+  private readonly runLifecycle: GenerationRunLifecycleService;
+  private readonly reviewResumeService: ReviewResumeService;
 
   constructor(
     @Inject(ILlmPort) private readonly llm: ILlmPort,
@@ -130,21 +146,28 @@ export class GenerationService {
     @Optional() private readonly domainConfig?: DomainConfigService,
     // M1.3: per-account brand voice overrides (AccountSettings.brandVoice)
     @Optional() private readonly accountSettings?: AccountSettingsService,
+    @Optional() private readonly onlineEvaluator?: OnlineEvaluationService,
+    @Optional()
+    @Inject(IAuthorContextPort)
+    private readonly authorContextPort?: AuthorContextPort,
+    @Optional() private readonly editorialPortfolio?: EditorialPortfolioService,
+    @Optional() persistenceService?: GenerationPersistenceService,
+    @Optional() runLifecycle?: GenerationRunLifecycleService,
+    @Optional() reviewResumeService?: ReviewResumeService,
   ) {
-    // Read POSTING_LANGUAGES from config — comma-separated ISO 639-1 codes.
-    // Default: en only. Multilingual posting has been disabled; the agent now
-    // generates and posts in English only regardless of the env value.
-    const langEnv = this.configService.get<string>("POSTING_LANGUAGES", "en").trim();
-    const parsed = langEnv
-      .split(",")
-      .map((s) => s.trim().toLowerCase())
-      .filter(Boolean);
-    if (parsed.some((l) => l !== "en")) {
-      this.logger.warn(
-        `POSTING_LANGUAGES contains non-English codes (${langEnv}). English-only mode is enforced; non-English codes will be ignored.`,
+    this.persistenceService =
+      persistenceService ??
+      new GenerationPersistenceService(
+        postsService,
+        abVariantService,
+        onlineEvaluator,
+        new PostFactory(llm),
       );
-    }
-    this.postingLanguages = parsed.includes("en") ? ["en"] : ["en"];
+    this.runLifecycle =
+      runLifecycle ?? new GenerationRunLifecycleService(prisma, sseService, checkpointSaver);
+    this.reviewResumeService =
+      reviewResumeService ??
+      new ReviewResumeService(accountsService, sseService, this.persistenceService);
   }
 
   /**
@@ -336,11 +359,38 @@ export class GenerationService {
     if (callbacks.length > 0) {
       config.callbacks = callbacks;
     }
+    const invokeGraph = async (): Promise<Record<string, unknown>> =>
+      (await this.getGraph().invoke(input, config)) as Record<string, unknown>;
     return withPromptLabelContext(() =>
       withLlmContext(
         { callbacks, signal: config.signal, budgetScope: "generation", budgetRunId: runId, model },
         async () => {
-          const finalState = await this.getGraph().invoke(input, config);
+          let finalState: Record<string, unknown>;
+          if (this.langfuse?.isEnabled) {
+            const traceMetadata = handlerOpts.traceMetadata ?? {};
+            const traceInput = {
+              run_id: runId,
+              topic: typeof traceMetadata.topic === "string" ? traceMetadata.topic : "unknown",
+              language:
+                typeof traceMetadata.language === "string" ? traceMetadata.language : "unknown",
+              networks:
+                typeof traceMetadata.networks === "string" ? traceMetadata.networks : "unknown",
+            } as const;
+            finalState = await this.langfuse.withTrace(
+              {
+                rootName: "agent.generation",
+                feature: "generation",
+                sessionId: handlerOpts.sessionId ?? runId,
+                tags: handlerOpts.tags,
+                metadata: traceMetadata,
+                input: traceInput,
+                output: () => ({ status: "completed", run_id: runId }),
+              },
+              invokeGraph,
+            );
+          } else {
+            finalState = await invokeGraph();
+          }
           const promptLabels = getRecordedPromptLabels();
           return { finalState, promptLabels };
         },
@@ -348,148 +398,67 @@ export class GenerationService {
     );
   }
 
-  /**
-   * Build the llmMetadata JSON for a saved Post.
-   *
-   * promptVersion = the active PROMPT_VERSION (global label)
-   * promptLabels = map of promptName -> { label, isFallback } recorded during this run
-   */
+  // Compatibility delegators keep the public GenerationService surface stable while the
+  // persistence/factory implementation lives in GenerationPersistenceService.
   private buildPostLlmMetadata(
     genPost: GeneratedPost,
-    simhash: string,
+    postSimhash: string,
     promptLabels: Record<string, { label: string; isFallback?: boolean }>,
     overrides: Record<string, unknown> = {},
   ): Record<string, unknown> {
-    return {
-      model: genPost.model,
-      tokens: genPost.tokens ?? 0,
-      cost: genPost.cost ?? 0,
-      promptVersion: this.llm.getPromptVersion?.() ?? "unknown",
+    this.persistenceService.configureOptionalServices(this.abVariantService, this.onlineEvaluator);
+    return this.persistenceService.buildPostLlmMetadata(
+      genPost,
+      postSimhash,
       promptLabels,
-      hook: genPost.hook,
-      hookTechnique: genPost.hookTechnique,
-      contentStyleId: genPost.contentStyleId,
-      humorMechanicId: genPost.humorMechanicId ?? null,
-      angleType: genPost.angle.split("—")[0]?.trim(),
-      simhash,
-      qualityScore: genPost.qualityScore,
-      judgeScores: genPost.judgeScores ?? null,
-      visualConcept: genPost.visualConcept ?? null,
-      abVariants: genPost.abVariants ?? null,
-      ...overrides,
-    };
+      overrides,
+    );
   }
 
-  /**
-   * Persist A/B variants for a generated post. Non-blocking — if the service is
-   * not available (e.g. tests), the post is still saved.
-   */
-  private async persistPostVariants(
+  private persistGeneratedPosts(
+    generatedPosts: GeneratedPost[],
+    accountsByNetwork: Map<SocialNetwork, AccountResult[] | AccountResult | null | undefined>,
+    runId: string,
+    sourceRef: GenerationSourceRef,
+    options: GenerationPersistenceOptions = {},
+  ): Promise<PersistedGenerationPost[]> {
+    this.persistenceService.configureOptionalServices(this.abVariantService, this.onlineEvaluator);
+    return this.persistenceService.persistGeneratedPosts(
+      generatedPosts,
+      accountsByNetwork,
+      runId,
+      sourceRef,
+      options,
+    );
+  }
+
+  private persistPostVariants(
     postId: string,
     genPost: GeneratedPost,
     judgeScores?: JudgeScores,
   ): Promise<void> {
-    if (!this.abVariantService) return;
-    try {
-      await this.abVariantService.createVariants(
-        postId,
-        genPost.network,
-        genPost.content,
-        genPost.abVariants ?? null,
-        judgeScores,
-      );
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.logger.warn(`Failed to persist A/B variants for ${postId}: ${message}`);
-    }
+    this.persistenceService.configureOptionalServices(this.abVariantService, this.onlineEvaluator);
+    return this.persistenceService.persistPostVariants(postId, genPost, judgeScores);
   }
 
-  private async persistPostVariantForContent(
+  private persistPostVariantForContent(
     postId: string,
     network: SocialNetwork,
     content: string,
     judgeScores?: JudgeScores,
   ): Promise<void> {
-    if (!this.abVariantService) return;
-    try {
-      await this.abVariantService.createVariants(postId, network, content, null, judgeScores);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.logger.warn(`Failed to persist default variant for ${postId}: ${message}`);
-    }
+    this.persistenceService.configureOptionalServices(this.abVariantService, this.onlineEvaluator);
+    return this.persistenceService.persistPostVariantForContent(
+      postId,
+      network,
+      content,
+      judgeScores,
+    );
   }
 
-  /**
-   * Persist generated posts to the DB with SimHash dedup + A/B variants.
-   * Shared by generate, resume, and review-resume paths.
-   */
-  private async persistGeneratedPosts(
-    generatedPosts: GeneratedPost[],
-    accountsByNetwork: Map<SocialNetwork, AccountResult[] | AccountResult | null | undefined>,
-    runId: string,
-    sourceRef: {
-      type: string;
-      path: string;
-      topic: string;
-      keywords: string[];
-      originalPostId?: string;
-      originalTopic?: string;
-    },
-    options: {
-      language?: string;
-      recentHashes?: string[];
-      promptLabels?: Record<string, { label: string; isFallback?: boolean }>;
-      canonicalUrl?: string;
-    } = {},
-  ): Promise<{ id: string; network: SocialNetwork; llmMetadata: Prisma.JsonValue }[]> {
-    const savedPosts: { id: string; network: SocialNetwork; llmMetadata: Prisma.JsonValue }[] = [];
-    const recentHashes = options.recentHashes ?? [];
-
-    for (const genPost of generatedPosts) {
-      if (!genPost.content) {
-        this.logger.warn(`Generated post empty for ${genPost.network} / "${sourceRef.topic}"`);
-        continue;
-      }
-
-      const candidateHash = simhash(genPost.content);
-      if (isDuplicateHash(candidateHash, recentHashes)) {
-        this.logger.warn(
-          `Skipping near-duplicate post for ${genPost.network} / "${sourceRef.topic}" — SimHash match`,
-        );
-        continue;
-      }
-
-      const configuredAccounts = accountsByNetwork.get(genPost.network);
-      const accounts = (
-        Array.isArray(configuredAccounts) ? configuredAccounts : [configuredAccounts]
-      ).filter((account): account is NonNullable<AccountResult> => Boolean(account));
-      for (const account of accounts) {
-        const post = await this.postsService.create({
-          accountId: account.id,
-          network: genPost.network,
-          language: options.language ?? "en",
-          content: genPost.content,
-          generationRunId: runId,
-          simhash: candidateHash,
-          sourceRef,
-          canonicalUrl: options.canonicalUrl ?? null,
-          llmMetadata: this.buildPostLlmMetadata(
-            genPost,
-            candidateHash,
-            genPost.promptLabels ?? options.promptLabels ?? {},
-          ) as Prisma.InputJsonValue,
-        });
-
-        await this.persistPostVariants(post.id, genPost, genPost.judgeScores);
-        savedPosts.push(post);
-      }
-      if (accounts.length > 0) recentHashes.push(candidateHash);
-      this.logger.debug(
-        `Created draft post for ${genPost.network} (score: ${genPost.qualityScore ?? "n/a"}/10): ${genPost.content.slice(0, 50)}...`,
-      );
-    }
-
-    return savedPosts;
+  private evaluateOnlineOutput(postId: string, generated: GeneratedPost): Promise<void> {
+    this.persistenceService.configureOptionalServices(this.abVariantService, this.onlineEvaluator);
+    return this.persistenceService.evaluateOnlineOutput(postId, generated);
   }
 
   /**
@@ -524,16 +493,10 @@ export class GenerationService {
     signal?: AbortSignal,
     options?: { accountIds?: string[] },
   ): Promise<string> {
-    const run = await this.prisma.generationRun.create({
-      data: { triggeredBy, sourceTopics: [] },
-    });
-
-    // Sprint I: SSE generation_started event
-    await this.sseService.publish({ type: "generation_started", runId: run.id, count });
+    const run = await this.runLifecycle.start(triggeredBy, count);
 
     // AbortController enables pause/resume to actually stop the in-flight run.
-    const controller = new AbortController();
-    this.activeRuns.set(run.id, controller);
+    const controller = this.runLifecycle.register(run.id);
 
     // Merge internal pause/resume controller with any external abort signal
     // (e.g. orchestrator execute-node timeout / stop).
@@ -652,10 +615,9 @@ export class GenerationService {
         const batch = prioritizedTopics.slice(i, i + MAX_CONCURRENCY);
         const results = await Promise.allSettled(
           batch.map((topic) => {
-            // Round-robin language rotation — each topic gets a different language
-            const language =
-              this.postingLanguages[this.languageRotationIndex % this.postingLanguages.length]!;
-            this.languageRotationIndex++;
+            // Generation is deliberately English-only. Source/topic language metadata
+            // remains immutable, but it never changes the generated post language.
+            const language = "en";
             this.logger.debug(`Generating topic "${topic.topic.slice(0, 40)}" in ${language}`);
             return this.generatePostsForTopic(
               topic,
@@ -777,19 +739,10 @@ export class GenerationService {
       const message = signal?.aborted
         ? "Generation aborted by orchestrator"
         : (err as Error).message;
-      await this.prisma.generationRun.update({
-        where: { id: run.id },
-        data: {
-          status: GenerationRunStatus.FAILED,
-          completedAt: new Date(),
-          errorMessage: message,
-        },
-      });
-      // Sprint I: SSE generation_failed event
-      await this.sseService.publish({ type: "generation_failed", runId: run.id, error: message });
+      await this.runLifecycle.markFailed(run.id, message);
       throw new Error(message);
     } finally {
-      this.activeRuns.delete(run.id);
+      this.runLifecycle.remove(run.id);
       // Abort the internal controller so the combined signal cleans up its
       // listeners on the external orchestrator signal.
       controller.abort();
@@ -1377,6 +1330,153 @@ export class GenerationService {
   }
 
   /**
+   * Resolve a versioned author context for the account selected for each
+   * network. Resolution is best-effort for legacy/test deployments: a failed
+   * lookup falls back to the global brand voice and never fabricates identity.
+   */
+  private async resolveAuthorContexts(
+    networks: SocialNetwork[],
+    accountsByNetwork: Map<SocialNetwork, AccountResult[]>,
+    retrievalQuery?: string,
+    retrievalDomain?: string,
+  ): Promise<Partial<Record<SocialNetwork, AuthorContextResult>>> {
+    const contexts: Partial<Record<SocialNetwork, AuthorContextResult>> = {};
+    if (!this.authorContextPort) return contexts;
+
+    await Promise.all(
+      networks.map(async (network) => {
+        const account = accountsByNetwork.get(network)?.[0];
+        if (!account) return;
+        try {
+          contexts[network] = await this.authorContextPort!.resolve({
+            accountId: account.id,
+            network,
+            retrievalQuery,
+            retrievalDomain,
+          });
+        } catch (err) {
+          this.logger.warn(
+            `Author context lookup failed for account ${account.id} — using global fallback`,
+            err instanceof Error ? err.message : String(err),
+          );
+          contexts[network] = {
+            accountId: account.id,
+            network,
+            personaId: null,
+            personaRevisionId: null,
+            voiceMode: "default",
+            experimentAssignmentId: null,
+            profile: null,
+            disclosure: null,
+            safetyPolicyVersion: null,
+            source: "GLOBAL_FALLBACK",
+          };
+        }
+      }),
+    );
+    return contexts;
+  }
+
+  private async planPortfolioDispatch(
+    topic: ContentTopic,
+    activeNetworks: readonly SocialNetwork[],
+    accountsByNetwork: Map<SocialNetwork, AccountResult[]>,
+    humanReview: boolean,
+  ): Promise<Map<SocialNetwork, { accountId: string; assignmentId?: string } | null>> {
+    const dispatch = new Map<SocialNetwork, { accountId: string; assignmentId?: string } | null>();
+    if (!this.editorialPortfolio || !this.authorContextPort) return dispatch;
+    const domain = topic.category ?? "general";
+
+    for (const network of activeNetworks) {
+      const accounts = (accountsByNetwork.get(network) ?? []).filter(
+        (account): account is NonNullable<AccountResult> => Boolean(account),
+      );
+      if (accounts.length === 0) continue;
+      try {
+        const thesisHash = createHash("sha256")
+          .update(`${network}:${topic.topic}:${domain}`, "utf8")
+          .digest("hex");
+        const opportunity = await this.editorialPortfolio.ensureOpportunity({
+          sourceType: topic.sourceType,
+          sourceRef: { path: topic.path, topic: topic.topic, network },
+          canonicalTopic: topic.topic,
+          thesis: topic.topic,
+          thesisHash,
+          domain,
+          riskTier: "LOW",
+          funnelIntent: "AWARENESS",
+          validUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          status: "OPEN",
+        });
+        const existing = await this.editorialPortfolio.findActiveAssignment(opportunity.id);
+        if (existing?.accountId) {
+          dispatch.set(network, { accountId: existing.accountId, assignmentId: existing.id });
+          continue;
+        }
+
+        const candidates: EditorialAccountCandidate[] = await Promise.all(
+          accounts.map(async (account) => {
+            const context = await this.authorContextPort!.resolve({
+              accountId: account.id,
+              network,
+              retrievalQuery: topic.topic,
+              retrievalDomain: domain,
+            });
+            const ageDays = topic.publishedAt
+              ? Math.max(0, (Date.now() - topic.publishedAt.getTime()) / 86_400_000)
+              : 0;
+            return {
+              accountId: account.id,
+              personaRevisionId: context.personaRevisionId ?? "",
+              network,
+              voiceMode: context.voiceMode,
+              policyMode: humanReview ? "HUMAN_APPROVAL_REQUIRED" : "SUGGEST_ONLY",
+              healthy: account.active,
+              allowedActions: ["OWN_POST"],
+              personaFit: context.source === "PERSONA" ? 1 : 0.25,
+              audienceDemand: 0.5,
+              sourceFreshness: Math.max(0, Math.min(1, 1 - ageDays / 30)),
+              novelty: 1,
+              pillarDeficit: 0.5,
+              funnelDeficit: 0.5,
+              conversationOpportunity: 0,
+              expectedCost: 0.5,
+              reviewCapacity: humanReview ? 1 : 0.5,
+            } satisfies EditorialAccountCandidate;
+          }),
+        );
+        const assignment = await this.editorialPortfolio.planAndPersist({
+          opportunity: {
+            opportunityId: opportunity.id,
+            canonicalTopic: topic.topic,
+            thesis: topic.topic,
+            thesisHash,
+            domain,
+            riskTier: "LOW",
+            funnelIntent: "AWARENESS",
+            validUntil: new Date(opportunity.validUntil ?? Date.now() + 86_400_000),
+            status: "OPEN",
+          },
+          candidates,
+        });
+        if (assignment?.accountId && assignment.action === "OWN_POST") {
+          dispatch.set(network, {
+            accountId: assignment.accountId,
+            assignmentId: assignment.assignmentId,
+          });
+        } else {
+          dispatch.set(network, null);
+        }
+      } catch (err) {
+        this.logger.warn(
+          `PERSONA-103 portfolio dispatch unavailable for ${network}; retaining legacy account selection: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return dispatch;
+  }
+
+  /**
    * Generate posts for a single topic across all target networks.
    * Uses the §10.3 parallel LangGraph workflow — one invocation, 3 posts.
    */
@@ -1412,8 +1512,8 @@ export class GenerationService {
               (account): account is NonNullable<AccountResult> =>
                 Boolean(account?.active && account.network === network),
             )
-          : [await this.accountsService.getNextAccountForNetwork(network)].filter(
-              (account): account is NonNullable<AccountResult> => Boolean(account),
+          : (await this.accountsService.findByNetwork(network)).filter(
+              (account): account is NonNullable<AccountResult> => Boolean(account?.active),
             );
         if (accounts.length === 0)
           return { network, accounts: [] as AccountResult[], recentCount: 0 };
@@ -1445,10 +1545,38 @@ export class GenerationService {
     // M1.3: networks whose primary account has a settings.brandVoice override
     // are split into their own graph invocation so each account's posts sound
     // like that account; the rest share the global brand-voice run.
-    const voiceGroups = await this.groupNetworksByBrandVoice(
+    const portfolioDispatch = await this.planPortfolioDispatch(
+      topic,
       activeNetworks,
       accountsByNetwork,
+      humanReview,
+    );
+    for (const [network, selection] of portfolioDispatch) {
+      if (!selection) continue;
+      const accounts = (accountsByNetwork.get(network) ?? []).filter(
+        (account): account is NonNullable<AccountResult> => Boolean(account),
+      );
+      const selected = accounts.find((account) => account.id === selection.accountId);
+      if (selected) {
+        accountsByNetwork.set(network, [
+          selected,
+          ...accounts.filter((account) => account.id !== selected.id),
+        ]);
+      }
+    }
+    const dispatchedNetworks = activeNetworks.filter(
+      (network) => !portfolioDispatch.has(network) || portfolioDispatch.get(network) !== null,
+    );
+    const voiceGroups = await this.groupNetworksByBrandVoice(
+      dispatchedNetworks,
+      accountsByNetwork,
       brandVoice,
+    );
+    const authorContexts = await this.resolveAuthorContexts(
+      dispatchedNetworks,
+      accountsByNetwork,
+      topic.topic,
+      topic.category,
     );
 
     const generatedPosts: GeneratedPost[] = [];
@@ -1462,6 +1590,7 @@ export class GenerationService {
         effectiveVoice,
         humanReview,
         language,
+        authorContexts,
       );
 
       // Invoke the LangGraph workflow with checkpoint
@@ -1474,6 +1603,7 @@ export class GenerationService {
               : `${runId}:${topic.topic}`,
         },
         recursionLimit: 50, // P3+P7 added 6 nodes; Q8 judge-retry adds up to 2 supersteps per network
+        runName: "generation.workflow",
         signal,
       };
 
@@ -1494,6 +1624,20 @@ export class GenerationService {
             runId,
             language,
             networks: groupNetworks.join(","),
+            authorContexts: Object.fromEntries(
+              groupNetworks.map((network) => {
+                const context = authorContexts[network];
+                return [
+                  network,
+                  {
+                    accountId: context?.accountId ?? null,
+                    personaRevisionId: context?.personaRevisionId ?? null,
+                    voiceMode: context?.voiceMode ?? null,
+                    source: context?.source ?? "GLOBAL_FALLBACK",
+                  },
+                ];
+              }),
+            ),
             promptNames: "research-extract,hook-generation,draft-post,critique-post,refine-post",
           },
         },
@@ -1513,6 +1657,13 @@ export class GenerationService {
     // Save each generated post as DRAFT
     // B5: SimHash dedup — skip near-duplicate posts (Hamming distance ≤ 8)
     const recentHashes = await this.loadRecentPostHashes(topic.topic);
+    const editorialAssignmentIds = Object.fromEntries(
+      [...portfolioDispatch.entries()]
+        .filter((entry): entry is [SocialNetwork, { accountId: string; assignmentId: string }] =>
+          Boolean(entry[1]?.assignmentId),
+        )
+        .map(([network, selection]) => [network, selection.assignmentId]),
+    ) as Partial<Record<SocialNetwork, string>>;
 
     const savedPosts = await this.persistGeneratedPosts(
       generatedPosts,
@@ -1526,7 +1677,13 @@ export class GenerationService {
         ...(topic.originalPostId ? { originalPostId: topic.originalPostId } : {}),
         ...(topic.originalTopic ? { originalTopic: topic.originalTopic } : {}),
       },
-      { language, recentHashes, promptLabels: promptLabelsAcc, canonicalUrl: topic.canonicalUrl },
+      {
+        language,
+        recentHashes,
+        promptLabels: promptLabelsAcc,
+        canonicalUrl: topic.canonicalUrl,
+        editorialAssignmentIds,
+      },
     );
 
     // F2/P4: Multi-Stage Posting with Thread Depth Service.
@@ -1542,9 +1699,9 @@ export class GenerationService {
       const post = rootPostsByNetwork.get(genPost.network);
       if (!post) continue;
 
-      const account =
-        accountsByNetwork.get(genPost.network)?.[0] ??
-        (await this.accountsService.getNextAccountForNetwork(genPost.network));
+      const account = (accountsByNetwork.get(genPost.network) ?? []).find(
+        (candidate): candidate is NonNullable<AccountResult> => candidate?.id === post.accountId,
+      );
       if (!account) continue;
 
       if (
@@ -1593,11 +1750,12 @@ export class GenerationService {
                   const created: {
                     id: string;
                     network: SocialNetwork;
+                    accountId: string;
                     llmMetadata: Prisma.JsonValue;
                   }[] = [];
                   for (const cont of plan.continuations) {
-                    created.push(
-                      await this.postsService.create(
+                    created.push({
+                      ...(await this.postsService.create(
                         {
                           accountId: account.id,
                           network: genPost.network,
@@ -1623,8 +1781,9 @@ export class GenerationService {
                         },
                         tx,
                         { emitEvent: false }, // H1: emit after the tx commits, not inside it
-                      ),
-                    );
+                      )),
+                      accountId: account.id,
+                    });
                   }
                   this.logger.debug(
                     `P4: Created ${plan.continuations.length} continuation posts for ${genPost.network} thread ${thread.id} — ${plan.reasoning}`,
@@ -1646,6 +1805,10 @@ export class GenerationService {
               for (let i = 0; i < contPosts.length; i++) {
                 const cont = plan.continuations[i];
                 if (cont) {
+                  await this.evaluateOnlineOutput(contPosts[i]!.id, {
+                    ...genPost,
+                    content: cont.content,
+                  });
                   await this.persistPostVariantForContent(
                     contPosts[i]!.id,
                     genPost.network,
@@ -2025,28 +2188,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
     topics: string[],
     errorMessage?: string,
   ): Promise<void> {
-    await this.prisma.generationRun.update({
-      where: { id: runId },
-      data: {
-        status: errorMessage ? GenerationRunStatus.FAILED : GenerationRunStatus.COMPLETED,
-        completedAt: new Date(),
-        sourceTopics: topics,
-        errorMessage,
-      },
-    });
-
-    // Memory optimization: generation checkpoints are only needed for resume.
-    // Once a run completes successfully, delete the Redis keys immediately.
-    // Failed/paused runs keep their checkpoints until TTL expires.
-    if (!errorMessage && topics.length > 0) {
-      try {
-        await this.checkpointSaver.deleteRunCheckpoints(runId);
-      } catch (err) {
-        this.logger.warn(
-          `markRunCompleted: cleanup for ${runId} failed: ${(err as Error).message}`,
-        );
-      }
-    }
+    await this.runLifecycle.markCompleted(runId, topics, errorMessage);
   }
 
   /**
@@ -2102,22 +2244,9 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
    * Uses PAUSED status (not FAILED) so health monitor doesn't alert on manual pauses.
    */
   async pauseRun(runId: string): Promise<{ runId: string; status: string }> {
-    const controller = this.activeRuns.get(runId);
-    if (controller) {
-      controller.abort();
-      this.activeRuns.delete(runId);
-    }
-    await this.prisma.generationRun.update({
-      where: { id: runId },
-      data: {
-        status: GenerationRunStatus.PAUSED,
-        completedAt: new Date(),
-        errorMessage: "Paused by operator",
-      },
-    });
-    await this.sseService.publish({ type: "generation_paused", runId });
+    const result = await this.runLifecycle.pause(runId);
     this.logger.log(`Generation run ${runId} paused`);
-    return { runId, status: "paused" };
+    return result;
   }
 
   /**
@@ -2128,16 +2257,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
    * Includes SimHash dedup (B5) and SSE progress events for UI consistency.
    */
   async resumeRun(runId: string): Promise<{ runId: string; status: string }> {
-    const run = await this.prisma.generationRun.findUnique({ where: { id: runId } });
-    if (!run) throw new Error(`Generation run ${runId} not found`);
-
-    // Mark as RUNNING again
-    await this.prisma.generationRun.update({
-      where: { id: runId },
-      data: { status: GenerationRunStatus.RUNNING, completedAt: null, errorMessage: null },
-    });
-
-    await this.sseService.publish({ type: "generation_resumed", runId });
+    const run = await this.runLifecycle.prepareResume(runId);
 
     // Re-fetch topics from sourceTopics stored in the run
     const sourceTopics = (run.sourceTopics as string[]) ?? [];
@@ -2159,8 +2279,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
 
     const brandVoice = await this.loadBrandVoice();
     const targetNetworks = this.resolveTargetNetworks();
-    const controller = new AbortController();
-    this.activeRuns.set(runId, controller);
+    const controller = this.runLifecycle.register(runId);
 
     // Resume in background — don't block the API response
     void (async () => {
@@ -2181,6 +2300,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
             const config: GraphInvokeConfig = {
               configurable: { thread_id: `${runId}:${topic.topic}` },
               recursionLimit: 30, // Q8: judge-retry can add up to 2 supersteps per network
+              runName: "generation.workflow",
               signal: controller.signal,
             };
             const initialState = createInitialState(topic, targetNetworks, brandVoice);
@@ -2222,7 +2342,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
           runId,
           topics.map((t) => t.topic),
         );
-        this.activeRuns.delete(runId);
+        this.runLifecycle.remove(runId);
         await this.sseService.publish({
           type: "generation_completed",
           runId,
@@ -2233,20 +2353,8 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
         this.logger.error(
           `Resume run ${runId} failed unexpectedly: ${(outerErr as Error).message}`,
         );
-        this.activeRuns.delete(runId);
-        await this.prisma.generationRun.update({
-          where: { id: runId },
-          data: {
-            status: GenerationRunStatus.FAILED,
-            completedAt: new Date(),
-            errorMessage: `Resume failed: ${(outerErr as Error).message}`,
-          },
-        });
-        await this.sseService.publish({
-          type: "generation_failed",
-          runId,
-          error: `Resume failed: ${(outerErr as Error).message}`,
-        });
+        this.runLifecycle.remove(runId);
+        await this.runLifecycle.markFailed(runId, `Resume failed: ${(outerErr as Error).message}`);
       }
     })();
 
@@ -2270,56 +2378,29 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
     approved: boolean,
     edits?: Record<string, string>,
   ): Promise<{ runId: string; topic: string; status: string }> {
-    const config: GraphInvokeConfig = {
-      configurable: { thread_id: `${runId}:${topic}` },
-      recursionLimit: 30, // Q8: judge-retry can add up to 2 supersteps per network
-    };
-
-    // Resume the graph by passing a Command with the resume payload.
-    // The interrupt() call in human_review node will return this value.
-    const resumePayload = { approved, edits };
-    // Langfuse tracing for review resume — same sessionId as original run
-    const { finalState, promptLabels } = await this.tracedGraphInvoke(
-      config,
-      {
-        sessionId: runId,
-        tags: ["generation", "review-resume"],
-        traceMetadata: { topic, runId, mode: "review-resume", approved },
-      },
-      new Command({ resume: resumePayload }),
+    return this.reviewResumeService.resume(
       runId,
+      topic,
+      approved,
+      edits,
+      (config, command, context) =>
+        this.tracedGraphInvoke(
+          config,
+          {
+            sessionId: context.runId,
+            tags: ["generation", "review-resume"],
+            traceMetadata: {
+              topic: context.topic,
+              runId: context.runId,
+              mode: "review-resume",
+              approved: context.approved,
+            },
+          },
+          command,
+          context.runId,
+        ),
+      (reviewTopic) => this.loadRecentPostHashes(reviewTopic),
     );
-    const generatedPosts = (finalState as { posts?: GeneratedPost[] }).posts ?? [];
-
-    // Pre-load accounts for the networks that actually produced posts.
-    const accountByNetwork = new Map<SocialNetwork, AccountResult>();
-    const postNetworks = [...new Set(generatedPosts.map((p) => p.network))];
-    await Promise.all(
-      postNetworks.map(async (network) => {
-        const account = await this.accountsService.getNextAccountForNetwork(network);
-        accountByNetwork.set(network, account);
-      }),
-    );
-
-    // Save the generated posts (same logic as generatePostsForTopic)
-    const postIds: string[] = [];
-    const recentHashes = await this.loadRecentPostHashes(topic);
-    const savedPosts = await this.persistGeneratedPosts(
-      generatedPosts,
-      accountByNetwork,
-      runId,
-      { type: "review", path: "", topic, keywords: [] },
-      { recentHashes, promptLabels },
-    );
-    postIds.push(...savedPosts.map((p) => p.id));
-
-    await this.sseService.publish({
-      type: "generation_completed",
-      runId,
-      postCount: postIds.length,
-    });
-
-    return { runId, topic, status: "completed" };
   }
 
   /**

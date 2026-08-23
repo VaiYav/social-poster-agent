@@ -1,14 +1,14 @@
 import { Injectable, Optional } from "@nestjs/common";
 import { AgentState, IMetricsCollector } from "./metrics-collector.js";
-import { HealthMonitorService } from "../health-monitor/health-monitor.service";
-import { QueueService } from "../queue/queue.service";
-import { SessionsService } from "../sessions/sessions.service";
-import { RateLimitService } from "../rate-limit/rate-limit.service";
-import { AnalyticsService } from "../analytics/analytics.service";
-import { TrendingScraperService } from "../trending/trending-scraper.service";
-import { LlmService } from "../../infrastructure/llm/llm.service";
-import { FlowControlService } from "../flow-control/flow-control.service";
-import { PrismaService } from "../../infrastructure/prisma/prisma.service";
+import { HealthMonitorService } from "../health-monitor/health-monitor.service.js";
+import { QueueService } from "../queue/queue.service.js";
+import { SessionsService } from "../sessions/sessions.service.js";
+import { RateLimitService } from "../rate-limit/rate-limit.service.js";
+import { AnalyticsService } from "../analytics/analytics.service.js";
+import { TrendingScraperService } from "../trending/trending-scraper.service.js";
+import { ILlmPort } from "../../domain/ports/llm.port.js";
+import { FlowControlService } from "../flow-control/flow-control.service.js";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import { OrchestratorService } from "../orchestrator/orchestrator.service.js";
 import { getEnabledNetworks } from "../../domain/enabled-networks.js";
 import {
@@ -17,7 +17,7 @@ import {
   BrowsingSessionStatus,
   InteractionStatus,
   SessionStatus,
-} from "../../generated/prisma/client";
+} from "../../generated/prisma/client.js";
 
 @Injectable()
 export class HealthMetricsCollector implements IMetricsCollector {
@@ -229,9 +229,18 @@ export class TrendingMetricsCollector implements IMetricsCollector {
 export class LlmMetricsCollector implements IMetricsCollector {
   public readonly id = "llm";
 
-  constructor(private readonly llmService: LlmService) {}
+  /**
+   * REFACTOR-100: depends on the `ILlmPort` symbol like every other consumer,
+   * not the concrete `LlmService` class. `getProviderStatus` is optional on the
+   * port, so a reduced adapter degrades to an `unknown` agent state instead of
+   * breaking collection.
+   */
+  constructor(@Optional() private readonly llmService?: ILlmPort) {}
 
   async collect(): Promise<AgentState> {
+    if (!this.llmService?.getProviderStatus) {
+      return { status: "unknown", metrics: {}, message: "ILlmPort unavailable" };
+    }
     try {
       const providers = this.llmService.getProviderStatus();
       const openCircuits = providers.filter((p) => p.circuitOpen).length;

@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Body, HttpCode, HttpStatus } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiResponse } from "@nestjs/swagger";
-import { LlmService } from "./llm.service";
+import { LlmService } from "./llm.service.js";
 
 /**
  * LLM management endpoints.

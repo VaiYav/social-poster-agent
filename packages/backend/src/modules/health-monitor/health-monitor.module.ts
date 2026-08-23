@@ -1,11 +1,11 @@
 import { Module } from "@nestjs/common";
 import { ScheduleModule } from "@nestjs/schedule";
-import { HealthMonitorController } from "./health-monitor.controller";
-import { HealthMonitorService } from "./health-monitor.service";
-import { PrismaModule } from "../../infrastructure/prisma/prisma.module";
-import { SseModule } from "../../infrastructure/sse/sse.module";
-import { QueueModule } from "../queue/queue.module";
-import { QueueModule as QueueInfraModule } from "../../infrastructure/queue/queue.module";
+import { HealthMonitorController } from "./health-monitor.controller.js";
+import { HealthMonitorService } from "./health-monitor.service.js";
+import { PrismaModule } from "../../infrastructure/prisma/prisma.module.js";
+import { SseModule } from "../../infrastructure/sse/sse.module.js";
+import { QueueModule } from "../queue/queue.module.js";
+import { QueueInfraModule } from "../../infrastructure/queue/queue.module.js";
 
 @Module({
   imports: [PrismaModule, SseModule, ScheduleModule, QueueModule, QueueInfraModule],

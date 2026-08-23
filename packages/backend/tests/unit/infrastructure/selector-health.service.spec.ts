@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { SelectorHealthService } from "../../../src/infrastructure/browser/selector-health.service";
-import { SocialNetwork } from "../../../src/generated/prisma/client";
+import { SelectorHealthService } from "../../../src/infrastructure/browser/selector-health.service.js";
+import { SocialNetwork } from "../../../src/generated/prisma/client.js";
 
 describe("SelectorHealthService", () => {
   let service: SelectorHealthService;

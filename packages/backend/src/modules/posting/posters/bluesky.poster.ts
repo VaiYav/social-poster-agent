@@ -12,7 +12,7 @@
  */
 import { Injectable, Logger, Inject } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { SocialNetwork } from "../../../generated/prisma/client";
+import { SocialNetwork } from "../../../generated/prisma/client.js";
 import { z } from "zod";
 import type { BrowserContext, Page, Locator } from "../../../domain/ports/browser-primitives.js";
 import { IBrowserPort } from "../../../domain/ports/browser.port.js";

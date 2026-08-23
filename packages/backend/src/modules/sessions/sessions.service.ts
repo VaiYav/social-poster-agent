@@ -1,9 +1,9 @@
-import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional, type OnModuleInit } from "@nestjs/common";
 import { SchedulerRegistry } from "@nestjs/schedule";
 import { CronJob } from "cron";
 import { ConfigService } from "@nestjs/config";
-import { PrismaService } from "../../infrastructure/prisma/prisma.service";
-import { AccountsService } from "../accounts/accounts.service";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { AccountsService } from "../accounts/accounts.service.js";
 import { IBrowserPort } from "../../domain/ports/browser.port.js";
 import { EncryptionService } from "../../infrastructure/crypto/encryption.service.js";
 import { DiscordNotificationService } from "../../infrastructure/notifications/discord-notification.service.js";
@@ -13,7 +13,7 @@ import {
   SocialAccount,
   SocialNetwork,
   type Prisma,
-} from "../../generated/prisma/client";
+} from "../../generated/prisma/client.js";
 import { navigateWithRetry } from "../../domain/retry.js";
 import { CircuitBreakerRegistry, CircuitOpenError } from "../../domain/circuit-breaker.js";
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
@@ -22,6 +22,10 @@ import { getEnabledNetworks, isNetworkEnabled } from "../../domain/enabled-netwo
 import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
 import { EmailReaderService } from "../../infrastructure/email/email-reader.service.js";
 import type { Locator, Page } from "../../domain/ports/browser-primitives.js";
+import {
+  IResiliencePort,
+  type IResiliencePort as ResiliencePort,
+} from "../../domain/ports/resilience.port.js";
 
 /** Thrown when an auto-login attempt fails in an expected way (wrong credentials, captcha, 2FA, etc.). */
 class AutoLoginFailedError extends Error {
@@ -157,6 +161,7 @@ export class SessionsService implements OnModuleInit {
     @Inject(SHARED_REDIS) private readonly redis: InstanceType<typeof import("ioredis").default>,
     private readonly emailReader: EmailReaderService,
     private readonly schedulerRegistry: SchedulerRegistry,
+    @Inject(IResiliencePort) @Optional() private readonly resilience?: ResiliencePort,
   ) {
     // Default 0 = cooldown disabled (opt-in). Operators set FORM_LOGIN_COOLDOWN_MS in prod
     // (e.g. 1800000 = 30 min) to throttle the riskiest action; keeping it off by default
@@ -354,6 +359,7 @@ export class SessionsService implements OnModuleInit {
    * Dynamically registered (not @Cron) so it is NOT created when orchestrator is enabled.
    */
   onModuleInit(): void {
+    void this.registerAccountHealthProbes();
     if (isOrchestratorEnabled()) {
       this.logger.log("Orchestrator is enabled — session relogin cron NOT registered");
       return;
@@ -370,6 +376,32 @@ export class SessionsService implements OnModuleInit {
       this.logger.log(`Session relogin cron registered: ${cronExpr}`);
     } catch {
       this.logger.warn("SchedulerRegistry not available — session relogin cron will not run");
+    }
+  }
+
+  /** Register jittered per-account canaries for expired or banned sessions. */
+  private async registerAccountHealthProbes(): Promise<void> {
+    if (!this.resilience?.scheduleProbe) return;
+    try {
+      const accounts = await this.accountsService.findAll();
+      const intervalMs = this.configService.get<number>(
+        "RESILIENCE_SESSION_PROBE_INTERVAL_MS",
+        900_000,
+      );
+      const jitterMs = this.configService.get<number>("RESILIENCE_PROBE_JITTER_MS", 30_000);
+      for (const account of accounts) {
+        this.resilience.scheduleProbe(
+          `session:${account.id}`,
+          async () => (await this.healthCheck(account.network, account.id)).healthy,
+          intervalMs,
+          { jitterMs, runImmediately: false },
+        );
+      }
+      this.logger.log(`Registered ${accounts.length} per-account session recovery probes`);
+    } catch (err) {
+      this.logger.warn(
+        `Could not register per-account session recovery probes: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -1310,6 +1342,7 @@ export class SessionsService implements OnModuleInit {
           },
         });
         this.logger.log(`Auto-login successful for ${network}, session ${session.id} created`);
+        await this.resilience?.reportHealth(`session:${account.id}`, "HEALTHY").catch(() => void 0);
         return session;
       }
 
@@ -1411,9 +1444,13 @@ export class SessionsService implements OnModuleInit {
       });
 
       this.logger.log(`Auto-login successful for ${network}, session ${session.id} created`);
+      await this.resilience?.reportHealth(`session:${account.id}`, "HEALTHY").catch(() => void 0);
       return session;
     } catch (err) {
       this.logger.error(`Auto-login failed for ${network}: ${(err as Error).message}`);
+      await this.resilience
+        ?.reportHealth(`session:${account.id}`, "CRITICAL", (err as Error).message)
+        .catch(() => void 0);
       // Take screenshot for debugging using the new IBrowserPort.screenshot method
       try {
         if (context) {
@@ -1459,7 +1496,11 @@ export class SessionsService implements OnModuleInit {
    * pass its id — the session is then bound to that exact account instead of
    * the network's first-active account.
    */
-  async createSession(network: SocialNetwork, storageState: string, accountId?: string): Promise<void> {
+  async createSession(
+    network: SocialNetwork,
+    storageState: string,
+    accountId?: string,
+  ): Promise<void> {
     if (!isNetworkEnabled(network)) {
       this.logger.debug(`createSession for disabled network ${network} — skipping`);
       return;
@@ -1668,9 +1709,14 @@ export class SessionsService implements OnModuleInit {
         data: { lastHealthCheck: new Date() },
       });
 
+      await this.resilience?.reportHealth(`session:${account.id}`, "HEALTHY").catch(() => void 0);
+
       return { healthy: true, message: "Session active" };
     } catch (err) {
       this.logger.error(`Health check failed for ${network}: ${(err as Error).message}`);
+      await this.resilience
+        ?.reportHealth(`session:${account.id}`, "CRITICAL", (err as Error).message)
+        .catch(() => void 0);
       // 2.4.2: navigation errors (e.g. timeout, net::ERR_*) should expire the session
       // so getOrCreateSession will attempt a fresh login instead of reusing a broken one.
       if (session) {

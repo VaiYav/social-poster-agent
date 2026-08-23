@@ -4,8 +4,8 @@
  * Source: packages/backend/src/modules/analytics/analytics.service.ts
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { PostStatus, SocialNetwork } from "../../../src/generated/prisma/client";
-import { AnalyticsService } from "../../../src/modules/analytics/analytics.service";
+import { PostStatus, SocialNetwork } from "../../../src/generated/prisma/client.js";
+import { AnalyticsService } from "../../../src/modules/analytics/analytics.service.js";
 import { createMockPrismaService } from "../../mocks/index.js";
 
 describe("AnalyticsService", () => {
@@ -15,6 +15,44 @@ describe("AnalyticsService", () => {
   beforeEach(() => {
     prisma = createMockPrismaService();
     service = new AnalyticsService(prisma as never);
+  });
+
+  it("aggregates durable LLM usage by account, provider and day", async () => {
+    prisma.llmUsageEvent.findMany.mockResolvedValue([
+      {
+        accountId: "account-1",
+        provider: "openai",
+        tokensIn: 100,
+        tokensOut: 40,
+        costUsd: "0.0012",
+        cached: false,
+        createdAt: new Date("2026-08-23T10:00:00Z"),
+      },
+      {
+        accountId: null,
+        provider: "groq",
+        tokensIn: 20,
+        tokensOut: 10,
+        costUsd: 0,
+        cached: true,
+        createdAt: new Date("2026-08-24T10:00:00Z"),
+      },
+    ]);
+
+    await expect(
+      service.getCostAnalytics({
+        from: new Date("2026-08-23T00:00:00Z"),
+        to: new Date("2026-08-24T23:59:59Z"),
+      }),
+    ).resolves.toMatchObject({
+      events: 2,
+      totalCostUsd: 0.0012,
+      totalTokensIn: 120,
+      totalTokensOut: 50,
+      cacheHits: 1,
+      byAccount: { "account-1": { events: 1, costUsd: 0.0012 }, unattributed: { events: 1 } },
+      byProvider: { openai: { costUsd: 0.0012 }, groq: { events: 1 } },
+    });
   });
 
   describe("getAutonomousStats", () => {
@@ -98,6 +136,91 @@ describe("AnalyticsService", () => {
         count: 0,
       });
       expect(Object.keys(stats.judgeStats.byDecision)).toHaveLength(0);
+    });
+  });
+
+  describe("getReviewCalibration", () => {
+    it("summarizes durable review, sync and preliminary judge-human evidence", async () => {
+      prisma.postReviewDecision.findMany.mockResolvedValue([
+        {
+          decision: "APPROVE_EDITED",
+          reasonCodes: ["VOICE_AI_GENERIC"],
+          rubric: {
+            publishability: 2,
+            factualSupport: 2,
+            humanVoice: 0,
+            hookStrength: 2,
+            platformFit: 2,
+          },
+          syncStatus: "SYNCED",
+          normalizedEditDistance: 0.25,
+          originalContentHash: "original",
+          finalContentHash: "final",
+          langfuseTraceId: "trace-1",
+          langfuseObservationId: null,
+          post: {
+            judgeScores: {
+              anti_ai_tone: 0.8,
+              hook_strength: 0.9,
+              factual_accuracy: 0.9,
+              character_limit: 0.9,
+            },
+          },
+        },
+        {
+          decision: "REJECT",
+          reasonCodes: [],
+          rubric: null,
+          syncStatus: "PENDING",
+          normalizedEditDistance: null,
+          originalContentHash: "original-2",
+          finalContentHash: null,
+          langfuseTraceId: null,
+          langfuseObservationId: null,
+          post: { judgeScores: null },
+        },
+      ]);
+
+      const report = await service.getReviewCalibration(30);
+
+      expect(report.totalDecisions).toBe(2);
+      expect(report.byDecision).toEqual({ APPROVE_EDITED: 1, REJECT: 1 });
+      expect(report.syncStatus).toEqual({ SYNCED: 1, PENDING: 1 });
+      expect(report.averageEditDistance).toBe(0.25);
+      expect(report.evidenceCoverage).toEqual({
+        reasonCodes: 0.5,
+        rubric: 0.5,
+        trace: 0.5,
+        contentHashes: 1,
+      });
+      expect(report.calibration).toEqual({
+        pairedSamples: 4,
+        agreementRate: 0.75,
+        kappa: 0,
+        precision: 0.75,
+        recall: 1,
+        tpr: 1,
+        tnr: 0,
+        status: "INSUFFICIENT_SAMPLE",
+      });
+    });
+
+    it("clamps invalid windows and returns explicit insufficient evidence", async () => {
+      prisma.postReviewDecision.findMany.mockResolvedValue([]);
+
+      await expect(service.getReviewCalibration(0)).resolves.toMatchObject({
+        windowDays: 30,
+        totalDecisions: 0,
+        averageEditDistance: null,
+        calibration: {
+          pairedSamples: 0,
+          agreementRate: null,
+          status: "INSUFFICIENT_SAMPLE",
+        },
+      });
+      expect(prisma.postReviewDecision.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ take: 10_000 }),
+      );
     });
   });
 

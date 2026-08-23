@@ -18,7 +18,7 @@
 // event is published so the UI can alert the operator.
 
 import { Injectable, Logger } from "@nestjs/common";
-import type { SocialNetwork } from "../../generated/prisma/client";
+import type { SocialNetwork } from "../../generated/prisma/client.js";
 
 export type SelectorHealthStatus = "HEALTHY" | "DEGRADED" | "BROKEN";
 

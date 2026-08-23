@@ -5,11 +5,11 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { BadRequestException } from "@nestjs/common";
-import { EngagementController } from "../../../src/modules/engagement/engagement.controller";
-import type { EngagementService } from "../../../src/modules/engagement/engagement.service";
-import type { BrowsingSessionService } from "../../../src/modules/engagement/browsing-session.service";
-import type { EngagementSchedulerService } from "../../../src/modules/engagement/engagement-scheduler.service";
-import { SocialNetwork } from "../../../src/generated/prisma/client";
+import { EngagementController } from "../../../src/modules/engagement/engagement.controller.js";
+import type { EngagementService } from "../../../src/modules/engagement/engagement.service.js";
+import type { BrowsingSessionService } from "../../../src/modules/engagement/browsing-session.service.js";
+import type { EngagementSchedulerService } from "../../../src/modules/engagement/engagement-scheduler.service.js";
+import { SocialNetwork } from "../../../src/generated/prisma/client.js";
 
 describe("F1: EngagementController", () => {
   let controller: EngagementController;

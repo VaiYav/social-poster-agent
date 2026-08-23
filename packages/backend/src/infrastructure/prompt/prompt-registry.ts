@@ -5,10 +5,11 @@ import type {
   IPromptPort,
   IPromptFallbackProvider,
   CompiledChatPrompt,
+  PromptReference,
 } from "../../domain/ports/prompt.port.js";
 import { PROMPT_FALLBACK_PROVIDERS } from "../../domain/ports/prompt.port.js";
 import { getErrorMessage } from "../common/error-utils.js";
-import { recordPromptLabel } from "./prompt-label-context.js";
+import { getPromptInvocationKey, recordPromptReference } from "./prompt-label-context.js";
 import { interpolate, toMustache } from "../../domain/prompt-interpolation.js";
 import { createHash } from "node:crypto";
 
@@ -43,6 +44,25 @@ interface CacheEntry<T> {
   expiresAt: number;
 }
 
+interface CachedTextPrompt {
+  content: string;
+  promptReference: PromptReference;
+}
+
+type CachedPrompt = CompiledChatPrompt | CachedTextPrompt;
+
+interface PromptClientLike {
+  readonly name?: unknown;
+  readonly version?: unknown;
+  readonly isFallback: boolean;
+  compile(vars: Record<string, string>): unknown;
+}
+
+interface PendingReferenceEntry {
+  references: PromptReference[];
+  expiresAt: number;
+}
+
 @Injectable()
 export class PromptRegistry implements IPromptPort {
   private readonly logger = new Logger(PromptRegistry.name);
@@ -51,7 +71,8 @@ export class PromptRegistry implements IPromptPort {
   // P0: compiled prompt cache. Caches final compiled prompts (from any source) keyed by
   // name + resolved label + variable hash, with a 5-minute TTL. Avoids re-interpolating
   // the same fallback prompt and re-compiling the same Langfuse prompt within a run.
-  private readonly cache = new Map<string, CacheEntry<CompiledChatPrompt | string>>();
+  private readonly cache = new Map<string, CacheEntry<CachedPrompt>>();
+  private readonly pendingReferences = new Map<string, PendingReferenceEntry>();
   private readonly cacheTtlMs: number;
 
   constructor(
@@ -102,11 +123,11 @@ export class PromptRegistry implements IPromptPort {
     const resolvedLabel = this.resolveLabel(name, label);
 
     // P0: check compiled prompt cache
-    const cacheKey = this.makeCacheKey(name, resolvedLabel, variables);
+    const cacheKey = this.makeCacheKey("chat", name, resolvedLabel, variables);
     const cached = this.getCache<CompiledChatPrompt>(cacheKey);
     if (cached) {
       this.logger.debug(`Compiled prompt cache hit: ${name} (${resolvedLabel})`);
-      return cached;
+      return this.recordCompiledChat(cached);
     }
 
     // 1. Try Langfuse with SDK native fallback and label fallback chain
@@ -130,13 +151,27 @@ export class PromptRegistry implements IPromptPort {
           const userMsg = messages.find((m) => m.role === "user");
           if (systemMsg && userMsg) {
             const isFallback = result.isFallback;
-            recordPromptLabel(name, result.label, isFallback);
-            return this.setCache(cacheKey, {
+            const promptReference = this.createPromptReference(
+              name,
+              result.label,
+              result.prompt,
+              isFallback
+                ? fallback
+                  ? digestChatFallback(fallback)
+                  : digestChatFallback({
+                      systemPrompt: systemMsg.content,
+                      userPrompt: userMsg.content,
+                    })
+                : undefined,
+            );
+            const cachedPrompt = this.setCache<CompiledChatPrompt>(cacheKey, {
               systemPrompt: systemMsg.content,
               userPrompt: userMsg.content,
               label: result.label,
               isFallback,
+              promptReference,
             });
+            return this.recordCompiledChat(cachedPrompt);
           }
         } catch (err) {
           this.logger.warn(
@@ -152,14 +187,19 @@ export class PromptRegistry implements IPromptPort {
         const result = await provider.tryGetChatPrompt(name, variables);
         if (result) {
           const fallbackLabel = result.label ?? resolvedLabel;
-          const isFallback = result.isFallback ?? true;
-          recordPromptLabel(name, fallbackLabel, isFallback);
-          return this.setCache(cacheKey, {
+          const promptReference = this.createFallbackReference(
+            name,
+            fallbackLabel,
+            digestChatFallback(result),
+          );
+          const cachedPrompt = this.setCache<CompiledChatPrompt>(cacheKey, {
             systemPrompt: result.systemPrompt,
             userPrompt: result.userPrompt,
             label: fallbackLabel,
-            isFallback,
+            isFallback: true,
+            promptReference,
           });
+          return this.recordCompiledChat(cachedPrompt);
         }
       } catch (err) {
         this.logger.warn(`Fallback provider failed for "${name}": ${getErrorMessage(err)}`);
@@ -168,13 +208,19 @@ export class PromptRegistry implements IPromptPort {
 
     // 3. Use inline fallback with local interpolation
     if (fallback) {
-      recordPromptLabel(name, resolvedLabel, true);
-      return this.setCache(cacheKey, {
+      const promptReference = this.createFallbackReference(
+        name,
+        resolvedLabel,
+        digestChatFallback(fallback),
+      );
+      const cachedPrompt = this.setCache<CompiledChatPrompt>(cacheKey, {
         systemPrompt: interpolate(fallback.systemPrompt, variables),
         userPrompt: interpolate(fallback.userPrompt, variables),
         label: resolvedLabel,
         isFallback: true,
+        promptReference,
       });
+      return this.recordCompiledChat(cachedPrompt);
     }
 
     this.logger.error(
@@ -203,11 +249,11 @@ export class PromptRegistry implements IPromptPort {
     const resolvedLabel = this.resolveLabel(name, label);
 
     // P0: check compiled prompt cache
-    const cacheKey = this.makeCacheKey(name, resolvedLabel, variables);
-    const cached = this.getCache<string>(cacheKey);
+    const cacheKey = this.makeCacheKey("text", name, resolvedLabel, variables);
+    const cached = this.getCache<CachedTextPrompt>(cacheKey);
     if (cached) {
       this.logger.debug(`Compiled prompt cache hit: ${name} (${resolvedLabel})`);
-      return cached;
+      return this.recordCompiledText(cached);
     }
 
     // 1. Try Langfuse with SDK native fallback and label fallback chain
@@ -220,8 +266,17 @@ export class PromptRegistry implements IPromptPort {
           if (typeof compiled !== "string") {
             throw new Error(`Expected string from text prompt compile, got ${typeof compiled}`);
           }
-          recordPromptLabel(name, result.label, result.isFallback);
-          return this.setCache(cacheKey, compiled);
+          const promptReference = this.createPromptReference(
+            name,
+            result.label,
+            result.prompt,
+            result.isFallback ? digestTextFallback(fallback ?? compiled) : undefined,
+          );
+          const cachedPrompt = this.setCache<CachedTextPrompt>(cacheKey, {
+            content: compiled,
+            promptReference,
+          });
+          return this.recordCompiledText(cachedPrompt);
         } catch (err) {
           this.logger.warn(
             `Langfuse compile failed for "${name}" (label: ${result.label}): ${getErrorMessage(err)}`,
@@ -235,8 +290,15 @@ export class PromptRegistry implements IPromptPort {
       try {
         const result = await provider.tryGetTextPrompt(name, variables);
         if (result !== null) {
-          recordPromptLabel(name, resolvedLabel, true);
-          return this.setCache(cacheKey, result);
+          const cachedPrompt = this.setCache<CachedTextPrompt>(cacheKey, {
+            content: result,
+            promptReference: this.createFallbackReference(
+              name,
+              resolvedLabel,
+              digestTextFallback(result),
+            ),
+          });
+          return this.recordCompiledText(cachedPrompt);
         }
       } catch (err) {
         this.logger.warn(
@@ -247,14 +309,41 @@ export class PromptRegistry implements IPromptPort {
 
     // 3. Use inline fallback with local interpolation
     if (fallback) {
-      recordPromptLabel(name, resolvedLabel, true);
-      return this.setCache(cacheKey, interpolate(fallback, variables));
+      const cachedPrompt = this.setCache<CachedTextPrompt>(cacheKey, {
+        content: interpolate(fallback, variables),
+        promptReference: this.createFallbackReference(
+          name,
+          resolvedLabel,
+          digestTextFallback(fallback),
+        ),
+      });
+      return this.recordCompiledText(cachedPrompt);
     }
 
     this.logger.error(
       `Text prompt "${name}" not found in Langfuse, fallback providers, or inline fallback`,
     );
     throw new Error(`Text prompt "${name}" not found in Langfuse or fallback`);
+  }
+
+  consumePromptReference(systemPrompt: string, userPrompt: string): PromptReference | undefined {
+    const key = getPromptInvocationKey(systemPrompt, userPrompt);
+    const pending = this.pendingReferences.get(key);
+    if (!pending) return undefined;
+    if (Date.now() >= pending.expiresAt) {
+      this.pendingReferences.delete(key);
+      return undefined;
+    }
+
+    const identities = new Set(pending.references.map(promptReferenceIdentity));
+    if (identities.size > 1) {
+      this.pendingReferences.delete(key);
+      return undefined;
+    }
+
+    const reference = pending.references.shift();
+    if (pending.references.length === 0) this.pendingReferences.delete(key);
+    return reference;
   }
 
   /**
@@ -276,9 +365,14 @@ export class PromptRegistry implements IPromptPort {
     return `PROMPT_VERSION_${normalized}`;
   }
 
-  private makeCacheKey(name: string, label: string, variables: Record<string, string>): string {
+  private makeCacheKey(
+    type: "chat" | "text",
+    name: string,
+    label: string,
+    variables: Record<string, string>,
+  ): string {
     const varHash = createHash("sha256").update(JSON.stringify(variables)).digest("hex");
-    return `${name}:${label}:${varHash}`;
+    return `${type}:${name}:${label}:${varHash}`;
   }
 
   private getCache<T>(key: string): T | undefined {
@@ -293,10 +387,95 @@ export class PromptRegistry implements IPromptPort {
 
   private setCache<T>(key: string, value: T): T {
     this.cache.set(key, {
-      value: value as CompiledChatPrompt | string,
+      value: value as CachedPrompt,
       expiresAt: Date.now() + this.cacheTtlMs,
     });
     return value;
+  }
+
+  private recordCompiledChat(compiled: CompiledChatPrompt): CompiledChatPrompt {
+    if (compiled.promptReference) {
+      const recordedInContext = recordPromptReference(
+        compiled.systemPrompt,
+        compiled.userPrompt,
+        compiled.promptReference,
+      );
+      if (!recordedInContext) {
+        this.recordPendingReference(
+          compiled.systemPrompt,
+          compiled.userPrompt,
+          compiled.promptReference,
+        );
+      }
+    }
+    return compiled;
+  }
+
+  private recordCompiledText(compiled: CachedTextPrompt): string {
+    const recordedInContext = recordPromptReference("", compiled.content, compiled.promptReference);
+    if (!recordedInContext) {
+      this.recordPendingReference("", compiled.content, compiled.promptReference);
+    }
+    return compiled.content;
+  }
+
+  private recordPendingReference(
+    systemPrompt: string,
+    userPrompt: string,
+    reference: PromptReference,
+  ): void {
+    const now = Date.now();
+    for (const [key, pending] of this.pendingReferences) {
+      if (now >= pending.expiresAt) this.pendingReferences.delete(key);
+    }
+    if (this.pendingReferences.size >= 256) {
+      const oldestKey = this.pendingReferences.keys().next().value;
+      if (typeof oldestKey === "string") this.pendingReferences.delete(oldestKey);
+    }
+
+    const key = getPromptInvocationKey(systemPrompt, userPrompt);
+    const pending = this.pendingReferences.get(key) ?? {
+      references: [],
+      expiresAt: now + this.cacheTtlMs,
+    };
+    pending.references.push(reference);
+    pending.expiresAt = now + this.cacheTtlMs;
+    this.pendingReferences.set(key, pending);
+  }
+
+  private createPromptReference(
+    requestedName: string,
+    label: string,
+    prompt: PromptClientLike,
+    fallbackDigest?: string,
+  ): PromptReference {
+    if (prompt.isFallback) {
+      if (!fallbackDigest) {
+        throw new Error(`Fallback prompt "${requestedName}" is missing its content digest`);
+      }
+      return this.createFallbackReference(
+        readPromptName(prompt) ?? requestedName,
+        label,
+        fallbackDigest,
+      );
+    }
+
+    const version = readPromptVersion(prompt);
+    return {
+      name: readPromptName(prompt) ?? requestedName,
+      label,
+      ...(version === undefined ? {} : { version }),
+      isFallback: false,
+      ...(version === undefined ? {} : { nativePrompt: prompt }),
+    };
+  }
+
+  private createFallbackReference(
+    name: string,
+    label: string,
+    fallbackDigest: string,
+  ): PromptReference {
+    return { name, label, isFallback: true, fallbackDigest };
   }
 
   /**
@@ -311,7 +490,7 @@ export class PromptRegistry implements IPromptPort {
     return chain;
   }
 
-  private async fetchWithLabelChain<T extends { isFallback: boolean }, F>(
+  private async fetchWithLabelChain<T extends PromptClientLike, F>(
     name: string,
     sdkFallback: F | undefined,
     resolvedLabel: string,
@@ -343,7 +522,7 @@ export class PromptRegistry implements IPromptPort {
     resolvedLabel: string,
   ): Promise<
     | {
-        prompt: { compile(vars: Record<string, string>): unknown };
+        prompt: PromptClientLike;
         label: string;
         isFallback: boolean;
       }
@@ -360,7 +539,7 @@ export class PromptRegistry implements IPromptPort {
     resolvedLabel: string,
   ): Promise<
     | {
-        prompt: { compile(vars: Record<string, string>): unknown };
+        prompt: PromptClientLike;
         label: string;
         isFallback: boolean;
       }
@@ -389,4 +568,40 @@ function isChatMessage(msg: unknown): msg is { role: string; content: string } {
     typeof msg.role === "string" &&
     typeof msg.content === "string"
   );
+}
+
+function digestChatFallback(
+  prompt: Pick<CompiledChatPrompt, "systemPrompt" | "userPrompt">,
+): string {
+  return sha256(JSON.stringify(["chat", prompt.systemPrompt, prompt.userPrompt]));
+}
+
+function digestTextFallback(prompt: string): string {
+  return sha256(JSON.stringify(["text", prompt]));
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function readPromptName(prompt: PromptClientLike): string | undefined {
+  return typeof prompt.name === "string" && prompt.name.length > 0 ? prompt.name : undefined;
+}
+
+function readPromptVersion(prompt: PromptClientLike): number | undefined {
+  return typeof prompt.version === "number" &&
+    Number.isInteger(prompt.version) &&
+    prompt.version > 0
+    ? prompt.version
+    : undefined;
+}
+
+function promptReferenceIdentity(reference: PromptReference): string {
+  return JSON.stringify([
+    reference.name,
+    reference.label,
+    reference.version ?? null,
+    reference.isFallback,
+    reference.fallbackDigest ?? null,
+  ]);
 }

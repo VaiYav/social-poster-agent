@@ -5,9 +5,9 @@
 import { Controller, Get, HttpCode, HttpStatus, Inject, Query } from "@nestjs/common";
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
 
-import { PrismaService } from "../../infrastructure/prisma/prisma.service";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import { ILinkPort } from "../../domain/ports/link.port.js";
-import { LinkAttributionService } from "./link-attribution.service";
+import { LinkAttributionService } from "./link-attribution.service.js";
 
 @ApiTags("link-attribution")
 @Controller("link-attribution")

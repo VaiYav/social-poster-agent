@@ -16,7 +16,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Logger } from "@nestjs/common";
 
-import { BasePoster } from "../../../src/modules/posting/posters/base.poster";
+import { BasePoster } from "../../../src/modules/posting/posters/base.poster.js";
 import {
   createMockPage,
   createMockContext,

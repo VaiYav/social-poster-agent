@@ -4,11 +4,13 @@
  * Source: packages/backend/src/modules/orchestrator/action-handlers.ts
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { PostStatus, SocialNetwork } from "../../../src/generated/prisma/client";
+import { PostStatus, SocialNetwork } from "../../../src/generated/prisma/client.js";
 import type { JudgeScores } from "@spa/shared";
 import { GeneratePostsHandler } from "../../../src/modules/orchestrator/action-handlers.js";
-import { AutoApproveService } from "../../../src/modules/autonomy/auto-approve.service";
-import { GenerationService } from "../../../src/modules/generation/generation.service";
+import { AutoApproveService } from "../../../src/modules/autonomy/auto-approve.service.js";
+import { GenerationService } from "../../../src/modules/generation/generation.service.js";
+import { AccountsService } from "../../../src/modules/accounts/accounts.service.js";
+import { RateLimitService } from "../../../src/modules/rate-limit/rate-limit.service.js";
 import { createMockConfigService } from "../../mocks/index.js";
 
 describe("GeneratePostsHandler", () => {
@@ -149,5 +151,68 @@ describe("GeneratePostsHandler", () => {
 
     expect(result.postsGenerated).toBe(3);
     expect(result.postsApproved).toBe(2);
+  });
+
+  it("passes only accounts with remaining capacity to autonomous generation", async () => {
+    const configService = createMockConfigService({
+      AUTO_APPROVE_ENABLED: "false",
+      AUTONOMOUS_POSTS_PER_RUN: "2",
+      AUTONOMOUS_TARGET_NETWORKS: "X",
+    });
+    const generationService = {
+      generate: vi.fn().mockResolvedValue("run-account-aware"),
+    } as unknown as GenerationService;
+    const accountA = { id: "acc-a", network: SocialNetwork.X, active: true };
+    const accountB = { id: "acc-b", network: SocialNetwork.X, active: true };
+    const accountsService = {
+      findByNetwork: vi.fn().mockResolvedValue([accountA, accountB]),
+    } as unknown as AccountsService;
+    const rateLimitService = {
+      getStatus: vi.fn(async (_network: SocialNetwork, accountId?: string) => ({
+        dailyCount: accountId === "acc-a" ? 1 : 0,
+        dailyLimit: 1,
+        weeklyCount: 0,
+        weeklyLimit: 5,
+      })),
+    } as unknown as RateLimitService;
+    const prisma = {
+      post: {
+        count: vi.fn().mockResolvedValue(0),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+    };
+    const moduleRef = {
+      get: vi.fn((cls: unknown) => {
+        if (cls === GenerationService) return generationService;
+        if (cls === AccountsService) return accountsService;
+        if (cls === RateLimitService) return rateLimitService;
+        return null;
+      }),
+    };
+    const handler = new GeneratePostsHandler(
+      configService as never,
+      moduleRef as never,
+      prisma as never,
+    );
+
+    await handler.execute({
+      type: "GENERATE_POSTS",
+      network: SocialNetwork.X,
+      reason: "account isolation",
+      source: "hard_rule",
+    });
+
+    expect(rateLimitService.getStatus).toHaveBeenCalledWith("X", "acc-a");
+    expect(rateLimitService.getStatus).toHaveBeenCalledWith("X", "acc-b");
+    expect(generationService.generate).toHaveBeenCalledWith(
+      1,
+      [SocialNetwork.X],
+      expect.anything(),
+      false,
+      false,
+      undefined,
+      undefined,
+      { accountIds: ["acc-b"] },
+    );
   });
 });

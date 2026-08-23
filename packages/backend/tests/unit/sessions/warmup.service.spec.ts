@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ConfigService } from "@nestjs/config";
-import { WarmupService } from "../../../src/modules/sessions/warmup.service";
+import { WarmupService } from "../../../src/modules/sessions/warmup.service.js";
 
 // ── Mock Prisma ──
 

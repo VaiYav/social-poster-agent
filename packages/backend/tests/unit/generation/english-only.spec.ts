@@ -20,7 +20,7 @@ import {
   ARTICLE_REFINE_PROMPT,
 } from "../../../src/modules/generation/prompts/fallback-prompts.js";
 import { TOPIC_GENERATION_PROMPT } from "../../../src/infrastructure/content/prompts/topic-generation-prompt.js";
-import { SocialNetwork } from "../../../src/generated/prisma/client";
+import { SocialNetwork } from "../../../src/generated/prisma/client.js";
 import { createMockConfigService } from "../../mocks/index.js";
 
 function createTopic() {

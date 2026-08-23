@@ -9,8 +9,8 @@
  *   - The handler returns normally (does not rethrow) — event bus stays alive
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { SseEventListener } from "../../../src/events/listeners/sse-event.listener";
-import { PostEvents } from "../../../src/events/enums/post-events.enum";
+import { SseEventListener } from "../../../src/events/listeners/sse-event.listener.js";
+import { PostEvents } from "../../../src/events/enums/post-events.enum.js";
 import { createMockSseService } from "../../mocks/index.js";
 
 describe("SseEventListener (ARCH-001 — event bus safety)", () => {

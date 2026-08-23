@@ -8,8 +8,8 @@ import { UnauthorizedException, type ExecutionContext } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
 import { Reflector } from "@nestjs/core";
-import { JwtAuthGuard } from "../../../src/modules/auth/jwt-auth.guard";
-import { Public } from "../../../src/modules/auth/public.decorator";
+import { JwtAuthGuard } from "../../../src/modules/auth/jwt-auth.guard.js";
+import { Public } from "../../../src/modules/auth/public.decorator.js";
 
 function cfg(values: Record<string, string>): ConfigService {
   return { get: vi.fn((k: string, d?: unknown) => values[k] ?? d) } as unknown as ConfigService;

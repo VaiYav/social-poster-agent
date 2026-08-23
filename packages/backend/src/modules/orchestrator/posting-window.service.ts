@@ -11,9 +11,9 @@
 
 import { Injectable, Logger, Inject } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { PrismaService } from "../../infrastructure/prisma/prisma.service";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
-import { SocialNetwork } from "../../generated/prisma/client";
+import { SocialNetwork } from "../../generated/prisma/client.js";
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
 import type { PostingWindow } from "./types.js";
 

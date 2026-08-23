@@ -12,9 +12,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ConfigService } from "@nestjs/config";
 import { SchedulerRegistry } from "@nestjs/schedule";
-import { PostStatus, SocialNetwork } from "../../../src/generated/prisma/client";
+import { PostStatus, SocialNetwork } from "../../../src/generated/prisma/client.js";
 
-import { HealthMonitorService } from "../../../src/modules/health-monitor/health-monitor.service";
+import { HealthMonitorService } from "../../../src/modules/health-monitor/health-monitor.service.js";
 
 // ── Mocks ──
 
@@ -174,6 +174,7 @@ describe("B3: Reconciliation — runReconciliation()", () => {
       take: 100,
       select: {
         id: true,
+        accountId: true,
         network: true,
         approvedAt: true,
         createdAt: true,

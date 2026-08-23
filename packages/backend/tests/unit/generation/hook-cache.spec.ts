@@ -11,10 +11,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   clearHookCache,
   getHookCacheStats,
-} from "../../../src/modules/generation/generation.graph";
-import type { ILlmPort, LlmResponse } from "../../../src/domain/ports/llm.port";
+} from "../../../src/modules/generation/generation.graph.js";
+import type { ILlmPort, LlmResponse } from "../../../src/domain/ports/llm.port.js";
 import type { ContentTopic } from "@spa/shared";
-import { SocialNetwork } from "../../../src/generated/prisma/client";
+import { SocialNetwork } from "../../../src/generated/prisma/client.js";
 
 // We need to access the internal hookGenerationNode to test the cache.
 // Since it's not exported, we test via the graph builder + createInitialState.
@@ -27,7 +27,7 @@ import { SocialNetwork } from "../../../src/generated/prisma/client";
 import {
   buildGenerationGraph,
   createInitialState,
-} from "../../../src/modules/generation/generation.graph";
+} from "../../../src/modules/generation/generation.graph.js";
 
 function createMockLlm(responses: Partial<LlmResponse>[] = []): ILlmPort {
   let callIndex = 0;

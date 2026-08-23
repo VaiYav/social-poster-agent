@@ -25,6 +25,7 @@ import {
   X,
   Bot,
   ShieldAlert,
+  ShieldCheck,
 } from "@lucide/vue";
 import { useMonitoringStore } from "../stores/monitoring";
 import { useAgentsStore } from "../stores/agents";
@@ -57,13 +58,33 @@ interface FlowControlState {
 }
 const flowState = ref<FlowControlState | null>(null);
 
+type DegradationLevel = "HEALTHY" | "DEGRADED" | "RECOVERING" | "CRITICAL" | "DOWN";
+interface DegradationSnapshot {
+  subsystem: string;
+  level: DegradationLevel;
+  since: number;
+  reason?: string;
+  lastProbeMs?: number;
+  consecutiveProbePasses: number;
+  nextProbeAt?: number;
+}
+const degradation = ref<DegradationSnapshot[]>([]);
+const degradationLoading = ref(false);
+const degradationError = ref<string | null>(null);
+
 onMounted(async () => {
-  await Promise.all([monitor.fetchAll(), agentsStore.fetchSnapshot(), fetchFlowControl()]);
+  await Promise.all([
+    monitor.fetchAll(),
+    agentsStore.fetchSnapshot(),
+    fetchFlowControl(),
+    fetchDegradation(),
+  ]);
   // Auto-refresh every 30 seconds
   refreshInterval.value = setInterval(() => {
     monitor.fetchAll();
     agentsStore.fetchSnapshot();
     fetchFlowControl();
+    fetchDegradation();
   }, 30_000);
 });
 
@@ -73,6 +94,19 @@ async function fetchFlowControl() {
     flowState.value = res.data;
   } catch {
     // Graceful
+  }
+}
+
+async function fetchDegradation() {
+  degradationLoading.value = true;
+  degradationError.value = null;
+  try {
+    const res = await api.get<{ subsystems: DegradationSnapshot[] }>("/health/degradation");
+    degradation.value = res.data.subsystems;
+  } catch (err) {
+    degradationError.value = (err as Error).message ?? "System health unavailable";
+  } finally {
+    degradationLoading.value = false;
   }
 }
 
@@ -181,6 +215,80 @@ async function handleDismiss(commentId: string) {
           :color="item.color"
         />
       </div>
+
+      <!-- REL-102: unified subsystem degradation state -->
+      <Card class="mt-6">
+        <template #header>
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2">
+              <ShieldCheck class="h-5 w-5 text-primary" aria-hidden="true" />
+              <div>
+                <h2 class="text-lg font-semibold text-text-primary">System Resilience</h2>
+                <p class="text-sm text-text-secondary">Subsystem health and recovery probes.</p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              :loading="degradationLoading"
+              @click="fetchDegradation"
+            >
+              <RefreshCw class="h-3.5 w-3.5" aria-hidden="true" />
+              Refresh
+            </Button>
+          </div>
+        </template>
+
+        <div
+          v-if="degradationError"
+          role="alert"
+          class="rounded-md border border-warning/30 bg-warning-subtle p-3 text-sm text-warning"
+        >
+          {{ degradationError }}
+        </div>
+        <LoadingSpinner
+          v-else-if="degradationLoading && degradation.length === 0"
+          message="Loading subsystem health…"
+        />
+        <div v-else-if="degradation.length === 0" class="py-6 text-center text-sm text-text-muted">
+          No subsystem incidents recorded.
+        </div>
+        <ul v-else class="grid gap-3 md:grid-cols-2 xl:grid-cols-3" aria-label="Subsystem health">
+          <li
+            v-for="snapshot in degradation"
+            :key="snapshot.subsystem"
+            class="rounded-lg border border-border bg-surface-elevated p-4"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <span class="truncate text-sm font-medium text-text-primary">{{
+                snapshot.subsystem
+              }}</span>
+              <Badge
+                :variant="
+                  snapshot.level === 'HEALTHY'
+                    ? 'success'
+                    : snapshot.level === 'RECOVERING'
+                      ? 'info'
+                      : snapshot.level === 'DEGRADED'
+                        ? 'warning'
+                        : 'error'
+                "
+              >
+                {{ snapshot.level }}
+              </Badge>
+            </div>
+            <p v-if="snapshot.reason" class="mt-2 line-clamp-2 text-xs text-text-secondary">
+              {{ snapshot.reason }}
+            </p>
+            <p class="mt-2 text-xs text-text-muted">
+              Probe passes: {{ snapshot.consecutiveProbePasses }}
+              <span v-if="snapshot.lastProbeMs">
+                · last {{ formatTime(snapshot.lastProbeMs) }}</span
+              >
+            </p>
+          </li>
+        </ul>
+      </Card>
 
       <div class="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         <!-- Flow Control Panel -->

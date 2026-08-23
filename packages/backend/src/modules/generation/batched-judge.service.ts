@@ -6,7 +6,7 @@
  * per-network judge nodes share the same promise and the same batch result.
  */
 import { Logger } from "@nestjs/common";
-import type { SocialNetwork } from "../../generated/prisma/client";
+import type { SocialNetwork } from "../../generated/prisma/client.js";
 import type { JudgeScores } from "@spa/shared";
 import type { ILlmPort } from "../../domain/ports/llm.port.js";
 import type { IPromptPort } from "../../domain/ports/prompt.port.js";
@@ -93,6 +93,7 @@ export class BatchedJudgeService {
         temperature: 0.2,
         maxTokens: this.maxTokens,
         role: "judge",
+        traceName: "generation.internal_judge",
       });
 
       const jsonMatch = response.content.match(/\{[\s\S]*\}/);

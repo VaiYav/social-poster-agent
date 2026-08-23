@@ -4,7 +4,7 @@
  * Keeping the winner/topic/stats logic in one place avoids duplication
  * between the analytics aggregation and the runtime selection feedback loop.
  */
-import type { SocialNetwork } from "../../generated/prisma/client";
+import type { SocialNetwork } from "../../generated/prisma/client.js";
 import type { ABTestVariant } from "@spa/shared";
 
 export interface VariantStatsRow {

@@ -11,7 +11,7 @@
  */
 import { Inject, Injectable, Logger, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { SseService } from "../../infrastructure/sse/sse.service";
+import { SseService } from "../../infrastructure/sse/sse.service.js";
 import { AgentState, IMetricsCollector, MonitoringSnapshot } from "./metrics-collector.js";
 
 export { AgentState, MonitoringSnapshot };

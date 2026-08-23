@@ -2,9 +2,9 @@
  * Sprint O / F13: Recycling Module.
  */
 import { Module } from "@nestjs/common";
-import { RecyclingService } from "./recycling.service";
-import { RecyclingController } from "./recycling.controller";
-import { GenerationModule } from "../generation/generation.module";
+import { RecyclingService } from "./recycling.service.js";
+import { RecyclingController } from "./recycling.controller.js";
+import { GenerationModule } from "../generation/generation.module.js";
 
 // RC3: GenerationModule provides GenerationService for graph-based re-writes.
 // RC2: the recyclingCron @Cron is discovered by the global ScheduleModule.forRoot() in

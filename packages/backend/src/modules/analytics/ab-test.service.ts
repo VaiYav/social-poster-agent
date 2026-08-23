@@ -6,8 +6,8 @@
  * backend for the `/analytics/ab-tests` dashboard endpoint.
  */
 import { Injectable } from "@nestjs/common";
-import { PrismaService } from "../../infrastructure/prisma/prisma.service";
-import { PostStatus } from "../../generated/prisma/client";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { PostStatus } from "../../generated/prisma/client.js";
 import type { ABTest, ABTestQuery, ABTestVariant } from "@spa/shared";
 import {
   type VariantStatsRow,

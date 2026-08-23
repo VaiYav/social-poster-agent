@@ -18,9 +18,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ConfigService } from "@nestjs/config";
 
-import { XPoster } from "../../../src/modules/posting/posters/x.poster";
-import { ThreadsPoster } from "../../../src/modules/posting/posters/threads.poster";
-import { FacebookPoster } from "../../../src/modules/posting/posters/facebook.poster";
+import { XPoster } from "../../../src/modules/posting/posters/x.poster.js";
+import { ThreadsPoster } from "../../../src/modules/posting/posters/threads.poster.js";
+import { FacebookPoster } from "../../../src/modules/posting/posters/facebook.poster.js";
 import { SelectorNotFoundError } from "../../../src/domain/errors.js";
 import { createMockBrowserPort, createMockPage, createMockContext } from "../../mocks/index.js";
 

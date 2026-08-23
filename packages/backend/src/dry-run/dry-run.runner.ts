@@ -11,18 +11,18 @@
 import { Logger } from "@nestjs/common";
 import type { INestApplication } from "@nestjs/common";
 import type { BrowserContext, Page } from "../domain/ports/browser-primitives.js";
-import { SocialNetwork, PostStatus, GenerationTrigger } from "../generated/prisma/client";
-import { GenerationService } from "../modules/generation/generation.service";
-import { PostingService } from "../modules/posting/posting.service";
-import { PostsService } from "../modules/posts/posts.service";
-import { AccountsService } from "../modules/accounts/accounts.service";
-import { SessionsService } from "../modules/sessions/sessions.service";
-import { LlmService } from "../infrastructure/llm/llm.service";
+import { SocialNetwork, PostStatus, GenerationTrigger } from "../generated/prisma/client.js";
+import { GenerationService } from "../modules/generation/generation.service.js";
+import { PostingService } from "../modules/posting/posting.service.js";
+import { PostsService } from "../modules/posts/posts.service.js";
+import { AccountsService } from "../modules/accounts/accounts.service.js";
+import { SessionsService } from "../modules/sessions/sessions.service.js";
+import { LlmService } from "../infrastructure/llm/llm.service.js";
 import { EngagementService } from "../modules/engagement/engagement.service.js";
 import { BrowsingSessionService } from "../modules/engagement/browsing-session.service.js";
 import { TrendingScraperService } from "../modules/trending/trending-scraper.service.js";
 import { RepliesMonitorService } from "../modules/replies/replies-monitor.service.js";
-import { DryRunReporter } from "./dry-run.reporter";
+import { DryRunReporter } from "./dry-run.reporter.js";
 
 export interface DryRunOptions {
   feature: "generation" | "posting" | "engagement" | "trending" | "replies" | "all";

@@ -13,10 +13,10 @@ import {
 } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from "@nestjs/swagger";
 import { AccountSettingsSchema } from "@spa/shared";
-import { SocialNetwork } from "../../generated/prisma/client";
-import { AccountsService } from "./accounts.service";
-import { AccountSettingsService } from "./account-settings.service";
-import { UpdateAccountDto } from "./dto/update-account.dto";
+import { SocialNetwork } from "../../generated/prisma/client.js";
+import { AccountsService } from "./accounts.service.js";
+import { AccountSettingsService } from "./account-settings.service.js";
+import { UpdateAccountDto } from "./dto/update-account.dto.js";
 
 @ApiTags("accounts")
 @Controller("accounts")
@@ -98,7 +98,8 @@ export class AccountsController {
   @Put(":id/settings")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: "Shallow-merge a patch into the account's overrides (validated by AccountSettingsSchema)",
+    summary:
+      "Shallow-merge a patch into the account's overrides (validated by AccountSettingsSchema)",
   })
   @ApiParam({ name: "id", description: "Account UUID" })
   @ApiResponse({ status: 200, description: "Updated overrides" })

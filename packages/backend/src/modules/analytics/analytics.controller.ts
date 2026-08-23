@@ -13,11 +13,12 @@ import {
   Optional,
 } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from "@nestjs/swagger";
-import { AnalyticsService } from "./analytics.service";
-import { MetricsScraperService } from "./metrics-scraper.service";
-import { ABTestService } from "./ab-test.service";
+import { AnalyticsService } from "./analytics.service.js";
+import { MetricsScraperService } from "./metrics-scraper.service.js";
+import { ABTestService } from "./ab-test.service.js";
 import { ABTestQuerySchema, type ABTestQuery } from "../../domain/dtos.js";
 import { HookPerformanceBank } from "../content-enhancements/hook-performance-bank.js";
+import { OnlineEvaluationService } from "../evaluation/online-evaluation.service.js";
 
 @ApiTags("analytics")
 @Controller("analytics")
@@ -27,6 +28,7 @@ export class AnalyticsController {
     private readonly metricsScraper: MetricsScraperService,
     private readonly abTestService: ABTestService,
     @Optional() private readonly hookBank?: HookPerformanceBank,
+    @Optional() private readonly onlineEvaluation?: OnlineEvaluationService,
   ) {}
 
   @Get("summary")
@@ -35,6 +37,22 @@ export class AnalyticsController {
   })
   getSummary() {
     return this.analyticsService.getSummary();
+  }
+
+  @Get("cost")
+  @ApiOperation({ summary: "COST-001: Get durable LLM usage and cost analytics" })
+  async getCost(
+    @Query("accountId") accountId?: string,
+    @Query("from") from?: string,
+    @Query("to") to?: string,
+  ) {
+    const fromDate = from ? new Date(from) : undefined;
+    const toDate = to ? new Date(to) : undefined;
+    return this.analyticsService.getCostAnalytics({
+      accountId,
+      from: fromDate && !Number.isNaN(fromDate.getTime()) ? fromDate : undefined,
+      to: toDate && !Number.isNaN(toDate.getTime()) ? toDate : undefined,
+    });
   }
 
   @Get("report")
@@ -54,6 +72,28 @@ export class AnalyticsController {
   @ApiOperation({ summary: "Get autonomous decision and quality distribution stats" })
   async getAutonomousStats() {
     return this.analyticsService.getAutonomousStats();
+  }
+
+  @Get("review-calibration")
+  @ApiOperation({ summary: "EVAL-701: Get durable review evidence and judge calibration coverage" })
+  @ApiQuery({
+    name: "days",
+    required: false,
+    type: Number,
+    description: "Lookback window (1-365 days)",
+  })
+  async getReviewCalibration(@Query("days") days?: string) {
+    return this.analyticsService.getReviewCalibration(Number(days) || 30);
+  }
+
+  @Get("online-evaluation")
+  @ApiOperation({ summary: "EVAL-702: Get online evaluator SLO snapshot and dashboard alerts" })
+  async getOnlineEvaluation() {
+    return {
+      slo: this.onlineEvaluation?.getSloSnapshot() ?? null,
+      alerts: this.onlineEvaluation?.getDashboardAlerts() ?? [],
+      timestamp: new Date().toISOString(),
+    };
   }
 
   @Get("top-posts")

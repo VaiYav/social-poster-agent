@@ -13,8 +13,8 @@ import {
   pickContentStyle,
   getStylePromptGuidance,
   type ContentStyle,
-} from "../../../src/modules/content-enhancements/content-style.rotation";
-import { SocialNetwork } from "../../../src/generated/prisma/client";
+} from "../../../src/modules/content-enhancements/content-style.rotation.js";
+import { SocialNetwork } from "../../../src/generated/prisma/client.js";
 
 describe("Content Style Rotation", () => {
   // ── CONTENT_STYLES array ──

@@ -19,8 +19,8 @@ import {
   BadRequestException,
   UseGuards,
 } from "@nestjs/common";
-import { FlowControlService, type FlowName } from "./flow-control.service";
-import { AdminGuard } from "../auth/admin.guard";
+import { FlowControlService, type FlowName } from "./flow-control.service.js";
+import { AdminGuard } from "../auth/admin.guard.js";
 import { z } from "zod";
 
 const reasonSchema = z.object({

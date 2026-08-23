@@ -20,19 +20,46 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@langchain/openai", () => ({
   ChatOpenAI: mocks.ChatOpenAIMock.mockImplementation(function (this: unknown, opts: unknown) {
-    return {
+    const model = {
+      lc_runnable: true,
       model: (opts as { model?: string }).model,
       apiKey: (opts as { apiKey?: string }).apiKey,
       temperature: (opts as { temperature?: number }).temperature,
       configuration: (opts as { configuration?: unknown }).configuration,
       invoke: mocks.invoke,
+      withConfig: (boundConfig: Record<string, unknown>) => ({
+        lc_runnable: true,
+        invoke: (input: unknown, runtimeConfig?: Record<string, unknown>) =>
+          mocks.invoke(input, {
+            ...runtimeConfig,
+            ...boundConfig,
+            metadata: {
+              ...((runtimeConfig?.metadata as Record<string, unknown> | undefined) ?? {}),
+              ...((boundConfig.metadata as Record<string, unknown> | undefined) ?? {}),
+            },
+          }),
+      }),
     };
+    return model;
   }),
 }));
 
 import { ConfigService } from "@nestjs/config";
+import { BaseCallbackHandler as LangChainBaseCallbackHandler } from "@langchain/core/callbacks/base";
+import { ChatPromptTemplate } from "@langchain/core/prompts";
 import type { BaseCallbackHandler } from "../../../src/domain/ports/llm-primitives.js";
-import { LlmService } from "../../../src/infrastructure/llm/llm.service";
+import { LlmTelemetryError } from "../../../src/domain/ports/llm.port.js";
+import type { IPromptPort, PromptReference } from "../../../src/domain/ports/prompt.port.js";
+import { normalizeLlmErrorCategory } from "../../../src/infrastructure/llm/llm-attempt-telemetry.js";
+import { LlmService } from "../../../src/infrastructure/llm/llm.service.js";
+import {
+  recordPromptReference,
+  withPromptLabelContext,
+} from "../../../src/infrastructure/prompt/prompt-label-context.js";
+import {
+  TokenBudgetExceeded,
+  type TokenBudgetService,
+} from "../../../src/infrastructure/llm/token-budget.service.js";
 import { createMockRedis } from "../../mocks/index.js";
 
 // ── Helpers ──
@@ -117,6 +144,18 @@ describe("LlmService (MOD-05 — Infrastructure Adapters)", () => {
     expect(status[1]!.name).toBe("ollama");
   });
 
+  it("keeps configured provider order by default and opts into cost ordering explicitly", () => {
+    service.onModuleInit();
+    expect(service.getProviderStatus()[0]?.name).toBe("groq");
+
+    const costAware = new LlmService(
+      createMockConfigService({ LLM_COST_ROUTER_ENABLED: "true" }),
+      createMockRedis(),
+    );
+    costAware.onModuleInit();
+    expect(costAware.getProviderStatus()[0]?.name).toBe("groq");
+  });
+
   it("onModuleInit() does not throw when no API keys are set", () => {
     const emptyConfig = createMockConfigService({
       OPENAI_API_KEY: "",
@@ -148,6 +187,53 @@ describe("LlmService (MOD-05 — Infrastructure Adapters)", () => {
 
     expect(result.content).toBe("LLM response text");
     expect(result.model).toContain("groq");
+  });
+
+  it("COST-001 records provider attempts with durable attribution context", async () => {
+    service.onModuleInit();
+    mocks.invoke.mockResolvedValue({ content: "Ledgered response" });
+    const ledger = { recordAttempts: vi.fn().mockResolvedValue(undefined) };
+    (service as unknown as { usageLedger: typeof ledger }).usageLedger = ledger;
+
+    await service.generateChat("system", "user", {
+      role: "utility",
+      accountId: "account-1",
+      budgetRunId: "run-1",
+    });
+
+    expect(ledger.recordAttempts).toHaveBeenCalledWith(
+      [expect.objectContaining({ provider_actual: "groq", outcome: "success" })],
+      { accountId: "account-1", postId: undefined, runId: "run-1" },
+    );
+  });
+
+  it("COST-001 fails closed before provider invocation when account daily cap rejects", async () => {
+    const budget = {
+      reserve: vi.fn().mockImplementation((scope: string) =>
+        Promise.resolve({
+          allowed: scope !== "account_daily",
+          remainingTokens: 0,
+          remainingCost: 0,
+        }),
+      ),
+      charge: vi.fn(),
+      release: vi.fn().mockResolvedValue(undefined),
+    };
+    const capped = new LlmService(configService, redis, undefined, budget as never);
+    capped.onModuleInit();
+    (capped as unknown as { providers: Array<{ name: string }> }).providers = (
+      capped as unknown as { providers: Array<{ name: string }> }
+    ).providers.filter((provider) => provider.name === "openai");
+    mocks.invoke.mockResolvedValue({ content: "must not run" });
+
+    await expect(
+      capped.generateChat("system", "user", {
+        accountId: "account-1",
+        maxTokens: 100,
+        model: "openai/gpt-5-nano",
+      }),
+    ).rejects.toThrow("All LLM providers failed");
+    expect(mocks.invoke).not.toHaveBeenCalled();
   });
 
   it("generateChat() bakes custom temperature into an immutable per-call instance (race fix)", async () => {
@@ -205,20 +291,103 @@ describe("LlmService (MOD-05 — Infrastructure Adapters)", () => {
 
   // ── Fallback ──
 
-  it("generateChat() falls back to next provider when first fails", async () => {
+  it("EVAL-102: attributes first-provider failure and second-provider success", async () => {
     service.onModuleInit();
     // First call (Groq) fails with a NON-rate-limit error → immediate failover.
     // (A 429/rate-limit error would now retry the SAME provider once first —
     // covered in tests/unit/llm/llm-service-routing.spec.ts LS-003.)
-    mocks.invoke
-      .mockRejectedValueOnce(new Error("Groq exploded"))
-      .mockResolvedValueOnce({ content: "OpenAI response" });
+    mocks.invoke.mockRejectedValueOnce(new Error("Groq exploded")).mockResolvedValueOnce({
+      content: "OpenAI response",
+      usage_metadata: {
+        input_tokens: 11,
+        output_tokens: 7,
+        total_tokens: 18,
+        input_token_details: { cache_read: 3 },
+        output_token_details: { reasoning: 2 },
+      },
+      response_metadata: { cost: 0.000_123 },
+    });
 
-    const result = await service.generateChat("sys", "usr");
+    const result = await service.generateChat("sys", "usr", {
+      role: "utility",
+      maxTokens: 321,
+      traceName: "generation.utility",
+    });
 
     expect(mocks.invoke).toHaveBeenCalledTimes(2);
     expect(result.content).toBe("OpenAI response");
-    expect(result.model).toContain("openai");
+    expect(result.model).toBe("openai/gpt-5-nano");
+    expect(result.cost).toBe(0.000_123);
+
+    expect(result.attempts).toHaveLength(2);
+    expect(result.attempts?.[0]).toMatchObject({
+      provider_requested: "groq",
+      provider_actual: "groq",
+      model_requested: "meta-llama/llama-4-scout-17b-16e-instruct",
+      model_actual: "meta-llama/llama-4-scout-17b-16e-instruct",
+      attempt_index: 0,
+      fallback_depth: 0,
+      rate_limit_retry: false,
+      outcome: "error",
+      normalized_error_category: "unknown",
+    });
+    expect(result.attempts?.[1]).toMatchObject({
+      provider_requested: "groq",
+      provider_actual: "openai",
+      model_requested: "meta-llama/llama-4-scout-17b-16e-instruct",
+      model_actual: "gpt-5-nano",
+      model_snapshot_or_alias: "gpt-5-nano",
+      attempt_index: 1,
+      fallback_depth: 1,
+      rate_limit_retry: false,
+      reasoning_effort: "not_sent",
+      temperature_sent: "not_sent",
+      max_output_tokens: 321,
+      outcome: "success",
+      normalized_error_category: "none",
+      input_tokens: 11,
+      output_tokens: 7,
+      cached_input_tokens: 3,
+      reasoning_tokens: 2,
+      total_tokens: 18,
+      cost_usd: 0.000_123,
+      cost_source: "provider",
+    });
+
+    const attributedAttempts =
+      result.attempts?.filter(
+        (attempt) =>
+          attempt.provider_actual.length > 0 &&
+          attempt.model_actual.length > 0 &&
+          attempt.provider_actual !== "openai-compatible",
+      ) ?? [];
+    expect(attributedAttempts.length / (result.attempts?.length ?? 1)).toBeGreaterThanOrEqual(0.99);
+
+    const invokeMetadata = mocks.invoke.mock.calls.map(
+      (call) => (call[1] as { metadata: Record<string, unknown> }).metadata,
+    );
+    expect(invokeMetadata).toEqual([
+      expect.objectContaining({
+        provider_requested: "groq",
+        provider_actual: "groq",
+        attempt_index: 0,
+        fallback_depth: 0,
+        cache_hit: false,
+        rate_limit_retry: false,
+      }),
+      expect.objectContaining({
+        provider_requested: "groq",
+        provider_actual: "openai",
+        attempt_index: 1,
+        fallback_depth: 1,
+        cache_hit: false,
+        rate_limit_retry: false,
+      }),
+    ]);
+    const serializedMetadata = JSON.stringify(invokeMetadata);
+    expect(serializedMetadata).not.toContain("test-groq-key");
+    expect(serializedMetadata).not.toContain("test-openai-key");
+    expect(serializedMetadata).not.toMatch(/api[_-]?key|cookie|password/i);
   });
 
   it("generateChat() throws when all providers fail", async () => {
@@ -226,6 +395,32 @@ describe("LlmService (MOD-05 — Infrastructure Adapters)", () => {
     mocks.invoke.mockRejectedValue(new Error("All down"));
 
     await expect(service.generateChat("sys", "usr")).rejects.toThrow("All LLM providers failed");
+  });
+
+  it("reports LLM subsystem health after success and total failure", async () => {
+    const resilience = { reportHealth: vi.fn().mockResolvedValue(undefined) };
+    const resilientService = new LlmService(
+      configService,
+      createMockRedis(),
+      undefined,
+      undefined,
+      resilience as never,
+    );
+    resilientService.onModuleInit();
+
+    mocks.invoke.mockResolvedValueOnce({ content: "ok" });
+    await resilientService.generateChat("sys", "success");
+    expect(resilience.reportHealth).toHaveBeenCalledWith("llm", "HEALTHY");
+
+    mocks.invoke.mockRejectedValue(new Error("providers down"));
+    await expect(resilientService.generateChat("sys", "failure")).rejects.toThrow(
+      "All LLM providers failed",
+    );
+    expect(resilience.reportHealth).toHaveBeenCalledWith(
+      "llm",
+      "CRITICAL",
+      expect.stringContaining("All LLM providers failed"),
+    );
   });
 
   it("generateChat() uses sticky provider after first success", async () => {
@@ -252,6 +447,17 @@ describe("LlmService (MOD-05 — Infrastructure Adapters)", () => {
     const result = await service.generateChat("sys", "usr");
 
     expect(result.content).toBe("real content");
+    expect(result.attempts).toHaveLength(2);
+    expect(result.attempts?.[0]).toMatchObject({
+      provider_actual: "groq",
+      outcome: "error",
+      normalized_error_category: "empty_output",
+    });
+    expect(result.attempts?.[1]).toMatchObject({
+      provider_actual: "openai",
+      outcome: "success",
+      normalized_error_category: "none",
+    });
   });
 
   // ── generate ──
@@ -324,6 +530,24 @@ describe("LlmService (MOD-05 — Infrastructure Adapters)", () => {
 
     expect(result1.content).toBe("cached response");
     expect(result2.content).toBe("cached response");
+    expect(result1.attempts?.[0]).toMatchObject({
+      cache_hit: false,
+      outcome: "success",
+      attempt_index: 0,
+    });
+    expect(result1.costSource).toBe("unknown");
+    expect(result2.attempts).toEqual([
+      expect.objectContaining({
+        provider_actual: "groq",
+        model_actual: "meta-llama/llama-4-scout-17b-16e-instruct",
+        cache_hit: true,
+        outcome: "cache_hit",
+        normalized_error_category: "none",
+        attempt_index: 0,
+        fallback_depth: 0,
+      }),
+    ]);
+    expect(result2.attempts?.[0]?.cost_source).toBe("unknown");
     // invoke should only be called once (second call hits cache)
     expect(mocks.invoke).toHaveBeenCalledTimes(1);
   });
@@ -395,6 +619,39 @@ describe("LlmService (MOD-05 — Infrastructure Adapters)", () => {
 
   // ── Sprint Q: Rate-limit backoff ──
 
+  it("EVAL-102: same-provider rate-limit retry has a new index without fallback depth", async () => {
+    service.onModuleInit();
+    mocks.invoke.mockRejectedValueOnce(createRateLimitError("0.001")).mockResolvedValueOnce({
+      content: "Groq retry response",
+      usage_metadata: { input_tokens: 4, output_tokens: 3, total_tokens: 7 },
+    });
+
+    const result = await service.generateChat("sys", "usr", { role: "utility" });
+
+    expect(result.model).toBe("groq/meta-llama/llama-4-scout-17b-16e-instruct");
+    expect(result.attempts).toEqual([
+      expect.objectContaining({
+        provider_actual: "groq",
+        attempt_index: 0,
+        fallback_depth: 0,
+        rate_limit_retry: false,
+        normalized_error_category: "rate_limit",
+        outcome: "error",
+      }),
+      expect.objectContaining({
+        provider_actual: "groq",
+        attempt_index: 1,
+        fallback_depth: 0,
+        rate_limit_retry: true,
+        normalized_error_category: "none",
+        outcome: "success",
+      }),
+    ]);
+    expect(
+      (mocks.invoke.mock.calls[1]?.[1] as { metadata: Record<string, unknown> }).metadata,
+    ).toMatchObject({ attempt_index: 1, fallback_depth: 0, rate_limit_retry: true });
+  });
+
   it("SQ-002: long Retry-After header fails over and sets rate-limit cooldown", async () => {
     service.onModuleInit();
     const err = createRateLimitError("120");
@@ -429,6 +686,93 @@ describe("LlmService (MOD-05 — Infrastructure Adapters)", () => {
     expect(status.find((s) => s.name === "groq")?.rateLimitUntil).toBe(0);
   });
 
+  it("EVAL-102: aborting an in-flight invocation returns structured aborted telemetry", async () => {
+    service.onModuleInit();
+    const controller = new AbortController();
+    mocks.invoke.mockImplementation(
+      (_messages: unknown, config: { signal?: AbortSignal } | undefined) =>
+        new Promise((_resolve, reject) => {
+          const rejectAbort = () => reject(new DOMException("Aborted", "AbortError"));
+          if (config?.signal?.aborted) {
+            rejectAbort();
+            return;
+          }
+          config?.signal?.addEventListener("abort", rejectAbort, { once: true });
+        }),
+    );
+
+    const outcome = service
+      .generateChat("sys", "usr", { role: "utility", signal: controller.signal })
+      .catch((error: unknown) => error);
+    await vi.waitFor(() => expect(mocks.invoke).toHaveBeenCalledOnce());
+    controller.abort();
+    const error = await outcome;
+
+    expect(error).toBeInstanceOf(LlmTelemetryError);
+    if (!(error instanceof LlmTelemetryError)) throw new Error("Expected LlmTelemetryError");
+    expect(error.message).toBe("Abort");
+    expect(error.normalized_error_category).toBe("aborted");
+    expect(error.attempts).toEqual([
+      expect.objectContaining({
+        provider_actual: "groq",
+        attempt_index: 0,
+        fallback_depth: 0,
+        outcome: "error",
+        normalized_error_category: "aborted",
+      }),
+    ]);
+  });
+
+  it("EVAL-102: budget denial is exposed as structured attempt telemetry", async () => {
+    const deniedBudget = {
+      reserve: vi.fn().mockResolvedValue({
+        allowed: false,
+        remainingTokens: 0,
+        remainingCost: 0,
+      }),
+      release: vi.fn().mockResolvedValue(undefined),
+      charge: vi.fn().mockResolvedValue(undefined),
+    } as unknown as TokenBudgetService;
+    const deniedService = new LlmService(configService, redis, undefined, deniedBudget);
+    deniedService.onModuleInit();
+
+    const error = await deniedService
+      .generateChat("sys", "usr", {
+        role: "utility",
+        budgetScope: "generation",
+        budgetRunId: "synthetic-run",
+        maxTokens: 100,
+      })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(LlmTelemetryError);
+    if (!(error instanceof LlmTelemetryError)) throw new Error("Expected LlmTelemetryError");
+    expect(error.normalized_error_category).toBe("budget_exceeded");
+    expect(error.attempts.length).toBeGreaterThan(0);
+    expect(error.attempts.every((attempt) => attempt.outcome === "error")).toBe(true);
+    expect(
+      error.attempts.every((attempt) => attempt.normalized_error_category === "budget_exceeded"),
+    ).toBe(true);
+    expect(mocks.invoke).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["rate_limit", createRateLimitError("1")],
+    ["auth", Object.assign(new Error("unauthorized"), { status: 401 })],
+    ["billing", Object.assign(new Error("insufficient quota"), { status: 402 })],
+    ["timeout", Object.assign(new Error("request timed out"), { code: "ETIMEDOUT" })],
+    ["model_not_found", Object.assign(new Error("model not found"), { status: 404 })],
+    ["empty_output", new Error("provider returned empty output")],
+    ["aborted", new DOMException("The operation was aborted", "AbortError")],
+    [
+      "budget_exceeded",
+      new TokenBudgetExceeded("generation", "synthetic-run", "pre-call reserve over budget"),
+    ],
+    ["unknown", new Error("unclassified provider failure")],
+  ] as const)("EVAL-102: normalizes %s errors", (expected, error) => {
+    expect(normalizeLlmErrorCategory(error)).toBe(expected);
+  });
+
   // ── Sprint J: Prompt Versioning ──
 
   it("SJ-007: getPromptVersion() returns version string", () => {
@@ -454,7 +798,7 @@ describe("LlmService (MOD-05 — Infrastructure Adapters)", () => {
     expect((invokeCall[1] as { callbacks: unknown[] }).callbacks).toContain(fakeHandler);
   });
 
-  it("LF-002: generateChat() passes undefined (not empty callbacks) when no callbacks set", async () => {
+  it("LF-002/EVAL-102: no-callback path stays callback-free while carrying attempt metadata", async () => {
     service.onModuleInit();
     mocks.invoke.mockResolvedValue({ content: "response" });
 
@@ -462,7 +806,228 @@ describe("LlmService (MOD-05 — Infrastructure Adapters)", () => {
 
     expect(mocks.invoke).toHaveBeenCalledOnce();
     const invokeCall = mocks.invoke.mock.calls[0]!;
-    // No callbacks → second arg is undefined (avoids creating empty callback config)
-    expect(invokeCall[1]).toBeUndefined();
+    const invokeConfig = invokeCall[1] as {
+      callbacks?: BaseCallbackHandler[];
+      metadata: Record<string, unknown>;
+    };
+    expect(invokeConfig.callbacks).toBeUndefined();
+    expect(invokeConfig.metadata).toMatchObject({
+      provider_requested: "groq",
+      provider_actual: "groq",
+      model_actual: "meta-llama/llama-4-scout-17b-16e-instruct",
+      attempt_index: 0,
+      fallback_depth: 0,
+      cache_hit: false,
+      rate_limit_retry: false,
+    });
+  });
+
+  it("LF-003: generateChat() passes stable observation name and role metadata", async () => {
+    service.onModuleInit();
+    mocks.invoke.mockResolvedValue({ content: "named response" });
+
+    await service.generateChat("sys", "usr", {
+      role: "draft",
+      traceName: "generation.draft.X",
+    });
+
+    expect(mocks.invoke).toHaveBeenCalledOnce();
+    const invokeCall = mocks.invoke.mock.calls[0]!;
+    expect(invokeCall[1]).toMatchObject({
+      runName: "generation.draft.X",
+      metadata: { llm_role: "draft" },
+    });
+  });
+
+  it("EVAL-103: links two LLM calls through separate native prompt runnables", async () => {
+    service.onModuleInit();
+    mocks.invoke
+      .mockResolvedValueOnce({ content: "research response" })
+      .mockResolvedValueOnce({ content: "draft response" });
+    const sensitiveResearchSource = "private research prompt source must not be metadata";
+    const sensitiveDraftSource = "private draft prompt source must not be metadata";
+    const researchClient = {
+      name: "research-extract",
+      version: 7,
+      isFallback: false,
+      prompt: sensitiveResearchSource,
+    };
+    const draftClient = {
+      name: "draft-post",
+      version: 12,
+      isFallback: false,
+      prompt: sensitiveDraftSource,
+    };
+    const researchReference: PromptReference = {
+      name: "research-extract",
+      label: "production",
+      version: 7,
+      isFallback: false,
+      nativePrompt: researchClient,
+    };
+    const draftReference: PromptReference = {
+      name: "draft-post",
+      label: "candidate",
+      version: 12,
+      isFallback: false,
+      nativePrompt: draftClient,
+    };
+    const handler = LangChainBaseCallbackHandler.fromMethods({});
+    const promptConfigSpy = vi.spyOn(ChatPromptTemplate.prototype, "withConfig");
+
+    try {
+      const { research, draft } = await withPromptLabelContext(async () => {
+        recordPromptReference("research system", "research user", researchReference);
+        recordPromptReference("draft system", "draft user", draftReference);
+        const research = await service.generateChat("research system", "research user", {
+          callbacks: [handler],
+          role: "draft",
+          traceName: "generation.research_extract",
+        });
+        const draft = await service.generateChat("draft system", "draft user", {
+          callbacks: [handler],
+          role: "draft",
+          traceName: "generation.draft.X",
+        });
+        return { research, draft };
+      });
+
+      const linkedPrompts = promptConfigSpy.mock.calls
+        .map(([config]) => config.metadata?.langfusePrompt)
+        .filter((prompt): prompt is object => typeof prompt === "object" && prompt !== null);
+      expect(linkedPrompts).toEqual([researchClient, draftClient]);
+
+      const generationMetadata = mocks.invoke.mock.calls.map(
+        (call) => (call[1] as { metadata: Record<string, unknown> }).metadata,
+      );
+      expect(generationMetadata).toEqual([
+        expect.objectContaining({
+          prompt_name: "research-extract",
+          prompt_label: "production",
+          prompt_version: 7,
+          prompt_is_fallback: false,
+        }),
+        expect.objectContaining({
+          prompt_name: "draft-post",
+          prompt_label: "candidate",
+          prompt_version: 12,
+          prompt_is_fallback: false,
+        }),
+      ]);
+      expect(generationMetadata[0]).not.toHaveProperty("langfusePrompt");
+      expect(generationMetadata[1]).not.toHaveProperty("langfusePrompt");
+      const emittedMetadata = JSON.stringify({ generationMetadata, research, draft });
+      expect(emittedMetadata).not.toContain(sensitiveResearchSource);
+      expect(emittedMetadata).not.toContain(sensitiveDraftSource);
+    } finally {
+      promptConfigSpy.mockRestore();
+    }
+  });
+
+  it("EVAL-103: fallback identity emits digest and label without a native version link", async () => {
+    service.onModuleInit();
+    mocks.invoke.mockResolvedValue({ content: "fallback response" });
+    const fallbackDigest = "a".repeat(64);
+    const handler = LangChainBaseCallbackHandler.fromMethods({});
+    const promptConfigSpy = vi.spyOn(ChatPromptTemplate.prototype, "withConfig");
+
+    try {
+      const result = await service.generateChat("fallback system", "fallback user", {
+        callbacks: [handler],
+        role: "refine",
+        promptReference: {
+          name: "refine-post",
+          label: "production",
+          isFallback: true,
+          fallbackDigest,
+        },
+      });
+
+      expect(promptConfigSpy).not.toHaveBeenCalled();
+      const metadata = (mocks.invoke.mock.calls[0]?.[1] as { metadata: Record<string, unknown> })
+        .metadata;
+      expect(metadata).toMatchObject({
+        prompt_name: "refine-post",
+        prompt_label: "production",
+        prompt_is_fallback: true,
+        prompt_fallback_digest: fallbackDigest,
+      });
+      expect(metadata).not.toHaveProperty("prompt_version");
+      expect(result.attempts?.[0]).not.toHaveProperty("prompt_version");
+    } finally {
+      promptConfigSpy.mockRestore();
+    }
+  });
+
+  it("EVAL-103: consumes a direct caller reference from the prompt port", async () => {
+    const nativePrompt = {
+      name: "orchestrator-system",
+      version: 6,
+      isFallback: false,
+    };
+    const consumePromptReference = vi.fn().mockReturnValue({
+      name: "orchestrator-system",
+      label: "production",
+      version: 6,
+      isFallback: false,
+      nativePrompt,
+    } satisfies PromptReference);
+    const promptPort = {
+      getCurrentVersion: () => "production",
+      consumePromptReference,
+    } as unknown as IPromptPort;
+    const directService = new LlmService(configService, redis, promptPort);
+    directService.onModuleInit();
+    mocks.invoke.mockResolvedValue({ content: "decision" });
+    const handler = LangChainBaseCallbackHandler.fromMethods({});
+    const promptConfigSpy = vi.spyOn(ChatPromptTemplate.prototype, "withConfig");
+
+    try {
+      await directService.generateChat("", "orchestrator prompt", {
+        callbacks: [handler],
+        role: "utility",
+        traceName: "orchestrator.decision",
+      });
+
+      expect(consumePromptReference).toHaveBeenCalledWith("", "orchestrator prompt");
+      expect(promptConfigSpy.mock.calls[0]?.[0].metadata?.langfusePrompt).toBe(nativePrompt);
+      expect(
+        (mocks.invoke.mock.calls[0]?.[1] as { metadata: Record<string, unknown> }).metadata,
+      ).toMatchObject({
+        prompt_name: "orchestrator-system",
+        prompt_label: "production",
+        prompt_version: 6,
+        prompt_is_fallback: false,
+      });
+    } finally {
+      promptConfigSpy.mockRestore();
+    }
+  });
+
+  it("EVAL-103: no-handler path stays direct even when a native reference is present", async () => {
+    service.onModuleInit();
+    mocks.invoke.mockResolvedValue({ content: "untraced response" });
+    const promptConfigSpy = vi.spyOn(ChatPromptTemplate.prototype, "withConfig");
+
+    try {
+      await service.generateChat("system", "user", {
+        role: "draft",
+        promptReference: {
+          name: "draft-post",
+          label: "production",
+          version: 8,
+          isFallback: false,
+          nativePrompt: { name: "draft-post", version: 8, isFallback: false },
+        },
+      });
+
+      expect(promptConfigSpy).not.toHaveBeenCalled();
+      expect(mocks.invoke.mock.calls[0]?.[0]).toEqual([
+        { role: "system", content: "system" },
+        { role: "user", content: "user" },
+      ]);
+    } finally {
+      promptConfigSpy.mockRestore();
+    }
   });
 });

@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
 import api from "../composables/useApi";
-import type { Post, SSEvent } from "@spa/shared";
+import type { Post, PostReviewFeedback, SSEvent } from "@spa/shared";
 
 /**
  * Posts store — manages post list, drafts, and CRUD operations.
@@ -62,7 +62,7 @@ export const usePostsStore = defineStore("posts", () => {
     }
   }
 
-  async function approve(id: string, editedContent?: string) {
+  async function approve(id: string, editedContent?: string, feedback?: PostReviewFeedback) {
     // Sprint N: Optimistic update — update UI immediately, rollback on error
     const post = drafts.value.find((p) => p.id === id);
     const previousStatus = post?.status;
@@ -74,7 +74,11 @@ export const usePostsStore = defineStore("posts", () => {
     drafts.value = drafts.value.filter((p) => p.id !== id);
 
     try {
-      await api.post(`/posts/${id}/approve`, editedContent ? { editedContent } : {});
+      const payload = {
+        ...(editedContent ? { editedContent } : {}),
+        ...(feedback ? { feedback } : {}),
+      };
+      await api.post(`/posts/${id}/approve`, payload);
       // Success — SSE will confirm with real status
     } catch (e: unknown) {
       // Sprint N: Rollback on error
@@ -88,13 +92,14 @@ export const usePostsStore = defineStore("posts", () => {
     }
   }
 
-  async function reject(id: string) {
+  async function reject(id: string, feedback?: PostReviewFeedback) {
     // Sprint N: Optimistic update — remove from drafts immediately, rollback on error
     const removedPost = drafts.value.find((p) => p.id === id);
     drafts.value = drafts.value.filter((p) => p.id !== id);
 
     try {
-      await api.post(`/posts/${id}/reject`);
+      if (feedback) await api.post(`/posts/${id}/reject`, { feedback });
+      else await api.post(`/posts/${id}/reject`);
     } catch (e: unknown) {
       // Sprint N: Rollback on error
       if (removedPost) {

@@ -10,7 +10,7 @@
  * API action and every generated comment/quote without extra latency.
  */
 import { Injectable, Logger } from "@nestjs/common";
-import { SocialNetwork } from "../../generated/prisma/client";
+import { SocialNetwork } from "../../generated/prisma/client.js";
 import { detectSensitive, isLikelyTroll, isLowValueComment } from "../replies/sensitive-filter.js";
 
 export interface ContentSafetyResult {

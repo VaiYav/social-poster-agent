@@ -58,6 +58,8 @@ const envSchema = Joi.object({
 
   // ── LLM ──
   OPENAI_API_KEY: Joi.string().allow("").default(""),
+  GEMINI_API_KEY: Joi.string().allow("").default(""),
+  GOOGLE_API_KEY: Joi.string().allow("").default(""),
   ANTHROPIC_API_KEY: Joi.string().allow("").default(""),
   LLM_DEFAULT_MODEL: Joi.string().default("gpt-5-nano"),
   // Sprint J: LLM circuit breaker + cache config
@@ -68,12 +70,17 @@ const envSchema = Joi.object({
   LLM_CACHE_KEY_PREFIX: Joi.string().default("spa:cache:llm"),
   LLM_CACHE_TTL_MS: Joi.number().default(300000),
   LLM_CACHE_MAX_SIZE: Joi.number().default(100),
+  LLM_PROMPT_COMPRESSION_ENABLED: Joi.string().valid("true", "false").default("false"),
+  LLM_PROMPT_COMPRESSION_URL: Joi.string().allow("").default(""),
+  LLM_PROMPT_COMPRESSION_MIN_TOKENS: Joi.number().integer().min(1).default(500),
+  LLM_PROMPT_COMPRESSION_TIMEOUT_MS: Joi.number().integer().min(100).default(1500),
   CONTENT_CACHE_TTL_MS: Joi.number().default(120000),
   // Q1: Per-role provider routing defaults. Creative roles use strong models;
   // analytical roles use the cheapest available chain.
   LLM_ROLE_CHAINS: Joi.string().default(
     "draft=anthropic,google,openai;hook=anthropic,google,openai;critique=groq,cerebras,sambanova;judge=groq,cerebras,sambanova;facts=groq,cerebras,sambanova;utility=groq,cerebras,sambanova",
   ),
+  LLM_COST_ROUTER_ENABLED: Joi.string().valid("true", "false").default("false"),
   // Per-generation-stage temperature overrides
   GENERATION_TEMPERATURE_HOOK: Joi.number().min(0).max(2).default(0.95),
   GENERATION_TEMPERATURE_DRAFT: Joi.number().min(0).max(2).default(0.8),
@@ -99,6 +106,7 @@ const envSchema = Joi.object({
   ORCHESTRATOR_COST_BUDGET_PER_HOUR: Joi.number().min(0).default(0),
   GENERATION_TOKEN_BUDGET_PER_RUN: Joi.number().integer().min(0).default(0),
   GENERATION_COST_BUDGET_PER_RUN: Joi.number().min(0).default(0),
+  LLM_DAILY_BUDGET_PER_ACCOUNT_USD: Joi.number().min(0).default(0),
   // P0: F1 engagement per-session soft caps (names say _PER_DAY for historical reasons,
   // but these are per-session targets; global *_GLOBAL vars below are the daily hard caps).
   F1_LIKES_MAX_PER_DAY: Joi.number().integer().min(0).default(4),
@@ -114,8 +122,6 @@ const envSchema = Joi.object({
   // P0: engagement-first guardrail weight. Higher value = more likely to override POST/GENERATE with BROWSE.
   // A value of 0 disables the override. Formula: debt * weight > approvedDrafts.
   ENGAGEMENT_PRIORITY_WEIGHT: Joi.number().min(0).default(1.0),
-  // Multilingual generation: comma-separated ISO 639-1 codes (default: en)
-  POSTING_LANGUAGES: Joi.string().default("en"),
   // Q2: Global concurrency cap and 429 retry delay
   LLM_MAX_CONCURRENT: Joi.number().integer().min(1).default(4),
   LLM_RATE_LIMIT_RETRY_MS: Joi.number().integer().min(0).default(2500),
@@ -288,6 +294,8 @@ const envSchema = Joi.object({
   ORCHESTRATOR_LEADER_KEY: Joi.string().default("spa:orchestrator:leader"),
   ORCHESTRATOR_LEADER_TTL_MS: Joi.number().integer().min(5000).default(30000),
   ORCHESTRATOR_LEADER_RENEW_INTERVAL_MS: Joi.number().integer().min(1000).default(10000),
+  ORCHESTRATOR_WATCHDOG_LOCK_KEY: Joi.string().default("spa:orchestrator:watchdog-lock"),
+  ORCHESTRATOR_WATCHDOG_LOCK_TTL_MS: Joi.number().integer().min(5000).default(60000),
   ORCHESTRATOR_RESTART_DELAY_MS: Joi.number().integer().min(0).default(3000),
   ORCHESTRATOR_WATCHDOG_RESTART_DELAY_MS: Joi.number().integer().min(0).default(5000),
   ORCHESTRATOR_GENERATE_TIMEOUT_MS: Joi.number().integer().min(60000).default(1200000),

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
-import type { Post } from "@spa/shared";
+import type { Post, PostReviewFeedback } from "@spa/shared";
 import { Play, Pause, Clock, Activity, Timer, CheckSquare, XSquare, Check } from "@lucide/vue";
 import { usePostsStore } from "../stores/posts";
 import { useQueueStore } from "../stores/queue";
@@ -8,6 +8,7 @@ import { useToast } from "../composables/useToast";
 import { Card, Button, SectionHeader, Checkbox } from "../components/ui";
 import PostCard from "../components/PostCard.vue";
 import PostEditor from "../components/PostEditor.vue";
+import ReviewFeedbackDialog from "../components/ReviewFeedbackDialog.vue";
 import LoadingSpinner from "../components/LoadingSpinner.vue";
 import ErrorState from "../components/ErrorState.vue";
 import EmptyState from "../components/EmptyState.vue";
@@ -16,6 +17,7 @@ const postsStore = usePostsStore();
 const queueStore = useQueueStore();
 const toast = useToast();
 const editingPost = ref<Post | null>(null);
+const rejectingPost = ref<Post | null>(null);
 const selectedIds = ref<Set<string>>(new Set());
 
 const NETWORKS = ["X", "THREADS", "FACEBOOK"] as const;
@@ -93,8 +95,15 @@ async function approve(id: string) {
 }
 
 async function reject(id: string) {
+  rejectingPost.value = postsStore.drafts.find((post) => post.id === id) ?? null;
+}
+
+async function submitRejection(feedback: PostReviewFeedback) {
+  const id = rejectingPost.value?.id;
+  if (!id) return;
   try {
-    await postsStore.reject(id);
+    await postsStore.reject(id, feedback);
+    rejectingPost.value = null;
     toast.info("Post rejected");
   } catch (e: unknown) {
     toast.error(`Reject failed: ${(e as Error).message}`);
@@ -350,5 +359,10 @@ async function clearCompleted(network: string) {
     </Card>
 
     <PostEditor :post="editingPost" @close="closeEditor" @save="saveEdit" />
+    <ReviewFeedbackDialog
+      :post="rejectingPost"
+      @cancel="rejectingPost = null"
+      @submit="submitRejection"
+    />
   </div>
 </template>

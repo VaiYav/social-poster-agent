@@ -93,7 +93,9 @@ export function buildOrchestratorUserPrompt(world: WorldState): string {
   const accountEntries = Object.entries(world.accounts?.accounts ?? {});
   if (accountEntries.length > 1) {
     const accountParts = accountEntries.map(([, a]) => {
-      const warmup = a.warmupEnabled ? `,warmup${a.warmupDay !== undefined ? `:d${a.warmupDay}` : ""}` : "";
+      const warmup = a.warmupEnabled
+        ? `,warmup${a.warmupDay !== undefined ? `:d${a.warmupDay}` : ""}`
+        : "";
       return `${a.network}:${a.handle}=${a.sessionStatus}/${a.circuitBreaker}${warmup}`;
     });
     lines.push(`- Accounts (${world.accounts.total}): ${accountParts.join("; ")}`);

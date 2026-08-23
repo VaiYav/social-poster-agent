@@ -8,12 +8,12 @@
 import { Module } from "@nestjs/common";
 import { EventEmitterModule } from "@nestjs/event-emitter";
 import { ConfigModule } from "@nestjs/config";
-import { SseModule } from "../infrastructure/sse/sse.module";
-import { PrismaModule } from "../infrastructure/prisma/prisma.module";
-import { PostsModule } from "../modules/posts/posts.module";
-import { QueueModule as QueueInfraModule } from "../infrastructure/queue/queue.module";
-import { GenerationModule } from "../modules/generation/generation.module";
-import { SseEventListener } from "./listeners/sse-event.listener";
+import { SseModule } from "../infrastructure/sse/sse.module.js";
+import { PrismaModule } from "../infrastructure/prisma/prisma.module.js";
+import { PostsModule } from "../modules/posts/posts.module.js";
+import { QueueInfraModule } from "../infrastructure/queue/queue.module.js";
+import { GenerationModule } from "../modules/generation/generation.module.js";
+import { SseEventListener } from "./listeners/sse-event.listener.js";
 import { SocialPromoListener } from "./listeners/social-promo.listener.js";
 import { IndexNowListener } from "./listeners/indexnow.listener.js";
 import { IndexNowService } from "../infrastructure/indexnow/indexnow.service.js";

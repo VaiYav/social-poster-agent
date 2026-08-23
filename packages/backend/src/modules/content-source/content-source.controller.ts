@@ -1,6 +1,6 @@
 import { Controller, Get, Query, HttpCode, HttpStatus } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from "@nestjs/swagger";
-import { ContentSourceService } from "./content-source.service";
+import { ContentSourceService } from "./content-source.service.js";
 
 @ApiTags("content-source")
 @Controller("content-source")

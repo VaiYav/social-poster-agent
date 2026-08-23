@@ -30,6 +30,8 @@ export type EngagementAction =
  * Context provided to the LLM when deciding what action to take.
  */
 export interface PostContext {
+  /** Account owning the browsing session, used for scoped policy and cost budgets. */
+  accountId?: string;
   /** The social network the post is on. */
   network: SocialNetwork;
   /** URL of the post being evaluated. */

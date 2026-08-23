@@ -11,9 +11,9 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { ConfigService } from "@nestjs/config";
-import { PostStatus, SocialNetwork } from "../../../src/generated/prisma/client";
+import { PostStatus, SocialNetwork } from "../../../src/generated/prisma/client.js";
 
-import { HealthMonitorService } from "../../../src/modules/health-monitor/health-monitor.service";
+import { HealthMonitorService } from "../../../src/modules/health-monitor/health-monitor.service.js";
 
 function buildService(overrides: Record<string, unknown> = {}) {
   const prisma = {

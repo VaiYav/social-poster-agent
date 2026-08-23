@@ -4,7 +4,7 @@
  * Source: packages/backend/src/infrastructure/redis/redis.module.ts
  */
 import { describe, it, expect, vi } from "vitest";
-import { RedisLifecycleService } from "../../../src/infrastructure/redis/redis.module";
+import { RedisLifecycleService } from "../../../src/infrastructure/redis/redis.module.js";
 
 describe("RedisLifecycleService — P0 1.4 lifecycle", () => {
   it("onModuleDestroy quits all three Redis connections", async () => {

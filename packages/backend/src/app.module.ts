@@ -2,54 +2,60 @@ import { Module, type OnModuleInit, Logger } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { ConfigModule } from "@nestjs/config";
 import { ScheduleModule } from "@nestjs/schedule";
-import { AuthModule } from "./modules/auth/auth.module";
-import { JwtAuthGuard } from "./modules/auth/jwt-auth.guard";
+import { AuthModule } from "./modules/auth/auth.module.js";
+import { JwtAuthGuard } from "./modules/auth/jwt-auth.guard.js";
 import { SentryModule } from "@sentry/nestjs/setup";
-import { validateEnv } from "./infrastructure/config/env.validation";
-import { PrismaModule } from "./infrastructure/prisma/prisma.module";
-import { NotificationsModule } from "./infrastructure/notifications/notifications.module";
-import { AppClsModule } from "./infrastructure/cls/cls.module";
-import { LoggingModule } from "./infrastructure/logging/logging.module";
+import { validateEnv } from "./infrastructure/config/env.validation.js";
+import { PrismaModule } from "./infrastructure/prisma/prisma.module.js";
+import { NotificationsModule } from "./infrastructure/notifications/notifications.module.js";
+import { AppClsModule } from "./infrastructure/cls/cls.module.js";
+import { LoggingModule } from "./infrastructure/logging/logging.module.js";
 import { DomainConfigModule } from "./domain/domain-config/domain-config.module.js";
-import { FiltersModule } from "./infrastructure/filters/filters.module";
-import { CryptoModule } from "./infrastructure/crypto/crypto.module";
-import { HealthModule } from "./modules/health/health.module";
-import { ResilienceModule } from "./modules/resilience/resilience.module";
-import { LinkModule } from "./infrastructure/link/link.module";
-import { PostsModule } from "./modules/posts/posts.module";
-import { GenerationModule } from "./modules/generation/generation.module";
-import { PostingModule } from "./modules/posting/posting.module";
-import { SessionsModule } from "./modules/sessions/sessions.module";
-import { AccountsModule } from "./modules/accounts/accounts.module";
-import { ContentSourceModule } from "./modules/content-source/content-source.module";
-import { BrowserModule } from "./infrastructure/browser/browser.module";
-import { LlmModule } from "./infrastructure/llm/llm.module";
-import { LangfuseModule } from "./infrastructure/langfuse/langfuse.module";
-import { PromptRegistryModule } from "./infrastructure/prompt/prompt-registry.module";
-import { ContentModule } from "./infrastructure/content/content.module";
-import { QueueModule } from "./modules/queue/queue.module";
-import { QueueModule as QueueInfraModule } from "./infrastructure/queue/queue.module";
-import { RateLimitModule } from "./modules/rate-limit/rate-limit.module";
-import { SseApiModule } from "./modules/sse/sse-api.module";
-import { EngagementModule } from "./modules/engagement/engagement.module";
-import { HealthMonitorModule } from "./modules/health-monitor/health-monitor.module";
-import { TrendingModule } from "./modules/trending/trending.module";
-import { AnalyticsModule } from "./modules/analytics/analytics.module";
-import { RecyclingModule } from "./modules/recycling/recycling.module";
-import { QuoteCardModule } from "./modules/quote-cards/quote-card.module";
-import { RepliesModule } from "./modules/replies/replies.module";
-import { FlowControlModule } from "./modules/flow-control/flow-control.module";
-import { AutonomyModule } from "./modules/autonomy/autonomy.module";
-import { CaptchaModule } from "./infrastructure/captcha/captcha.module";
-import { EventsEdaModule } from "./events/events.module";
-import { RedisModule } from "./infrastructure/redis/redis.module";
-import { SseModule } from "./infrastructure/sse/sse.module";
-import { MultiInstanceModule } from "./infrastructure/multi-instance/multi-instance.module";
-import { EmailModule } from "./infrastructure/email/email.module";
-import { OrchestratorModule } from "./modules/orchestrator/orchestrator.module";
+import { FiltersModule } from "./infrastructure/filters/filters.module.js";
+import { CryptoModule } from "./infrastructure/crypto/crypto.module.js";
+import { HealthModule } from "./modules/health/health.module.js";
+import { ResilienceModule } from "./modules/resilience/resilience.module.js";
+import { LinkModule } from "./infrastructure/link/link.module.js";
+import { PostsModule } from "./modules/posts/posts.module.js";
+import { GenerationModule } from "./modules/generation/generation.module.js";
+import { PostingModule } from "./modules/posting/posting.module.js";
+import { SessionsModule } from "./modules/sessions/sessions.module.js";
+import { AccountsModule } from "./modules/accounts/accounts.module.js";
+import { ContentSourceModule } from "./modules/content-source/content-source.module.js";
+import { BrowserModule } from "./infrastructure/browser/browser.module.js";
+import { LlmModule } from "./infrastructure/llm/llm.module.js";
+import { LangfuseModule } from "./infrastructure/langfuse/langfuse.module.js";
+import { PromptRegistryModule } from "./infrastructure/prompt/prompt-registry.module.js";
+import { ContentModule } from "./infrastructure/content/content.module.js";
+import { QueueModule } from "./modules/queue/queue.module.js";
+import { QueueInfraModule } from "./infrastructure/queue/queue.module.js";
+import { RateLimitModule } from "./modules/rate-limit/rate-limit.module.js";
+import { SseApiModule } from "./modules/sse/sse-api.module.js";
+import { EngagementModule } from "./modules/engagement/engagement.module.js";
+import { HealthMonitorModule } from "./modules/health-monitor/health-monitor.module.js";
+import { TrendingModule } from "./modules/trending/trending.module.js";
+import { AnalyticsModule } from "./modules/analytics/analytics.module.js";
+import { RecyclingModule } from "./modules/recycling/recycling.module.js";
+import { QuoteCardModule } from "./modules/quote-cards/quote-card.module.js";
+import { RepliesModule } from "./modules/replies/replies.module.js";
+import { FlowControlModule } from "./modules/flow-control/flow-control.module.js";
+import { AutonomyModule } from "./modules/autonomy/autonomy.module.js";
+import { CaptchaModule } from "./infrastructure/captcha/captcha.module.js";
+import { EventsEdaModule } from "./events/events.module.js";
+import { RedisModule } from "./infrastructure/redis/redis.module.js";
+import { SseModule } from "./infrastructure/sse/sse.module.js";
+import { MultiInstanceModule } from "./infrastructure/multi-instance/multi-instance.module.js";
+import { EmailModule } from "./infrastructure/email/email.module.js";
+import { OrchestratorModule } from "./modules/orchestrator/orchestrator.module.js";
 import { SyndicationModule } from "./modules/syndication/syndication.module.js";
-import { MonitoringController } from "./modules/monitoring/monitoring.controller";
-import { metricsPublisherProviders } from "./modules/monitoring/monitoring.providers";
+import { EvaluationModule } from "./modules/evaluation/evaluation.module.js";
+import { PersonaModule } from "./modules/persona/persona.module.js";
+import { PolicyModule } from "./modules/policy/policy.module.js";
+import { DemandModule } from "./modules/demand/demand.module.js";
+import { MediaModule } from "./modules/media/media.module.js";
+import { CrmModule } from "./modules/crm/crm.module.js";
+import { MonitoringController } from "./modules/monitoring/monitoring.controller.js";
+import { metricsPublisherProviders } from "./modules/monitoring/monitoring.providers.js";
 import { parseBool } from "./infrastructure/config/parse-bool.js";
 
 /**
@@ -134,6 +140,12 @@ const syndicationImports = parseBool(process.env.SYNDICATION_ENABLED)
     TrendingModule, // F22: Trending Topic Detection (domain events calendar)
     EventsEdaModule, // Sprint O: EventEmitter2 for internal domain events
     AnalyticsModule, // Sprint O / F6: Analytics dashboard (read-only, always available)
+    EvaluationModule, // EVAL-501/502: durable review truth and Langfuse reconciliation
+    PersonaModule, // PERSONA-101: immutable persona revisions and AuthorContext
+    PolicyModule, // POLICY-101: fail-closed policy registry and runtime authorizer
+    DemandModule, // INTEL-101: privacy-first demand radar foundation
+    MediaModule, // MEDIA-101: quota-safe image generation boundary
+    CrmModule, // CRM-101: public creator relationships and human-only proposals
     RecyclingModule, // Sprint O / F13: Content recycling (manual trigger)
     ...captchaImports, // Sprint O: Captcha solver — gated by CAPTCHA_SOLVER_ENABLED
     ...quoteCardImports, // Sprint O / F19: Quote cards — gated by QUOTE_CARDS_ENABLED

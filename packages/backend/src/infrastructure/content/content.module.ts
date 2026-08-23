@@ -2,14 +2,14 @@ import { Module } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { ContentReader } from "./content-reader.js";
 import { DbContentReader } from "./db-content-reader.js";
-import { TopicGenerationService } from "./topic-generation.service";
+import { TopicGenerationService } from "./topic-generation.service.js";
 import { ContentAdapterRegistry } from "./adapters/content-adapter.registry.js";
 import { IContentPort } from "../../domain/ports/content.port.js";
 import { CONTENT_ADAPTERS } from "./adapters/content-adapter.interface.js";
 import { buildContentAdapters } from "./adapters/content-adapter.factory.js";
-import { PrismaModule } from "../prisma/prisma.module";
-import { LlmModule } from "../llm/llm.module";
-import { PrismaService } from "../prisma/prisma.service";
+import { PrismaModule } from "../prisma/prisma.module.js";
+import { LlmModule } from "../llm/llm.module.js";
+import { PrismaService } from "../prisma/prisma.service.js";
 
 /**
  * ContentModule — wires the IContentPort adapter.

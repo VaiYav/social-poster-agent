@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ConfigService } from "@nestjs/config";
-import { TargetingService } from "../../../src/modules/engagement/targeting.service";
+import { TargetingService } from "../../../src/modules/engagement/targeting.service.js";
 
 function createMockConfigService(overrides: Record<string, unknown> = {}): ConfigService {
   return {

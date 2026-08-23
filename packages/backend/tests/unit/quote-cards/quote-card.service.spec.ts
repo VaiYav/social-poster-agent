@@ -13,7 +13,7 @@ import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { QuoteCardService } from "../../../src/modules/quote-cards/quote-card.service";
+import { QuoteCardService } from "../../../src/modules/quote-cards/quote-card.service.js";
 
 const OUT_DIR = join(tmpdir(), `spa-qc-test-${Date.now()}`);
 

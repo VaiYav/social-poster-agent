@@ -13,11 +13,11 @@ import { Test, type TestingModule } from "@nestjs/testing";
 import { ConfigModule } from "@nestjs/config";
 import { ScheduleModule } from "@nestjs/schedule";
 import { NotificationsModule } from "../../src/infrastructure/notifications/notifications.module.js";
-import { CommentStatus, SocialNetwork } from "../../src/generated/prisma/client";
+import { CommentStatus, SocialNetwork } from "../../src/generated/prisma/client.js";
 
 import { restoreAllDesignParamtypes } from "../helpers/restore-paramtypes.js";
-import { RepliesModule } from "../../src/modules/replies/replies.module";
-import { RepliesMonitorService } from "../../src/modules/replies/replies-monitor.service";
+import { RepliesModule } from "../../src/modules/replies/replies.module.js";
+import { RepliesMonitorService } from "../../src/modules/replies/replies-monitor.service.js";
 import { DialogueService } from "../../src/modules/replies/dialogue.service.js";
 import { QuestionClassifierService } from "../../src/modules/replies/question-classifier.service.js";
 import { CommentSafetyClassifierService } from "../../src/modules/replies/comment-safety-classifier.service.js";
@@ -25,7 +25,7 @@ import { ToneAnalyzerService } from "../../src/modules/replies/tone-analyzer.ser
 
 import { ILlmPort, type LlmResponse } from "../../src/domain/ports/llm.port.js";
 import { IBrowserPort } from "../../src/domain/ports/browser.port.js";
-import { PrismaService } from "../../src/infrastructure/prisma/prisma.service";
+import { PrismaService } from "../../src/infrastructure/prisma/prisma.service.js";
 import {
   SHARED_REDIS,
   SHARED_REDIS_SUBSCRIBER,
@@ -34,12 +34,12 @@ import {
 import { QueueFactory } from "../../src/infrastructure/queue/queue.factory.js";
 import { SseService } from "../../src/infrastructure/sse/sse.service.js";
 import { DiscordNotificationService } from "../../src/infrastructure/notifications/discord-notification.service.js";
-import { AccountsService } from "../../src/modules/accounts/accounts.service";
-import { SessionsService } from "../../src/modules/sessions/sessions.service";
+import { AccountsService } from "../../src/modules/accounts/accounts.service.js";
+import { SessionsService } from "../../src/modules/sessions/sessions.service.js";
 import { EngagementService } from "../../src/modules/engagement/engagement.service.js";
 import { FlowControlService } from "../../src/modules/flow-control/flow-control.service.js";
-import { LlmService } from "../../src/infrastructure/llm/llm.service";
-import { BrowserFactory } from "../../src/infrastructure/browser/browser.factory";
+import { LlmService } from "../../src/infrastructure/llm/llm.service.js";
+import { BrowserFactory } from "../../src/infrastructure/browser/browser.factory.js";
 
 import {
   createMockPrismaService,

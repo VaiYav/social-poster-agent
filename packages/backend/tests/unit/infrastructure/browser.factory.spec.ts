@@ -29,7 +29,7 @@ vi.mock("camoufox-js", () => ({
   Camoufox: mocks.camoufoxLaunch,
 }));
 
-import { BrowserFactory } from "../../../src/infrastructure/browser/browser.factory";
+import { BrowserFactory } from "../../../src/infrastructure/browser/browser.factory.js";
 
 // ── Helpers ──
 
@@ -156,6 +156,21 @@ describe("BrowserFactory", () => {
     expect(ctx).toBeDefined();
     // newContext should NOT be called for Facebook (persistent context)
     expect(mocks.browserNewContext).not.toHaveBeenCalled();
+  });
+
+  it("ACCOUNT-102: same-network accounts receive separate persistent profiles", async () => {
+    const accountA = await factory.createContext("FACEBOOK", undefined, "account-a");
+    const accountB = await factory.createContext("FACEBOOK", undefined, "account-b");
+
+    expect(accountA).not.toBe(accountB);
+    expect(mocks.camoufoxLaunch).toHaveBeenCalledTimes(2);
+    const profilePaths = mocks.camoufoxLaunch.mock.calls.map(
+      ([options]) => (options as { user_data_dir: string }).user_data_dir,
+    );
+    expect(profilePaths).toEqual([
+      expect.stringContaining("facebook/account-a"),
+      expect.stringContaining("facebook/account-b"),
+    ]);
   });
 
   it("UTC-401b: concurrent createContext(FACEBOOK) → single Camoufox launch, shared context (P5 race)", async () => {

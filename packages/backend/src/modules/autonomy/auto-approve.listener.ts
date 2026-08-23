@@ -23,11 +23,11 @@ import { Injectable, Logger, Inject } from "@nestjs/common";
 import { OnEvent } from "@nestjs/event-emitter";
 import { ModuleRef } from "@nestjs/core";
 import { ConfigService } from "@nestjs/config";
-import { PostStatus, SocialNetwork } from "../../generated/prisma/client";
+import { PostStatus, SocialNetwork } from "../../generated/prisma/client.js";
 import type { JudgeScores } from "@spa/shared";
 import { IPostingQueuePort } from "../../domain/ports/posting-queue.port.js";
-import { PrismaService } from "../../infrastructure/prisma/prisma.service";
-import { PostEvents } from "../../events/enums/post-events.enum";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { PostEvents } from "../../events/enums/post-events.enum.js";
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
 
 @Injectable()
@@ -67,6 +67,7 @@ export class AutoApproveListener {
       const post = await this.prisma.post.findUnique({
         where: { id: payload.postId },
         select: {
+          accountId: true,
           content: true,
           network: true,
           status: true,
@@ -119,7 +120,7 @@ export class AutoApproveListener {
           );
         } else {
           // Enqueue to BullMQ posting queue — same lazy resolution as PostsController
-          await this.enqueueForPosting(payload.postId, post.network as string);
+          await this.enqueueForPosting(payload.postId, post.network as string, post.accountId);
           this.logger.log(`Auto-approved post ${payload.postId} (${post.network}) — enqueued`);
         }
       } else {
@@ -134,10 +135,19 @@ export class AutoApproveListener {
     }
   }
 
-  private async enqueueForPosting(postId: string, network: string): Promise<void> {
+  private async enqueueForPosting(
+    postId: string,
+    network: string,
+    accountId: string,
+  ): Promise<void> {
     try {
       // A5: enqueue via IPostingQueuePort (no ModuleRef hack for the queue).
-      await this.postingQueue.enqueuePosting(postId, network as SocialNetwork);
+      await this.postingQueue.enqueuePosting(
+        postId,
+        network as SocialNetwork,
+        undefined,
+        accountId,
+      );
       this.logger.log(`Auto-approved post ${postId} enqueued for ${network}`);
     } catch (err) {
       this.logger.error(

@@ -4,7 +4,7 @@
  * Source: packages/backend/src/modules/posts/network-limits.ts
  */
 import { describe, it, expect } from "vitest";
-import { SocialNetwork } from "../../../src/generated/prisma/client";
+import { SocialNetwork } from "../../../src/generated/prisma/client.js";
 
 import { checkContentLength, NETWORK_LIMITS } from "../../../src/modules/posts/network-limits.js";
 

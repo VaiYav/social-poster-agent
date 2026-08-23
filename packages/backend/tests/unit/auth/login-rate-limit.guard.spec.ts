@@ -4,7 +4,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { HttpException, type ExecutionContext } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { LoginRateLimitGuard } from "../../../src/modules/auth/login-rate-limit.guard";
+import { LoginRateLimitGuard } from "../../../src/modules/auth/login-rate-limit.guard.js";
 
 function cfg(values: Record<string, string | number> = {}): ConfigService {
   return { get: vi.fn((k: string, d?: unknown) => values[k] ?? d) } as unknown as ConfigService;

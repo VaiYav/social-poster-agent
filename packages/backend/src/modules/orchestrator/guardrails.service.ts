@@ -7,7 +7,7 @@
 
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import type { SocialNetwork } from "../../generated/prisma/client";
+import type { SocialNetwork } from "../../generated/prisma/client.js";
 import { getEnabledNetworks } from "../../domain/enabled-networks.js";
 import { NetworkSelector } from "./network-selector.js";
 import type { WorldState, Action } from "./types.js";

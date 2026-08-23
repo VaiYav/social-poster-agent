@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { QueueFactory } from "../../infrastructure/queue/queue.factory";
-import { SocialNetwork } from "../../generated/prisma/client";
+import { QueueFactory } from "../../infrastructure/queue/queue.factory.js";
+import { SocialNetwork } from "../../generated/prisma/client.js";
 import type { Job } from "bullmq";
 
 /**
@@ -38,8 +38,9 @@ export class QueueService {
     postId: string,
     network: SocialNetwork,
     opts?: { delay?: number },
+    accountId?: string,
   ): Promise<void> {
-    await this.queueFactory.enqueuePosting(postId, network, opts);
+    await this.queueFactory.enqueuePosting(postId, network, opts, accountId);
   }
 
   async getJobCounts(network: SocialNetwork) {

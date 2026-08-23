@@ -9,7 +9,7 @@ import { NestFactory } from "@nestjs/core";
 import { ValidationPipe, Logger, type INestApplication } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
-import { AppModule } from "./app.module";
+import { AppModule } from "./app.module.js";
 
 // Held so the process-level handlers can shut the app down gracefully.
 let app: INestApplication | undefined;

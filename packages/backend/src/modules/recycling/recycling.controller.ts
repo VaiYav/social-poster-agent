@@ -3,8 +3,8 @@
  */
 import { Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiResponse } from "@nestjs/swagger";
-import { RecyclingService } from "./recycling.service";
-import { LocalhostGuard } from "../../infrastructure/guards/localhost.guard";
+import { RecyclingService } from "./recycling.service.js";
+import { LocalhostGuard } from "../../infrastructure/guards/localhost.guard.js";
 
 @ApiTags("recycling")
 @Controller("recycling")

@@ -71,4 +71,42 @@ jobs:
         # `pnpm test` -> `vitest run` in @spa/backend = the full layered suite.
         # External I/O (Prisma, Redis, browser) is mocked, so no Postgres/Redis
         # services and no secrets are required.
-        run: pnpm test
+        #
+        # HARDEN-001/CI-001: run with `--coverage` so the thresholds configured in
+        # vitest.config.mts (statements/functions/lines 80%, branches 75%) are
+        # actually ENFORCED here — before this change a coverage regression could
+        # pass CI silently because the thresholds were never evaluated.
+        run: pnpm --filter @spa/backend test:coverage
+
+  ui:
+    name: UI typecheck + vitest suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (vue-tsc)
+        # Mirrors the backend "vitest does not typecheck" rule: `vue-tsc --noEmit`
+        # is what `pnpm build` runs, so it must pass on its own.
+        run: pnpm --filter @spa/ui type-check
+
+      - name: UI test suite
+        # HARDEN-001/CI-001: the 24-file packages/ui suite (components, stores,
+        # views, composables) never ran in CI before; jsdom-based, fully mocked,
+        # no backend needed. Playwright e2e stays out of CI for now (needs
+        # browsers + Vite dev server) — tracked as a follow-up.
+        run: pnpm --filter @spa/ui test

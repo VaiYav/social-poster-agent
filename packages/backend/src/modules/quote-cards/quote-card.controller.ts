@@ -14,8 +14,8 @@ import {
   BadRequestException,
 } from "@nestjs/common";
 import type { Response } from "express";
-import { QuoteCardService } from "./quote-card.service";
-import { LocalhostGuard } from "../../infrastructure/guards/localhost.guard";
+import { QuoteCardService } from "./quote-card.service.js";
+import { LocalhostGuard } from "../../infrastructure/guards/localhost.guard.js";
 import { promises as fs } from "fs";
 import { resolve, relative } from "path";
 

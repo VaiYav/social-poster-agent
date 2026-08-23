@@ -2,7 +2,7 @@
  * Sprint O: Proxy Module — provides ProxyRotationService.
  */
 import { Module } from "@nestjs/common";
-import { ProxyRotationService } from "./proxy-rotation.service";
+import { ProxyRotationService } from "./proxy-rotation.service.js";
 
 @Module({
   providers: [ProxyRotationService],

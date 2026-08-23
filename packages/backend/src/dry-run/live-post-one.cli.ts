@@ -5,9 +5,9 @@
 
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
-import { AppModule } from "../app.module";
-import { PostingService } from "../modules/posting/posting.service";
-import { PostsService } from "../modules/posts/posts.service";
+import { AppModule } from "../app.module.js";
+import { PostingService } from "../modules/posting/posting.service.js";
+import { PostsService } from "../modules/posts/posts.service.js";
 
 async function main(): Promise<void> {
   const postId = process.argv[2];

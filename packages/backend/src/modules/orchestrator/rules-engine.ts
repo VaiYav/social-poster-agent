@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { SocialNetwork } from "../../generated/prisma/client";
+import { SocialNetwork } from "../../generated/prisma/client.js";
 import { NetworkSelector } from "./network-selector.js";
 import type { WorldState, Action } from "./types.js";
 import { WAIT_ACTION } from "./types.js";

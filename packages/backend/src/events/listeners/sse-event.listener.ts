@@ -21,8 +21,8 @@ import type {
   PostFailedEvent,
   OrchestratorCycleEndEvent,
 } from "@spa/shared";
-import { SseService } from "../../infrastructure/sse/sse.service";
-import { PostEvents, OrchestratorEvents } from "../enums/post-events.enum";
+import { SseService } from "../../infrastructure/sse/sse.service.js";
+import { PostEvents, OrchestratorEvents } from "../enums/post-events.enum.js";
 
 @Injectable()
 export class SseEventListener {

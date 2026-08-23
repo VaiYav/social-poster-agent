@@ -16,11 +16,11 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ConfigService } from "@nestjs/config";
-import { QueueFactory } from "../../../src/infrastructure/queue/queue.factory";
-import { BrowserFactory } from "../../../src/infrastructure/browser/browser.factory";
-import { SseService } from "../../../src/infrastructure/sse/sse.service";
-import { PrismaService } from "../../../src/infrastructure/prisma/prisma.service";
-import { RateLimitService } from "../../../src/modules/rate-limit/rate-limit.service";
+import { QueueFactory } from "../../../src/infrastructure/queue/queue.factory.js";
+import { BrowserFactory } from "../../../src/infrastructure/browser/browser.factory.js";
+import { SseService } from "../../../src/infrastructure/sse/sse.service.js";
+import { PrismaService } from "../../../src/infrastructure/prisma/prisma.service.js";
+import { RateLimitService } from "../../../src/modules/rate-limit/rate-limit.service.js";
 import { RedisCheckpointSaver } from "../../../src/infrastructure/checkpoint/redis-checkpoint.js";
 
 function createMockConfigService(overrides: Record<string, unknown> = {}): ConfigService {

@@ -5,10 +5,13 @@
  * Source: packages/backend/src/modules/orchestrator/state-collector.service.ts
  */
 import { describe, expect, it, vi } from "vitest";
-import { SessionStatus, SocialNetwork } from "../../../src/generated/prisma/client";
+import { SessionStatus, SocialNetwork } from "../../../src/generated/prisma/client.js";
 import { StateCollectorService } from "../../../src/modules/orchestrator/state-collector.service.js";
 
-function buildService(prismaOverrides: Record<string, unknown>): StateCollectorService {
+function buildService(
+  prismaOverrides: Record<string, unknown>,
+  dependencyOverrides: Record<string, unknown> = {},
+): StateCollectorService {
   const configService = {
     get: vi.fn().mockReturnValue("30"),
   } as unknown as import("@nestjs/config").ConfigService;
@@ -24,9 +27,9 @@ function buildService(prismaOverrides: Record<string, unknown>): StateCollectorS
     prisma,
     configService,
     {} as never, // redis
-    {} as never, // rateLimitService
-    {} as never, // flowControlService
-    {} as never, // queueFactory
+    (dependencyOverrides.rateLimitService ?? {}) as never,
+    (dependencyOverrides.flowControlService ?? {}) as never,
+    (dependencyOverrides.queueFactory ?? {}) as never,
     {} as never, // accountsService
   );
 }
@@ -54,10 +57,12 @@ describe("collectFleet — M1.1 multi-account WorldState", () => {
   it("aggregates best case across accounts: one healthy account keeps the network closed", async () => {
     const svc = buildService({
       socialAccount: {
-        findMany: vi.fn().mockResolvedValue([
-          account({ id: "acc-a", handle: "healthy" }),
-          account({ id: "acc-b", handle: "failing", priority: -1 }),
-        ]),
+        findMany: vi
+          .fn()
+          .mockResolvedValue([
+            account({ id: "acc-a", handle: "healthy" }),
+            account({ id: "acc-b", handle: "failing", priority: -1 }),
+          ]),
       },
       session: {
         findMany: vi.fn().mockResolvedValue([
@@ -106,10 +111,12 @@ describe("collectFleet — M1.1 multi-account WorldState", () => {
     const makeSvc = (posts: Array<{ accountId: string; status: string }>) =>
       buildService({
         socialAccount: {
-          findMany: vi.fn().mockResolvedValue([
-            account({ id: "acc-a", handle: "a" }),
-            account({ id: "acc-b", handle: "b" }),
-          ]),
+          findMany: vi
+            .fn()
+            .mockResolvedValue([
+              account({ id: "acc-a", handle: "a" }),
+              account({ id: "acc-b", handle: "b" }),
+            ]),
         },
         session: { findMany: vi.fn().mockResolvedValue([]) },
         post: { findMany: vi.fn().mockResolvedValue(posts) },
@@ -172,7 +179,12 @@ describe("collectFleet — M1.1 multi-account WorldState", () => {
     const svc = buildService({
       socialAccount: {
         findMany: vi.fn().mockResolvedValue([
-          account({ id: "acc-w", handle: "warming", warmupEnabled: true, warmupStartedAt: threeDaysAgo }),
+          account({
+            id: "acc-w",
+            handle: "warming",
+            warmupEnabled: true,
+            warmupStartedAt: threeDaysAgo,
+          }),
         ]),
       },
       session: { findMany: vi.fn().mockResolvedValue([]) },
@@ -182,5 +194,79 @@ describe("collectFleet — M1.1 multi-account WorldState", () => {
     const fleet = await (svc as any).collectFleet(["X"]);
     expect(fleet.accounts.accounts["X:warming"].warmupEnabled).toBe(true);
     expect(fleet.accounts.accounts["X:warming"].warmupDay).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("collectQueueDepth and collectRateLimits — account isolation", () => {
+  const twoAccounts = [
+    account({ id: "acc-a", handle: "a" }),
+    account({ id: "acc-b", handle: "b" }),
+  ];
+
+  it("keeps queue depth separate for two accounts on one network", async () => {
+    const queueFactory = {
+      getJobCounts: vi.fn((_network: string, _action: string, accountId?: string) =>
+        Promise.resolve(
+          accountId === undefined
+            ? { waiting: 1, active: 1, delayed: 1 }
+            : accountId === "acc-a"
+              ? { waiting: 1, active: 1, delayed: 0 }
+              : { waiting: 0, active: 0, delayed: 1 },
+        ),
+      ),
+    };
+    const svc = buildService(
+      { socialAccount: { findMany: vi.fn().mockResolvedValue(twoAccounts) } },
+      { queueFactory },
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const snapshot = await (svc as any).collectQueueDepth([SocialNetwork.X]);
+
+    expect(snapshot.byNetwork).toEqual({ X: 3 });
+    expect(snapshot.byAccount).toEqual({ "X:acc-a": 2, "X:acc-b": 1 });
+    expect(queueFactory.getJobCounts).toHaveBeenCalledWith("X", "posting", "acc-a");
+    expect(queueFactory.getJobCounts).toHaveBeenCalledWith("X", "posting", "acc-b");
+  });
+
+  it("keeps rate-limit snapshots separate and aggregates network capacity", async () => {
+    const rateLimitService = {
+      getStatus: vi.fn((_network: string, accountId?: string) =>
+        Promise.resolve({
+          dailyCount: accountId === "acc-a" ? 1 : 0,
+          dailyLimit: 2,
+          weeklyCount: accountId === "acc-a" ? 2 : 0,
+          weeklyLimit: 5,
+          minIntervalMs: 300_000,
+          lastPostAt: accountId === "acc-a" ? NOW : null,
+        }),
+      ),
+    };
+    const svc = buildService(
+      { socialAccount: { findMany: vi.fn().mockResolvedValue(twoAccounts) } },
+      { rateLimitService },
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const snapshot = await (svc as any).collectRateLimits([SocialNetwork.X]);
+
+    expect(snapshot.byAccount["X:acc-a"]).toMatchObject({
+      dailyRemaining: 1,
+      weeklyRemaining: 3,
+      lastPostMs: NOW,
+    });
+    expect(snapshot.byAccount["X:acc-b"]).toMatchObject({
+      dailyRemaining: 2,
+      weeklyRemaining: 5,
+    });
+    expect(snapshot.byNetwork.X).toMatchObject({
+      dailyRemaining: 3,
+      weeklyRemaining: 8,
+      dailyLimit: 4,
+      weeklyLimit: 10,
+      lastPostMs: NOW,
+    });
+    expect(rateLimitService.getStatus).toHaveBeenCalledWith("X", "acc-a");
+    expect(rateLimitService.getStatus).toHaveBeenCalledWith("X", "acc-b");
   });
 });

@@ -17,8 +17,8 @@ import { EventEmitter } from "node:events";
 import { createMockSseService } from "../mocks/index.js";
 import { createControllerTestingModule } from "../helpers/nest.js";
 import { defineParamtypes, restoreAllDesignParamtypes } from "../helpers/restore-paramtypes.js";
-import { SseController } from "../../src/modules/sse/sse.controller";
-import { SseService } from "../../src/infrastructure/sse/sse.service";
+import { SseController } from "../../src/modules/sse/sse.controller.js";
+import { SseService } from "../../src/infrastructure/sse/sse.service.js";
 
 // vitest transpiles via esbuild which does NOT emit `design:paramtypes` metadata,
 // so NestJS DI-by-type fails. We attach it explicitly to the controller class.

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { ContentTopic } from "@spa/shared";
-import { PrismaService } from "../prisma/prisma.service";
+import { PrismaService } from "../prisma/prisma.service.js";
 import type { IContentAdapter } from "./adapters/content-adapter.interface.js";
 
 /**

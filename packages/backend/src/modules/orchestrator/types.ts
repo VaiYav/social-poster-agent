@@ -5,7 +5,7 @@
  * (OBSERVE → DECIDE → EXECUTE → EVALUATE) and the services they call.
  */
 
-import type { SocialNetwork, SessionStatus } from "../../generated/prisma/client";
+import type { SocialNetwork, SessionStatus } from "../../generated/prisma/client.js";
 
 // ── World State (collected by OBSERVE node) ────────────────────────────────
 
@@ -134,10 +134,14 @@ export interface WorldState {
   topicPool: TopicPoolState;
   drafts: DraftCounts;
   queueDepth: Record<string, number>;
+  /** Account-scoped queue depth keyed by `${network}:${accountId}`. */
+  queueDepthByAccount?: Record<string, number>;
 
   // Sessions + rate limits
   sessions: Record<string, SessionState>;
   rateLimits: Record<string, RateLimitState>;
+  /** Account-scoped rate-limit snapshots keyed by `${network}:${accountId}`. */
+  rateLimitsByAccount?: Record<string, RateLimitState>;
   /** M1.1: per-account runtime detail (key `${network}:${handle}`). */
   accounts: AccountsState;
 

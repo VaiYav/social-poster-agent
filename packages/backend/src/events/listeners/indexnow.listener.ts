@@ -8,7 +8,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { OnEvent } from "@nestjs/event-emitter";
 import { ConfigService } from "@nestjs/config";
-import { IndexNowService } from "../../infrastructure/indexnow/indexnow.service";
+import { IndexNowService } from "../../infrastructure/indexnow/indexnow.service.js";
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
 import type { PostVerifiedEvent } from "../post-verified.event.js";
 

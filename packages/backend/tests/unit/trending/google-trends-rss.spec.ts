@@ -1,11 +1,11 @@
 /**
  * TR1: parseGoogleTrendsRss() unit tests.
  *
- * Source: packages/backend/src/modules/trending/google-trends-rss.ts
+ * Source: packages/backend/src/infrastructure/content/google-trends-rss.ts
  */
 import { describe, it, expect } from "vitest";
 
-import { parseGoogleTrendsRss } from "../../../src/modules/trending/google-trends-rss.js";
+import { parseGoogleTrendsRss } from "../../../src/infrastructure/content/google-trends-rss.js";
 
 const RSS = `<?xml version="1.0"?>
 <rss version="2.0" xmlns:ht="https://trends.google.com/trends/trendingsearches/daily">

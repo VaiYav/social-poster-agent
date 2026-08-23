@@ -3,7 +3,7 @@ import IORedis from "ioredis";
 import { ConfigService } from "@nestjs/config";
 import { SHARED_REDIS } from "../redis/redis.module.js";
 
-export type BudgetScope = "orchestrator" | "generation";
+export type BudgetScope = "orchestrator" | "generation" | "account_daily";
 
 interface BudgetConfig {
   tokenBudget: number; // 0 = unlimited
@@ -48,6 +48,10 @@ export class TokenBudgetService {
       generation: {
         tokenBudget: this.readNumber("GENERATION_TOKEN_BUDGET_PER_RUN"),
         costBudget: this.readNumber("GENERATION_COST_BUDGET_PER_RUN"),
+      },
+      account_daily: {
+        tokenBudget: 0,
+        costBudget: this.readNumber("LLM_DAILY_BUDGET_PER_ACCOUNT_USD"),
       },
     };
   }
@@ -123,21 +127,47 @@ export class TokenBudgetService {
     const config = this.budgets[scope];
     const { tokenKey, costKey, ttl } = this.makeKeys(scope, runId);
 
-    const multi = this.redis.multi();
-    if (config.tokenBudget > 0) multi.incrby(tokenKey, tokenDelta);
-    if (config.costBudget > 0) multi.incrbyfloat(costKey, costDelta);
-    if (config.tokenBudget > 0) multi.expire(tokenKey, ttl);
-    if (config.costBudget > 0) multi.expire(costKey, ttl);
-
-    const results = await multi.exec();
-    // index 0/1 are the increments
-    const tokenAfter = config.tokenBudget > 0 ? Number(results?.[0]?.[1] ?? 0) : 0;
-    const costAfter = config.costBudget > 0 ? Number(results?.[1]?.[1] ?? 0) : 0;
+    // A MULTI increment-then-check can overshoot under concurrent callers.
+    // Evaluate the check and write in one Redis operation instead.
+    const rawResult = await this.redis.eval(
+      `local token_before = tonumber(redis.call('GET', KEYS[1]) or '0')
+       local cost_before = tonumber(redis.call('GET', KEYS[2]) or '0')
+       local token_after = token_before + tonumber(ARGV[1])
+       local cost_after = cost_before + tonumber(ARGV[2])
+       local token_limit = tonumber(ARGV[3])
+       local cost_limit = tonumber(ARGV[4])
+       local enforce = tonumber(ARGV[5])
+       if enforce == 1 and ((token_limit > 0 and token_after > token_limit) or (cost_limit > 0 and cost_after > cost_limit)) then
+         return {0, token_before, cost_before}
+       end
+       if token_limit > 0 then redis.call('SET', KEYS[1], token_after, 'EX', ARGV[6]) end
+       if cost_limit > 0 then redis.call('SET', KEYS[2], cost_after, 'EX', ARGV[6]) end
+       return {1, token_after, cost_after}`,
+      2,
+      tokenKey,
+      costKey,
+      tokenDelta,
+      costDelta,
+      config.tokenBudget,
+      config.costBudget,
+      enforce ? 1 : 0,
+      ttl,
+    );
+    if (!Array.isArray(rawResult) || rawResult.length < 3) {
+      throw new Error("Token budget Redis script returned an invalid result");
+    }
+    const allowedFlag = Number(rawResult[0]);
+    const tokenAfter = Number(rawResult[1]);
+    const costAfter = Number(rawResult[2]);
+    if (![allowedFlag, tokenAfter, costAfter].every(Number.isFinite)) {
+      throw new Error("Token budget Redis script returned non-numeric usage");
+    }
+    const allowed = allowedFlag === 1;
 
     const tokenAllowed = config.tokenBudget <= 0 || tokenAfter <= config.tokenBudget;
     const costAllowed = config.costBudget <= 0 || costAfter <= config.costBudget;
 
-    if (enforce && (!tokenAllowed || !costAllowed)) {
+    if (enforce && !allowed) {
       this.logger.warn(
         `${scope}${runId ? ` run ${runId}` : ""} budget exceeded ` +
           `(tokens ${tokenAfter}/${config.tokenBudget}, cost ${costAfter.toFixed(4)}/${config.costBudget.toFixed(4)})`,
@@ -165,6 +195,14 @@ export class TokenBudgetService {
         tokenKey: `spa:llm:run:${runId}:tokens`,
         costKey: `spa:llm:run:${runId}:cost`,
         ttl: 24 * 60 * 60,
+      };
+    }
+    if (scope === "account_daily" && runId) {
+      const day = new Date().toISOString().slice(0, 10);
+      return {
+        tokenKey: `spa:llm:account:${runId}:day:${day}:tokens`,
+        costKey: `spa:llm:account:${runId}:day:${day}:cost`,
+        ttl: 2 * 24 * 60 * 60,
       };
     }
     const now = new Date();

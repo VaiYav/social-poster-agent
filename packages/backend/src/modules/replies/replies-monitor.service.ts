@@ -30,9 +30,9 @@ import { ConfigService } from "@nestjs/config";
 import { SchedulerRegistry } from "@nestjs/schedule";
 import { CronJob } from "cron";
 import IORedis from "ioredis";
-import { PrismaService } from "../../infrastructure/prisma/prisma.service";
-import { AccountsService } from "../accounts/accounts.service";
-import { SessionsService } from "../sessions/sessions.service";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { AccountsService } from "../accounts/accounts.service.js";
+import { SessionsService } from "../sessions/sessions.service.js";
 import { IBrowserPort } from "../../domain/ports/browser.port.js";
 import { buildCommentId } from "./comment-id.js";
 import { detectSensitive, isLikelyTroll, isLowValueComment } from "./sensitive-filter.js";
@@ -44,8 +44,8 @@ import { EngagementService } from "../engagement/engagement.service.js";
 import { QueueFactory } from "../../infrastructure/queue/queue.factory.js";
 import { FlowControlService } from "../flow-control/flow-control.service.js";
 import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
-import { PostStatus, SocialNetwork, CommentStatus } from "../../generated/prisma/client";
-import type { IncomingComment } from "../../generated/prisma/client";
+import { PostStatus, SocialNetwork, CommentStatus } from "../../generated/prisma/client.js";
+import type { IncomingComment } from "../../generated/prisma/client.js";
 import type { Locator, Page } from "../../domain/ports/browser-primitives.js";
 import { IPromptPort } from "../../domain/ports/prompt.port.js";
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
@@ -710,9 +710,7 @@ export class RepliesMonitorService implements OnModuleInit {
         : normalizeHandle(comment.author ?? "");
       if (commentHandle) {
         const normalized = commentHandle.toLowerCase().trim();
-        const ownAccount = accounts.find(
-          (a) => a.handle.toLowerCase().trim() === normalized,
-        );
+        const ownAccount = accounts.find((a) => a.handle.toLowerCase().trim() === normalized);
         if (ownAccount) {
           return { action: "skip", reason: "Self-reply skipped (own account)" };
         }

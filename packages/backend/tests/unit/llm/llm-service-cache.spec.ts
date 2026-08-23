@@ -5,7 +5,7 @@
  * Sprint J: cache key must include provider/model/temperature/maxTokens/role.
  */
 import { describe, it, expect, vi } from "vitest";
-import { LlmService } from "../../../src/infrastructure/llm/llm.service";
+import { LlmService } from "../../../src/infrastructure/llm/llm.service.js";
 
 function createConfigService(overrides: Record<string, unknown> = {}) {
   return {

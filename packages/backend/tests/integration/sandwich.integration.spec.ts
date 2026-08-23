@@ -34,20 +34,26 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from "vites
 import { Test } from "@nestjs/testing";
 import type { TestingModule } from "@nestjs/testing";
 import { ConfigService } from "@nestjs/config";
-import { PostStatus, SessionStatus, SocialNetwork } from "../../src/generated/prisma/client";
+import { PostStatus, SessionStatus, SocialNetwork } from "../../src/generated/prisma/client.js";
 
-import { PostingService } from "../../src/modules/posting/posting.service";
-import { ThreadProgressService } from "../../src/modules/posting/thread-progress.service";
-import { SessionsService } from "../../src/modules/sessions/sessions.service";
-import { WarmupService } from "../../src/modules/sessions/warmup.service";
-import { PostsService } from "../../src/modules/posts/posts.service";
-import { AccountsService } from "../../src/modules/accounts/accounts.service";
-import { RateLimitService } from "../../src/modules/rate-limit/rate-limit.service";
-import { SseService } from "../../src/infrastructure/sse/sse.service";
-import { XPoster } from "../../src/modules/posting/posters/x.poster";
-import { ThreadsPoster } from "../../src/modules/posting/posters/threads.poster";
-import { FacebookPoster } from "../../src/modules/posting/posters/facebook.poster";
-import { PrismaService } from "../../src/infrastructure/prisma/prisma.service";
+import { PostingService } from "../../src/modules/posting/posting.service.js";
+import { PostingGuardChain } from "../../src/modules/posting/posting-guards.service.js";
+import { PostingDispatcher } from "../../src/modules/posting/poster-registry.service.js";
+import { PostVerificationService } from "../../src/modules/posting/post-verification.service.js";
+import { ThreadOrchestrator } from "../../src/modules/posting/thread-posting.service.js";
+import { PostSideEffectsService } from "../../src/modules/posting/post-side-effects.service.js";
+import { CtaAttributionService } from "../../src/modules/posting/cta-attribution.service.js";
+import { ThreadProgressService } from "../../src/modules/posting/thread-progress.service.js";
+import { SessionsService } from "../../src/modules/sessions/sessions.service.js";
+import { WarmupService } from "../../src/modules/sessions/warmup.service.js";
+import { PostsService } from "../../src/modules/posts/posts.service.js";
+import { AccountsService } from "../../src/modules/accounts/accounts.service.js";
+import { RateLimitService } from "../../src/modules/rate-limit/rate-limit.service.js";
+import { SseService } from "../../src/infrastructure/sse/sse.service.js";
+import { XPoster } from "../../src/modules/posting/posters/x.poster.js";
+import { ThreadsPoster } from "../../src/modules/posting/posters/threads.poster.js";
+import { FacebookPoster } from "../../src/modules/posting/posters/facebook.poster.js";
+import { PrismaService } from "../../src/infrastructure/prisma/prisma.service.js";
 import { EncryptionService } from "../../src/infrastructure/crypto/encryption.service.js";
 import { DiscordNotificationService } from "../../src/infrastructure/notifications/discord-notification.service.js";
 import { IBrowserPort } from "../../src/domain/ports/browser.port.js";
@@ -63,7 +69,7 @@ import {
   SHARED_REDIS,
   SHARED_REDIS_SUBSCRIBER,
   SHARED_REDIS_PUBLISHER,
-} from "../../src/infrastructure/redis/redis.module";
+} from "../../src/infrastructure/redis/redis.module.js";
 
 // ── ioredis mock (hoisted) ───────────────────────────────────────────────────
 // A real Map-backed store so RateLimitService.checkRateLimit / recordPost
@@ -482,6 +488,13 @@ async function buildTestingModule(
     providers: [
       // Real service classes — real DI wiring
       PostingService,
+      // REFACTOR-103 collaborators
+      PostingGuardChain,
+      PostingDispatcher,
+      PostVerificationService,
+      ThreadOrchestrator,
+      PostSideEffectsService,
+      CtaAttributionService,
       SessionsService,
       WarmupService,
       PostsService,

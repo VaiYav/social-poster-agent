@@ -41,6 +41,16 @@ const router = createRouter({
       component: () => import("../views/Sessions.vue"),
     },
     {
+      path: "/accounts",
+      name: "accounts",
+      component: () => import("../views/Accounts.vue"),
+    },
+    {
+      path: "/creators",
+      name: "creators",
+      component: () => import("../views/CreatorRelationships.vue"),
+    },
+    {
       path: "/analytics",
       name: "analytics",
       component: () => import("../views/Analytics.vue"),
@@ -79,6 +89,36 @@ const router = createRouter({
       path: "/replies",
       name: "replies",
       component: () => import("../views/Replies.vue"),
+    },
+    {
+      path: "/suggestions",
+      name: "suggestions",
+      component: () => import("../views/EngagementSuggestions.vue"),
+    },
+    {
+      path: "/demand",
+      name: "demand",
+      component: () => import("../views/DemandRadar.vue"),
+    },
+    {
+      path: "/grounding",
+      name: "grounding",
+      component: () => import("../views/GroundingReview.vue"),
+    },
+    {
+      path: "/personas",
+      name: "personas",
+      component: () => import("../views/PersonaManagement.vue"),
+    },
+    {
+      path: "/reputation",
+      name: "reputation",
+      component: () => import("../views/ReputationSafety.vue"),
+    },
+    {
+      path: "/policy-registry",
+      name: "policy-registry",
+      component: () => import("../views/PolicyRegistry.vue"),
     },
     {
       path: "/autonomous-agent",

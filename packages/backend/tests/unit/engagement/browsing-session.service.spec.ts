@@ -11,8 +11,8 @@
  * pool via `finally`, leaking one open Page per failed session.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { SocialNetwork } from "../../../src/generated/prisma/client";
-import { BrowsingSessionService } from "../../../src/modules/engagement/browsing-session.service";
+import { SocialNetwork } from "../../../src/generated/prisma/client.js";
+import { BrowsingSessionService } from "../../../src/modules/engagement/browsing-session.service.js";
 import {
   createMockPrismaService,
   createMockSseService,

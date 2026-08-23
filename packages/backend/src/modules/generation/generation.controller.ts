@@ -10,9 +10,9 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from "@nestjs/swagger";
-import { GenerationService } from "./generation.service";
+import { GenerationService } from "./generation.service.js";
 import { GeneratePostsDtoSchema, type GeneratePostsDto } from "../../domain/dtos.js";
-import { GenerationTrigger } from "../../generated/prisma/client";
+import { GenerationTrigger } from "../../generated/prisma/client.js";
 
 @ApiTags("generation")
 @Controller("generation")

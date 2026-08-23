@@ -32,6 +32,7 @@ export class FacebookPoster extends BasePoster {
     _browserPort: IBrowserPort,
     content: string,
     _threadItems?: string[],
+    imagePath?: string,
   ): Promise<PostResult> {
     if (!this.pageSlug) {
       return { error: "SOCIAL_FACEBOOK_PAGE_SLUG not configured", retryable: false };
@@ -92,6 +93,7 @@ export class FacebookPoster extends BasePoster {
 
       // Type content
       await this.humanType(textareaResolution.locator, content, 80);
+      await this.attachImage(page, imagePath);
       await this.browser.randomDelay(2000, 5000);
 
       // Screenshot after typing

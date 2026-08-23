@@ -6,6 +6,8 @@ export {
   type CreatePostDto,
   ApprovePostDtoSchema,
   type ApprovePostDto,
+  RejectPostDtoSchema,
+  type RejectPostDto,
   UpdatePostStatusDtoSchema,
   type UpdatePostStatusDto,
   PostQueryDtoSchema,

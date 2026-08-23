@@ -9,7 +9,7 @@ import type {
   ArticleJudgeScores,
   GenerateArticleOptions,
 } from "@spa/shared";
-import { SocialNetwork } from "../../generated/prisma/client";
+import { SocialNetwork } from "../../generated/prisma/client.js";
 import type { CanonicalUrlService } from "../canonical/canonical-url.service.js";
 import {
   ARTICLE_RESEARCH_EXTRACT_PROMPT,

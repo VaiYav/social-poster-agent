@@ -32,6 +32,7 @@ export class ThreadsPoster extends BasePoster {
     _browserPort: IBrowserPort,
     content: string,
     threadItems?: string[],
+    imagePath?: string,
   ): Promise<PostResult> {
     const page = await context.newPage();
     await this.browser.suppressPageErrors(page);
@@ -103,6 +104,7 @@ export class ThreadsPoster extends BasePoster {
       // enables the Post button. Fallback to typeHuman if the DOM is empty.
       this.assertPageAlive(page, "type thread content");
       await this.setComposeText(page, textareaResolution.locator, content);
+      await this.attachImage(page, imagePath);
       await this.browser.randomDelay(1000, 2000);
 
       // Verify content was entered; if not, fall back to stealth human-like typing.

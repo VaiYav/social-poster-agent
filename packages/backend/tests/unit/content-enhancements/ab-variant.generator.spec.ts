@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { ConfigService } from "@nestjs/config";
-import { ABVariantGenerator } from "../../../src/modules/content-enhancements/ab-variant.generator";
-import { SocialNetwork } from "../../../src/generated/prisma/client";
+import { ABVariantGenerator } from "../../../src/modules/content-enhancements/ab-variant.generator.js";
+import { SocialNetwork } from "../../../src/generated/prisma/client.js";
 
 describe("ABVariantGenerator", () => {
   it("returns null when disabled", async () => {

@@ -5,14 +5,15 @@
  * data for the analytics dashboard. All queries are read-only against Prisma.
  */
 import { Injectable, Logger } from "@nestjs/common";
-import { PrismaService } from "../../infrastructure/prisma/prisma.service";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import {
   PostStatus,
   SocialNetwork,
   GenerationTrigger,
   Prisma,
-} from "../../generated/prisma/client";
+} from "../../generated/prisma/client.js";
 import type { JudgeScores } from "@spa/shared";
+import { computeBinaryCalibration } from "../evaluation/calibration-metrics.js";
 
 export interface JudgeScoreAverages {
   antiAiTone: number | null;
@@ -37,6 +38,43 @@ export interface AnalyticsSummary {
   successRate: number;
   byNetwork: Record<string, { total: number; posted: number; failed: number }>;
   last7Days: { date: string; posted: number; failed: number }[];
+}
+
+export interface CostAnalytics {
+  from: string;
+  to: string;
+  events: number;
+  totalCostUsd: number;
+  totalTokensIn: number;
+  totalTokensOut: number;
+  cacheHits: number;
+  byAccount: Record<string, { costUsd: number; events: number; tokens: number }>;
+  byProvider: Record<string, { costUsd: number; events: number; tokens: number }>;
+  daily: Array<{ date: string; costUsd: number; events: number }>;
+}
+
+export interface ReviewCalibrationReport {
+  windowDays: number;
+  totalDecisions: number;
+  byDecision: Record<string, number>;
+  syncStatus: Record<string, number>;
+  averageEditDistance: number | null;
+  evidenceCoverage: {
+    reasonCodes: number;
+    rubric: number;
+    trace: number;
+    contentHashes: number;
+  };
+  calibration: {
+    pairedSamples: number;
+    agreementRate: number | null;
+    kappa: number | null;
+    precision: number | null;
+    recall: number | null;
+    tpr: number | null;
+    tnr: number | null;
+    status: "INSUFFICIENT_SAMPLE" | "READY_FOR_REVIEW";
+  };
 }
 
 @Injectable()
@@ -70,6 +108,177 @@ export class AnalyticsService {
       successRate: Math.round(successRate * 100) / 100,
       byNetwork: networkStats,
       last7Days: dailyStats,
+    };
+  }
+
+  async getCostAnalytics(query: {
+    accountId?: string;
+    from?: Date;
+    to?: Date;
+  }): Promise<CostAnalytics> {
+    const to = query.to ?? new Date();
+    const from = query.from ?? new Date(to.getTime() - 7 * 86_400_000);
+    const rows = await this.prisma.llmUsageEvent.findMany({
+      where: {
+        accountId: query.accountId,
+        createdAt: { gte: from, lte: to },
+      },
+      orderBy: { createdAt: "asc" },
+      take: 50_000,
+    });
+    const byAccount: CostAnalytics["byAccount"] = {};
+    const byProvider: CostAnalytics["byProvider"] = {};
+    const daily = new Map<string, { costUsd: number; events: number }>();
+    let totalCostUsd = 0;
+    let totalTokensIn = 0;
+    let totalTokensOut = 0;
+    let cacheHits = 0;
+    for (const row of rows) {
+      const costUsd = Number(row.costUsd) || 0;
+      const tokens = row.tokensIn + row.tokensOut;
+      totalCostUsd += costUsd;
+      totalTokensIn += row.tokensIn;
+      totalTokensOut += row.tokensOut;
+      if (row.cached) cacheHits++;
+      const accountKey = row.accountId ?? "unattributed";
+      const account = (byAccount[accountKey] ??= { costUsd: 0, events: 0, tokens: 0 });
+      account.costUsd += costUsd;
+      account.events++;
+      account.tokens += tokens;
+      const provider = (byProvider[row.provider] ??= { costUsd: 0, events: 0, tokens: 0 });
+      provider.costUsd += costUsd;
+      provider.events++;
+      provider.tokens += tokens;
+      const day = row.createdAt.toISOString().slice(0, 10);
+      const dailyEntry = daily.get(day) ?? { costUsd: 0, events: 0 };
+      dailyEntry.costUsd += costUsd;
+      dailyEntry.events++;
+      daily.set(day, dailyEntry);
+    }
+    const round = (value: number) => Math.round(value * 1_000_000) / 1_000_000;
+    return {
+      from: from.toISOString(),
+      to: to.toISOString(),
+      events: rows.length,
+      totalCostUsd: round(totalCostUsd),
+      totalTokensIn,
+      totalTokensOut,
+      cacheHits,
+      byAccount: Object.fromEntries(
+        Object.entries(byAccount).map(([key, value]) => [
+          key,
+          { ...value, costUsd: round(value.costUsd) },
+        ]),
+      ),
+      byProvider: Object.fromEntries(
+        Object.entries(byProvider).map(([key, value]) => [
+          key,
+          { ...value, costUsd: round(value.costUsd) },
+        ]),
+      ),
+      daily: [...daily.entries()].map(([date, value]) => ({
+        ...value,
+        date,
+        costUsd: round(value.costUsd),
+      })),
+    };
+  }
+
+  /**
+   * EVAL-701: read-only review truth, sync health and preliminary judge-human
+   * calibration. This is diagnostic evidence, not an autonomous promotion gate.
+   */
+  async getReviewCalibration(days = 30): Promise<ReviewCalibrationReport> {
+    const windowDays = Math.min(365, Math.max(1, Math.trunc(days) || 30));
+    const startDate = new Date(Date.now() - windowDays * 86_400_000);
+    const rows = await this.prisma.postReviewDecision.findMany({
+      where: { createdAt: { gte: startDate } },
+      select: {
+        decision: true,
+        reasonCodes: true,
+        rubric: true,
+        syncStatus: true,
+        normalizedEditDistance: true,
+        originalContentHash: true,
+        finalContentHash: true,
+        langfuseTraceId: true,
+        langfuseObservationId: true,
+        post: { select: { judgeScores: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 10_000,
+    });
+
+    const byDecision: Record<string, number> = {};
+    const syncStatus: Record<string, number> = {};
+    let editSum = 0;
+    let editCount = 0;
+    let reasonCount = 0;
+    let rubricCount = 0;
+    let traceCount = 0;
+    let hashCount = 0;
+    let pairedSamples = 0;
+    const calibrationPairs: Array<{ judgePass: boolean; humanPass: boolean }> = [];
+
+    for (const row of rows) {
+      byDecision[row.decision] = (byDecision[row.decision] ?? 0) + 1;
+      syncStatus[row.syncStatus] = (syncStatus[row.syncStatus] ?? 0) + 1;
+
+      const reasons = Array.isArray(row.reasonCodes) ? row.reasonCodes : [];
+      if (reasons.length > 0) reasonCount++;
+      if (row.rubric && typeof row.rubric === "object" && !Array.isArray(row.rubric)) {
+        rubricCount++;
+      }
+      if (row.langfuseTraceId || row.langfuseObservationId) traceCount++;
+      if (row.originalContentHash && (row.finalContentHash || row.decision === "REJECT")) {
+        hashCount++;
+      }
+      if (typeof row.normalizedEditDistance === "number") {
+        editSum += row.normalizedEditDistance;
+        editCount++;
+      }
+
+      const judge = parseJudgeScores(row.post?.judgeScores);
+      const rubric = parseReviewRubric(row.rubric);
+      if (judge && rubric) {
+        const pairs: Array<[number, number]> = [
+          [judge.anti_ai_tone, rubric.humanVoice],
+          [judge.hook_strength, rubric.hookStrength],
+          [judge.factual_accuracy, rubric.factualSupport],
+          [judge.character_limit, rubric.platformFit],
+        ];
+        for (const [judgeValue, humanValue] of pairs) {
+          if (humanValue === 1) continue;
+          pairedSamples++;
+          calibrationPairs.push({ judgePass: judgeValue >= 0.7, humanPass: humanValue === 2 });
+        }
+      }
+    }
+
+    const calibrationMetrics = computeBinaryCalibration(calibrationPairs);
+
+    return {
+      windowDays,
+      totalDecisions: rows.length,
+      byDecision,
+      syncStatus,
+      averageEditDistance: editCount > 0 ? round(editSum / editCount, 3) : null,
+      evidenceCoverage: {
+        reasonCodes: coverage(reasonCount, rows.length),
+        rubric: coverage(rubricCount, rows.length),
+        trace: coverage(traceCount, rows.length),
+        contentHashes: coverage(hashCount, rows.length),
+      },
+      calibration: {
+        pairedSamples,
+        agreementRate: calibrationMetrics.accuracy,
+        kappa: calibrationMetrics.kappa,
+        precision: calibrationMetrics.precision,
+        recall: calibrationMetrics.recall,
+        tpr: calibrationMetrics.tpr,
+        tnr: calibrationMetrics.tnr,
+        status: pairedSamples >= 30 ? "READY_FOR_REVIEW" : "INSUFFICIENT_SAMPLE",
+      },
     };
   }
 
@@ -685,4 +894,65 @@ export class AnalyticsService {
     }
     return result;
   }
+}
+
+type CalibrationJudgeScores = {
+  anti_ai_tone: number;
+  hook_strength: number;
+  factual_accuracy: number;
+  character_limit: number;
+};
+
+type CalibrationRubric = {
+  humanVoice: number;
+  hookStrength: number;
+  factualSupport: number;
+  platformFit: number;
+};
+
+function parseJudgeScores(value: unknown): CalibrationJudgeScores | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const keys = ["anti_ai_tone", "hook_strength", "factual_accuracy", "character_limit"] as const;
+  if (!keys.every((key) => typeof raw[key] === "number" && Number.isFinite(raw[key]))) {
+    return null;
+  }
+  return {
+    anti_ai_tone: raw.anti_ai_tone as number,
+    hook_strength: raw.hook_strength as number,
+    factual_accuracy: raw.factual_accuracy as number,
+    character_limit: raw.character_limit as number,
+  };
+}
+
+function parseReviewRubric(value: unknown): CalibrationRubric | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const keys = ["humanVoice", "hookStrength", "factualSupport", "platformFit"] as const;
+  if (
+    !keys.every(
+      (key) =>
+        typeof raw[key] === "number" &&
+        Number.isInteger(raw[key]) &&
+        (raw[key] as number) >= 0 &&
+        (raw[key] as number) <= 2,
+    )
+  ) {
+    return null;
+  }
+  return {
+    humanVoice: raw.humanVoice as number,
+    hookStrength: raw.hookStrength as number,
+    factualSupport: raw.factualSupport as number,
+    platformFit: raw.platformFit as number,
+  };
+}
+
+function coverage(count: number, total: number): number {
+  return total > 0 ? round(count / total, 3) : 0;
+}
+
+function round(value: number, digits: number): number {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
 }

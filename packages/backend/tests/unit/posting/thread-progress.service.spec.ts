@@ -14,8 +14,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ThreadProgressService } from "../../../src/modules/posting/thread-progress.service";
-import { PrismaService } from "../../../src/infrastructure/prisma/prisma.service";
+import { ThreadProgressService } from "../../../src/modules/posting/thread-progress.service.js";
+import { PrismaService } from "../../../src/infrastructure/prisma/prisma.service.js";
 
 function createMockPrisma() {
   const mockThreadProgress = {

@@ -4,7 +4,7 @@
  * Traces to: Phase 5.12 — slow-query logging middleware via Prisma $on('query').
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { PrismaService } from "../../../src/infrastructure/prisma/prisma.service";
+import { PrismaService } from "../../../src/infrastructure/prisma/prisma.service.js";
 import { createMockConfigService } from "../../mocks/index.js";
 
 describe("PrismaService", () => {

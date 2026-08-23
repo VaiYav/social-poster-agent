@@ -1,13 +1,15 @@
-import { Module } from "@nestjs/common";
+import { Global, Module } from "@nestjs/common";
 import { ResilienceService } from "./resilience.service.js";
+import { IResiliencePort } from "../../domain/ports/resilience.port.js";
 
 /**
- * ResilienceModule — unified degradation model (ROADMAP_V2 M1.5 skeleton).
- * Global so any subsystem (LLM, browser, sessions, queues, Langfuse) can
- * report health without explicit imports; full wiring lands at M3 GA.
+ * ResilienceModule — unified degradation model (ROADMAP_V2 M1.5/M3).
+ * Global so every subsystem can report health without creating dependency
+ * cycles or coupling callers to the concrete implementation.
  */
+@Global()
 @Module({
-  providers: [ResilienceService],
-  exports: [ResilienceService],
+  providers: [ResilienceService, { provide: IResiliencePort, useExisting: ResilienceService }],
+  exports: [ResilienceService, IResiliencePort],
 })
 export class ResilienceModule {}

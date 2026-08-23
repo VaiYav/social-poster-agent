@@ -13,7 +13,7 @@
  * a consistent style, but different days get different styles.
  */
 
-import { SocialNetwork } from "../../generated/prisma/client";
+import { SocialNetwork } from "../../generated/prisma/client.js";
 
 export type ContentStyle = {
   id: string;

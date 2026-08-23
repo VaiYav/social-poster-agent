@@ -2,9 +2,9 @@ import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { SchedulerRegistry } from "@nestjs/schedule";
 import { CronJob } from "cron";
-import { GenerationService } from "./generation.service";
-import { AccountsService } from "../accounts/accounts.service";
-import { GenerationTrigger } from "../../generated/prisma/client";
+import { GenerationService } from "./generation.service.js";
+import { AccountsService } from "../accounts/accounts.service.js";
+import { GenerationTrigger } from "../../generated/prisma/client.js";
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
 import { isOrchestratorEnabled } from "../orchestrator/feature-flag.js";
 

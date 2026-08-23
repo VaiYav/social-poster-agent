@@ -1,17 +1,17 @@
 import type { SocialNetwork } from "@spa/shared";
-import { X_SELECTORS } from "./selectors/x.selectors.js";
-import { THREADS_SELECTORS } from "./selectors/threads.selectors.js";
-import { FACEBOOK_SELECTORS } from "./selectors/facebook.selectors.js";
+import { SocialNetwork as PrismaSocialNetwork } from "../../../generated/prisma/client.js";
+import { getNetworkProfile } from "../../../domain/network-profiles/network-profiles.js";
 
 /**
  * P1: native post-permalink shape per network — the single source of truth is the
  * poster selectors' `postUrlPattern` (so this never drifts from the capture logic).
  */
-const POST_URL_PATTERN: Partial<Record<SocialNetwork, RegExp>> = {
-  X: X_SELECTORS.compose.postUrlPattern,
-  THREADS: THREADS_SELECTORS.compose.postUrlPattern,
-  FACEBOOK: FACEBOOK_SELECTORS.compose.postUrlPattern,
-};
+const POST_URL_PATTERN: Partial<Record<SocialNetwork, RegExp>> = Object.fromEntries(
+  Object.values(PrismaSocialNetwork).map((network) => [
+    network,
+    getNetworkProfile(network).verificationPattern,
+  ]),
+) as Partial<Record<SocialNetwork, RegExp>>;
 
 /**
  * P1: is `url` a genuine native post permalink for this network — i.e. a link to

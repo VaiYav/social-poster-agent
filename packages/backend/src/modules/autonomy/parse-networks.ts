@@ -1,4 +1,4 @@
-import { SocialNetwork } from "../../generated/prisma/client";
+import { SocialNetwork } from "../../generated/prisma/client.js";
 
 const VALID_NETWORKS = new Set<string>(Object.values(SocialNetwork));
 

@@ -11,8 +11,8 @@ import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { ConfigModule } from "@nestjs/config";
 import { Module } from "@nestjs/common";
-import { NotificationsModule } from "../infrastructure/notifications/notifications.module";
-import { DiscordNotificationService } from "../infrastructure/notifications/discord-notification.service";
+import { NotificationsModule } from "../infrastructure/notifications/notifications.module.js";
+import { DiscordNotificationService } from "../infrastructure/notifications/discord-notification.service.js";
 
 @Module({
   imports: [ConfigModule.forRoot({ isGlobal: true }), NotificationsModule],

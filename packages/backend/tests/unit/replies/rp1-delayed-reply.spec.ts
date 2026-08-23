@@ -15,8 +15,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ConfigService } from "@nestjs/config";
-import { CommentStatus } from "../../../src/generated/prisma/client";
-import { RepliesMonitorService } from "../../../src/modules/replies/replies-monitor.service";
+import { CommentStatus } from "../../../src/generated/prisma/client.js";
+import { RepliesMonitorService } from "../../../src/modules/replies/replies-monitor.service.js";
 
 function mockConfig(values: Record<string, string> = {}): ConfigService {
   return {

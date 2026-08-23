@@ -10,9 +10,9 @@
 
 import { vi } from "vitest";
 import type { ConfigService } from "@nestjs/config";
-import type { ILlmPort, LlmResponse, GenerateOptions } from "../../src/domain/ports/llm.port";
-import type { IContentPort } from "../../src/domain/ports/content.port";
-import type { IBrowserPort } from "../../src/domain/ports/browser.port";
+import type { ILlmPort, LlmResponse, GenerateOptions } from "../../src/domain/ports/llm.port.js";
+import type { IContentPort } from "../../src/domain/ports/content.port.js";
+import type { IBrowserPort } from "../../src/domain/ports/browser.port.js";
 import type { ContentTopic } from "@spa/shared";
 
 // ── ConfigService Mock ──
@@ -290,6 +290,9 @@ export function createMockPrismaService() {
     post: {
       ...createModelMock(),
     },
+    postReviewDecision: {
+      ...createModelMock(),
+    },
     postVariant: {
       ...createModelMock(),
     },
@@ -303,6 +306,24 @@ export function createMockPrismaService() {
       ...createModelMock(),
     },
     socialAccount: {
+      ...createModelMock(),
+    },
+    editorialPersona: {
+      ...createModelMock(),
+    },
+    personaRevision: {
+      ...createModelMock(),
+    },
+    accountPersonaAssignment: {
+      ...createModelMock(),
+    },
+    llmUsageEvent: {
+      ...createModelMock(),
+    },
+    editorialOpportunity: {
+      ...createModelMock(),
+    },
+    editorialAssignmentRecord: {
       ...createModelMock(),
     },
     browsingSession: {
@@ -529,7 +550,7 @@ export function createMockQueueService() {
 
 // ── QueueFactory Mock ──
 
-import type { QueueFactory } from "../../src/infrastructure/queue/queue.factory";
+import type { QueueFactory } from "../../src/infrastructure/queue/queue.factory.js";
 
 export function createMockQueueFactory(): QueueFactory {
   return {

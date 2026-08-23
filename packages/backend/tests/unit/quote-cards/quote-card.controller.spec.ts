@@ -1,8 +1,8 @@
 /**
  * Sprint O / F19: Quote Card Controller — unit tests.
  */
-import { QuoteCardController } from "../../../src/modules/quote-cards/quote-card.controller";
-import { QuoteCardService } from "../../../src/modules/quote-cards/quote-card.service";
+import { QuoteCardController } from "../../../src/modules/quote-cards/quote-card.controller.js";
+import { QuoteCardService } from "../../../src/modules/quote-cards/quote-card.service.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const fakeOutputDir = "/tmp/spa-quote-cards";

@@ -7,7 +7,7 @@ import { describe, it, expect, vi } from "vitest";
 import { HttpStatus } from "@nestjs/common";
 import type { ArgumentsHost } from "@nestjs/common";
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/client";
-import { PrismaClientExceptionFilter } from "../../../src/infrastructure/filters/prisma-exception.filter";
+import { PrismaClientExceptionFilter } from "../../../src/infrastructure/filters/prisma-exception.filter.js";
 
 function createMockHost(): ArgumentsHost {
   const json = vi.fn();

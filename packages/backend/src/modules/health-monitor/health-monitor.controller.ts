@@ -1,11 +1,11 @@
 import { Controller, Get, Post, UseGuards } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiResponse } from "@nestjs/swagger";
-import { AdminGuard } from "../auth/admin.guard";
+import { AdminGuard } from "../auth/admin.guard.js";
 import {
   HealthMonitorService,
   type HealthReport,
   type HealthSummary,
-} from "./health-monitor.service";
+} from "./health-monitor.service.js";
 
 /**
  * F21: Account Health Monitor — dashboard + manual trigger endpoints.

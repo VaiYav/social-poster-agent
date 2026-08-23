@@ -4,8 +4,8 @@
  * Source: packages/backend/src/modules/engagement/engagement.service.ts
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { SocialNetwork } from "../../../src/generated/prisma/client";
-import { EngagementService } from "../../../src/modules/engagement/engagement.service";
+import { SocialNetwork } from "../../../src/generated/prisma/client.js";
+import { EngagementService } from "../../../src/modules/engagement/engagement.service.js";
 import { createMockPrismaService } from "../../mocks/index.js";
 
 describe("EngagementService — performInteraction cleanup", () => {
@@ -131,6 +131,21 @@ describe("EngagementService — performInteraction cleanup", () => {
     expect(result.error).toBe("Account is in warm-up browse-only phase");
     expect(browser.acquireContext).not.toHaveBeenCalled();
     expect((prisma as any).interaction.create).not.toHaveBeenCalled();
+  });
+
+  it("POLICY-101: fails closed before browser acquisition when no account can be authorized", async () => {
+    const authorizer = {
+      authorize: vi.fn(),
+      reauthorize: vi.fn(),
+    };
+    (service as any).actionAuthorizer = authorizer;
+
+    const result = await service.like(SocialNetwork.X, "https://x.com/post/1");
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("requires a selected account");
+    expect(authorizer.authorize).not.toHaveBeenCalled();
+    expect(browser.acquireContext).not.toHaveBeenCalled();
   });
 
   it("SF-001: blocks engagement with a non-platform URL", async () => {

@@ -17,12 +17,12 @@ import { Injectable, Logger, Inject, type OnModuleInit } from "@nestjs/common";
 import { SchedulerRegistry } from "@nestjs/schedule";
 import { CronJob } from "cron";
 import { ConfigService } from "@nestjs/config";
-import { SocialNetwork, PostStatus } from "../../generated/prisma/client";
+import { SocialNetwork, PostStatus } from "../../generated/prisma/client.js";
 import type { JudgeScores } from "@spa/shared";
-import { PrismaService } from "../../infrastructure/prisma/prisma.service";
-import { SseService } from "../../infrastructure/sse/sse.service";
-import { FlowControlService } from "../flow-control/flow-control.service";
-import { AutoApproveService } from "./auto-approve.service";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { SseService } from "../../infrastructure/sse/sse.service.js";
+import { FlowControlService } from "../flow-control/flow-control.service.js";
+import { AutoApproveService } from "./auto-approve.service.js";
 import { ModuleRef } from "@nestjs/core";
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
 import { isOrchestratorEnabled } from "../orchestrator/feature-flag.js";
@@ -131,7 +131,7 @@ export class AutonomousRunnerService implements OnModuleInit {
       }
 
       // generate(count, networks, triggeredBy) — returns runId
-      const { GenerationTrigger } = await import("../../generated/prisma/client");
+      const { GenerationTrigger } = await import("../../generated/prisma/client.js");
       const runId = await generationService.generate(
         this.postsPerRun,
         this.targetNetworks,
@@ -143,6 +143,7 @@ export class AutonomousRunnerService implements OnModuleInit {
         where: { generationRunId: runId, status: PostStatus.DRAFT },
         select: {
           id: true,
+          accountId: true,
           content: true,
           network: true,
           llmMetadata: true,
@@ -178,7 +179,7 @@ export class AutonomousRunnerService implements OnModuleInit {
         if (approveResult.decision === "AUTO_APPROVE") {
           totalAutoApproved++;
           // Enqueue for posting with human-like delay
-          await this.enqueueForPosting(post.id, post.network);
+          await this.enqueueForPosting(post.id, post.network, post.accountId);
         } else if (approveResult.decision === "REJECT") {
           totalRejected++;
         } else {
@@ -213,14 +214,18 @@ export class AutonomousRunnerService implements OnModuleInit {
   /**
    * Enqueue a post for posting with a human-like delay.
    */
-  private async enqueueForPosting(postId: string, network: SocialNetwork): Promise<void> {
+  private async enqueueForPosting(
+    postId: string,
+    network: SocialNetwork,
+    accountId: string,
+  ): Promise<void> {
     try {
       // AU7: clamp so a misconfig (min > max) can't yield a negative delay → immediate post.
       const lo = Math.min(this.postingDelayMinMs, this.postingDelayMaxMs);
       const hi = Math.max(this.postingDelayMinMs, this.postingDelayMaxMs);
       const delay = lo + Math.floor(Math.random() * Math.max(0, hi - lo));
       // A5: enqueue via IPostingQueuePort (no ModuleRef hack for the queue).
-      await this.postingQueue.enqueuePosting(postId, network, { delay });
+      await this.postingQueue.enqueuePosting(postId, network, { delay }, accountId);
       this.logger.log(
         `Post ${postId} enqueued for ${network} (delay: ${Math.round(delay / 60000)}min)`,
       );

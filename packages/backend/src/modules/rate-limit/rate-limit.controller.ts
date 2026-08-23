@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Param, HttpCode, HttpStatus } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiResponse } from "@nestjs/swagger";
-import { RateLimitService } from "./rate-limit.service";
+import { RateLimitService } from "./rate-limit.service.js";
 
 @ApiTags("rate-limit")
 @Controller("rate-limit")

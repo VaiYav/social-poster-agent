@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { ConfigService } from "@nestjs/config";
-import { CommentSafetyClassifierService } from "../../../src/modules/replies/comment-safety-classifier.service";
+import { CommentSafetyClassifierService } from "../../../src/modules/replies/comment-safety-classifier.service.js";
 
 function mockLlm(response: string) {
   return { generateChat: vi.fn().mockResolvedValue({ content: response, tokensUsed: 0 }) };

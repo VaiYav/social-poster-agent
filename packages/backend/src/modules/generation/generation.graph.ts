@@ -1,6 +1,6 @@
 import { StateGraph, END, START, Annotation, interrupt } from "@langchain/langgraph";
 import type { ILlmPort } from "../../domain/ports/llm.port.js";
-import { SocialNetwork } from "../../generated/prisma/client";
+import { SocialNetwork } from "../../generated/prisma/client.js";
 import { Logger } from "@nestjs/common";
 import { buildBaitRewriteInstruction } from "../content-enhancements/engagement-bait.detector.js";
 import { hookCacheKey, getActiveHookCache, type IHookCache } from "./hook-cache.js";
@@ -31,10 +31,10 @@ import {
   HUMOR_MECHANICS_BY_ID,
 } from "../content-enhancements/humor-mechanics.js";
 import { buildHumanizeInstruction } from "../content-enhancements/humanizer-gate.js";
-import { getLanguageExamples } from "../content-enhancements/language-packs.js";
 import type { IPromptPort } from "../../domain/ports/prompt.port.js";
+import type { AuthorContextResult } from "../../domain/ports/author-context.port.js";
 import type { ContentTopic, JudgeScores } from "@spa/shared";
-import { NETWORK_LIMITS } from "../posts/network-limits.js";
+import { getNetworkProfile } from "../../domain/network-profiles/network-profiles.js";
 import { BatchedJudgeService } from "./batched-judge.service.js";
 import {
   localPromptPort,
@@ -105,6 +105,12 @@ interface NetworkResult {
 export interface GeneratedPost {
   network: SocialNetwork;
   content: string;
+  /** Account and versioned author context selected before generation. */
+  accountId?: string;
+  personaRevisionId?: string;
+  voiceMode?: string;
+  experimentAssignmentId?: string;
+  authorContextSource?: AuthorContextResult["source"];
   hook: string;
   angle: string;
   model: string;
@@ -157,6 +163,8 @@ export const GenerationState = Annotation.Root({
   topic: Annotation<ContentTopic>,
   targetNetworks: Annotation<SocialNetwork[]>,
   brandVoice: Annotation<string>,
+  /** Structured per-network author context; absent means global fallback. */
+  authorContexts: Annotation<Partial<Record<SocialNetwork, AuthorContextResult>>>,
   // Language for this generation run (ISO 639-1: en, ru, uk, es, it)
   language: Annotation<string>,
   // Accumulated outputs
@@ -262,118 +270,48 @@ function stripHashtags(text: string): string {
     .trim();
 }
 
-// ── Multilingual support ───────────────────────────────────────────────────
-// Language names and per-language instructions for the generation prompt.
-// Russian and Ukrainian are explicitly distinguished to prevent the LLM from
-// mixing them (a common failure mode since they share Cyrillic alphabet).
-const LANGUAGE_NAMES: Record<string, string> = {
-  en: "English",
-  ru: "Russian (русский)",
-  uk: "Ukrainian (українська)",
-  es: "Spanish (español)",
-  it: "Italian (italiano)",
-};
-
-const LANGUAGE_INSTRUCTIONS: Record<string, string> = {
-  en: " English only. Do NOT use any other language, even if the topic, facts, or brand voice include non-English words.",
-  ru: " English only. Do NOT use Russian or any other language.",
-  uk: " English only. Do NOT use Ukrainian, Russian, or any other language.",
-  es: " English only. Do NOT use Spanish or any other language.",
-  it: " English only. Do NOT use Italian or any other language.",
-};
-
-const NETWORK_TONE: Partial<Record<SocialNetwork, string>> = {
-  [SocialNetwork.X]:
-    "Punchy, hook-first, confident. One idea per post. Can be sarcastic, bold, or deadpan. NO hashtags — X algorithm deprioritizes them and 3+ triggers spam filters. No filler.",
-  [SocialNetwork.THREADS]:
-    "Narrative, storytelling, personal. Like texting a friend about something you noticed. Can be vulnerable, funny, or reflective. NO hashtags — Threads doesn't use hashtags for discovery.",
-  [SocialNetwork.FACEBOOK]:
-    "Conversational, community-oriented. Relatable, warm, but not corny. End with a genuine question (not engagement bait). NO hashtags — Facebook algorithm treats them as spam signals.",
-  [SocialNetwork.BLUESKY]:
-    'Conversational, a little unpolished, text-first. Think "smart friend at the coffee shop" — opinions, observations, weird specifics. NO hashtags. No engagement bait.',
-  [SocialNetwork.MASTODON]:
-    "Warm, community-minded, slightly old-internet. Sincere takes and gentle humor land better than hustle culture. NO hashtags. No engagement bait.",
-  [SocialNetwork.TELEGRAM]:
-    'Direct and useful, like a channel update worth forwarding. One clear point, friendly but not salesy. NO hashtags. No "tap the link below" CTAs.',
-  [SocialNetwork.LINKEDIN]:
-    "Conversational professional — specific, not self-congratulatory. Share a real insight or small story, then a short takeaway. NO hashtags. No engagement-bait questions.",
-};
-
-const NETWORK_ANGLE: Partial<Record<SocialNetwork, string>> = {
-  [SocialNetwork.X]:
-    "bold take or counter-intuitive observation — max impact in 280 chars, make someone stop mid-scroll",
-  [SocialNetwork.THREADS]:
-    'personal story or reflective observation — "I noticed something about..." energy, warmer, more context',
-  [SocialNetwork.FACEBOOK]:
-    'relatable + discussion-starter — everyday life angle, "has anyone else noticed..." energy, invite genuine discussion',
-  [SocialNetwork.BLUESKY]:
-    "sharp, slightly irreverent take or observation — the kind of post you'd quote-skeet, not thread about",
-  [SocialNetwork.MASTODON]:
-    "sincere, community-rooted take — a small insight or observation you'd share with people who actually know you",
-  [SocialNetwork.TELEGRAM]:
-    "single useful promo angle — what changed, why it matters, and where to read more, in one breath",
-  [SocialNetwork.LINKEDIN]:
-    "professional mini-story or counter-narrative — a specific thing you learned, how it changed your thinking, and a concise takeaway",
-};
+const ENGLISH_LANGUAGE_NAME = "English";
+const ENGLISH_LANGUAGE_INSTRUCTION =
+  " English only. Do NOT use any other language, even if the topic, facts, or brand voice include non-English words.";
 
 /**
- * P2: Per-Network Persona — distinct voice variant per network audience.
- * Augments the shared brand voice with network-specific persona traits.
- * The draft node concatenates `state.brandVoice` + this persona block in the
- * system prompt so each network speaks to its audience in the right register.
+ * Render only the approved, structured parts of an AuthorContext into prompt
+ * guidance. The full profile is never written into Post.llmMetadata.
  */
-const NETWORK_PERSONA: Partial<Record<SocialNetwork, string>> = {
-  [SocialNetwork.X]: `X PERSONA — "the one at the party who actually knows the topic and has opinions about it":
-- Voice: confident, a bit edgy, has opinions and isn't afraid of them. But also admits when they're wrong.
-- Energy: main-character energy but not cringe. Would call out a bad take. Would also admit their own takes are sometimes wrong.
-- References: pop-culture takes, sharp observations, personal stories about their own experience, the kind of hot take that gets quote-tweeted
-- Sentence rhythm: short, punchy, one idea per post. Fragments are fine. Incomplete thoughts are fine.
-- What they'd never do: write a thread that starts "🧵 Let me explain..." or use the word "narrative" or "discourse"
-- What they'd do: text a friend "okay but actually though" at 1am about a development
-- Occasionally posts in all lowercase when the thought is casual — it reads more human`,
-  [SocialNetwork.THREADS]: `THREADS PERSONA — "your friend who got into this topic last year and won't shut up about it (in a good way)":
-- Voice: warm, personal, story-first. Like sharing something you noticed at 2am that you can't stop thinking about.
-- Energy: vulnerable but not whiny. Curious. Genuinely excited about what they found. Sometimes confused by it.
-- References: personal anecdotes, "I noticed...", "has anyone else experienced...", "okay this might be crazy but...", reflective tone
-- Sentence rhythm: flowing, conversational, can be longer. Like a text message to a friend, not an essay. Run-on sentences are okay sometimes.
-- What they'd never do: end with "What do you think?" (engagement bait) or "Drop your thoughts below"
-- What they'd do: end mid-thought, or with a specific question that only someone who read the post would answer`,
-  [SocialNetwork.FACEBOOK]: `FACEBOOK PERSONA — "the knowledgeable one in the friend group who always has a take":
-- Voice: inviting, accessible, relatable. Not a guru — a peer who happens to know stuff and is sometimes wrong about it.
-- Energy: community-oriented. Asks real questions, not engagement-bait questions. Shares personal stories that connect.
-- References: everyday life situations, "you know that feeling when...", relatable examples, specific moments not generalizations
-- Sentence rhythm: clear, natural, can ramble a bit. Ends with something genuine, not a CTA.
-- What they'd never do: write "Comment below if you agree!" or use 5 emojis in a row
-- What they'd do: share a specific story about their week and how it connected to the topic, then stop without a neat conclusion`,
-  [SocialNetwork.BLUESKY]: `BLUESKY PERSONA — "the person at the small party who actually knows what they're talking about and is not selling anything":
-- Voice: conversational, irreverent, text-first. Likes weird specifics and mild contrarianism. Not a guru.
-- Energy: low-key smart. Less hustle, more "huh, that's interesting." Can be funny but never performance-funny.
-- References: pop-culture observations, "has anyone noticed...", small grumbles about bad takes, the kind of post you'd quote-skeet
-- Sentence rhythm: short to medium, one or two sentences. Fragments are fine. No final-sentence wrap-ups.
-- What they'd never do: use hashtags, write a thread opener, or ask "what do you think?"
-- What they'd do: drop a sharp observation and let the timeline do the rest`,
-  [SocialNetwork.MASTODON]: `MASTODON PERSONA — "your friend from the old internet who is kind, skeptical of platforms, and genuinely curious":
-- Voice: warm, sincere, community-minded. Dislikes hustle culture and AI-slop. Willing to be wrong.
-- Energy: gentle but not boring. Loves a niche observation. Does not perform enthusiasm.
-- References: "I just realized...", small community notes, "has anyone else...", things you'd share in a friend's mentions
-- Sentence rhythm: conversational, can be a little longer than X but still focused. Run-ons only when they feel like speech.
-- What they'd never do: use hashtags, post engagement-bait polls, or end with "boosts appreciated"
-- What they'd do: share a small sincere take and sign off naturally`,
-  [SocialNetwork.TELEGRAM]: `TELEGRAM PERSONA — "a sharp channel admin who respects your time and only pings you when it's worth it":
-- Voice: direct, useful, slightly informal. Not corporate. Not breathless.
-- Energy: one clear point. Feels like a note you'd forward to a colleague. No hype.
-- References: "just published", "here's what changed", "worth reading if you're into...", concise context + one link worth clicking
-- Sentence rhythm: 2-3 short paragraphs max. Lead with the point, then the why. No filler.
-- What they'd never do: ask for reactions, use hashtags, or write "tap below"
-- What they'd do: give you one reason to care, then stop`,
-  [SocialNetwork.LINKEDIN]: `LINKEDIN PERSONA — "the colleague who actually learns in public, not the one who posts hustle quotes":
-- Voice: conversational professional. Specific, humble, and slightly self-aware about LinkedIn culture.
-- Energy: thoughtful, not performatively grateful. Shares a real thing that happened or a real thing they changed their mind about.
-- References: "I used to think...", "what surprised me was...", a small project outcome, a counter-intuitive lesson from the work
-- Sentence rhythm: 2-3 short paragraphs. Story up front, insight in the middle, no big conclusion.
-- What they'd never do: use hashtags, ask "agree?", or write "I'm humbled to announce"
-- What they'd do: share one specific learning and stop before it turns into a sermon`,
-};
+function authorContextPrompt(context: AuthorContextResult | undefined): string {
+  if (!context || context.source === "GLOBAL_FALLBACK" || !context.profile) {
+    return "GLOBAL AUTHOR FALLBACK — use the configured brand voice; do not invent a personal biography or lived experience.";
+  }
+
+  const profile = context.profile;
+  const mode = profile.modes.find((candidate) => candidate.id === context.voiceMode);
+  const adapter = profile.networkAdapters[context.network];
+  const firstPerson = mode?.allowedFirstPerson
+    ? "First person is allowed only for approved memory episodes."
+    : "Do not write in first person; never imply lived experience.";
+
+  return [
+    `AUTHOR CONTEXT (versioned ${context.personaRevisionId}):`,
+    `Role: ${profile.identity.role}`,
+    `Worldview: ${profile.identity.worldview.join("; ")}`,
+    `Temperament: ${profile.identity.temperament.join(", ")}`,
+    `Expertise: ${profile.identity.expertise.join(", ")}`,
+    `Audience job: ${profile.identity.audienceJob}`,
+    `Voice mode: ${context.voiceMode} — ${mode?.purpose ?? "use the assigned mode"}`,
+    `Mode rules: ${(mode?.promptRules ?? []).join("; ")}`,
+    `Voice: warmth ${profile.voice.warmth}; assertiveness ${profile.voice.assertiveness}; humor ${profile.voice.humor}; rhythm ${profile.voice.sentenceRhythm}`,
+    `Preferred vocabulary: ${profile.voice.vocabulary.join(", ") || "none specified"}`,
+    `Banned patterns: ${profile.voice.bannedPatterns.join("; ") || "none specified"}`,
+    `Network rules: ${(adapter?.toneRules ?? []).join("; ") || "use the network persona"}`,
+    `Disclosure: ${context.disclosure ?? profile.identity.disclosure}`,
+    `First-person policy: ${firstPerson}`,
+    `Claim policy: factual evidence required = ${profile.claimPolicy.factualEvidenceRequired}; sensitive domains = ${profile.claimPolicy.sensitiveDomains.join(", ") || "none"}`,
+    `Retriever mode: ${context.retrieverMode ?? "NONE"}`,
+    `Approved memory context: ${(context.memoryTrace ?? []).map((item) => item.text).join("; ") || "none"}`,
+    `Verified evidence context: ${(context.evidenceTrace ?? []).map((item) => item.text).join("; ") || "none"}`,
+    "Never fabricate memories, personal events, credentials, or private access.",
+  ].join("\n");
+}
 
 // ============================================================
 // Nodes — each node is a step in the workflow
@@ -424,6 +362,7 @@ async function researchExtractNode(
       temperature: 0.7,
       role: "facts",
       maxTokens: maxTokensForRole("facts"),
+      traceName: "generation.research_extract",
     });
     const facts = response.content
       .split("\n")
@@ -504,8 +443,11 @@ async function hookGenerationNode(
     }
   }
 
+  const authorContext = state.targetNetworks
+    .map((network) => authorContextPrompt(state.authorContexts?.[network]))
+    .join("\n\n");
   const variables = {
-    brandVoice: state.brandVoice,
+    brandVoice: `${state.brandVoice}\n\n${authorContext}`,
     topic: state.topic.topic,
     performanceGuidance,
     facts: state.facts.join(", "),
@@ -526,6 +468,7 @@ async function hookGenerationNode(
       temperature: hookTemperature,
       role: "hook",
       maxTokens: maxTokensForRole("hook"),
+      traceName: "generation.hook_generation",
     });
   } catch (err) {
     logger.error(`hook_generation LLM call failed: ${(err as Error).message}`);
@@ -569,7 +512,7 @@ function anglePerNetworkNode(state: GenerationStateType): Partial<GenerationStat
     if (!net) continue;
     // Assign different hooks to different networks (cycle through available hooks)
     const hook = state.hooks[i % state.hooks.length] ?? state.hooks[0] ?? "";
-    const angle = NETWORK_ANGLE[net] ?? "";
+    const angle = getNetworkProfile(net).angle;
     // P1: Classify the hook technique for performance tracking.
     // The technique is stored in NetworkResult and propagated to Post.llmMetadata.
     const hookTechnique = classifyHookTechnique(hook);
@@ -610,15 +553,16 @@ function makeDraftNode(network: SocialNetwork, promptPort: IPromptPort, draftTem
     const netResult = state.results[network];
     if (!netResult) return {};
 
-    const charLimit = NETWORK_LIMITS[network] ?? 280;
-    const tone = NETWORK_TONE[network] ?? "";
-    const persona = NETWORK_PERSONA[network] ?? "";
+    const networkProfile = getNetworkProfile(network);
+    const charLimit = networkProfile.charLimit;
+    const tone = networkProfile.toneGuidance;
+    const persona = getNetworkProfile(network).personaGuidance ?? "";
 
     // English-only generation: all prompts are rendered for English regardless
     // of the source topic's declared language.
     const lang = "en";
-    const langName = LANGUAGE_NAMES[lang] ?? "English";
-    const langInstruction = LANGUAGE_INSTRUCTIONS[lang] ?? "";
+    const langName = ENGLISH_LANGUAGE_NAME;
+    const langInstruction = ENGLISH_LANGUAGE_INSTRUCTION;
 
     // P10: Source Attribution disabled — links in posts reduce engagement and
     // don't rank on social platforms. Posts should be pure text + hashtags only.
@@ -648,9 +592,10 @@ function makeDraftNode(network: SocialNetwork, promptPort: IPromptPort, draftTem
       : null;
     const humorGuidance = getHumorPromptGuidance(mechanic);
 
+    const authorContext = authorContextPrompt(state.authorContexts?.[network]);
     const variables = {
-      brandVoice: state.brandVoice,
-      persona: persona ?? "",
+      brandVoice: `${state.brandVoice}\n\n${authorContext}`,
+      persona: `${persona ?? ""}\n\n${authorContext}`,
       styleGuidance,
       humorGuidance,
       network,
@@ -668,7 +613,7 @@ function makeDraftNode(network: SocialNetwork, promptPort: IPromptPort, draftTem
       tone,
       outline: outlineStr,
       slopList: getSlopListForPrompt(lang),
-      langExamples: getLanguageExamples(lang),
+      langExamples: "",
     };
 
     const { systemPrompt, userPrompt } = await promptPort.getCompiledChat(
@@ -678,10 +623,7 @@ function makeDraftNode(network: SocialNetwork, promptPort: IPromptPort, draftTem
         // M2.2: CTA link policy. The posting pipeline appends/delivers the real
         // link itself — the LLM must never invent one. X delivers the CTA as a
         // first reply, so its body stays pure text.
-        ctaPolicy:
-          network === SocialNetwork.X
-            ? "No URLs or links in the post body — a call-to-action link is delivered separately as a first reply after publishing. Pure text only."
-            : "Never write or invent any URL yourself. A call-to-action link may be appended to your text automatically before publishing.",
+        ctaPolicy: networkProfile.ctaPolicy,
       },
       DRAFT_POST_PROMPT,
     );
@@ -691,6 +633,8 @@ function makeDraftNode(network: SocialNetwork, promptPort: IPromptPort, draftTem
         temperature: draftTemperature,
         role: "draft",
         maxTokens: maxTokensForRole("draft", network),
+        traceName: `generation.draft.${network}`,
+        accountId: state.authorContexts?.[network]?.accountId,
       });
 
       // B5: Return ONLY the updated network — the results reducer merges concurrent updates
@@ -734,7 +678,7 @@ function makeCritiqueNode(network: SocialNetwork, promptPort: IPromptPort) {
     // Sprint I: Skip if draft already failed
     if (netResult.error) return {};
 
-    const charLimit = NETWORK_LIMITS[network] ?? 280;
+    const charLimit = getNetworkProfile(network).charLimit;
 
     // P9: Engagement-Bait Detector — deterministic pattern check.
     // When bait is detected, the critique prompt explicitly flags it so the
@@ -764,7 +708,7 @@ function makeCritiqueNode(network: SocialNetwork, promptPort: IPromptPort) {
       draftLength: String(netResult.draft.length),
       angle: netResult.angle,
       draft: netResult.draft,
-      baitInstruction: gateInstructions ? `\n${gateInstructions}\n` : "",
+      baitInstruction: `${gateInstructions ? `\n${gateInstructions}\n` : ""}\nAUTHOR CONTEXT:\n${authorContextPrompt(state.authorContexts?.[network])}`,
       slopList: getSlopListForPrompt(lang),
       humorCheck,
     };
@@ -780,6 +724,8 @@ function makeCritiqueNode(network: SocialNetwork, promptPort: IPromptPort) {
         temperature: 0.3,
         role: "critique",
         maxTokens: maxTokensForRole("critique"),
+        traceName: `generation.critique.${network}`,
+        accountId: state.authorContexts?.[network]?.accountId,
       });
 
       // Parse quality score from response (format: "SCORE: 8" or "SCORE: 8/10")
@@ -842,8 +788,8 @@ function makeRefineNode(network: SocialNetwork, promptPort: IPromptPort, refineT
 
     // English-only generation: the rewrite must always stay in English.
     const lang = "en";
-    const langName = LANGUAGE_NAMES[lang] ?? "English";
-    const langInstruction = LANGUAGE_INSTRUCTIONS[lang] ?? "";
+    const langName = ENGLISH_LANGUAGE_NAME;
+    const langInstruction = ENGLISH_LANGUAGE_INSTRUCTION;
 
     // Q8: Judge-triggered retry pass — the judge flagged the REFINED text as
     // AI-sounding. Rewrite the current refined text using the judge's reasons;
@@ -878,7 +824,7 @@ function makeRefineNode(network: SocialNetwork, promptPort: IPromptPort, refineT
       };
     }
 
-    const charLimit = NETWORK_LIMITS[network] ?? 280;
+    const charLimit = getNetworkProfile(network).charLimit;
 
     const gateInstructions = [baitInstruction, humanizeInstruction].filter(Boolean).join("\n");
     const critiqueText = isJudgeRetry
@@ -889,12 +835,12 @@ function makeRefineNode(network: SocialNetwork, promptPort: IPromptPort, refineT
       network,
       draft: sourceText,
       critique: critiqueText,
-      baitInstruction: gateInstructions ? `\n${gateInstructions}\n` : "",
+      baitInstruction: `${gateInstructions ? `\n${gateInstructions}\n` : ""}\nAUTHOR CONTEXT:\n${authorContextPrompt(state.authorContexts?.[network])}`,
       charLimit: String(charLimit),
       slopList: getSlopListForPrompt(lang),
       langName,
       langInstruction,
-      langExamples: getLanguageExamples(lang),
+      langExamples: "",
     };
 
     const refinePrompt = await promptPort.getCompiledText(
@@ -908,6 +854,8 @@ function makeRefineNode(network: SocialNetwork, promptPort: IPromptPort, refineT
         temperature: refineTemperature,
         role: "refine",
         maxTokens: maxTokensForRole("refine", network),
+        traceName: `generation.refine.${network}`,
+        accountId: state.authorContexts?.[network]?.accountId,
       });
 
       let refined = response.content.trim();
@@ -926,7 +874,13 @@ function makeRefineNode(network: SocialNetwork, promptPort: IPromptPort, refineT
           const cutResponse = await llm.generateChat(
             "",
             `Cut this ${network} post to ${charLimit} characters or fewer. Keep the hook and the punchline. Remove filler, not substance. Preserve the original language (${langName}).\n\nPost:\n"${refined}"\n\nReturn ONLY the shortened post (max ${charLimit} chars):`,
-            { temperature: 0.3, role: "refine", maxTokens: maxTokensForRole("refine", network) },
+            {
+              temperature: 0.3,
+              role: "refine",
+              maxTokens: maxTokensForRole("refine", network),
+              traceName: `generation.refine.${network}`,
+              accountId: state.authorContexts?.[network]?.accountId,
+            },
           );
           refineTokens += cutResponse.tokens ?? 0;
           refineCost += cutResponse.cost ?? 0;
@@ -1171,7 +1125,7 @@ function makeJudgeNode(
         return {
           network: net,
           content: c,
-          charLimit: NETWORK_LIMITS[net] ?? 280,
+          charLimit: getNetworkProfile(net).charLimit,
           factsText,
           slopList,
         };
@@ -1305,6 +1259,11 @@ function saveToDbNode(
     posts.push({
       network,
       content,
+      accountId: state.authorContexts?.[network]?.accountId,
+      personaRevisionId: state.authorContexts?.[network]?.personaRevisionId ?? undefined,
+      voiceMode: state.authorContexts?.[network]?.voiceMode,
+      experimentAssignmentId: state.authorContexts?.[network]?.experimentAssignmentId ?? undefined,
+      authorContextSource: state.authorContexts?.[network]?.source,
       hook: netResult.hook,
       angle: netResult.angle,
       model: state.model,
@@ -1631,12 +1590,14 @@ export function createInitialState(
   brandVoice: string,
   humanReview = false,
   _language = "en",
+  authorContexts: Partial<Record<SocialNetwork, AuthorContextResult>> = {},
 ): GenerationStateType {
   const networks = Array.isArray(targetNetworks) ? targetNetworks : [targetNetworks];
   return {
     topic,
     targetNetworks: networks,
     brandVoice,
+    authorContexts,
     // Generation is English-only regardless of the language argument.
     language: "en",
     facts: [],

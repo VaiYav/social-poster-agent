@@ -3,7 +3,7 @@ import {
   extractTopic,
   computeVariantStats,
   pickWinner,
-} from "../../../src/modules/content-enhancements/ab-test.utils";
+} from "../../../src/modules/content-enhancements/ab-test.utils.js";
 
 describe("ab-test.utils", () => {
   describe("extractTopic", () => {

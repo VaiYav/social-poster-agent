@@ -6,11 +6,9 @@ FROM node:24-slim AS builder
 
 WORKDIR /app
 
-# Install build tools for native addons (better-sqlite3 needs node-gyp → python3 + g++)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 make g++ \
-    && rm -rf /var/lib/apt/lists/*
-
+# REFACTOR-100: aligned with docker/Dockerfile.backend. No python3/make/g++ here:
+# better-sqlite3 was removed as a dependency (it survives in the lockfile only as
+# prisma's OPTIONAL peer), so nothing in the workspace needs node-gyp anymore.
 # Node 24 slim no longer ships Corepack. Install the workspace-pinned pnpm
 # directly so Railway builds remain reproducible.
 RUN npm install --global pnpm@11.21.0
@@ -24,6 +22,12 @@ COPY packages/backend/prisma ./packages/backend/prisma
 
 # Install dependencies (prisma generate runs as postinstall)
 RUN pnpm install --frozen-lockfile --filter @spa/backend...
+
+# REFACTOR-100: pre-fetch the Camoufox binary in the builder (same as
+# docker/Dockerfile.backend) so production never downloads 600MB+ from GitHub at
+# runtime and is immune to GitHub API rate limits during deploys.
+ENV CAMOUFOX_INSTALL_DIR=/app/.cache/camoufox
+RUN npx camoufox-js fetch
 
 # Copy source
 COPY packages/shared/ ./packages/shared/
@@ -45,10 +49,6 @@ RUN cd packages/backend && npx prisma generate
 # Copy generated .prisma to a known location for the production stage
 RUN PRISMA_DIR=$(find /app/node_modules/.pnpm -maxdepth 4 -name '.prisma' -type d | head -1) && \
     cp -r "$PRISMA_DIR" /tmp/.prisma
-
-# Copy better-sqlite3 native build to a known location for the production stage
-RUN SQLITE3_BUILD=$(find /app/node_modules/.pnpm -maxdepth 4 -path '*/better-sqlite3/build' -type d | head -1) && \
-    cp -r "$SQLITE3_BUILD" /tmp/better-sqlite3-build
 
 # ── Production stage ──
 FROM node:24-slim AS production
@@ -92,13 +92,6 @@ RUN CLIENT_NM_DIR=$(find /app/node_modules/.pnpm -maxdepth 4 -path '*/@prisma+cl
     cp -r /tmp/.prisma "$CLIENT_NM_DIR/" && \
     rm -rf /tmp/.prisma
 
-# Copy better-sqlite3 native binding from builder (--ignore-scripts skips it in prod)
-COPY --from=builder /tmp/better-sqlite3-build /tmp/better-sqlite3-build
-RUN SQLITE3_PKG=$(find /app/node_modules/.pnpm -maxdepth 2 -name 'better-sqlite3@*' -type d | head -1) && \
-    mkdir -p "$SQLITE3_PKG/node_modules/better-sqlite3/build" && \
-    cp -r /tmp/better-sqlite3-build/* "$SQLITE3_PKG/node_modules/better-sqlite3/build/" && \
-    rm -rf /tmp/better-sqlite3-build
-
 # Copy brand voice (needed by generation prompts)
 COPY brand-voice.md ./
 
@@ -115,29 +108,11 @@ RUN groupadd -r spa && useradd -r -g spa -m -d /home/spa spa && \
     mkdir -p /home/spa/.cache/camoufox && \
     chown -R spa:spa /home/spa
 
-# Pre-download Camoufox browser during build (662MB) to avoid runtime GitHub API rate limits.
-# Retries up to 3 times with backoff — GitHub API rate limits / network blips during build
-# are common. If all attempts fail, the app will retry at runtime (non-fatal).
-# NOTE: pnpm stores packages at .pnpm/<pkg>@<ver>/node_modules/<pkg>/dist/... — maxdepth 5
-# from .pnpm is required to reach the actual file (maxdepth 3 was too shallow and always
-# returned an empty path, causing require(undefined) to fail silently).
-# TIP: set GITHUB_TOKEN in Railway build vars to raise the API rate limit from 60 to 5000/hr.
-#
-# KNOWN ISSUE: AdmZip in camoufox-js silently fails to extract the large camoufox-bin binary
-# from the 557MB zip — small files (fonts, addons, version.json) extract fine, but the
-# ~200MB binary is missing. The pre-install script verifies camoufox-bin exists after the
-# JS install; if missing, it falls back to curl + unzip (system tools) which handle large
-# files correctly.
-COPY packages/backend/scripts/camoufox-preinstall.sh ./packages/backend/scripts/camoufox-preinstall.sh
-RUN CMX=$(find /app/node_modules/.pnpm -maxdepth 5 -path '*/camoufox-js/dist/pkgman.js' | head -1) && \
-    if [ -z "$CMX" ]; then \
-        echo "[Camoufox pre-install] WARNING: pkgman.js not found — camoufox-js not installed in prod stage? Will retry at runtime."; \
-        CMX=$(find /app/node_modules -maxdepth 5 -path '*/camoufox-js/dist/pkgman.js' | head -1); \
-    fi && \
-    if [ -n "$CMX" ]; then \
-        chmod +x packages/backend/scripts/camoufox-preinstall.sh && \
-        su spa -s /bin/sh -c "HOME=/home/spa packages/backend/scripts/camoufox-preinstall.sh '$CMX'" || true; \
-    fi
+# REFACTOR-100: deterministic Camoufox supply — copy the binary pre-fetched in the
+# builder instead of downloading from GitHub in the prod stage (removes the
+# runtime-fallback shell script, GitHub rate-limit exposure and AdmZip large-file
+# failure mode entirely).
+COPY --from=builder /app/.cache/camoufox /app/.cache/camoufox
 
 USER spa
 
@@ -150,6 +125,9 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
 ENV NODE_ENV=production
 ENV SPA_API_PORT=3100
 ENV CAMOUFOX_HEADLESS=true
+# MEM: constrain Node heap to leave headroom for Camoufox processes (same as
+# docker/Dockerfile.backend).
+ENV NODE_OPTIONS=--max-old-space-size=1536
 
 # Run Prisma migrations before starting the app.
 # First resolve any failed migrations (e.g. enum values added manually), then deploy.

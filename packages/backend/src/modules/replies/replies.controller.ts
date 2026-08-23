@@ -19,9 +19,9 @@ import {
   BadRequestException,
 } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from "@nestjs/swagger";
-import { RepliesMonitorService } from "./replies-monitor.service";
-import { PrismaService } from "../../infrastructure/prisma/prisma.service";
-import { CommentStatus } from "../../generated/prisma/client";
+import { RepliesMonitorService } from "./replies-monitor.service.js";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { CommentStatus } from "../../generated/prisma/client.js";
 import { z, ZodError } from "zod";
 import { formatZodError } from "../../infrastructure/zod-error.js";
 

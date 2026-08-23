@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Param, ParseEnumPipe, HttpCode, HttpStatus } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiResponse, ApiParam } from "@nestjs/swagger";
-import { SocialNetwork } from "../../generated/prisma/client";
-import { QueueService } from "./queue.service";
+import { SocialNetwork } from "../../generated/prisma/client.js";
+import { QueueService } from "./queue.service.js";
 import { QueueTriageService } from "./queue-triage.service.js";
 
 /**

@@ -7,19 +7,19 @@
  * Source: packages/backend/src/modules/engagement/engagement.graph.ts
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { SocialNetwork } from "../../../src/generated/prisma/client";
+import { SocialNetwork } from "../../../src/generated/prisma/client.js";
 import {
   buildEngagementGraph,
   createEngagementInitialState,
-} from "../../../src/modules/engagement/engagement.graph";
+} from "../../../src/modules/engagement/engagement.graph.js";
 import type {
   IEngagementDecisionPort,
   ActionDecision,
-} from "../../../src/domain/ports/engagement-decision.port";
-import type { TargetingService } from "../../../src/modules/engagement/targeting.service";
-import type { WarmupService, WarmupStatus } from "../../../src/modules/sessions/warmup.service";
+} from "../../../src/domain/ports/engagement-decision.port.js";
+import type { TargetingService } from "../../../src/modules/engagement/targeting.service.js";
+import type { WarmupService, WarmupStatus } from "../../../src/modules/sessions/warmup.service.js";
 import type { HumanBehaviorEngine } from "../../../src/modules/engagement/human-behavior-engine.js";
-import type { BaseEngager } from "../../../src/modules/engagement/engagers/base.engager";
+import type { BaseEngager } from "../../../src/modules/engagement/engagers/base.engager.js";
 
 // ── Mocks ──
 

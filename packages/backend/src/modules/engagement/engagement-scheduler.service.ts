@@ -18,7 +18,7 @@ import { Injectable, Logger, type OnModuleInit, type OnModuleDestroy } from "@ne
 import { SchedulerRegistry } from "@nestjs/schedule";
 import { CronJob } from "cron";
 import { ConfigService } from "@nestjs/config";
-import { SocialNetwork } from "../../generated/prisma/client";
+import { SocialNetwork } from "../../generated/prisma/client.js";
 import { QueueFactory } from "../../infrastructure/queue/queue.factory.js";
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
 import { isOrchestratorEnabled } from "../orchestrator/feature-flag.js";

@@ -7,9 +7,9 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ConfigService } from "@nestjs/config";
-import { EngagementSchedulerService } from "../../../src/modules/engagement/engagement-scheduler.service";
-import type { QueueFactory } from "../../../src/infrastructure/queue/queue.factory";
-import type { BrowsingSessionService } from "../../../src/modules/engagement/browsing-session.service";
+import { EngagementSchedulerService } from "../../../src/modules/engagement/engagement-scheduler.service.js";
+import type { QueueFactory } from "../../../src/infrastructure/queue/queue.factory.js";
+import type { BrowsingSessionService } from "../../../src/modules/engagement/browsing-session.service.js";
 
 function createMockConfigService(overrides: Record<string, unknown> = {}): ConfigService {
   return {
@@ -259,7 +259,7 @@ describe("EngagementSchedulerService", () => {
         likesActualToday: 0,
         debt: 0,
       },
-    } as unknown as import("../../../src/modules/orchestrator/types").WorldState;
+    } as unknown as import("../../../src/modules/orchestrator/types.js").WorldState;
     await service.checkStaleAndEnqueue(world);
     expect(mockQueueFactory.enqueueEngagement).toHaveBeenCalled();
   });
@@ -295,7 +295,7 @@ describe("EngagementSchedulerService", () => {
         likesActualToday: 0,
         debt: 0,
       },
-    } as unknown as import("../../../src/modules/orchestrator/types").WorldState;
+    } as unknown as import("../../../src/modules/orchestrator/types.js").WorldState;
     await service.checkStaleAndEnqueue(world);
     expect(mockQueueFactory.enqueueEngagement).not.toHaveBeenCalled();
   });
@@ -333,7 +333,7 @@ describe("EngagementSchedulerService", () => {
         likesActualToday: 0,
         debt: 0,
       },
-    } as unknown as import("../../../src/modules/orchestrator/types").WorldState;
+    } as unknown as import("../../../src/modules/orchestrator/types.js").WorldState;
     await service.checkStaleAndEnqueue(world);
     expect(mockQueueFactory.enqueueEngagement).toHaveBeenCalled();
   });

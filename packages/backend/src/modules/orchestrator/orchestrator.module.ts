@@ -14,17 +14,17 @@
  */
 
 import { Module } from "@nestjs/common";
-import { PrismaModule } from "../../infrastructure/prisma/prisma.module";
-import { RedisModule } from "../../infrastructure/redis/redis.module";
-import { RateLimitModule } from "../rate-limit/rate-limit.module";
-import { FlowControlModule } from "../flow-control/flow-control.module";
-import { QueueModule } from "../queue/queue.module";
-import { NotificationsModule } from "../../infrastructure/notifications/notifications.module";
-import { LlmModule } from "../../infrastructure/llm/llm.module";
-import { CheckpointModule } from "../../infrastructure/checkpoint/checkpoint.module";
+import { PrismaModule } from "../../infrastructure/prisma/prisma.module.js";
+import { RedisModule } from "../../infrastructure/redis/redis.module.js";
+import { RateLimitModule } from "../rate-limit/rate-limit.module.js";
+import { FlowControlModule } from "../flow-control/flow-control.module.js";
+import { QueueModule } from "../queue/queue.module.js";
+import { NotificationsModule } from "../../infrastructure/notifications/notifications.module.js";
+import { LlmModule } from "../../infrastructure/llm/llm.module.js";
+import { CheckpointModule } from "../../infrastructure/checkpoint/checkpoint.module.js";
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
 import { EngagementModule } from "../engagement/engagement.module.js";
-import { AccountsModule } from "../accounts/accounts.module";
+import { AccountsModule } from "../accounts/accounts.module.js";
 import { StateCollectorService } from "./state-collector.service.js";
 import { PostingWindowModule } from "./posting-window.module.js";
 import { HardRulesService } from "./hard-rules.service.js";
@@ -53,6 +53,7 @@ import {
 import { OrchestratorService } from "./orchestrator.service.js";
 import { OrchestratorController } from "./orchestrator.controller.js";
 import { WatchdogCron } from "./watchdog.cron.js";
+import { EvaluationModule } from "../evaluation/evaluation.module.js";
 
 // Conditionally import EngagementModule so EngagementSchedulerService is available
 // for the parallel engagement check (checkStaleAndEnqueue). Without this, the
@@ -72,6 +73,7 @@ const engagementImports = parseBool(process.env.ENGAGEMENT_ENABLED) ? [Engagemen
     CheckpointModule,
     AccountsModule,
     PostingWindowModule,
+    EvaluationModule,
     ...engagementImports,
     // EventEmitter2 is provided globally by EventsEdaModule in app.module.ts
     // SseModule no longer needed — orchestrator emits domain events via EventEmitter2,

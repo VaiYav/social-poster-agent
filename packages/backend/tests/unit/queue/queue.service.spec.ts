@@ -8,8 +8,8 @@
  * Traces to: REQ-032, REQ-033
  */
 import { describe, it, expect, vi } from "vitest";
-import { QueueService } from "../../../src/modules/queue/queue.service";
-import { QueueFactory } from "../../../src/infrastructure/queue/queue.factory";
+import { QueueService } from "../../../src/modules/queue/queue.service.js";
+import { QueueFactory } from "../../../src/infrastructure/queue/queue.factory.js";
 
 describe("QueueService", () => {
   it("P2-2.1.3: getFailedJobs maps raw BullMQ jobs to sanitized QueueJobDto", async () => {

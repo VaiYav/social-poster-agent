@@ -1,9 +1,9 @@
 import { Module } from "@nestjs/common";
 import { EventEmitterModule } from "@nestjs/event-emitter";
-import { QueueModule as QueueInfraModule } from "../../infrastructure/queue/queue.module";
+import { QueueInfraModule } from "../../infrastructure/queue/queue.module.js";
 import { PostingWindowModule } from "../orchestrator/posting-window.module.js";
-import { PostsService } from "./posts.service";
-import { PostsController } from "./posts.controller";
+import { PostsService } from "./posts.service.js";
+import { PostsController } from "./posts.controller.js";
 
 @Module({
   // A5: QueueInfraModule provides IPostingQueuePort so PostsController can enqueue without the

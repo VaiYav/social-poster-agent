@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, vi } from "vitest";
 
-import { ThreadsInsightsSource } from "../../../../src/modules/analytics/metrics-sources/threads-insights.source";
+import { ThreadsInsightsSource } from "../../../../src/modules/analytics/metrics-sources/threads-insights.source.js";
 
 const POST = {
   id: "p1",

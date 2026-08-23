@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { ContentSourcesConfigSchema, type ContentSourceConfig } from "@spa/shared";
 import type { ContentReader } from "../content-reader.js";
 import type { DbContentReader } from "../db-content-reader.js";
-import type { PrismaService } from "../../prisma/prisma.service";
+import type { PrismaService } from "../../prisma/prisma.service.js";
 import type { IContentAdapter } from "./content-adapter.interface.js";
 import { ApiAdapter } from "./api.adapter.js";
 import { GoogleTrendsAdapter } from "./google-trends.adapter.js";

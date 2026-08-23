@@ -23,20 +23,20 @@
  *   - vi.mock('ioredis') → in-memory Map store (no real Redis)
  *   - vi.mock('bullmq') → captured Queue/Worker constructors (no real BullMQ)
  *   - vi.mock('node:fs/promises') → controlled filesystem for ContentReader fallback (ITC-027)
- *   - createMockPrismaService() from '../mocks/index' → override PrismaService via a
+ *   - createMockPrismaService() from '../mocks/index.js' → override PrismaService via a
  *     global dynamic module (PrismaModule is not @Global, so we provide it globally)
  *
  * Source: CONSTITUTION.md §14 (Testing) — test case IDs are inline
  */
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import { restoreAllDesignParamtypes } from "../helpers/restore-paramtypes.js";
-import { TopicGenerationService } from "../../src/infrastructure/content/topic-generation.service";
+import { TopicGenerationService } from "../../src/infrastructure/content/topic-generation.service.js";
 import { ScheduleModule } from "@nestjs/schedule";
 import { EventEmitter2, EventEmitterModule } from "@nestjs/event-emitter";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { ModuleRef } from "@nestjs/core";
 import { ConfigModule } from "@nestjs/config";
-import { SocialNetwork } from "../../src/generated/prisma/client";
+import { SocialNetwork } from "../../src/generated/prisma/client.js";
 import type { ContentTopic } from "@spa/shared";
 
 // ── Hoisted mocks: ioredis, bullmq, node:fs/promises ─────────────────────────
@@ -184,46 +184,46 @@ vi.mock("node:fs", () => ({
 
 // ── Real source imports (after vi.mock is hoisted) ───────────────────────────
 import "reflect-metadata";
-import { PrismaService } from "../../src/infrastructure/prisma/prisma.service";
+import { PrismaService } from "../../src/infrastructure/prisma/prisma.service.js";
 import { RedisCheckpointSaver } from "../../src/infrastructure/checkpoint/redis-checkpoint.js";
-import { HealthController } from "../../src/modules/health/health.controller";
+import { HealthController } from "../../src/modules/health/health.controller.js";
 import { ContentReader } from "../../src/infrastructure/content/content-reader.js";
 import {
   ILlmPort,
   type ILlmPort as ILlmPortType,
   type LlmResponse,
-} from "../../src/domain/ports/llm.port";
-import { IBrowserPort } from "../../src/domain/ports/browser.port";
-import { GenerationModule } from "../../src/modules/generation/generation.module";
-import { GenerationService } from "../../src/modules/generation/generation.service";
-import { GenerationController } from "../../src/modules/generation/generation.controller";
-import { CronService } from "../../src/modules/generation/cron.service";
+} from "../../src/domain/ports/llm.port.js";
+import { IBrowserPort } from "../../src/domain/ports/browser.port.js";
+import { GenerationModule } from "../../src/modules/generation/generation.module.js";
+import { GenerationService } from "../../src/modules/generation/generation.service.js";
+import { GenerationController } from "../../src/modules/generation/generation.controller.js";
+import { CronService } from "../../src/modules/generation/cron.service.js";
 import {
   buildGenerationGraph,
   createInitialState,
   clearHookCache,
-} from "../../src/modules/generation/generation.graph";
-import { PostsService } from "../../src/modules/posts/posts.service";
-import { PostsController } from "../../src/modules/posts/posts.controller";
-import { QueueModule } from "../../src/modules/queue/queue.module";
-import { QueueService } from "../../src/modules/queue/queue.service";
-import { QueueController } from "../../src/modules/queue/queue.controller";
-import { QueueFactory } from "../../src/infrastructure/queue/queue.factory";
-import { PostingService } from "../../src/modules/posting/posting.service";
-import { PostingController } from "../../src/modules/posting/posting.controller";
+} from "../../src/modules/generation/generation.graph.js";
+import { PostsService } from "../../src/modules/posts/posts.service.js";
+import { PostsController } from "../../src/modules/posts/posts.controller.js";
+import { QueueModule } from "../../src/modules/queue/queue.module.js";
+import { QueueService } from "../../src/modules/queue/queue.service.js";
+import { QueueController } from "../../src/modules/queue/queue.controller.js";
+import { QueueFactory } from "../../src/infrastructure/queue/queue.factory.js";
+import { PostingService } from "../../src/modules/posting/posting.service.js";
+import { PostingController } from "../../src/modules/posting/posting.controller.js";
 import { PostingWindowService } from "../../src/modules/orchestrator/posting-window.service.js";
-import { XPoster } from "../../src/modules/posting/posters/x.poster";
-import { ThreadsPoster } from "../../src/modules/posting/posters/threads.poster";
-import { FacebookPoster } from "../../src/modules/posting/posters/facebook.poster";
-import { ContentSourceService } from "../../src/modules/content-source/content-source.service";
-import { ContentSourceController } from "../../src/modules/content-source/content-source.controller";
-import { AccountsService } from "../../src/modules/accounts/accounts.service";
-import { AccountsController } from "../../src/modules/accounts/accounts.controller";
-import { SessionsService } from "../../src/modules/sessions/sessions.service";
-import { SessionsController } from "../../src/modules/sessions/sessions.controller";
-import { SseService } from "../../src/infrastructure/sse/sse.service";
+import { XPoster } from "../../src/modules/posting/posters/x.poster.js";
+import { ThreadsPoster } from "../../src/modules/posting/posters/threads.poster.js";
+import { FacebookPoster } from "../../src/modules/posting/posters/facebook.poster.js";
+import { ContentSourceService } from "../../src/modules/content-source/content-source.service.js";
+import { ContentSourceController } from "../../src/modules/content-source/content-source.controller.js";
+import { AccountsService } from "../../src/modules/accounts/accounts.service.js";
+import { AccountsController } from "../../src/modules/accounts/accounts.controller.js";
+import { SessionsService } from "../../src/modules/sessions/sessions.service.js";
+import { SessionsController } from "../../src/modules/sessions/sessions.controller.js";
+import { SseService } from "../../src/infrastructure/sse/sse.service.js";
 import { EncryptionService } from "../../src/infrastructure/crypto/encryption.service.js";
-import { TrendingScraperService } from "../../src/modules/trending/trending-scraper.service";
+import { TrendingScraperService } from "../../src/modules/trending/trending-scraper.service.js";
 import { DiscordNotificationService } from "../../src/infrastructure/notifications/discord-notification.service.js";
 import { NotificationsModule } from "../../src/infrastructure/notifications/notifications.module.js";
 import { VisualConceptService } from "../../src/modules/content-enhancements/visual-concept.service.js";
@@ -231,10 +231,10 @@ import { ABVariantGenerator } from "../../src/modules/content-enhancements/ab-va
 import { ThreadDepthService } from "../../src/modules/content-enhancements/thread-depth.service.js";
 import { ContentPillarTracker } from "../../src/modules/content-enhancements/content-pillar.tracker.js";
 import { HookPerformanceBank } from "../../src/modules/content-enhancements/hook-performance-bank.js";
-import { SseModule } from "../../src/infrastructure/sse/sse.module";
-import { RateLimitService } from "../../src/modules/rate-limit/rate-limit.service";
-import { BrowserFactory } from "../../src/infrastructure/browser/browser.factory";
-import { LlmService } from "../../src/infrastructure/llm/llm.service";
+import { SseModule } from "../../src/infrastructure/sse/sse.module.js";
+import { RateLimitService } from "../../src/modules/rate-limit/rate-limit.service.js";
+import { BrowserFactory } from "../../src/infrastructure/browser/browser.factory.js";
+import { LlmService } from "../../src/infrastructure/llm/llm.service.js";
 import { ConfigService } from "@nestjs/config";
 import { createMockPrismaService, createMockBrowserPort } from "../mocks/index.js";
 import {
@@ -242,7 +242,7 @@ import {
   SHARED_REDIS_SUBSCRIBER,
   SHARED_REDIS_PUBLISHER,
   RedisModule,
-} from "../../src/infrastructure/redis/redis.module";
+} from "../../src/infrastructure/redis/redis.module.js";
 
 restoreAllDesignParamtypes();
 

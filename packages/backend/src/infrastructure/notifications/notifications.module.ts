@@ -6,7 +6,7 @@
  */
 import { Module, Global } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
-import { DiscordNotificationService } from "./discord-notification.service";
+import { DiscordNotificationService } from "./discord-notification.service.js";
 
 @Global()
 @Module({

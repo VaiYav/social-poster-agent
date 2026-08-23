@@ -21,7 +21,7 @@
 
 import { StateGraph, END, START, Annotation } from "@langchain/langgraph";
 import type { Page } from "../../domain/ports/browser-primitives.js";
-import { SocialNetwork } from "../../generated/prisma/client";
+import { SocialNetwork } from "../../generated/prisma/client.js";
 import { Logger } from "@nestjs/common";
 import type { EngagementSource } from "../../domain/ports/engagement-decision.port.js";
 import type { BaseEngager } from "./engagers/base.engager.js";

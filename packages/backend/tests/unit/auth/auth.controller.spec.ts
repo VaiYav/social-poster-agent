@@ -7,10 +7,10 @@ import { UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { createControllerTestingModule } from "../../helpers/nest.js";
 import { defineParamtypes } from "../../helpers/restore-paramtypes.js";
-import { AuthController, COOKIE_NAME } from "../../../src/modules/auth/auth.controller";
-import { AuthService } from "../../../src/modules/auth/auth.service";
-import { LoginRateLimitGuard } from "../../../src/modules/auth/login-rate-limit.guard";
-import { SHARED_REDIS } from "../../../src/infrastructure/redis/redis.module";
+import { AuthController, COOKIE_NAME } from "../../../src/modules/auth/auth.controller.js";
+import { AuthService } from "../../../src/modules/auth/auth.service.js";
+import { LoginRateLimitGuard } from "../../../src/modules/auth/login-rate-limit.guard.js";
+import { SHARED_REDIS } from "../../../src/infrastructure/redis/redis.module.js";
 import { createMockRedis } from "../../mocks/index.js";
 
 // vitest/esbuild does NOT emit design:paramtypes metadata, so attach it explicitly.

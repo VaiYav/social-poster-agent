@@ -43,6 +43,8 @@
 //   - @langfuse/tracing src/tracerProvider.ts (setLangfuseTracerProvider)
 //   - Sentry OTel init: @sentry/node build/esm/sdk/initOtel.js
 import { BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
+import { context } from "@opentelemetry/api";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import { LangfuseSpanProcessor } from "@langfuse/otel";
 import { setLangfuseTracerProvider } from "@langfuse/tracing";
 
@@ -64,6 +66,9 @@ let langfuseProcessor: LangfuseSpanProcessor | undefined;
 /** The isolated TracerProvider — kept for graceful shutdown. */
 let langfuseProvider: BasicTracerProvider | undefined;
 
+/** Context manager installed only when no application OTel manager exists. */
+let langfuseContextManager: AsyncLocalStorageContextManager | undefined;
+
 if (langfuseEnabled) {
   try {
     // Default to US cloud (matches .env.example) and ensure the env var is set
@@ -80,6 +85,17 @@ if (langfuseEnabled) {
       spanProcessors: [langfuseProcessor],
     });
 
+    // `startActiveObservation()` relies on async context propagation to keep
+    // graph/model observations under the logical root. Sentry normally owns a
+    // context manager when enabled; with Sentry disabled, install the standard
+    // Node manager so Langfuse still preserves parent/child hierarchy.
+    const contextManager = new AsyncLocalStorageContextManager().enable();
+    if (context.setGlobalContextManager(contextManager)) {
+      langfuseContextManager = contextManager;
+    } else {
+      contextManager.disable();
+    }
+
     // Register as the isolated Langfuse tracer provider.
     // @langfuse/tracing getLangfuseTracerProvider() will now return this
     // provider instead of falling back to the global (Sentry) one.
@@ -92,6 +108,8 @@ if (langfuseEnabled) {
     log("warn", `Langfuse OTel SDK failed to start — tracing disabled: ${(err as Error).message}`);
     langfuseProcessor = undefined;
     langfuseProvider = undefined;
+    langfuseContextManager?.disable();
+    langfuseContextManager = undefined;
   }
 } else {
   log("debug", "Langfuse tracing disabled — LANGFUSE_PUBLIC_KEY not set");
@@ -111,4 +129,6 @@ export async function shutdownLangfuse(): Promise<void> {
       log("warn", `Langfuse shutdown error: ${(err as Error).message}`);
     }
   }
+  langfuseContextManager?.disable();
+  langfuseContextManager = undefined;
 }

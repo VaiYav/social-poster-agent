@@ -20,11 +20,11 @@
  * binary content-safety gate; score grading is the gate's job, not AutoCheck's.
  */
 import { Injectable, Logger } from "@nestjs/common";
-import { SocialNetwork } from "../../generated/prisma/client";
+import { SocialNetwork } from "../../generated/prisma/client.js";
 import { detectEngagementBait } from "../content-enhancements/engagement-bait.detector.js";
 import { simhash, isDuplicateHash } from "../generation/simhash.js";
 import { NETWORK_LIMITS } from "../posts/network-limits.js";
-import { PrismaService } from "../../infrastructure/prisma/prisma.service";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 
 export interface CheckResult {
   name: string;

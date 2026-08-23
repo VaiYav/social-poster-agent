@@ -7,6 +7,8 @@ import { describe, it, expect, vi } from "vitest";
 import {
   withPromptLabelContext,
   recordPromptLabel,
+  recordPromptReference,
+  consumePromptReference,
   getRecordedPromptLabels,
 } from "../../../../src/infrastructure/prompt/prompt-label-context.js";
 
@@ -51,6 +53,27 @@ describe("PromptLabelContext", () => {
       expect(getRecordedPromptLabels()).toEqual({
         "draft-post": { label: "v2" },
       });
+    });
+  });
+
+  it("refuses to guess when distinct prompt versions compile to identical messages", async () => {
+    await withPromptLabelContext(async () => {
+      recordPromptReference("same system", "same user", {
+        name: "draft-post",
+        label: "production",
+        version: 4,
+        isFallback: false,
+        nativePrompt: { id: "v4" },
+      });
+      recordPromptReference("same system", "same user", {
+        name: "draft-post",
+        label: "candidate",
+        version: 5,
+        isFallback: false,
+        nativePrompt: { id: "v5" },
+      });
+
+      expect(consumePromptReference("same system", "same user")).toBeUndefined();
     });
   });
 });

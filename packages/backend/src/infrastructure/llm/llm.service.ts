@@ -1,19 +1,36 @@
 import { Inject, Injectable, Logger, Optional, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { ChatOpenAI } from "@langchain/openai";
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { ChatPromptTemplate } from "@langchain/core/prompts";
 import type IORedis from "ioredis";
 import type { BaseCallbackHandler } from "../../domain/ports/llm-primitives.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
-import type {
-  ILlmPort,
-  GenerateOptions,
-  LlmResponse,
-  LlmRole,
-  ProviderStatus,
+import {
+  LlmTelemetryError,
+  type GenerateOptions,
+  type ILlmPort,
+  type LlmAttemptTelemetry,
+  type LlmCostSource,
+  type LlmFallbackPolicy,
+  type LlmResponse,
+  type LlmRole,
+  type ProviderStatus,
 } from "../../domain/ports/llm.port.js";
 import { LlmProviderRateLimit } from "./llm-provider-rate-limit.js";
-import { IPromptPort } from "../../domain/ports/prompt.port.js";
+import {
+  EmptyLlmOutputError,
+  extractLlmErrorStatusCode,
+  normalizeLlmErrorCategory,
+  safeLlmErrorSummary,
+} from "./llm-attempt-telemetry.js";
+import { IPromptPort, type PromptReference } from "../../domain/ports/prompt.port.js";
+import {
+  IResiliencePort,
+  type IResiliencePort as ResiliencePort,
+} from "../../domain/ports/resilience.port.js";
+import { consumePromptReference as consumeAmbientPromptReference } from "../prompt/prompt-label-context.js";
 import { SHARED_REDIS } from "../redis/redis.module.js";
 import { parseBool } from "../config/parse-bool.js";
 import { InMemoryLlmCache, RedisLlmCache, type LlmCache } from "./llm-cache.js";
@@ -24,6 +41,8 @@ import {
   TokenBudgetExceeded,
   type BudgetScope,
 } from "./token-budget.service.js";
+import { LlmUsageLedgerService } from "./llm-usage-ledger.service.js";
+import { PromptCompressionService } from "./prompt-compression.service.js";
 
 /**
  * Provider definition — each provider is tried in order until one succeeds.
@@ -49,6 +68,106 @@ interface LlmProviderConfig {
    * may need more time due to their inference characteristics.
    */
   timeout: number;
+}
+
+type LlmAttemptBase = Pick<
+  LlmAttemptTelemetry,
+  | "llm_role"
+  | "provider_requested"
+  | "provider_actual"
+  | "model_requested"
+  | "model_actual"
+  | "model_snapshot_or_alias"
+  | "fallback_policy"
+  | "attempt_index"
+  | "fallback_depth"
+  | "cache_hit"
+  | "rate_limit_retry"
+  | "reasoning_effort"
+  | "temperature_sent"
+  | "max_output_tokens"
+  | "prompt_name"
+  | "prompt_version"
+  | "prompt_label"
+  | "prompt_is_fallback"
+  | "prompt_fallback_digest"
+>;
+
+type LlmAttemptCompletion = Omit<LlmAttemptTelemetry, keyof LlmAttemptBase | "latency_ms">;
+
+type LlmPromptAttemptMetadata = Pick<
+  LlmAttemptTelemetry,
+  | "prompt_name"
+  | "prompt_version"
+  | "prompt_label"
+  | "prompt_is_fallback"
+  | "prompt_fallback_digest"
+>;
+
+interface ActiveLlmAttempt {
+  readonly base: LlmAttemptBase;
+  readonly startedAt: number;
+  completed: boolean;
+}
+
+interface LlmInvokeConfig {
+  callbacks?: BaseCallbackHandler[];
+  signal?: AbortSignal;
+  runName?: string;
+  metadata: Record<string, unknown>;
+}
+
+/** Per-call collector; never shared across concurrent graph branches. */
+class LlmAttemptCollector {
+  private readonly completed: LlmAttemptTelemetry[] = [];
+  private active?: ActiveLlmAttempt;
+
+  start(base: LlmAttemptBase): ActiveLlmAttempt {
+    const active: ActiveLlmAttempt = { base, startedAt: Date.now(), completed: false };
+    this.active = active;
+    return active;
+  }
+
+  finish(active: ActiveLlmAttempt, completion: LlmAttemptCompletion): void {
+    if (active.completed) return;
+    active.completed = true;
+    this.completed.push({
+      ...active.base,
+      ...completion,
+      latency_ms: Math.max(0, Date.now() - active.startedAt),
+    });
+    if (this.active === active) this.active = undefined;
+  }
+
+  recordCacheHit(base: LlmAttemptBase, cached: LlmResponse, costSource: LlmCostSource): void {
+    this.completed.push({
+      ...base,
+      outcome: "cache_hit",
+      normalized_error_category: "none",
+      total_tokens: cached.tokens,
+      cost_usd: cached.cost,
+      cost_source: costSource,
+      latency_ms: 0,
+    });
+  }
+
+  snapshot(): readonly LlmAttemptTelemetry[] {
+    return this.completed.map((attempt) => ({ ...attempt }));
+  }
+
+  snapshotWithActiveAbort(): readonly LlmAttemptTelemetry[] {
+    const snapshot = [...this.snapshot()];
+    if (this.active && !this.active.completed) {
+      snapshot.push({
+        ...this.active.base,
+        outcome: "error",
+        normalized_error_category: "aborted",
+        cost_source: "unknown",
+        latency_ms: Math.max(0, Date.now() - this.active.startedAt),
+      });
+    }
+    return snapshot;
+  }
 }
 
 /**
@@ -88,6 +207,25 @@ interface ProviderSpec {
 }
 
 const REASONING_MODEL_PATTERN = /^(gpt-5(\.\d+)?|o1|o3|o4-mini|codex-mini)/;
+
+/** Price-table estimates per 1M input/output tokens. Zero is an explicit free-tier price. */
+const PROVIDER_PRICING_PER_MILLION: Readonly<Record<string, readonly [number, number]>> = {
+  groq: [0, 0],
+  sambanova: [0, 0],
+  cerebras: [0, 0],
+  openrouter: [0, 0],
+  deepseek: [0.27, 1.1],
+  anthropic: [1.0, 5.0],
+  openai: [0.05, 0.4],
+  google: [0, 0],
+  nvidia: [0, 0],
+  github: [0, 0],
+  mistral: [0, 0],
+  huggingface: [0, 0],
+  together: [0, 0],
+  cohere: [0, 0],
+  ollama: [0, 0],
+};
 
 /**
  * Static provider registry. Keeping provider metadata as data makes the chain
@@ -370,12 +508,16 @@ export class LlmService implements ILlmPort, OnModuleInit {
   // Q2: One retry on the SAME provider after a rate-limit (429) before failover —
   // a 429 is a reason to wait, not to switch providers.
   private readonly rateLimitRetryMs: number;
+  private readonly costRouterEnabled: boolean;
 
   constructor(
     private readonly configService: ConfigService,
     @Inject(SHARED_REDIS) @Optional() private readonly redis?: IORedis,
-    @Optional() private readonly promptPort?: IPromptPort,
+    @Inject(IPromptPort) @Optional() private readonly promptPort?: IPromptPort,
     @Optional() private readonly tokenBudget?: TokenBudgetService,
+    @Optional() @Inject(IResiliencePort) private readonly resilience?: ResiliencePort,
+    @Optional() private readonly usageLedger?: LlmUsageLedgerService,
+    @Optional() private readonly promptCompression?: PromptCompressionService,
   ) {
     this.cbThreshold = this.configService.get<number>("LLM_CB_THRESHOLD", 3);
     this.cbCooldownMs = this.configService.get<number>("LLM_CB_COOLDOWN_MS", 60_000);
@@ -393,6 +535,8 @@ export class LlmService implements ILlmPort, OnModuleInit {
       Number(this.configService.get<string | number>("LLM_MAX_CONCURRENT", 4)) || 4;
     this.rateLimitRetryMs =
       Number(this.configService.get<string | number>("LLM_RATE_LIMIT_RETRY_MS", 2_500)) || 2_500;
+    this.costRouterEnabled =
+      this.configService.get<string>("LLM_COST_ROUTER_ENABLED", "false") === "true";
     this.rateLimitBackoff = new LlmProviderRateLimit(this.configService);
   }
 
@@ -407,6 +551,18 @@ export class LlmService implements ILlmPort, OnModuleInit {
 
     const summary = this.providers.map((p) => `${p.name}/${p.model}`).join(" → ");
     this.logger.log(`LLM provider chain (${this.providers.length}): ${summary}`);
+    this.resilience?.scheduleProbe?.(
+      "llm",
+      async () =>
+        this.getProviderStatus().some(
+          (provider) => !provider.circuitOpen && provider.rateLimitUntil <= Date.now(),
+        ),
+      this.configService.get<number>("RESILIENCE_LLM_PROBE_INTERVAL_MS", 300_000),
+      {
+        jitterMs: this.configService.get<number>("RESILIENCE_PROBE_JITTER_MS", 30_000),
+        runImmediately: false,
+      },
+    );
     this.logger.log(
       `LLM cache: ${this.cacheShared ? "Redis shared" : "in-memory"} (prefix=${this.configService.get<string>("LLM_CACHE_KEY_PREFIX", "spa:cache:llm")})`,
     );
@@ -498,20 +654,38 @@ export class LlmService implements ILlmPort, OnModuleInit {
    * both temperature and maxTokens are omitted entirely — passing them would
    * cause HTTP 400 (see BUG-13/BUG-14 notes in git history).
    */
-  private getModelForProvider(provider: LlmProviderConfig, options?: GenerateOptions): ChatOpenAI {
-    // Effective per-call parameters (resolved BEFORE caching — immutable after)
+  private resolveModelInvocationParameters(
+    provider: LlmProviderConfig,
+    options?: GenerateOptions,
+  ): {
+    temperature: number | undefined;
+    constructorMaxTokens: number | undefined;
+    maxOutputTokens: number | undefined;
+  } {
     const temperature = provider.supportsTemperature
       ? (options?.temperature ?? provider.temperature)
       : undefined;
-    // For reasoning models, use max_completion_tokens when the caller provides
-    // a maxTokens value; otherwise omit it. For normal models, default to -1
-    // (no explicit limit) when maxTokens is not provided.
     const isOpenAIReasoning = provider.name === "openai" && !provider.supportsTemperature;
-    const maxTokens = isOpenAIReasoning
+    const constructorMaxTokens = isOpenAIReasoning
       ? options?.maxTokens
       : provider.supportsTemperature
         ? (options?.maxTokens ?? -1)
         : undefined;
+
+    return {
+      temperature,
+      constructorMaxTokens,
+      maxOutputTokens: options?.maxTokens,
+    };
+  }
+
+  private getModelForProvider(provider: LlmProviderConfig, options?: GenerateOptions): ChatOpenAI {
+    // Effective per-call parameters (resolved BEFORE caching — immutable after)
+    const { temperature, constructorMaxTokens: maxTokens } = this.resolveModelInvocationParameters(
+      provider,
+      options,
+    );
+    const isOpenAIReasoning = provider.name === "openai" && !provider.supportsTemperature;
 
     const key = `${provider.name}:${provider.model}:t${temperature ?? "na"}:m${maxTokens ?? "na"}:to${provider.timeout}`;
     let model = this.models.get(key);
@@ -597,7 +771,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
         ];
       }
     }
-    return this.providers;
+    return this.costRouterEnabled ? sortProvidersByEstimatedCost(this.providers) : this.providers;
   }
 
   /**
@@ -638,6 +812,73 @@ export class LlmService implements ILlmPort, OnModuleInit {
 
     this.logger.debug(`F3: forcing model ${options.model}`);
     return [forcedProvider, ...ordered.filter((p) => p.name !== providerName)];
+  }
+
+  private resolveFallbackPolicy(options?: GenerateOptions): LlmFallbackPolicy {
+    if (options?.model) {
+      const providerName = options.model.split("/")[0];
+      if (providerName && this.providers.some((provider) => provider.name === providerName)) {
+        return "explicit_model_then_fallback";
+      }
+    }
+    if (options?.role && (this.roleChains.get(options.role)?.length ?? 0) > 0) {
+      return "role_chain_then_fallback";
+    }
+    if (this.lastWorkingProvider) return "sticky_provider_then_default";
+    return "default_provider_chain";
+  }
+
+  private buildAttemptBase(
+    provider: LlmProviderConfig,
+    requestedProvider: LlmProviderConfig,
+    fallbackPolicy: LlmFallbackPolicy,
+    attemptIndex: number,
+    fallbackDepth: number,
+    rateLimitRetry: boolean,
+    cacheHit: boolean,
+    options?: GenerateOptions,
+  ): LlmAttemptBase {
+    const { temperature, maxOutputTokens } = this.resolveModelInvocationParameters(
+      provider,
+      options,
+    );
+    return {
+      llm_role: options?.role ?? "unspecified",
+      provider_requested: requestedProvider.name,
+      provider_actual: provider.name,
+      model_requested: requestedProvider.model,
+      model_actual: provider.model,
+      model_snapshot_or_alias: provider.model,
+      fallback_policy: fallbackPolicy,
+      attempt_index: attemptIndex,
+      fallback_depth: fallbackDepth,
+      cache_hit: cacheHit,
+      rate_limit_retry: rateLimitRetry,
+      reasoning_effort: "not_sent",
+      temperature_sent: temperature ?? "not_sent",
+      ...(maxOutputTokens === undefined ? {} : { max_output_tokens: maxOutputTokens }),
+      ...this.buildPromptAttemptMetadata(options?.promptReference),
+    };
+  }
+
+  private buildPromptAttemptMetadata(
+    reference?: PromptReference,
+  ): Partial<LlmPromptAttemptMetadata> {
+    if (!reference) return {};
+
+    const metadata: Partial<LlmPromptAttemptMetadata> = {
+      prompt_name: normalizePromptDimension(reference.name),
+      prompt_label: normalizePromptDimension(reference.label),
+      prompt_is_fallback: reference.isFallback,
+    };
+    if (reference.isFallback) {
+      if (/^[a-f0-9]{64}$/.test(reference.fallbackDigest)) {
+        metadata.prompt_fallback_digest = reference.fallbackDigest;
+      }
+      return metadata;
+    }
+    if (reference.version !== undefined) metadata.prompt_version = reference.version;
+    return metadata;
   }
 
   /** Q2: Detect a rate-limit (429) error — worth a retry on the SAME provider. */
@@ -696,31 +937,28 @@ export class LlmService implements ILlmPort, OnModuleInit {
     outputTokens: number,
   ): number {
     if (inputTokens === 0 && outputTokens === 0) return 0;
-    // Pricing per 1M tokens: [input, output]. 0 = free tier.
-    // Sources: provider pricing pages, 2026-07. Rounded to 2 decimals.
-    const PRICING: Record<string, [number, number]> = {
-      groq: [0, 0],
-      sambanova: [0, 0],
-      cerebras: [0, 0],
-      openrouter: [0, 0], // free models only in the chain
-      deepseek: [0.27, 1.1],
-      anthropic: [1.0, 5.0], // claude-haiku-4-5
-      openai: [0.05, 0.4], // gpt-5-nano
-      google: [0, 0], // free tier
-      nvidia: [0, 0],
-      github: [0, 0],
-      mistral: [0, 0], // free tier
-      huggingface: [0, 0],
-      together: [0, 0], // free variant in chain
-      cohere: [0, 0], // trial
-      ollama: [0, 0],
-    };
-    const [inputPer1M, outputPer1M] = PRICING[providerName] ?? [0, 0];
+    const [inputPer1M, outputPer1M] = PROVIDER_PRICING_PER_MILLION[providerName] ?? [0, 0];
     if (inputPer1M === 0 && outputPer1M === 0) return 0;
     return Number(
       ((inputTokens / 1_000_000) * inputPer1M + (outputTokens / 1_000_000) * outputPer1M).toFixed(
         6,
       ),
+    );
+  }
+
+  private extractProviderCost(response: unknown): number | undefined {
+    if (!response || typeof response !== "object") return undefined;
+    const responseMetadata = Reflect.get(response, "response_metadata");
+    if (!responseMetadata || typeof responseMetadata !== "object") return undefined;
+    const usage = Reflect.get(responseMetadata, "usage");
+    const candidates = [
+      Reflect.get(responseMetadata, "cost"),
+      Reflect.get(responseMetadata, "total_cost"),
+      usage && typeof usage === "object" ? Reflect.get(usage, "cost") : undefined,
+      usage && typeof usage === "object" ? Reflect.get(usage, "total_cost") : undefined,
+    ];
+    return candidates.find(
+      (value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0,
     );
   }
 
@@ -731,21 +969,42 @@ export class LlmService implements ILlmPort, OnModuleInit {
     total: number | undefined;
     input: number;
     output: number;
+    reasoning: number | undefined;
+    cachedInput: number | undefined;
   } {
     const usage =
       response && typeof response === "object"
         ? Reflect.get(response, "usage_metadata")
         : undefined;
     if (!usage || typeof usage !== "object") {
-      return { total: undefined, input: 0, output: 0 };
+      return {
+        total: undefined,
+        input: 0,
+        output: 0,
+        reasoning: undefined,
+        cachedInput: undefined,
+      };
     }
     const total = Reflect.get(usage, "total_tokens");
     const input = Reflect.get(usage, "input_tokens");
     const output = Reflect.get(usage, "output_tokens");
+    const inputDetails = Reflect.get(usage, "input_token_details");
+    const outputDetails = Reflect.get(usage, "output_token_details");
+    const cachedInput =
+      inputDetails && typeof inputDetails === "object"
+        ? (Reflect.get(inputDetails, "cache_read") ?? Reflect.get(inputDetails, "cached_tokens"))
+        : undefined;
+    const reasoning =
+      outputDetails && typeof outputDetails === "object"
+        ? (Reflect.get(outputDetails, "reasoning") ??
+          Reflect.get(outputDetails, "reasoning_tokens"))
+        : undefined;
     return {
       total: typeof total === "number" ? total : undefined,
       input: typeof input === "number" ? input : 0,
       output: typeof output === "number" ? output : 0,
+      reasoning: typeof reasoning === "number" ? reasoning : undefined,
+      cachedInput: typeof cachedInput === "number" ? cachedInput : undefined,
     };
   }
 
@@ -853,6 +1112,87 @@ export class LlmService implements ILlmPort, OnModuleInit {
   }
 
   /**
+   * Invoke one concrete provider attempt. Remote prompt clients are attached
+   * to a dedicated ChatPromptTemplate runnable, which is the supported
+   * @langfuse/langchain v5 mechanism for linking the child generation. The
+   * native client never enters ordinary generation metadata, and fallbacks
+   * stay on the direct/no-link path.
+   */
+  private async invokeModel(
+    model: ChatOpenAI,
+    systemPrompt: string,
+    userPrompt: string,
+    imageBase64: string | undefined,
+    invokeConfig: LlmInvokeConfig,
+    promptReference: PromptReference | undefined,
+  ): Promise<Awaited<ReturnType<ChatOpenAI["invoke"]>>> {
+    const directMessages = imageBase64
+      ? systemPrompt
+        ? [
+            { role: "system" as const, content: systemPrompt },
+            {
+              role: "user" as const,
+              content: [
+                { type: "text" as const, text: userPrompt },
+                { type: "image_url" as const, image_url: { url: imageBase64 } },
+              ],
+            },
+          ]
+        : [
+            {
+              role: "user" as const,
+              content: [
+                { type: "text" as const, text: userPrompt },
+                { type: "image_url" as const, image_url: { url: imageBase64 } },
+              ],
+            },
+          ]
+      : systemPrompt
+        ? [
+            { role: "system" as const, content: systemPrompt },
+            { role: "user" as const, content: userPrompt },
+          ]
+        : [{ role: "user" as const, content: userPrompt }];
+
+    if (
+      !promptReference ||
+      promptReference.isFallback ||
+      !promptReference.nativePrompt ||
+      !invokeConfig.callbacks?.length
+    ) {
+      return model.invoke(directMessages, invokeConfig);
+    }
+
+    const userContent = imageBase64
+      ? [
+          { type: "text" as const, text: userPrompt },
+          { type: "image_url" as const, image_url: { url: imageBase64 } },
+        ]
+      : userPrompt;
+    const messages = systemPrompt
+      ? [new SystemMessage(systemPrompt), new HumanMessage({ content: userContent })]
+      : [new HumanMessage({ content: userContent })];
+
+    const promptRunnable = ChatPromptTemplate.fromMessages(messages).withConfig({
+      metadata: { langfusePrompt: promptReference.nativePrompt },
+    });
+    const modelRunnable = model.withConfig({
+      metadata: invokeConfig.metadata,
+      ...(invokeConfig.runName ? { runName: invokeConfig.runName } : {}),
+    });
+    const promptLinkName = `prompt.${normalizePromptDimension(promptReference.name)}`;
+
+    return promptRunnable.pipe(modelRunnable).invoke(
+      {},
+      {
+        callbacks: invokeConfig.callbacks,
+        ...(invokeConfig.signal ? { signal: invokeConfig.signal } : {}),
+        runName: promptLinkName,
+      },
+    );
+  }
+
+  /**
    * Try each provider in the chain until one succeeds.
    * If lastWorkingProvider is set, try it first (sticky).
    * Sprint J: Adds circuit breaker, caching, token counting, prompt versioning.
@@ -862,6 +1202,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
     userPrompt: string,
     options?: GenerateOptions,
     imageBase64?: string,
+    collector = new LlmAttemptCollector(),
   ): Promise<LlmResponse> {
     if (this.providers.length === 0) {
       throw new Error("No LLM providers configured");
@@ -878,20 +1219,34 @@ export class LlmService implements ILlmPort, OnModuleInit {
 
     // Q1: role-aware provider ordering (falls back to sticky default)
     // F3: if options.model is set, try that provider/model first, then the rest of the chain
+    const fallbackPolicy = this.resolveFallbackPolicy(options);
     const ordered = this.buildOrderedProviders(options);
+    const requestedProvider = ordered[0]!;
 
     const errors: string[] = [];
+    let attemptIndex = 0;
 
     // Q2: global concurrency cap — hold one slot for the whole fallback walk
     await this.acquireSlot();
     try {
-      for (const provider of ordered) {
+      for (const [fallbackDepth, provider] of ordered.entries()) {
         const key = this.cacheKey(systemPrompt, userPrompt, options, provider, imageBase64);
         if (cacheable) {
           const cached = await this.cacheBackend.get(key);
           if (cached) {
             this.logger.debug(`LLM cache hit (key: ${key.slice(0, 8)})`);
-            return cached;
+            const cacheAttempt = this.buildAttemptBase(
+              provider,
+              requestedProvider,
+              fallbackPolicy,
+              attemptIndex,
+              fallbackDepth,
+              false,
+              true,
+              options,
+            );
+            collector.recordCacheHit(cacheAttempt, cached, cached.costSource ?? "unknown");
+            return { ...cached, attempts: collector.snapshot() };
           }
         }
 
@@ -926,36 +1281,6 @@ export class LlmService implements ILlmPort, OnModuleInit {
         // reasoning models get both parameters omitted entirely.
         const model = this.getModelForProvider(provider, options);
 
-        const messages = imageBase64
-          ? // Vision/multimodal call — content is an array of text + image blocks
-            systemPrompt
-            ? [
-                { role: "system" as const, content: systemPrompt },
-                {
-                  role: "user" as const,
-                  content: [
-                    { type: "text" as const, text: userPrompt },
-                    { type: "image_url" as const, image_url: { url: imageBase64 } },
-                  ],
-                },
-              ]
-            : [
-                {
-                  role: "user" as const,
-                  content: [
-                    { type: "text" as const, text: userPrompt },
-                    { type: "image_url" as const, image_url: { url: imageBase64 } },
-                  ],
-                },
-              ]
-          : // Text-only call — content is a plain string
-            systemPrompt
-            ? [
-                { role: "system" as const, content: systemPrompt },
-                { role: "user" as const, content: userPrompt },
-              ]
-            : [{ role: "user" as const, content: userPrompt }];
-
         // Langfuse tracing: merge callbacks from GenerateOptions (explicit)
         // and AsyncLocalStorage (ambient — set by GenerationService around
         // graph.invoke() so all LLM calls in the graph nest under one trace).
@@ -975,15 +1300,28 @@ export class LlmService implements ILlmPort, OnModuleInit {
         const maxAttempts = 2;
         let lastErr: unknown;
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          const attemptBase = this.buildAttemptBase(
+            provider,
+            requestedProvider,
+            fallbackPolicy,
+            attemptIndex,
+            fallbackDepth,
+            attempt > 0,
+            false,
+            options,
+          );
+          attemptIndex += 1;
+          const activeAttempt = collector.start(attemptBase);
           let reservedTokens = 0;
           let reservedCost = 0;
+          let accountBudgetReserved = false;
           try {
             if (options?.signal?.aborted) {
               throw new Error("Abort");
             }
 
             // P0: token/cost budget — reserve an upper-bound estimate before the call.
-            if (this.tokenBudget && options?.budgetScope) {
+            if (this.tokenBudget && (options?.budgetScope || options?.accountId)) {
               const inputTokens = this.estimateTokens(systemPrompt + userPrompt);
               const outputTokens = options?.maxTokens ?? 0;
               reservedTokens = inputTokens + outputTokens;
@@ -993,27 +1331,50 @@ export class LlmService implements ILlmPort, OnModuleInit {
                 inputTokens,
                 outputTokens,
               );
-              const { allowed } = await this.tokenBudget.reserve(
-                options.budgetScope,
-                options.budgetRunId,
-                reservedTokens,
-                reservedCost,
-              );
-              if (!allowed) {
-                throw new TokenBudgetExceeded(
+              if (options.budgetScope) {
+                const { allowed } = await this.tokenBudget.reserve(
                   options.budgetScope,
                   options.budgetRunId,
-                  "pre-call reserve over budget",
+                  reservedTokens,
+                  reservedCost,
                 );
+                if (!allowed) {
+                  throw new TokenBudgetExceeded(
+                    options.budgetScope,
+                    options.budgetRunId,
+                    "pre-call reserve over budget",
+                  );
+                }
+              }
+              if (options.accountId && reservedCost > 0) {
+                const accountBudget = await this.tokenBudget.reserve(
+                  "account_daily",
+                  options.accountId,
+                  0,
+                  reservedCost,
+                );
+                if (!accountBudget.allowed) {
+                  throw new TokenBudgetExceeded(
+                    "account_daily",
+                    options.accountId,
+                    "daily per-account cost cap",
+                  );
+                }
+                accountBudgetReserved = true;
               }
             }
 
-            const invokeConfig: { callbacks?: BaseCallbackHandler[]; signal?: AbortSignal } = {};
+            const invokeConfig: LlmInvokeConfig = { metadata: { ...attemptBase } };
             if (callbacks.length > 0) invokeConfig.callbacks = callbacks;
             if (options?.signal) invokeConfig.signal = options.signal;
-            const response = await model.invoke(
-              messages,
-              Object.keys(invokeConfig).length > 0 ? invokeConfig : undefined,
+            if (options?.traceName) invokeConfig.runName = options.traceName;
+            const response = await this.invokeModel(
+              model,
+              systemPrompt,
+              userPrompt,
+              imageBase64,
+              invokeConfig,
+              options?.promptReference,
             );
             const content =
               typeof response.content === "string"
@@ -1021,7 +1382,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
                 : JSON.stringify(response.content);
 
             if (!content || content.trim().length === 0) {
-              throw new Error(`${provider.name} returned empty content`);
+              throw new EmptyLlmOutputError(provider.name);
             }
 
             this.lastWorkingProvider = provider.name;
@@ -1036,11 +1397,26 @@ export class LlmService implements ILlmPort, OnModuleInit {
               usageTokens > 0
                 ? usageTokens
                 : this.estimateTokens(systemPrompt + userPrompt) + this.estimateTokens(content);
+            const providerCost = this.extractProviderCost(response);
+            const estimatedCost = this.estimateCost(
+              provider.name,
+              provider.model,
+              usage.input,
+              usage.output,
+            );
+            const cost = providerCost ?? estimatedCost;
+            const costSource: LlmCostSource =
+              providerCost !== undefined
+                ? "provider"
+                : usage.input > 0 || usage.output > 0
+                  ? "price_table"
+                  : "unknown";
             const llmResponse: LlmResponse = {
               content,
               model: `${provider.name}/${provider.model}`,
               tokens,
-              cost: this.estimateCost(provider.name, provider.model, usage.input, usage.output),
+              cost,
+              costSource,
             };
 
             // P0: adjust the budget reservation to the actual usage.
@@ -1068,7 +1444,19 @@ export class LlmService implements ILlmPort, OnModuleInit {
               await this.cacheBackend.set(key, llmResponse, this.cacheTtlMs);
             }
 
-            return llmResponse;
+            collector.finish(activeAttempt, {
+              outcome: "success",
+              normalized_error_category: "none",
+              input_tokens: usage.input || undefined,
+              output_tokens: usage.output || undefined,
+              reasoning_tokens: usage.reasoning,
+              cached_input_tokens: usage.cachedInput,
+              total_tokens: usageTokens > 0 ? usageTokens : tokens,
+              cost_usd: cost,
+              cost_source: costSource,
+            });
+
+            return { ...llmResponse, attempts: collector.snapshot() };
           } catch (err) {
             // P0: release the budget reservation on any failure before trying next provider.
             if (this.tokenBudget && options?.budgetScope && reservedTokens > 0) {
@@ -1085,10 +1473,26 @@ export class LlmService implements ILlmPort, OnModuleInit {
                 );
               }
             }
+            if (this.tokenBudget && options?.accountId && accountBudgetReserved) {
+              try {
+                await this.tokenBudget.release("account_daily", options.accountId, 0, reservedCost);
+              } catch (budgetErr) {
+                this.logger.warn(
+                  `Failed to release per-account LLM budget reservation: ${getErrorMessage(budgetErr)}`,
+                );
+              }
+            }
+            const normalizedErrorCategory = normalizeLlmErrorCategory(err);
+            collector.finish(activeAttempt, {
+              outcome: "error",
+              normalized_error_category: normalizedErrorCategory,
+              cost_source: "unknown",
+              error_status_code: extractLlmErrorStatusCode(err),
+            });
             lastErr = err;
             // 2.6.4: if the caller aborted, stop retrying immediately and propagate
             if (options?.signal?.aborted) {
-              throw err;
+              throw new LlmTelemetryError("Abort", "aborted", collector.snapshot());
             }
             if (!this.isRateLimitError(err)) {
               break; // non-429 → fail over immediately
@@ -1126,8 +1530,9 @@ export class LlmService implements ILlmPort, OnModuleInit {
           }
         }
 
-        const msg = LlmProviderRateLimit.extractErrorMessage(lastErr);
-        errors.push(`${provider.name}: ${msg}`);
+        const errorSummary = safeLlmErrorSummary(lastErr);
+        const normalizedErrorCategory = normalizeLlmErrorCategory(lastErr);
+        errors.push(`${provider.name}: ${errorSummary}`);
         // Q13: Don't count 429 (rate limit) as a circuit breaker failure —
         // 429 is transient and already handled by rate-limit retry + failover.
         // Counting it trips the breaker after cbThreshold 429s, blocking ALL
@@ -1139,7 +1544,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
           // on the next call instead of wasting time retrying it. This prevents
           // the cascade where multiple providers return empty content in quick
           // succession and the caller times out before reaching a working one.
-          if (msg.includes("empty content")) {
+          if (normalizedErrorCategory === "empty_output") {
             this.emptyContentCooldowns.set(provider.name, Date.now() + this.emptyContentCooldownMs);
             this.logger.debug(
               `${provider.name} empty-content cooldown set for ${this.emptyContentCooldownMs}ms`,
@@ -1150,14 +1555,20 @@ export class LlmService implements ILlmPort, OnModuleInit {
             `${provider.name} rate-limited (429) — not counting as circuit breaker failure`,
           );
         }
-        this.logger.warn(`LLM provider ${provider.name} failed: ${msg.slice(0, 120)}`);
+        this.logger.warn(`LLM provider ${provider.name} failed: ${errorSummary}`);
         // Continue to next provider
       }
     } finally {
       this.releaseSlot();
     }
 
-    throw new Error(`All LLM providers failed:\n${errors.join("\n")}`);
+    const attempts = collector.snapshot();
+    const finalCategory = attempts.at(-1)?.normalized_error_category ?? "unknown";
+    throw new LlmTelemetryError(
+      `All LLM providers failed:\n${errors.join("\n")}`,
+      finalCategory,
+      attempts,
+    );
   }
 
   async generateChat(
@@ -1165,16 +1576,22 @@ export class LlmService implements ILlmPort, OnModuleInit {
     userPrompt: string,
     options?: GenerateOptions,
   ): Promise<LlmResponse> {
+    const collector = new LlmAttemptCollector();
     const alsContext = llmContextStorage.getStore();
     const effectiveSignal = combineSignals(options?.signal, alsContext?.signal);
     const budgetScope = options?.budgetScope ?? alsContext?.budgetScope;
     const budgetRunId = options?.budgetRunId ?? alsContext?.budgetRunId;
     const modelOverride = options?.model ?? alsContext?.model;
+    const promptReference =
+      options?.promptReference ??
+      consumeAmbientPromptReference(systemPrompt, userPrompt) ??
+      this.promptPort?.consumePromptReference?.(systemPrompt, userPrompt);
 
     options = {
       ...options,
       ...(budgetScope ? { budgetScope, budgetRunId } : {}),
       ...(modelOverride ? { model: modelOverride } : {}),
+      ...(promptReference ? { promptReference } : {}),
     };
 
     if (modelOverride) {
@@ -1182,17 +1599,59 @@ export class LlmService implements ILlmPort, OnModuleInit {
     }
 
     if (effectiveSignal?.aborted) {
-      throw new Error("Abort");
+      throw new LlmTelemetryError("Abort", "aborted", []);
     }
+
+    const compressed = await this.promptCompression?.compress(systemPrompt, userPrompt);
+    const effectiveSystemPrompt = compressed?.systemPrompt ?? systemPrompt;
+    const effectiveUserPrompt = compressed?.userPrompt ?? userPrompt;
 
     if (!effectiveSignal) {
-      return this.invokeWithFallback(systemPrompt, userPrompt, options);
+      return this.recordUsageAround(
+        () =>
+          this.trackLlmHealth(() =>
+            this.invokeWithFallback(
+              effectiveSystemPrompt,
+              effectiveUserPrompt,
+              options,
+              undefined,
+              collector,
+            ),
+          ),
+        options,
+      );
     }
 
-    return await Promise.race([
-      this.invokeWithFallback(systemPrompt, userPrompt, { ...options, signal: effectiveSignal }),
-      signalToPromise(effectiveSignal),
-    ]);
+    try {
+      return await this.recordUsageAround(
+        () =>
+          this.trackLlmHealth(() =>
+            Promise.race([
+              this.invokeWithFallback(
+                effectiveSystemPrompt,
+                effectiveUserPrompt,
+                { ...options, signal: effectiveSignal },
+                undefined,
+                collector,
+              ),
+              signalToPromise(effectiveSignal),
+            ]),
+          ),
+        options,
+      );
+    } catch (error) {
+      if (error instanceof LlmTelemetryError) throw error;
+      if (effectiveSignal.aborted) {
+        const telemetryError = new LlmTelemetryError(
+          "Abort",
+          "aborted",
+          collector.snapshotWithActiveAbort(),
+        );
+        await this.recordUsageAttempts(telemetryError.attempts, options);
+        throw telemetryError;
+      }
+      throw error;
+    }
   }
 
   async generate(prompt: string, options?: GenerateOptions): Promise<LlmResponse> {
@@ -1219,6 +1678,7 @@ export class LlmService implements ILlmPort, OnModuleInit {
     imageBase64: string,
     options?: GenerateOptions,
   ): Promise<LlmResponse> {
+    const collector = new LlmAttemptCollector();
     // Validate image format — must be a PNG data URL
     if (!imageBase64.startsWith("data:image/png;base64,")) {
       throw new Error("generateVision: imageBase64 must be a data:image/png;base64 URL");
@@ -1232,9 +1692,15 @@ export class LlmService implements ILlmPort, OnModuleInit {
     const effectiveSignal = combineSignals(options?.signal, alsContext?.signal);
     const budgetScope = options?.budgetScope ?? alsContext?.budgetScope;
     const budgetRunId = options?.budgetRunId ?? alsContext?.budgetRunId;
-    if (budgetScope) {
-      options = { ...options, budgetScope, budgetRunId };
-    }
+    const promptReference =
+      options?.promptReference ??
+      consumeAmbientPromptReference(systemPrompt, userPrompt) ??
+      this.promptPort?.consumePromptReference?.(systemPrompt, userPrompt);
+    options = {
+      ...options,
+      ...(budgetScope ? { budgetScope, budgetRunId } : {}),
+      ...(promptReference ? { promptReference } : {}),
+    };
 
     // Default role to 'vision' for provider routing
     const visionOptions: GenerateOptions = {
@@ -1245,17 +1711,104 @@ export class LlmService implements ILlmPort, OnModuleInit {
     };
 
     if (effectiveSignal?.aborted) {
-      throw new Error("Abort");
+      throw new LlmTelemetryError("Abort", "aborted", []);
     }
+
+    const compressed = await this.promptCompression?.compress(systemPrompt, userPrompt);
+    const effectiveSystemPrompt = compressed?.systemPrompt ?? systemPrompt;
+    const effectiveUserPrompt = compressed?.userPrompt ?? userPrompt;
 
     if (!effectiveSignal) {
-      return this.invokeWithFallback(systemPrompt, userPrompt, visionOptions, imageBase64);
+      return this.recordUsageAround(
+        () =>
+          this.trackLlmHealth(() =>
+            this.invokeWithFallback(
+              effectiveSystemPrompt,
+              effectiveUserPrompt,
+              visionOptions,
+              imageBase64,
+              collector,
+            ),
+          ),
+        visionOptions,
+      );
     }
 
-    return await Promise.race([
-      this.invokeWithFallback(systemPrompt, userPrompt, visionOptions, imageBase64),
-      signalToPromise(effectiveSignal),
-    ]);
+    try {
+      return await this.recordUsageAround(
+        () =>
+          this.trackLlmHealth(() =>
+            Promise.race([
+              this.invokeWithFallback(
+                effectiveSystemPrompt,
+                effectiveUserPrompt,
+                { ...visionOptions, signal: effectiveSignal },
+                imageBase64,
+                collector,
+              ),
+              signalToPromise(effectiveSignal),
+            ]),
+          ),
+        visionOptions,
+      );
+    } catch (error) {
+      if (error instanceof LlmTelemetryError) throw error;
+      if (effectiveSignal.aborted) {
+        const telemetryError = new LlmTelemetryError(
+          "Abort",
+          "aborted",
+          collector.snapshotWithActiveAbort(),
+        );
+        await this.recordUsageAttempts(telemetryError.attempts, visionOptions);
+        throw telemetryError;
+      }
+      throw error;
+    }
+  }
+
+  private async recordUsageAround(
+    operation: () => Promise<LlmResponse>,
+    options?: GenerateOptions,
+  ): Promise<LlmResponse> {
+    try {
+      const response = await operation();
+      await this.recordUsageAttempts(response.attempts ?? [], options);
+      return response;
+    } catch (error) {
+      if (error instanceof LlmTelemetryError) {
+        await this.recordUsageAttempts(error.attempts, options);
+      }
+      throw error;
+    }
+  }
+
+  private async recordUsageAttempts(
+    attempts: readonly LlmAttemptTelemetry[],
+    options?: GenerateOptions,
+  ): Promise<void> {
+    await this.usageLedger?.recordAttempts(attempts, {
+      accountId: options?.accountId,
+      postId: options?.postId,
+      runId: options?.budgetRunId,
+    });
+  }
+
+  /** Report the router outcome without ever making observability a new failure path. */
+  private async trackLlmHealth<T>(operation: () => Promise<T>): Promise<T> {
+    try {
+      const result = await operation();
+      await this.resilience?.reportHealth("llm", "HEALTHY").catch(() => void 0);
+      return result;
+    } catch (err) {
+      const aborted =
+        err instanceof LlmTelemetryError && err.normalized_error_category === "aborted";
+      if (!aborted) {
+        await this.resilience
+          ?.reportHealth("llm", "CRITICAL", err instanceof Error ? err.message : String(err))
+          .catch(() => void 0);
+      }
+      throw err;
+    }
   }
 
   /**
@@ -1322,4 +1875,31 @@ export class LlmService implements ILlmPort, OnModuleInit {
     const { size } = await this.cacheBackend.stats();
     return { size, maxSize: this.cacheMaxSize, ttlMs: this.cacheTtlMs };
   }
+}
+
+function normalizePromptDimension(value: string): string {
+  const normalized = value.trim();
+  if (/^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,119}$/.test(normalized)) return normalized;
+  return `sha256:${createHash("sha256").update(normalized).digest("hex").slice(0, 16)}`;
+}
+
+function sortProvidersByEstimatedCost(
+  providers: readonly LlmProviderConfig[],
+): LlmProviderConfig[] {
+  return providers
+    .map((provider, index) => ({ provider, index }))
+    .sort(
+      (left, right) =>
+        estimatedProviderCost(left.provider.name) - estimatedProviderCost(right.provider.name) ||
+        left.index - right.index,
+    )
+    .map(({ provider }) => provider);
+}
+
+function estimatedProviderCost(provider: string): number {
+  const [input, output] = PROVIDER_PRICING_PER_MILLION[provider] ?? [
+    Number.POSITIVE_INFINITY,
+    Number.POSITIVE_INFINITY,
+  ];
+  return input + output;
 }

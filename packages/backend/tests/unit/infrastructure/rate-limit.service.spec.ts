@@ -16,7 +16,7 @@ import { ConfigService } from "@nestjs/config";
 import {
   RateLimitService,
   RECORD_POST_SCRIPT,
-} from "../../../src/modules/rate-limit/rate-limit.service";
+} from "../../../src/modules/rate-limit/rate-limit.service.js";
 import { createMockRedis } from "../../mocks/index.js";
 
 // ── Helpers ──

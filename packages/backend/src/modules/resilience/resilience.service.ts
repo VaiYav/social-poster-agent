@@ -14,6 +14,7 @@ import {
   type DegradationLevel,
   type FallbackOptions,
   type HealthSnapshot,
+  type ProbeOptions,
 } from "../../domain/ports/resilience.port.js";
 import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
 
@@ -24,6 +25,7 @@ const PROBE_STREAK_TO_RECOVER = 2;
 interface ProbeRegistration {
   probe: () => Promise<boolean>;
   intervalMs: number;
+  jitterMs: number;
   nextProbeAt: number;
 }
 
@@ -140,8 +142,26 @@ export class ResilienceService implements IResiliencePort {
     }
   }
 
-  scheduleProbe(subsystem: string, probe: () => Promise<boolean>, intervalMs: number): void {
-    this.probes.set(subsystem, { probe, intervalMs, nextProbeAt: Date.now() });
+  scheduleProbe(
+    subsystem: string,
+    probe: () => Promise<boolean>,
+    intervalMs: number,
+    options: ProbeOptions = {},
+  ): void {
+    const safeIntervalMs = Math.max(1, intervalMs);
+    const jitterMs = Math.min(
+      safeIntervalMs,
+      Math.max(0, options.jitterMs ?? Math.floor(safeIntervalMs * 0.1)),
+    );
+    const runImmediately = options.runImmediately ?? true;
+    this.probes.set(subsystem, {
+      probe,
+      intervalMs: safeIntervalMs,
+      jitterMs,
+      nextProbeAt: runImmediately
+        ? Date.now()
+        : Date.now() + this.jitteredInterval(safeIntervalMs, jitterMs),
+    });
   }
 
   /**
@@ -152,7 +172,7 @@ export class ResilienceService implements IResiliencePort {
     const now = Date.now();
     for (const [subsystem, reg] of this.probes) {
       if ((reg.nextProbeAt ?? 0) > now) continue;
-      reg.nextProbeAt = now + reg.intervalMs;
+      reg.nextProbeAt = now + this.jitteredInterval(reg.intervalMs, reg.jitterMs);
       let pass = false;
       try {
         pass = await reg.probe();
@@ -161,6 +181,11 @@ export class ResilienceService implements IResiliencePort {
       }
       await this.recordProbePass(subsystem, pass);
     }
+  }
+
+  private jitteredInterval(intervalMs: number, jitterMs: number): number {
+    if (jitterMs <= 0) return intervalMs;
+    return intervalMs - jitterMs + Math.floor(Math.random() * (jitterMs * 2 + 1));
   }
 
   private async recordProbePass(subsystem: string, pass: boolean): Promise<void> {

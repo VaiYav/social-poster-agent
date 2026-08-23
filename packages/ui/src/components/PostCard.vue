@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed, ref } from "vue";
 import type { Post } from "@spa/shared";
 import { Check, X, Pencil, ExternalLink, Layers } from "@lucide/vue";
 import { Card, Button } from "./ui";
@@ -36,6 +37,11 @@ const threadLabel = isMultiStage
   : props.post.threadId
     ? "Thread"
     : null;
+const mediaLoadError = ref(false);
+const mediaUrl = computed(() => props.post.media?.url ?? null);
+const mediaAlt = computed(
+  () => props.post.media?.altText ?? `Generated visual for ${props.post.network} post`,
+);
 </script>
 
 <template>
@@ -60,6 +66,23 @@ const threadLabel = isMultiStage
 
     <p class="mt-4 text-sm leading-relaxed text-text-primary">
       {{ displayContent }}
+    </p>
+
+    <div
+      v-if="mediaUrl && !mediaLoadError"
+      class="mt-4 overflow-hidden rounded-lg border border-border bg-surface-elevated"
+    >
+      <img
+        :src="mediaUrl"
+        :alt="mediaAlt"
+        loading="lazy"
+        decoding="async"
+        class="max-h-72 w-full object-cover"
+        @error="mediaLoadError = true"
+      />
+    </div>
+    <p v-else-if="mediaUrl && mediaLoadError" class="mt-3 text-xs text-text-muted">
+      Visual preview unavailable; text post remains available.
     </p>
 
     <div v-if="post.postUrl" class="mt-3">

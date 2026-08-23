@@ -10,14 +10,15 @@ import {
 import { ConfigService } from "@nestjs/config";
 import { ApiTags, ApiOperation, ApiResponse } from "@nestjs/swagger";
 import type { Response } from "express";
-import { AdminGuard } from "../auth/admin.guard";
-import { Public } from "../auth/public.decorator";
+import { AdminGuard } from "../auth/admin.guard.js";
+import { Public } from "../auth/public.decorator.js";
 import * as Sentry from "@sentry/nestjs";
-import { PrismaService } from "../../infrastructure/prisma/prisma.service";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import IORedis from "ioredis";
 import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
 import { withTimeout } from "../../infrastructure/util/with-timeout.js";
 import { QueueFactory } from "../../infrastructure/queue/queue.factory.js";
+import { IResiliencePort, type HealthSnapshot } from "../../domain/ports/resilience.port.js";
 
 @ApiTags("health")
 @Controller("health")
@@ -29,6 +30,7 @@ export class HealthController {
     @Inject(SHARED_REDIS) private readonly redis: IORedis,
     private readonly configService: ConfigService,
     @Optional() private readonly queueFactory?: QueueFactory,
+    @Optional() @Inject(IResiliencePort) private readonly resilience?: IResiliencePort,
   ) {
     // BUG-8: bound each dependency probe so a hung Redis/DB connection can never
     // hang the whole /health endpoint (which would trip the k8s liveness probe).
@@ -97,6 +99,30 @@ export class HealthController {
     const status = allOk ? "ok" : "degraded";
     const statusCode = allOk ? 200 : 503;
 
+    await Promise.all([
+      this.resilience
+        ?.reportHealth(
+          "postgres",
+          dbStatus === "connected" ? "HEALTHY" : "DOWN",
+          dbStatus === "connected" ? undefined : "database readiness probe failed",
+        )
+        .catch(() => void 0),
+      this.resilience
+        ?.reportHealth(
+          "redis",
+          redisStatus === "connected" ? "HEALTHY" : "DOWN",
+          redisStatus === "connected" ? undefined : "redis readiness probe failed",
+        )
+        .catch(() => void 0),
+      this.resilience
+        ?.reportHealth(
+          "queues",
+          queueStatus === "connected" ? "HEALTHY" : "CRITICAL",
+          queueStatus === "connected" ? undefined : "queue readiness probe failed",
+        )
+        .catch(() => void 0),
+    ]);
+
     res.status(statusCode).json({
       status,
       database: dbStatus,
@@ -104,6 +130,15 @@ export class HealthController {
       queue: queueStatus,
       timestamp: new Date().toISOString(),
     });
+  }
+
+  @Get("degradation")
+  @UseGuards(AdminGuard)
+  @ApiOperation({ summary: "Current subsystem degradation and recovery state" })
+  @ApiResponse({ status: 200, description: "Health snapshots for all known subsystems" })
+  async degradation(): Promise<{ subsystems: HealthSnapshot[]; timestamp: string }> {
+    const subsystems = (await this.resilience?.getAllHealth()) ?? [];
+    return { subsystems, timestamp: new Date().toISOString() };
   }
 
   @Get("debug-sentry")

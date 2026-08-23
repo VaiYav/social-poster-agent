@@ -8,9 +8,9 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ConfigService } from "@nestjs/config";
-import { EngagementDecisionService } from "../../../src/modules/engagement/engagement-decision.service";
-import type { ILlmPort, LlmResponse } from "../../../src/domain/ports/llm.port";
-import type { PostContext } from "../../../src/domain/ports/engagement-decision.port";
+import { EngagementDecisionService } from "../../../src/modules/engagement/engagement-decision.service.js";
+import type { ILlmPort, LlmResponse } from "../../../src/domain/ports/llm.port.js";
+import type { PostContext } from "../../../src/domain/ports/engagement-decision.port.js";
 
 function createMockLlm(responses: Partial<LlmResponse>[] = []): ILlmPort {
   let callIndex = 0;

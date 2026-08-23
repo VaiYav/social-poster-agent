@@ -1,23 +1,27 @@
-import { Injectable, Logger, Inject, type OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, Inject, Optional, type OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { SchedulerRegistry } from "@nestjs/schedule";
 import { CronJob } from "cron";
-import { PrismaService } from "../../infrastructure/prisma/prisma.service";
-import { SseService } from "../../infrastructure/sse/sse.service";
-import { DiscordNotificationService } from "../../infrastructure/notifications/discord-notification.service";
-import { QueueService } from "../queue/queue.service";
-import { QueueFactory } from "../../infrastructure/queue/queue.factory";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { SseService } from "../../infrastructure/sse/sse.service.js";
+import { DiscordNotificationService } from "../../infrastructure/notifications/discord-notification.service.js";
+import { QueueService } from "../queue/queue.service.js";
+import { QueueFactory } from "../../infrastructure/queue/queue.factory.js";
 import { isJobInFlight } from "../../infrastructure/queue/queue-state-utils.js";
 import {
   SessionStatus,
   PostStatus,
   SocialNetwork,
   BrowsingSessionStatus,
-} from "../../generated/prisma/client";
+} from "../../generated/prisma/client.js";
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
 import { isOrchestratorEnabled } from "../orchestrator/feature-flag.js";
 import { getEnabledNetworks, isNetworkEnabled } from "../../domain/enabled-networks.js";
 import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
+import {
+  IResiliencePort,
+  type IResiliencePort as ResiliencePort,
+} from "../../domain/ports/resilience.port.js";
 
 /**
  * F21: Account Health Monitor — hourly cron that checks:
@@ -55,6 +59,7 @@ export class HealthMonitorService implements OnModuleInit {
     private readonly configService: ConfigService,
     private readonly schedulerRegistry: SchedulerRegistry,
     @Inject(SHARED_REDIS) private readonly redis: InstanceType<typeof import("ioredis").default>,
+    @Optional() @Inject(IResiliencePort) private readonly resilience?: ResiliencePort,
   ) {
     this.banThreshold = this.configService?.get<number>("HEALTH_MONITOR_BAN_THRESHOLD", 5) ?? 5;
     this.stuckPostingGraceMin = this.configService?.get<number>("STUCK_POSTING_GRACE_MIN", 5) ?? 5;
@@ -144,21 +149,27 @@ export class HealthMonitorService implements OnModuleInit {
     let totalScanned = 0;
 
     while (hasMore) {
-      const page: Array<{ id: string; network: string; approvedAt: Date | null; createdAt: Date }> =
-        await this.prisma.post.findMany({
-          where: {
-            status: PostStatus.APPROVED,
-            ...(cursor ? { approvedAt: { lt: cursor } } : {}),
-          },
-          orderBy: { approvedAt: "desc" },
-          take: PAGE_SIZE,
-          select: {
-            id: true,
-            network: true,
-            approvedAt: true,
-            createdAt: true,
-          },
-        });
+      const page: Array<{
+        id: string;
+        accountId?: string;
+        network: string;
+        approvedAt: Date | null;
+        createdAt: Date;
+      }> = await this.prisma.post.findMany({
+        where: {
+          status: PostStatus.APPROVED,
+          ...(cursor ? { approvedAt: { lt: cursor } } : {}),
+        },
+        orderBy: { approvedAt: "desc" },
+        take: PAGE_SIZE,
+        select: {
+          id: true,
+          accountId: true,
+          network: true,
+          approvedAt: true,
+          createdAt: true,
+        },
+      });
 
       if (page.length === 0) {
         hasMore = false;
@@ -249,7 +260,18 @@ export class HealthMonitorService implements OnModuleInit {
         );
 
         try {
-          await this.queueService.enqueuePosting(post.id, post.network as SocialNetwork);
+          if (post.accountId) {
+            await this.queueService.enqueuePosting(
+              post.id,
+              post.network as SocialNetwork,
+              undefined,
+              post.accountId,
+            );
+          } else {
+            // Legacy rows/tests without account ownership retain the network-only
+            // enqueue contract until their account reference is reconciled.
+            await this.queueService.enqueuePosting(post.id, post.network as SocialNetwork);
+          }
         } catch (err) {
           this.logger.error(
             `Reconciliation: failed to re-enqueue post ${post.id}: ${(err as Error).message}`,
@@ -463,6 +485,11 @@ export class HealthMonitorService implements OnModuleInit {
       alerts: [],
     };
 
+    await this.reportResilienceHealth(report).catch((err) => {
+      this.logger.warn(`Resilience health reporting failed: ${(err as Error).message}`);
+    });
+    await this.resilience?.runDueProbes().catch(() => void 0);
+
     for (const session of sessionHealth) {
       if (session.status === "BANNED") {
         report.alerts.push({
@@ -517,6 +544,41 @@ export class HealthMonitorService implements OnModuleInit {
     this.lastReport = report;
     this.lastReportAt = Date.now();
     return report;
+  }
+
+  private async reportResilienceHealth(report: HealthReport): Promise<void> {
+    if (!this.resilience) return;
+
+    const sessionLevel = report.sessions.some((session) => session.status === "BANNED")
+      ? "CRITICAL"
+      : report.sessions.some((session) => session.status === "EXPIRED")
+        ? "DEGRADED"
+        : "HEALTHY";
+    const postingLevel =
+      report.posts.stuckPosting > 0
+        ? "CRITICAL"
+        : report.posts.failedCount > 0
+          ? "DEGRADED"
+          : "HEALTHY";
+    const queueLevel = report.queues.dlqDepth > 0 ? "CRITICAL" : "HEALTHY";
+
+    await Promise.all([
+      this.resilience.reportHealth(
+        "sessions",
+        sessionLevel,
+        sessionLevel === "HEALTHY" ? undefined : "session health alert",
+      ),
+      this.resilience.reportHealth(
+        "posting",
+        postingLevel,
+        postingLevel === "HEALTHY" ? undefined : "posting health alert",
+      ),
+      this.resilience.reportHealth(
+        "queues",
+        queueLevel,
+        queueLevel === "HEALTHY" ? undefined : "dead-letter jobs present",
+      ),
+    ]);
   }
 
   /**

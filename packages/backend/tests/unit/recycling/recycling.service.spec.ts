@@ -8,7 +8,7 @@
  * Source: packages/backend/src/modules/recycling/recycling.service.ts
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { RecyclingService } from "../../../src/modules/recycling/recycling.service";
+import { RecyclingService } from "../../../src/modules/recycling/recycling.service.js";
 import { createMockConfigService } from "../../mocks/index.js";
 
 function mockPrisma() {

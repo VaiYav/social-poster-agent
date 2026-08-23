@@ -9,9 +9,9 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ConfigService } from "@nestjs/config";
-import { RepliesMonitorService } from "../../../src/modules/replies/replies-monitor.service";
-import { ToneAnalyzerService } from "../../../src/modules/replies/tone-analyzer.service";
-import { DialogueService } from "../../../src/modules/replies/dialogue.service";
+import { RepliesMonitorService } from "../../../src/modules/replies/replies-monitor.service.js";
+import { ToneAnalyzerService } from "../../../src/modules/replies/tone-analyzer.service.js";
+import { DialogueService } from "../../../src/modules/replies/dialogue.service.js";
 import { createMockPrismaService } from "../../mocks/index.js";
 
 // ── Mock dependencies ──

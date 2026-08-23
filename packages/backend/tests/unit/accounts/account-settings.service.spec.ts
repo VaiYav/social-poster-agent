@@ -21,7 +21,7 @@ function buildService(
       findUnique: vi.fn().mockResolvedValue(accountRow),
       update: vi.fn().mockResolvedValue({}),
     },
-  } as unknown as import("../../../src/infrastructure/prisma/prisma.service").PrismaService;
+  } as unknown as import("../../../src/infrastructure/prisma/prisma.service.js").PrismaService;
   return {
     service: new AccountSettingsService(prisma, configService),
     prisma,
@@ -37,12 +37,31 @@ describe("AccountSettingsService.resolve", () => {
   });
 
   it("returns hard defaults when no env and no overrides", async () => {
-    const { service } = buildService({ id: ACCOUNT_ID, network: "X", settings: null });
+    const { service } = buildService({
+      id: ACCOUNT_ID,
+      network: "X",
+      active: true,
+      settings: null,
+    });
     const { values, sources } = await service.resolve(ACCOUNT_ID);
     expect(values.postingLanguage).toBe("en");
     expect(values.rateLimitDaily).toBe(1);
     expect(values.minDelayMs).toBe(300_000);
     expect(sources.postingLanguage).toBe("default");
+  });
+
+  it("resolves the persisted account active switch into the shared settings contract", async () => {
+    const { service } = buildService({
+      id: ACCOUNT_ID,
+      network: "X",
+      active: false,
+      settings: null,
+    });
+
+    const { values, sources } = await service.resolve(ACCOUNT_ID);
+
+    expect(values.active).toBe(false);
+    expect(sources.active).toBe("account");
   });
 
   it("env layer overrides defaults", async () => {
@@ -90,9 +109,7 @@ describe("AccountSettingsService.resolve", () => {
   });
 
   it("rejects invalid override shapes through Zod", () => {
-    expect(() =>
-      AccountSettingsSchema.parse({ postingWindowHours: [25] }),
-    ).toThrow();
+    expect(() => AccountSettingsSchema.parse({ postingWindowHours: [25] })).toThrow();
     expect(() => AccountSettingsSchema.parse({ imageResolution: "8K" })).toThrow();
   });
 });
@@ -110,6 +127,24 @@ describe("AccountSettingsService.updateOverrides", () => {
       expect.objectContaining({
         where: { id: ACCOUNT_ID },
         data: { settings: expect.objectContaining({ postingLanguage: "en", rateLimitDaily: 4 }) },
+      }),
+    );
+  });
+
+  it("updates the runtime account active column when the active override changes", async () => {
+    const { service, prisma } = buildService({
+      id: ACCOUNT_ID,
+      network: "X",
+      active: true,
+      settings: {},
+    });
+
+    await service.updateOverrides(ACCOUNT_ID, { active: false });
+
+    expect(prisma.socialAccount.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: ACCOUNT_ID },
+        data: expect.objectContaining({ active: false }),
       }),
     );
   });

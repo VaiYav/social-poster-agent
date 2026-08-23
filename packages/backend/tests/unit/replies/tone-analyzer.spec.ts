@@ -2,7 +2,7 @@
  * F4.D: Tone analyzer — rule-based tone detection for reply tone matching.
  */
 import { describe, it, expect } from "vitest";
-import { ToneAnalyzerService } from "../../../src/modules/replies/tone-analyzer.service";
+import { ToneAnalyzerService } from "../../../src/modules/replies/tone-analyzer.service.js";
 
 describe("ToneAnalyzerService", () => {
   const svc = new ToneAnalyzerService();

@@ -9,6 +9,7 @@
  */
 
 import { Injectable, Logger, OnModuleInit, Inject, Optional } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
 import { Cron } from "@nestjs/schedule";
 import { ConfigService } from "@nestjs/config";
 import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
@@ -18,6 +19,7 @@ import { parseBool } from "../../infrastructure/config/parse-bool.js";
 
 const HEARTBEAT_KEY_DEFAULT = "spa:orchestrator:heartbeat";
 const HEARTBEAT_TTL_MS_DEFAULT = 1_800_000;
+const WATCHDOG_LOCK_TTL_MS_DEFAULT = 60_000;
 
 @Injectable()
 export class WatchdogCron implements OnModuleInit {
@@ -26,6 +28,8 @@ export class WatchdogCron implements OnModuleInit {
   private readonly heartbeatTtlMs: number;
   private readonly restartDelayMs: number;
   private readonly enabled: boolean;
+  private readonly lockKey: string;
+  private readonly lockTtlMs: number;
 
   constructor(
     private readonly configService: ConfigService,
@@ -42,6 +46,13 @@ export class WatchdogCron implements OnModuleInit {
       this.configService.get<string>("ORCHESTRATOR_WATCHDOG_RESTART_DELAY_MS") ?? "5000",
     );
     this.enabled = parseBool(this.configService.get<string>("ORCHESTRATOR_ENABLED") ?? "false");
+    this.lockKey =
+      this.configService.get<string>("ORCHESTRATOR_WATCHDOG_LOCK_KEY") ??
+      "spa:orchestrator:watchdog-lock";
+    this.lockTtlMs = Number(
+      this.configService.get<string>("ORCHESTRATOR_WATCHDOG_LOCK_TTL_MS") ??
+        WATCHDOG_LOCK_TTL_MS_DEFAULT,
+    );
   }
 
   onModuleInit() {
@@ -67,12 +78,31 @@ export class WatchdogCron implements OnModuleInit {
 
       const heartbeatAge = Date.now() - Number(heartbeat);
       if (heartbeatAge > this.heartbeatTtlMs) {
-        await this.handleStaleHeartbeat(heartbeatAge);
+        await this.withWatchdogLease(() => this.handleStaleHeartbeat(heartbeatAge));
       } else {
         this.logger.debug(`Orchestrator heartbeat OK (${Math.round(heartbeatAge / 1000)}s old)`);
       }
     } catch (err) {
       this.logger.warn(`Watchdog heartbeat check failed: ${(err as Error).message}`);
+    }
+  }
+
+  private async withWatchdogLease(operation: () => Promise<void>): Promise<void> {
+    const ownerToken = randomUUID();
+    const acquired = await this.redis.set(this.lockKey, ownerToken, "PX", this.lockTtlMs, "NX");
+    if (acquired !== "OK") {
+      this.logger.debug("Watchdog lease is held by another instance — skipping restart");
+      return;
+    }
+    try {
+      await operation();
+    } finally {
+      await this.redis.eval(
+        "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end",
+        1,
+        this.lockKey,
+        ownerToken,
+      );
     }
   }
 

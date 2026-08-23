@@ -13,6 +13,7 @@ import {
 import { useStatsStore } from "../stores/stats";
 import { useToast } from "../composables/useToast";
 import { useSSE } from "../composables/useSSE";
+import { useApi } from "../composables/useApi";
 import type { SSEvent } from "@spa/shared";
 import {
   Card,
@@ -30,6 +31,9 @@ import EmptyState from "../components/EmptyState.vue";
 
 const statsStore = useStatsStore();
 const toast = useToast();
+// REFACTOR-100: all requests go through the shared axios instance (auth cookie,
+// correlation ID, normalized errors) — no raw fetch() bypassing interceptors.
+const api = useApi();
 
 const count = ref(3);
 const networks = ref<string[]>(["X", "THREADS", "FACEBOOK"]);
@@ -142,13 +146,12 @@ async function recycle() {
   result.value = null;
   resultError.value = null;
   try {
-    const res = await fetch("/api/v1/generation/recycle", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ minAgeDays: 30, postCount: 3, networks: networks.value }),
+    const res = await api.post<{ runId: string }>("/generation/recycle", {
+      minAgeDays: 30,
+      postCount: 3,
+      networks: networks.value,
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = (await res.json()) as { runId: string };
+    const data = res.data;
     result.value = `Recycling started: ${data.runId ?? "ok"}`;
     toast.success(`Recycling started (run ${data.runId?.slice(0, 8) ?? "ok"})`);
   } catch (e: unknown) {
@@ -162,7 +165,7 @@ async function recycle() {
 async function pauseRun() {
   if (!activeRunId.value) return;
   try {
-    await fetch(`/api/v1/generation/runs/${activeRunId.value}/pause`, { method: "POST" });
+    await api.post(`/generation/runs/${activeRunId.value}/pause`);
   } catch (e) {
     toast.error(`Pause failed: ${(e as Error).message}`);
   }
@@ -170,7 +173,7 @@ async function pauseRun() {
 
 async function resumeRun(runId: string) {
   try {
-    await fetch(`/api/v1/generation/runs/${runId}/resume`, { method: "POST" });
+    await api.post(`/generation/runs/${runId}/resume`);
     generating.value = true;
     activeRunId.value = runId;
   } catch (e) {

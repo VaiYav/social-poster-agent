@@ -10,8 +10,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NotFoundException } from "@nestjs/common";
 import { ModuleRef } from "@nestjs/core";
-import { PostsController } from "../../../src/modules/posts/posts.controller";
-import { PostsService } from "../../../src/modules/posts/posts.service";
+import { PostsController } from "../../../src/modules/posts/posts.controller.js";
+import { PostsService } from "../../../src/modules/posts/posts.service.js";
 import { fixturePost } from "../../mocks/index.js";
 
 describe("MOD-02: PostsController", () => {
@@ -238,7 +238,7 @@ describe("MOD-02: PostsController", () => {
 
     await controller.approve("post-1", {});
 
-    expect(queueService.enqueuePosting).toHaveBeenCalledWith("post-1", "X");
+    expect(queueService.enqueuePosting).toHaveBeenCalledWith("post-1", "X", undefined, "acc-001");
   });
 
   it("P0-fix: approve() does NOT enqueue if service throws", async () => {
@@ -256,7 +256,7 @@ describe("MOD-02: PostsController", () => {
     const result = await controller.approve("post-1", {}); // should not throw
 
     expect(result).toBe(approvedPost);
-    expect(queueService.enqueuePosting).toHaveBeenCalledWith("post-1", "X");
+    expect(queueService.enqueuePosting).toHaveBeenCalledWith("post-1", "X", undefined, "acc-001");
   });
 
   it("UTC-C-035c: approve() throws NotFoundException when service throws", async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractFirstJsonObject } from "../../../src/infrastructure/util/extract-json";
+import { extractFirstJsonObject } from "../../../src/infrastructure/util/extract-json.js";
 
 describe("extractFirstJsonObject", () => {
   it("extracts a flat JSON object from surrounding markdown", () => {

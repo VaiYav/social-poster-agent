@@ -9,9 +9,9 @@
  * Source: packages/backend/src/modules/autonomy/auto-check.service.ts
  */
 import { describe, it, expect, vi } from "vitest";
-import { SocialNetwork } from "../../../src/generated/prisma/client";
+import { SocialNetwork } from "../../../src/generated/prisma/client.js";
 
-import { AutoCheckService } from "../../../src/modules/autonomy/auto-check.service";
+import { AutoCheckService } from "../../../src/modules/autonomy/auto-check.service.js";
 
 function build(recentPosts: Array<{ simhash: string | null; content: string }> = []) {
   const prisma = {

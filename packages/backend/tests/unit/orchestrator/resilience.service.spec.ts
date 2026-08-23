@@ -82,6 +82,27 @@ describe("ResilienceService", () => {
     await expect(svc.isUsable("redis")).resolves.toBe(false);
   });
 
+  it("can defer the first probe while applying bounded jitter to later runs", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      const probe = vi.fn().mockResolvedValue(true);
+      const svc = buildService();
+      svc.scheduleProbe("llm", probe, 1_000, { jitterMs: 100, runImmediately: false });
+
+      await svc.runDueProbes();
+      expect(probe).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(900);
+      await svc.runDueProbes();
+      expect(probe).toHaveBeenCalledOnce();
+    } finally {
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    }
+  });
+
   it("getAllHealth merges memory entries sorted by subsystem name", async () => {
     const svc = buildService();
     await svc.reportHealth("zzz-subsystem", "DOWN");

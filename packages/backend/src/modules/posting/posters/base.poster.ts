@@ -24,6 +24,8 @@ import {
   classifyPlaywrightError,
 } from "../../../domain/errors.js";
 import { navigateWithRetry } from "../../../domain/retry.js";
+import { stat } from "node:fs/promises";
+import { getNetworkProfile } from "../../../domain/network-profiles/network-profiles.js";
 
 /** Result of a posting operation. */
 export interface PostResult {
@@ -61,6 +63,40 @@ export abstract class BasePoster {
     protected readonly browser: IBrowserPort,
     protected readonly configService: ConfigService,
   ) {}
+
+  /**
+   * Best-effort native image upload. Upload failure is deliberately
+   * non-terminal: the text post remains publishable and the caller records
+   * the text-only degradation separately.
+   */
+  protected async attachImage(page: Page, imagePath?: string): Promise<boolean> {
+    if (!imagePath) return false;
+    try {
+      const file = await stat(imagePath);
+      if (!file.isFile() || file.size === 0) {
+        this.logger.warn(`Image path is not a non-empty file: ${imagePath}`);
+        return false;
+      }
+      const inputs = [
+        'input[data-testid="fileInput"]',
+        'input[name="file1"]',
+        'input[type="file"]',
+      ];
+      for (const selector of inputs) {
+        const input = page.locator(selector).first();
+        if ((await input.count().catch(() => 0)) === 0) continue;
+        await input.setInputFiles(imagePath);
+        this.logger.log(`Attached image using ${selector}`);
+        return true;
+      }
+      this.logger.warn(`No native image input found for ${this.network} — continuing text-only`);
+    } catch (error) {
+      this.logger.warn(
+        `Image upload failed for ${this.network} — continuing text-only: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return false;
+  }
 
   // ── Selector Resolution ────────────────────────────────────────
 
@@ -971,18 +1007,7 @@ export abstract class BasePoster {
 
   /** Per-network regex that matches a real post URL (not a profile/home URL). */
   private getVerificationUrlPattern(): RegExp {
-    switch (this.network) {
-      case "THREADS":
-        // Threads profile URLs use /post/, public short links use /t/
-        return /(?:\/@[^/]+\/post\/|\/t\/)[A-Za-z0-9_-]+/;
-      case "FACEBOOK":
-        return /\/(posts|permalink|photos)\/\d+/;
-      case "X":
-        return /\/status\/[A-Za-z0-9]+/;
-      default: {
-        // New syndication networks — URL pattern verification handled by LLM-in-the-loop
-        throw new Error(`Unhandled network for URL pattern: ${this.network}`);
-      }
-    }
+    return getNetworkProfile(this.network).verificationPattern;
   }
+
 }

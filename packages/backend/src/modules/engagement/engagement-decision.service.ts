@@ -104,6 +104,7 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       const response = await this.llm.generateChat(compiled.systemPrompt, compiled.userPrompt, {
         temperature: 0.3,
         maxTokens: 120,
+        accountId: context.accountId,
       });
 
       const decision = parseDecisionResponse(response.content);
@@ -219,6 +220,7 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       const response = await this.llm.generateChat(compiled.systemPrompt, compiled.userPrompt, {
         temperature: 0.3,
         maxTokens: 120 * contexts.length,
+        accountId: contexts[0]?.accountId,
       });
 
       const decisions = parseBatchDecisionResponse(response.content, contexts.length);
@@ -314,6 +316,7 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       const response = await this.llm.generateChat(compiled.systemPrompt, compiled.userPrompt, {
         temperature: this.commentTemperature,
         maxTokens: 120,
+        accountId: context.accountId,
       });
 
       const { language, comment } = parseCommentResponse(response.content);
@@ -365,6 +368,7 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       const response = await this.llm.generateChat(compiled.systemPrompt, compiled.userPrompt, {
         temperature: this.quoteTemperature,
         maxTokens: 120,
+        accountId: context.accountId,
       });
 
       const { language, quote } = parseQuoteResponse(response.content);
@@ -416,6 +420,7 @@ export class EngagementDecisionService implements IEngagementDecisionPort {
       const response = await this.llm.generateChat(compiled.systemPrompt, compiled.userPrompt, {
         temperature: 0.3,
         maxTokens: 120,
+        accountId: context.accountId,
       });
 
       const judged = parseCommentJudgeResponse(response.content);

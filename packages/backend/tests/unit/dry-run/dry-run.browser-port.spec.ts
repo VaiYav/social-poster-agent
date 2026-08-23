@@ -10,8 +10,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { DryRunBrowserPort } from "../../../src/dry-run/dry-run.browser-port";
-import type { IBrowserPort } from "../../../src/domain/ports/browser.port";
+import { DryRunBrowserPort } from "../../../src/dry-run/dry-run.browser-port.js";
+import type { IBrowserPort } from "../../../src/domain/ports/browser.port.js";
 import type { BrowserContext, Locator, Page } from "playwright-core";
 
 // ── Helpers ──

@@ -5,10 +5,10 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { BadRequestException } from "@nestjs/common";
-import { RepliesController } from "../../../src/modules/replies/replies.controller";
-import { RepliesMonitorService } from "../../../src/modules/replies/replies-monitor.service";
-import { PrismaService } from "../../../src/infrastructure/prisma/prisma.service";
-import { CommentStatus } from "../../../src/generated/prisma/client";
+import { RepliesController } from "../../../src/modules/replies/replies.controller.js";
+import { RepliesMonitorService } from "../../../src/modules/replies/replies-monitor.service.js";
+import { PrismaService } from "../../../src/infrastructure/prisma/prisma.service.js";
+import { CommentStatus } from "../../../src/generated/prisma/client.js";
 
 describe("F4: RepliesController", () => {
   let controller: RepliesController;

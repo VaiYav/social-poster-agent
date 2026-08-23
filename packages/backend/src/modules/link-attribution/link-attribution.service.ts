@@ -15,9 +15,9 @@
 
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import type { Post } from "../../generated/prisma/client";
+import type { Post } from "../../generated/prisma/client.js";
 
-import { PrismaService } from "../../infrastructure/prisma/prisma.service";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import {
   ILinkPort,
   LinkServiceUnavailableError,

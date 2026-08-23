@@ -6,7 +6,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { ForbiddenException, type ExecutionContext } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { AdminGuard } from "../../../src/modules/auth/admin.guard";
+import { AdminGuard } from "../../../src/modules/auth/admin.guard.js";
 
 function cfg(values: Record<string, string>): ConfigService {
   return { get: vi.fn((k: string, d?: unknown) => values[k] ?? d) } as unknown as ConfigService;

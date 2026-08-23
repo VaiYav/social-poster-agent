@@ -8,9 +8,9 @@
  * V-Model: WS-1 (critical — all decisions depend on accurate state)
  */
 
-import { Injectable, Logger, Inject } from "@nestjs/common";
+import { Injectable, Logger, Inject, Optional } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { PrismaService } from "../../infrastructure/prisma/prisma.service";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
 import {
   SessionStatus,
@@ -19,14 +19,15 @@ import {
   BrowsingSessionStatus,
   InteractionType,
   InteractionStatus,
-} from "../../generated/prisma/client";
+} from "../../generated/prisma/client.js";
 import { RateLimitService } from "../rate-limit/rate-limit.service.js";
 import { FlowControlService } from "../flow-control/flow-control.service.js";
-import { AccountsService } from "../accounts/accounts.service";
+import { AccountsService } from "../accounts/accounts.service.js";
 import { QueueFactory } from "../../infrastructure/queue/queue.factory.js";
 import { getEnabledNetworks } from "../../domain/enabled-networks.js";
 import { unwrap } from "../../domain/result.js";
 import { CollectorPipeline, type NamedCollector } from "./collector-pipeline.js";
+import { FeedbackSyncService } from "../evaluation/feedback-sync.service.js";
 import type {
   WorldState,
   SessionState,
@@ -37,6 +38,22 @@ import type {
   AccountRuntimeState,
   AccountsState,
 } from "./types.js";
+import {
+  IResiliencePort,
+  type IResiliencePort as ResiliencePort,
+} from "../../domain/ports/resilience.port.js";
+
+type AccountScope = { id: string; network: SocialNetwork };
+
+type QueueDepthSnapshot = {
+  byNetwork: Record<string, number>;
+  byAccount: Record<string, number>;
+};
+
+type RateLimitSnapshot = {
+  byNetwork: Record<string, RateLimitState>;
+  byAccount: Record<string, RateLimitState>;
+};
 
 @Injectable()
 export class StateCollectorService {
@@ -51,6 +68,8 @@ export class StateCollectorService {
     private readonly flowControlService: FlowControlService,
     private readonly queueFactory: QueueFactory,
     private readonly accountsService: AccountsService,
+    @Optional() @Inject(IResiliencePort) private readonly resilience?: ResiliencePort,
+    @Optional() private readonly feedbackSync?: FeedbackSyncService,
   ) {
     this.topicPoolThreshold = Number(this.configService.get<string>("TOPIC_POOL_MIN", "30"));
   }
@@ -61,6 +80,8 @@ export class StateCollectorService {
    */
   async collectWorldState(): Promise<WorldState> {
     const startTime = Date.now();
+    await this.resilience?.runDueProbes().catch(() => void 0);
+    await this.feedbackSync?.syncIfDue().catch(() => void 0);
     const networks = getEnabledNetworks();
     const pipeline = new CollectorPipeline();
 
@@ -125,10 +146,12 @@ export class StateCollectorService {
         rejected: 0,
         approvedByNetwork: {},
       }),
-      queueDepth: unwrap(results.queueDepth, {}),
+      queueDepth: unwrap(results.queueDepth, { byNetwork: {}, byAccount: {} }).byNetwork,
+      queueDepthByAccount: unwrap(results.queueDepth, { byNetwork: {}, byAccount: {} }).byAccount,
       sessions: fleet.sessions,
       accounts: fleet.accounts,
-      rateLimits: unwrap(results.rateLimits, {}),
+      rateLimits: unwrap(results.rateLimits, { byNetwork: {}, byAccount: {} }).byNetwork,
+      rateLimitsByAccount: unwrap(results.rateLimits, { byNetwork: {}, byAccount: {} }).byAccount,
       now: unwrap(results.timing, {
         now: Date.now(),
         utcHour: new Date().getUTCHours(),
@@ -218,21 +241,56 @@ export class StateCollectorService {
     };
   }
 
-  private async collectQueueDepth(networks: string[]): Promise<Record<string, number>> {
-    const entries = await Promise.all(
-      networks.map(async (network) => {
-        try {
-          const counts = await this.queueFactory.getJobCounts(network, "posting");
-          return [
-            network,
-            (counts.active ?? 0) + (counts.waiting ?? 0) + (counts.delayed ?? 0),
-          ] as const;
-        } catch {
-          return [network, 0] as const;
-        }
-      }),
-    );
-    return Object.fromEntries(entries);
+  private async getActiveAccountScopes(networks: string[]): Promise<AccountScope[]> {
+    return this.prisma.socialAccount.findMany({
+      where: { network: { in: networks as SocialNetwork[] }, active: true },
+      select: { id: true, network: true },
+    });
+  }
+
+  private accountScopeKey(network: string, accountId: string): string {
+    return `${network}:${accountId}`;
+  }
+
+  private queueCount(counts: { active?: number; waiting?: number; delayed?: number }): number {
+    return (counts.active ?? 0) + (counts.waiting ?? 0) + (counts.delayed ?? 0);
+  }
+
+  private async collectQueueDepth(networks: string[]): Promise<QueueDepthSnapshot> {
+    const accounts = await this.getActiveAccountScopes(networks);
+    const [networkEntries, accountEntries] = await Promise.all([
+      Promise.all(
+        networks.map(async (network) => {
+          try {
+            const counts = await this.queueFactory.getJobCounts(network, "posting");
+            return [network, this.queueCount(counts)] as const;
+          } catch {
+            return [network, 0] as const;
+          }
+        }),
+      ),
+      Promise.all(
+        accounts.map(async (account) => {
+          try {
+            const counts = await this.queueFactory.getJobCounts(
+              account.network,
+              "posting",
+              account.id,
+            );
+            return [
+              this.accountScopeKey(account.network, account.id),
+              this.queueCount(counts),
+            ] as const;
+          } catch {
+            return [this.accountScopeKey(account.network, account.id), 0] as const;
+          }
+        }),
+      ),
+    ]);
+    return {
+      byNetwork: Object.fromEntries(networkEntries),
+      byAccount: Object.fromEntries(accountEntries),
+    };
   }
 
   /**
@@ -345,8 +403,11 @@ export class StateCollectorService {
 
         const activeMember = members.find((a) => a.sessionStatus === SessionStatus.ACTIVE);
         const fallbackMember = members.find(
-          (a): a is AccountRuntimeState & { sessionStatus: Exclude<AccountRuntimeState["sessionStatus"], "none"> } =>
-            a.sessionStatus !== "none",
+          (
+            a,
+          ): a is AccountRuntimeState & {
+            sessionStatus: Exclude<AccountRuntimeState["sessionStatus"], "none">;
+          } => a.sessionStatus !== "none",
         );
 
         sessionsAgg[net] = {
@@ -367,49 +428,105 @@ export class StateCollectorService {
     }
   }
 
-  private async collectRateLimits(networks: string[]): Promise<Record<string, RateLimitState>> {
-    const entries = await Promise.all(
-      networks.map(async (network) => {
+  private async collectRateLimits(networks: string[]): Promise<RateLimitSnapshot> {
+    const accounts = await this.getActiveAccountScopes(networks);
+    const accountsByNetwork = new Map<string, AccountScope[]>();
+    for (const account of accounts) {
+      const members = accountsByNetwork.get(account.network) ?? [];
+      members.push(account);
+      accountsByNetwork.set(account.network, members);
+    }
+
+    const toState = (status: {
+      dailyCount: number;
+      dailyLimit: number;
+      weeklyCount: number;
+      weeklyLimit: number;
+      minIntervalMs: number;
+      lastPostAt: number | null;
+    }): RateLimitState => {
+      const dailyRemaining =
+        status.dailyLimit > 0
+          ? Math.max(0, status.dailyLimit - status.dailyCount)
+          : Number.MAX_SAFE_INTEGER;
+      const weeklyRemaining =
+        status.weeklyLimit > 0
+          ? Math.max(0, status.weeklyLimit - status.weeklyCount)
+          : Number.MAX_SAFE_INTEGER;
+      return {
+        dailyRemaining,
+        weeklyRemaining,
+        dailyLimit: status.dailyLimit,
+        weeklyLimit: status.weeklyLimit,
+        minIntervalMs: status.minIntervalMs,
+        lastPostMs: status.lastPostAt ?? 0,
+      };
+    };
+
+    const emptyState = (): RateLimitState => ({
+      dailyRemaining: 0,
+      weeklyRemaining: 0,
+      dailyLimit: 0,
+      weeklyLimit: 0,
+      minIntervalMs: 0,
+      lastPostMs: 0,
+    });
+
+    const accountEntries = await Promise.all(
+      accounts.map(async (account) => {
         try {
-          const status = await this.rateLimitService.getStatus(network);
-          // A limit of 0 means unlimited; represent remaining as a large positive value
-          // so guardrails and posting logic don't treat it as exhausted.
-          const dailyRemaining =
-            status.dailyLimit > 0
-              ? Math.max(0, status.dailyLimit - status.dailyCount)
-              : Number.MAX_SAFE_INTEGER;
-          const weeklyRemaining =
-            status.weeklyLimit > 0
-              ? Math.max(0, status.weeklyLimit - status.weeklyCount)
-              : Number.MAX_SAFE_INTEGER;
-          return [
-            network,
-            {
-              dailyRemaining,
-              weeklyRemaining,
-              dailyLimit: status.dailyLimit,
-              weeklyLimit: status.weeklyLimit,
-              minIntervalMs: status.minIntervalMs,
-              lastPostMs: status.lastPostAt ?? 0,
-            },
-          ] as const;
+          const status = await this.rateLimitService.getStatus(account.network, account.id);
+          return [this.accountScopeKey(account.network, account.id), toState(status)] as const;
         } catch {
-          // Degraded — safe fallback: no remaining capacity so the orchestrator WAITs.
-          return [
-            network,
-            {
-              dailyRemaining: 0,
-              weeklyRemaining: 0,
-              dailyLimit: 0,
-              weeklyLimit: 0,
-              minIntervalMs: 0,
-              lastPostMs: 0,
-            },
-          ] as const;
+          return [this.accountScopeKey(account.network, account.id), emptyState()] as const;
         }
       }),
     );
-    return Object.fromEntries(entries);
+
+    const accountStates = Object.fromEntries(accountEntries);
+    const networkEntries = await Promise.all(
+      networks.map(async (network) => {
+        const members = (accountsByNetwork.get(network) ?? [])
+          .map((account) => accountStates[this.accountScopeKey(account.network, account.id)])
+          .filter((state): state is RateLimitState => Boolean(state));
+        if (members.length === 0) {
+          try {
+            return [network, toState(await this.rateLimitService.getStatus(network))] as const;
+          } catch {
+            return [network, emptyState()] as const;
+          }
+        }
+
+        const unlimitedDaily = members.some((state) => state.dailyLimit === 0);
+        const unlimitedWeekly = members.some((state) => state.weeklyLimit === 0);
+        const lastPosts = members.map((state) => state.lastPostMs).filter((value) => value > 0);
+        return [
+          network,
+          {
+            dailyRemaining: unlimitedDaily
+              ? Number.MAX_SAFE_INTEGER
+              : members.reduce((sum, state) => sum + state.dailyRemaining, 0),
+            weeklyRemaining: unlimitedWeekly
+              ? Number.MAX_SAFE_INTEGER
+              : members.reduce((sum, state) => sum + state.weeklyRemaining, 0),
+            dailyLimit: unlimitedDaily
+              ? 0
+              : members.reduce((sum, state) => sum + state.dailyLimit, 0),
+            weeklyLimit: unlimitedWeekly
+              ? 0
+              : members.reduce((sum, state) => sum + state.weeklyLimit, 0),
+            minIntervalMs: Math.min(...members.map((state) => state.minIntervalMs)),
+            // Network-level scheduling should see the account that has been idle longest.
+            lastPostMs: lastPosts.length > 0 ? Math.min(...lastPosts) : 0,
+          },
+        ] as const;
+      }),
+    );
+
+    return {
+      byNetwork: Object.fromEntries(networkEntries),
+      byAccount: accountStates,
+    };
   }
 
   private async collectTiming() {

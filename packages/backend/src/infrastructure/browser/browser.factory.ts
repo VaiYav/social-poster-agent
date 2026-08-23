@@ -13,7 +13,7 @@ import type {
   Locator,
   Page,
 } from "../../domain/ports/browser-primitives.js";
-import type { SocialNetwork } from "../../generated/prisma/client";
+import type { SocialNetwork } from "../../generated/prisma/client.js";
 import { Camoufox, type LaunchOptions } from "camoufox-js";
 import type {
   IBrowserPort,
@@ -27,6 +27,10 @@ import { join } from "node:path";
 import { parseBool } from "../config/parse-bool.js";
 import { withTimeout } from "../util/with-timeout.js";
 import { ProxyRotationService, type ProxyConfig } from "../proxy/proxy-rotation.service.js";
+import {
+  IResiliencePort,
+  type IResiliencePort as ResiliencePort,
+} from "../../domain/ports/resilience.port.js";
 
 /**
  * Browser factory — creates Camoufox (stealth Firefox fork) browser contexts.
@@ -585,6 +589,16 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     if (typeof browser.on === "function") {
       browser.on("disconnected", () => {
         this.logger.warn("Camoufox browser disconnected (process likely crashed)");
+        try {
+          const resilience = this.moduleRef?.get<ResiliencePort>(IResiliencePort, {
+            strict: false,
+          });
+          void resilience
+            ?.reportHealth("browser", "CRITICAL", "Camoufox browser disconnected")
+            .catch(() => void 0);
+        } catch {
+          // Resilience reporting must never interfere with browser cleanup.
+        }
         for (const [, entries] of this.idleContexts) {
           for (const entry of entries) {
             this.closedContexts.add(entry.context);
@@ -601,6 +615,14 @@ export class BrowserFactory implements IBrowserPort, OnModuleInit, OnModuleDestr
     }
 
     this.browserLaunchTime = Date.now();
+    try {
+      const resilience = this.moduleRef?.get<ResiliencePort>(IResiliencePort, {
+        strict: false,
+      });
+      void resilience?.reportHealth("browser", "HEALTHY").catch(() => void 0);
+    } catch {
+      // Optional integration.
+    }
     this.logger.log(
       `Camoufox launched (headless=${this.headless}, os=${this.targetOs}, humanize=${this.humanize}, geoip=${this.geoip}, proxy=${!!this.proxyUrl}, memoryPrefs=${this.memoryPrefsEnabled}, blockWebRTC=${this.blockWebRTC}, ffVersion=${this.ffVersion ?? "auto"})`,
     );

@@ -1,6 +1,6 @@
 import { Controller, Post, Param, HttpCode, HttpStatus } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiResponse, ApiParam } from "@nestjs/swagger";
-import { PostingService } from "./posting.service";
+import { PostingService } from "./posting.service.js";
 
 @ApiTags("posting")
 @Controller("posting")

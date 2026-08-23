@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
-import { AuthService } from "../../../src/modules/auth/auth.service";
+import { AuthService } from "../../../src/modules/auth/auth.service.js";
 
 function cfg(values: Record<string, string>): ConfigService {
   return { get: vi.fn((k: string, d?: unknown) => values[k] ?? d) } as unknown as ConfigService;

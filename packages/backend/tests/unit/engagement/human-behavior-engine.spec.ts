@@ -15,16 +15,17 @@ import type {
   IEngagementDecisionPort,
   ActionDecision,
   PostContext,
-} from "../../../src/domain/ports/engagement-decision.port";
-import type { IBrowserPort } from "../../../src/domain/ports/browser.port";
-import type { SocialNetwork } from "../../../src/generated/prisma/client";
-import type { BaseEngager } from "../../../src/modules/engagement/engagers/base.engager";
+} from "../../../src/domain/ports/engagement-decision.port.js";
+import type { IBrowserPort } from "../../../src/domain/ports/browser.port.js";
+import type { SocialNetwork } from "../../../src/generated/prisma/client.js";
+import type { BaseEngager } from "../../../src/modules/engagement/engagers/base.engager.js";
 import {
   createMockBrowserPort,
   createMockSseService,
   createMockRateLimitService,
   createMockPage,
 } from "../../mocks/index.js";
+import { EngagementCandidateScorer } from "../../../src/modules/engagement/engagement-candidate-scorer.js";
 
 // ── Mock Decision Port ──
 
@@ -123,6 +124,92 @@ describe("HumanBehaviorEngine", () => {
     await engine.processPosts(page, postUrls, engager, config);
 
     expect(decisionPort.decideAction).toHaveBeenCalledTimes(2);
+  });
+
+  it("ENGAGE-101: terminal SKIP candidate never reaches LLM decision", async () => {
+    const scorer = { score: vi.fn().mockReturnValue({ decision: "SKIP", reasons: ["duplicate"] }) };
+    engine = new HumanBehaviorEngine(
+      mockPrisma as never,
+      browser,
+      createMockSseService() as never,
+      createMockRateLimitService() as never,
+      decisionPort,
+      undefined,
+      scorer as unknown as EngagementCandidateScorer,
+    );
+
+    const results = await engine.processPosts(createMockPage(), ["url1"], engager, config);
+
+    expect(decisionPort.decideAction).not.toHaveBeenCalled();
+    expect(results[0]).toMatchObject({ success: true, decision: { action: "skip" } });
+  });
+
+  it("ENGAGE-102: HUMAN_APPROVAL_REQUIRED reply is persisted as a suggestion, not executed", async () => {
+    const authorizer = {
+      authorize: vi.fn().mockResolvedValue({
+        allowedMode: "HUMAN_APPROVAL_REQUIRED",
+        policyHash: "policy-hash",
+        policyVersionIds: ["policy-1"],
+        blockReasons: [],
+        requirements: [],
+        reputationState: "HEALTHY",
+        validUntil: new Date(Date.now() + 60_000).toISOString(),
+      }),
+      reauthorize: vi.fn(),
+    };
+    const suggestions = { create: vi.fn().mockResolvedValue({ id: "suggestion-1" }) };
+    const authorContext = {
+      resolve: vi.fn().mockResolvedValue({
+        accountId: config.accountId,
+        network: config.network,
+        personaId: "persona-1",
+        personaRevisionId: "revision-1",
+        voiceMode: "pattern_breakdown",
+        experimentAssignmentId: null,
+        profile: null,
+        disclosure: "AI-assisted",
+        safetyPolicyVersion: "policy-v1",
+        source: "PERSONA",
+      }),
+    };
+    engine = new HumanBehaviorEngine(
+      mockPrisma as never,
+      browser,
+      createMockSseService() as never,
+      createMockRateLimitService() as never,
+      decisionPort,
+      authorizer,
+      undefined,
+      suggestions as never,
+      authorContext as never,
+    );
+
+    const result = await (engine as any).createSuggestionIfRequired(
+      {
+        action: "comment",
+        reason: "specific invitation",
+        confidence: 0.9,
+        commentText: "A bounded reply",
+      },
+      {
+        network: config.network,
+        postUrl: "https://x.com/user/status/1",
+        postText: "A public question?",
+        authorHandle: "author",
+        hasMedia: false,
+        source: config.source,
+      },
+      config,
+    );
+
+    expect(result).toMatchObject({ suggested: true, suggestionId: "suggestion-1" });
+    expect(suggestions.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        policyMode: "HUMAN_APPROVAL_REQUIRED",
+        personaRevisionId: "revision-1",
+      }),
+    );
+    expect(authorizer.reauthorize).not.toHaveBeenCalled();
   });
 
   it("HB-003: executes like action when LLM decides like", async () => {

@@ -33,9 +33,9 @@ import { DomainConfigService } from "../../domain/domain-config/domain-config.se
 import { SessionsService } from "../sessions/sessions.service.js";
 import { AccountsService } from "../accounts/accounts.service.js";
 import type { BrowserContext, Page } from "../../domain/ports/browser-primitives.js";
-import { SocialNetwork } from "../../generated/prisma/client";
+import { SocialNetwork } from "../../generated/prisma/client.js";
 import { isNetworkEnabled } from "../../domain/enabled-networks.js";
-import { parseGoogleTrendsRss as parseGoogleTrendsRssPure } from "./google-trends-rss.js";
+import { parseGoogleTrendsRss as parseGoogleTrendsRssPure } from "../../infrastructure/content/google-trends-rss.js";
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
 import { sanitizeUntrustedInput } from "../../infrastructure/llm/sanitize-untrusted-input.js";
 import { interpolate } from "../../domain/prompt-interpolation.js";

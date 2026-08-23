@@ -2,7 +2,7 @@ import { Injectable, Logger, Inject, Optional, type OnModuleInit } from "@nestjs
 import { ConfigService } from "@nestjs/config";
 import { SchedulerRegistry } from "@nestjs/schedule";
 import { CronJob } from "cron";
-import { PrismaService } from "../prisma/prisma.service";
+import { PrismaService } from "../prisma/prisma.service.js";
 import { ILlmPort } from "../../domain/ports/llm.port.js";
 import { IPromptPort, type CompiledChatPrompt } from "../../domain/ports/prompt.port.js";
 import { parseBool } from "../config/parse-bool.js";

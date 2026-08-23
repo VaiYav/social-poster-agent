@@ -11,13 +11,13 @@ const mockExistsSync = vi.hoisted(() => vi.fn());
 vi.mock("node:fs", () => ({
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
 }));
-import { ContentAdapterRegistry } from "../../../../src/infrastructure/content/adapters/content-adapter.registry";
-import { ApiAdapter } from "../../../../src/infrastructure/content/adapters/api.adapter";
-import { RssAdapter } from "../../../../src/infrastructure/content/adapters/rss.adapter";
-import { buildContentAdapters } from "../../../../src/infrastructure/content/adapters/content-adapter.factory";
+import { ContentAdapterRegistry } from "../../../../src/infrastructure/content/adapters/content-adapter.registry.js";
+import { ApiAdapter } from "../../../../src/infrastructure/content/adapters/api.adapter.js";
+import { RssAdapter } from "../../../../src/infrastructure/content/adapters/rss.adapter.js";
+import { buildContentAdapters } from "../../../../src/infrastructure/content/adapters/content-adapter.factory.js";
 import { ContentReader } from "../../../../src/infrastructure/content/content-reader.js";
 import { DbContentReader } from "../../../../src/infrastructure/content/db-content-reader.js";
-import type { PrismaService } from "../../../../src/infrastructure/prisma/prisma.service";
+import type { PrismaService } from "../../../../src/infrastructure/prisma/prisma.service.js";
 
 function createMockConfigService(overrides: Record<string, unknown> = {}): ConfigService {
   const defaults: Record<string, unknown> = { CONTENT_CACHE_TTL_MS: 1000 };
@@ -367,7 +367,7 @@ describe("GoogleTrendsAdapter", () => {
       json: () => Promise.resolve({}),
     });
     const { GoogleTrendsAdapter } =
-      await import("../../../../src/infrastructure/content/adapters/google-trends.adapter");
+      await import("../../../../src/infrastructure/content/adapters/google-trends.adapter.js");
     const adapter = new GoogleTrendsAdapter(source);
     const topics = await adapter.fetchTopics(1);
     expect(topics.length).toBe(1);
@@ -389,7 +389,7 @@ describe("GoogleTrendsAdapter", () => {
       json: () => Promise.resolve({}),
     });
     const { GoogleTrendsAdapter } =
-      await import("../../../../src/infrastructure/content/adapters/google-trends.adapter");
+      await import("../../../../src/infrastructure/content/adapters/google-trends.adapter.js");
     const adapter = new GoogleTrendsAdapter(source);
     await adapter.fetchTopics(1);
     expect(fetchMock).toHaveBeenCalledWith(
@@ -407,7 +407,7 @@ describe("GoogleTrendsAdapter", () => {
       json: () => Promise.resolve({}),
     });
     const { GoogleTrendsAdapter } =
-      await import("../../../../src/infrastructure/content/adapters/google-trends.adapter");
+      await import("../../../../src/infrastructure/content/adapters/google-trends.adapter.js");
     const adapter = new GoogleTrendsAdapter(source);
     const topics = await adapter.fetchTopics(1);
     expect(topics).toEqual([]);

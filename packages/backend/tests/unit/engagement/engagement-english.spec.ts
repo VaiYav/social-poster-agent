@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { ConfigService } from "@nestjs/config";
-import { EngagementDecisionService } from "../../../src/modules/engagement/engagement-decision.service";
+import { EngagementDecisionService } from "../../../src/modules/engagement/engagement-decision.service.js";
 import {
   ENGAGEMENT_DECISION_PROMPT,
   ENGAGEMENT_COMMENT_PROMPT,
@@ -11,8 +11,8 @@ import {
   ENGAGEMENT_BATCH_DECISION_PROMPT,
   COMMENT_JUDGE_PROMPT,
 } from "../../../src/infrastructure/llm/prompts/v0.4.0/engagement-decision.js";
-import type { ILlmPort, LlmResponse } from "../../../src/domain/ports/llm.port";
-import type { PostContext } from "../../../src/domain/ports/engagement-decision.port";
+import type { ILlmPort, LlmResponse } from "../../../src/domain/ports/llm.port.js";
+import type { PostContext } from "../../../src/domain/ports/engagement-decision.port.js";
 
 function createMockLlm(response: string): ILlmPort {
   return {

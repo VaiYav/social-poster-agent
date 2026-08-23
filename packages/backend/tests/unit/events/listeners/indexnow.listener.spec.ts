@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ConfigService } from "@nestjs/config";
-import { IndexNowListener } from "../../../../src/events/listeners/indexnow.listener";
-import type { IndexNowService } from "../../../../src/infrastructure/indexnow/indexnow.service";
-import type { PostVerifiedEvent } from "../../../../src/events/post-verified.event";
+import { IndexNowListener } from "../../../../src/events/listeners/indexnow.listener.js";
+import type { IndexNowService } from "../../../../src/infrastructure/indexnow/indexnow.service.js";
+import type { PostVerifiedEvent } from "../../../../src/events/post-verified.event.js";
 
 function createConfigService(enabled: string): ConfigService {
   return {

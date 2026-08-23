@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { SocialNetwork } from "../../../src/generated/prisma/client";
-import { ABTestService } from "../../../src/modules/analytics/ab-test.service";
+import { SocialNetwork } from "../../../src/generated/prisma/client.js";
+import { ABTestService } from "../../../src/modules/analytics/ab-test.service.js";
 import { createMockPrismaService } from "../../mocks/index.js";
 
 describe("ABTestService", () => {

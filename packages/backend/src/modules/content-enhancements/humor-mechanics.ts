@@ -13,7 +13,7 @@
  * Serious/poetic content styles skip the humor layer entirely.
  */
 
-import { SocialNetwork } from "../../generated/prisma/client";
+import { SocialNetwork } from "../../generated/prisma/client.js";
 
 export interface HumorMechanic {
   id: string;

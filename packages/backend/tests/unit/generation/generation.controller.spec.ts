@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { GenerationController } from "../../../src/modules/generation/generation.controller.js";
-import { GenerationTrigger } from "../../../src/generated/prisma/client";
+import { GenerationTrigger } from "../../../src/generated/prisma/client.js";
 
 function createMockService() {
   return {

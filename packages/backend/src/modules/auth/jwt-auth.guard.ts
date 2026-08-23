@@ -32,8 +32,8 @@ import { JwtService } from "@nestjs/jwt";
 import { Reflector } from "@nestjs/core";
 import type { Request } from "express";
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
-import type { JwtPayload } from "./auth.service";
-import { IS_PUBLIC_KEY } from "./public.decorator";
+import type { JwtPayload } from "./auth.service.js";
+import { IS_PUBLIC_KEY } from "./public.decorator.js";
 
 /** Cookie name — must match AuthController. */
 const COOKIE_NAME = "spa_token";

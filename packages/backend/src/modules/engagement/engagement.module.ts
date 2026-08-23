@@ -25,6 +25,11 @@ import { TargetingService } from "./targeting.service.js";
 import { EngagementSchedulerService } from "./engagement-scheduler.service.js";
 import { IEngagementDecisionPort } from "../../domain/ports/engagement-decision.port.js";
 import { IBrowsingSessionPort, IEngagementPort } from "../orchestrator/ports.js";
+import { PolicyModule } from "../policy/policy.module.js";
+import { EngagementCandidateScorer } from "./engagement-candidate-scorer.js";
+import { EngagementSuggestionService } from "./engagement-suggestion.service.js";
+import { EngagementSuggestionController } from "./engagement-suggestion.controller.js";
+import { CrmModule } from "../crm/crm.module.js";
 
 @Module({
   imports: [
@@ -38,9 +43,13 @@ import { IBrowsingSessionPort, IEngagementPort } from "../orchestrator/ports.js"
     QueueModule,
     PrismaModule,
     FlowControlModule,
+    PolicyModule,
+    CrmModule,
   ],
   providers: [
     EngagementService,
+    EngagementCandidateScorer,
+    EngagementSuggestionService,
     BrowsingSessionService,
     EngagementSafetyService,
     XEngager,
@@ -62,12 +71,14 @@ import { IBrowsingSessionPort, IEngagementPort } from "../orchestrator/ports.js"
       useExisting: EngagementService,
     },
   ],
-  controllers: [EngagementController],
+  controllers: [EngagementController, EngagementSuggestionController],
   exports: [
     EngagementService,
     BrowsingSessionService,
     EngagementSafetyService,
     EngagementSchedulerService,
+    EngagementCandidateScorer,
+    EngagementSuggestionService,
     IBrowsingSessionPort,
     IEngagementPort,
   ],

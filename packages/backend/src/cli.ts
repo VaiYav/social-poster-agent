@@ -11,7 +11,7 @@
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { Logger } from "@nestjs/common";
-import { SocialNetwork } from "./generated/prisma/client";
+import { SocialNetwork } from "./generated/prisma/client.js";
 import { AppModule } from "./app.module.js";
 import { QueueTriageService, type TriageResult } from "./modules/queue/queue-triage.service.js";
 import { getEnabledNetworks } from "./domain/enabled-networks.js";

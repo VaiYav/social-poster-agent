@@ -14,7 +14,7 @@ import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import { ILlmPort } from "../../domain/ports/llm.port.js";
 import { IPromptPort } from "../../domain/ports/prompt.port.js";
 import { detectLanguage } from "../../infrastructure/util/language-detector.js";
-import type { IncomingComment, SocialNetwork } from "../../generated/prisma/client";
+import type { IncomingComment, SocialNetwork } from "../../generated/prisma/client.js";
 import { QuestionClassifierService } from "./question-classifier.service.js";
 import { ToneAnalyzerService } from "./tone-analyzer.service.js";
 import {

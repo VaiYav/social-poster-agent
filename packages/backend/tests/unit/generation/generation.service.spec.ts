@@ -28,7 +28,7 @@ import {
   GenerationRunStatus,
   GenerationTrigger,
   PostStatus,
-} from "../../../src/generated/prisma/client";
+} from "../../../src/generated/prisma/client.js";
 import type { ContentTopic } from "@spa/shared";
 
 // ── Mock the graph module so getGraph().invoke returns controlled state ──────
@@ -62,7 +62,7 @@ vi.mock("node:fs/promises", () => ({
   readFile: vi.fn().mockRejectedValue(new Error("ENOENT")),
 }));
 
-import { GenerationService } from "../../../src/modules/generation/generation.service";
+import { GenerationService } from "../../../src/modules/generation/generation.service.js";
 import {
   createMockLlmPort,
   createMockPrismaService,
@@ -304,9 +304,84 @@ afterEach(() => {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("GenerationService", () => {
+  it("EVAL-702: evaluates each persisted final output through the online lane", async () => {
+    const onlineEvaluator = { evaluate: vi.fn().mockResolvedValue({}) };
+    (service as any).onlineEvaluator = onlineEvaluator;
+
+    await (service as any).persistGeneratedPosts(
+      [genPost(SocialNetwork.X, "A final output")],
+      new Map([[SocialNetwork.X, [ACCOUNT_X]]]),
+      "run-001",
+      {
+        type: "brief",
+        path: "briefs/test.json",
+        topic: "Test topic",
+        keywords: [],
+      },
+    );
+
+    expect(onlineEvaluator.evaluate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        postId: expect.any(String),
+        content: "A final output",
+        network: SocialNetwork.X,
+        taskCompleted: true,
+      }),
+    );
+  });
+
   // ── generate() ───────────────────────────────────────────────────────────
 
   describe("generate()", () => {
+    it("PERSONA-103: persists portfolio assignment and carries it into draft provenance", async () => {
+      contentSource.getTopics.mockResolvedValue([TOPIC_1]);
+      mockInvoke.mockResolvedValue({
+        posts: [genPost(SocialNetwork.X, "Portfolio-dispatched post")],
+        facts: [],
+      });
+      (service as any).editorialPortfolio = {
+        ensureOpportunity: vi.fn().mockResolvedValue({
+          id: "opportunity-1",
+          validUntil: new Date(Date.now() + 86_400_000),
+        }),
+        findActiveAssignment: vi.fn().mockResolvedValue(null),
+        planAndPersist: vi.fn().mockResolvedValue({
+          accountId: ACCOUNT_X.id,
+          action: "OWN_POST",
+          assignmentId: "assignment-1",
+        }),
+      };
+      (service as any).authorContextPort = {
+        resolve: vi.fn().mockResolvedValue({
+          accountId: ACCOUNT_X.id,
+          network: SocialNetwork.X,
+          personaId: "persona-1",
+          personaRevisionId: "revision-1",
+          voiceMode: "pattern_breakdown",
+          experimentAssignmentId: null,
+          profile: null,
+          disclosure: "AI-assisted",
+          safetyPolicyVersion: "persona-policy-v1",
+          source: "PERSONA",
+        }),
+      };
+
+      await service.generate(1, [SocialNetwork.X]);
+
+      expect((service as any).editorialPortfolio.planAndPersist).toHaveBeenCalledWith(
+        expect.objectContaining({
+          opportunity: expect.objectContaining({ opportunityId: "opportunity-1" }),
+          candidates: [expect.objectContaining({ accountId: ACCOUNT_X.id })],
+        }),
+      );
+      expect(posts.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accountId: ACCOUNT_X.id,
+          llmMetadata: expect.objectContaining({ editorialAssignmentId: "assignment-1" }),
+        }),
+      );
+    });
+
     it("UTC-200: generates posts for 1 topic × 3 networks = 3 drafts", async () => {
       // Arrange: 1 topic, graph returns 3 posts (one per network) with DISTINCT content
       // (SimHash dedup skips near-identical posts — Hamming distance ≤ 3)
@@ -477,8 +552,8 @@ describe("GenerationService", () => {
 
     it("UTC-207: no active account for network → post skipped", async () => {
       contentSource.getTopics.mockResolvedValue([TOPIC_1]);
-      accounts.getNextAccountForNetwork.mockImplementation((network: SocialNetwork) =>
-        network === SocialNetwork.X ? ACCOUNT_X : null,
+      accounts.findByNetwork.mockImplementation((network: SocialNetwork) =>
+        network === SocialNetwork.X ? [ACCOUNT_X] : [],
       );
       mockInvoke.mockResolvedValue({
         posts: [genPost(SocialNetwork.X, "X post"), genPost(SocialNetwork.THREADS, "Threads post")],
@@ -491,6 +566,93 @@ describe("GenerationService", () => {
       expect(posts.create).toHaveBeenCalledWith(
         expect.objectContaining({ network: SocialNetwork.X }),
       );
+    });
+
+    it("assigns generated posts for one network round-robin across active accounts", async () => {
+      const accountA = { ...ACCOUNT_X, id: "acc-x-a", handle: "account_a" };
+      const accountB = { ...ACCOUNT_X, id: "acc-x-b", handle: "account_b" };
+      accounts.findByNetwork.mockImplementation((network: SocialNetwork) =>
+        network === SocialNetwork.X ? [accountA, accountB] : [],
+      );
+      contentSource.getTopics.mockResolvedValue([TOPIC_1, TOPIC_2]);
+      mockInvoke
+        .mockResolvedValueOnce({
+          posts: [genPost(SocialNetwork.X, "first unique post")],
+          facts: [],
+        })
+        .mockResolvedValueOnce({
+          posts: [genPost(SocialNetwork.X, "second unique post")],
+          facts: [],
+        });
+
+      await service.generate(2, [SocialNetwork.X]);
+
+      expect(posts.create).toHaveBeenCalledTimes(2);
+      expect(posts.create.mock.calls.map((call) => call[0].accountId)).toEqual([
+        "acc-x-a",
+        "acc-x-b",
+      ]);
+    });
+
+    it("uses an account brand-voice override for that account's network group", async () => {
+      const accountSettings = {
+        resolve: vi.fn(async (accountId: string) => ({
+          values: { brandVoice: accountId === ACCOUNT_X.id ? "Account X voice" : "" },
+        })),
+      };
+      (service as unknown as { accountSettings?: typeof accountSettings }).accountSettings =
+        accountSettings;
+
+      const groups = await (
+        service as unknown as {
+          groupNetworksByBrandVoice: (
+            networks: SocialNetwork[],
+            accountsByNetwork: Map<SocialNetwork, Array<{ id: string }>>,
+            globalVoice: string,
+          ) => Promise<Map<string, SocialNetwork[]>>;
+        }
+      ).groupNetworksByBrandVoice(
+        [SocialNetwork.X, SocialNetwork.THREADS],
+        new Map<SocialNetwork, Array<{ id: string }>>([
+          [SocialNetwork.X, [ACCOUNT_X]],
+          [SocialNetwork.THREADS, [ACCOUNT_THREADS]],
+        ]),
+        "Global voice",
+      );
+
+      expect([...groups.entries()]).toEqual([
+        ["Account X voice", [SocialNetwork.X]],
+        ["Global voice", [SocialNetwork.THREADS]],
+      ]);
+      expect(accountSettings.resolve).toHaveBeenCalledWith(ACCOUNT_X.id);
+      expect(accountSettings.resolve).toHaveBeenCalledWith(ACCOUNT_THREADS.id);
+    });
+
+    it("falls back to the global voice when account settings resolution fails", async () => {
+      const accountSettings = {
+        resolve: vi.fn().mockRejectedValue(new Error("settings unavailable")),
+      };
+      (service as unknown as { accountSettings?: typeof accountSettings }).accountSettings =
+        accountSettings;
+
+      const groups = await (
+        service as unknown as {
+          groupNetworksByBrandVoice: (
+            networks: SocialNetwork[],
+            accountsByNetwork: Map<SocialNetwork, Array<{ id: string }>>,
+            globalVoice: string,
+          ) => Promise<Map<string, SocialNetwork[]>>;
+        }
+      ).groupNetworksByBrandVoice(
+        [SocialNetwork.X, SocialNetwork.THREADS],
+        new Map<SocialNetwork, Array<{ id: string }>>([
+          [SocialNetwork.X, [ACCOUNT_X]],
+          [SocialNetwork.THREADS, [ACCOUNT_THREADS]],
+        ]),
+        "Global voice",
+      );
+
+      expect(groups).toEqual(new Map([["Global voice", [SocialNetwork.X, SocialNetwork.THREADS]]]));
     });
 
     it("UTC-208: already posted about source → network skipped (dedup)", async () => {

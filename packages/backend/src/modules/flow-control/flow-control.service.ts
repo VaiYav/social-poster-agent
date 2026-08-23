@@ -50,19 +50,34 @@ export class FlowControlService {
    * Check if a specific flow is paused.
    * Returns true if either the flow-specific flag OR pause_all is set.
    */
-  async isPaused(flow: FlowName): Promise<boolean> {
-    const [allPaused, flowPaused] = await this.redis.mget([PAUSE_ALL_KEY, FLOW_KEYS[flow]]);
-    return allPaused === "1" || flowPaused === "1";
+  async isPaused(flow: FlowName, scopeKey?: string): Promise<boolean> {
+    const keys = [PAUSE_ALL_KEY, FLOW_KEYS[flow]];
+    if (scopeKey) keys.push(scopedFlowKey(flow, scopeKey));
+    const values = await this.redis.mget(keys);
+    return values[0] === "1" || values[1] === "1" || values[2] === "1";
   }
 
   /**
    * Synchronous-ish check for use in hot paths.
    * Note: this is async — caller must await. For truly sync checks, use a cached flag.
    */
-  async assertNotPaused(flow: FlowName): Promise<void> {
-    if (await this.isPaused(flow)) {
+  async assertNotPaused(flow: FlowName, scopeKey?: string): Promise<void> {
+    if (await this.isPaused(flow, scopeKey)) {
       throw new Error(`Flow '${flow}' is paused — skipping new work`);
     }
+  }
+
+  /** Pause only the named account/topic scope while leaving other accounts running. */
+  async pauseScoped(flow: FlowName, scopeKey: string, reason?: string): Promise<void> {
+    await this.redis.set(scopedFlowKey(flow, scopeKey), "1");
+    this.logger.warn(`Flow '${flow}' scoped to '${scopeKey}' paused${reason ? `: ${reason}` : ""}`);
+    await this.notifySse("paused", flow, reason, scopeKey);
+  }
+
+  async resumeScoped(flow: FlowName, scopeKey: string): Promise<void> {
+    await this.redis.del(scopedFlowKey(flow, scopeKey));
+    this.logger.log(`Flow '${flow}' scoped to '${scopeKey}' resumed`);
+    await this.notifySse("resumed", flow, undefined, scopeKey);
   }
 
   /**
@@ -133,12 +148,18 @@ export class FlowControlService {
     action: "paused" | "resumed",
     flow: FlowName,
     reason?: string,
+    scopeKey?: string,
   ): Promise<void> {
     await this.sseService.publish({
       type: "flow_control",
       action,
       flow,
       reason: reason ?? null,
+      ...(scopeKey ? { scopeKey } : {}),
     });
   }
+}
+
+function scopedFlowKey(flow: FlowName, scopeKey: string): string {
+  return `${FLOW_KEYS[flow]}:${scopeKey}`;
 }

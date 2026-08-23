@@ -12,7 +12,7 @@
 import { Injectable, Logger, type OnModuleInit, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
-import { PrismaService } from "../../infrastructure/prisma/prisma.service";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import { scryptSync, randomBytes, timingSafeEqual } from "node:crypto";
 import type { AuthUser } from "@spa/shared";
 

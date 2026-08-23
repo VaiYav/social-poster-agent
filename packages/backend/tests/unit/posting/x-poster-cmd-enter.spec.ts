@@ -8,7 +8,7 @@
  * Source: packages/backend/src/modules/posting/posters/x.poster.ts
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { XPoster } from "../../../src/modules/posting/posters/x.poster";
+import { XPoster } from "../../../src/modules/posting/posters/x.poster.js";
 import { createMockBrowserPort, createMockPage, createMockContext } from "../../mocks/index.js";
 
 describe("XPoster — Cmd+Enter Keyboard Shortcut", () => {

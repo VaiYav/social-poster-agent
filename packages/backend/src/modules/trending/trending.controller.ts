@@ -1,8 +1,8 @@
 import { Controller, Get, HttpCode, HttpStatus, UseGuards } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiResponse } from "@nestjs/swagger";
-import { TrendingService } from "./trending.service";
-import { TrendingScraperService } from "./trending-scraper.service";
-import { LocalhostGuard } from "../../infrastructure/guards/localhost.guard";
+import { TrendingService } from "./trending.service.js";
+import { TrendingScraperService } from "./trending-scraper.service.js";
+import { LocalhostGuard } from "../../infrastructure/guards/localhost.guard.js";
 
 @ApiTags("trending")
 @Controller("trending")

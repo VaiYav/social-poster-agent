@@ -9,10 +9,11 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
-import { PostStatus } from "../../../src/generated/prisma/client";
-import { PostsService } from "../../../src/modules/posts/posts.service";
-import { PostEvents } from "../../../src/events/enums/post-events.enum";
+import { PostStatus } from "../../../src/generated/prisma/client.js";
+import { PostsService } from "../../../src/modules/posts/posts.service.js";
+import { PostEvents } from "../../../src/events/enums/post-events.enum.js";
 import { createMockPrismaService, fixturePost } from "../../mocks/index.js";
+import { hashReviewContent } from "../../../src/modules/posts/review-feedback.js";
 
 describe("MOD-02: PostsService", () => {
   let service: PostsService;
@@ -327,12 +328,12 @@ describe("MOD-02: PostsService", () => {
     const existing = { ...fixturePost, id: "post-1", status: "DRAFT" };
     prisma.post.findUnique.mockResolvedValue(existing);
     prisma.post.findMany.mockResolvedValue([]);
-    prisma.post.update.mockResolvedValue({ ...existing, status: "APPROVED" });
+    prisma.post.updateMany.mockResolvedValue({ count: 1 });
 
     const editedContent = "Workflow stations direct today.";
     await service.approve("post-1", editedContent);
 
-    const arg = prisma.post.update.mock.calls[0][0];
+    const arg = prisma.post.updateMany.mock.calls[0][0];
     expect(arg.data.content).toBe(editedContent);
     expect(arg.data.simhash).toBeDefined();
     expect(arg.data.status).toBe(PostStatus.APPROVED);
@@ -353,6 +354,106 @@ describe("MOD-02: PostsService", () => {
     expect(prisma.post.update).not.toHaveBeenCalled();
   });
 
+  it("EVAL-501: approve() atomically records an unchanged review decision", async () => {
+    const existing = {
+      ...fixturePost,
+      id: "post-review-1",
+      status: "DRAFT",
+      content: "A stable draft",
+      generationRunId: "run-1",
+      llmMetadata: { langfuseTraceId: "trace-1" },
+    };
+    prisma.post.findUnique.mockResolvedValue(existing);
+    prisma.post.updateMany.mockResolvedValue({ count: 1 });
+    prisma.postReviewDecision.create.mockResolvedValue({ id: "review-1" });
+
+    await service.approve("post-review-1");
+
+    expect(prisma.$transaction).toHaveBeenCalledOnce();
+    expect(prisma.postReviewDecision.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        postId: "post-review-1",
+        version: 1,
+        decision: "APPROVE_UNCHANGED",
+        reasonCodes: [],
+        originalContentHash: hashReviewContent("A stable draft"),
+        finalContentHash: hashReviewContent("A stable draft"),
+        normalizedEditDistance: 0,
+        generationRunId: "run-1",
+        langfuseTraceId: "trace-1",
+        syncStatus: "PENDING",
+      }),
+    });
+  });
+
+  it("EVAL-501: edited approval hashes pre-edit content and records normalized distance", async () => {
+    const existing = {
+      ...fixturePost,
+      id: "post-review-edited",
+      status: "DRAFT",
+      content: "Original ✅",
+    };
+    const editedContent = "Edited ✅ with context";
+    prisma.post.findUnique
+      .mockResolvedValueOnce(existing)
+      .mockResolvedValueOnce({ ...existing, content: editedContent, status: "APPROVED" });
+    prisma.post.findMany.mockResolvedValue([]);
+    prisma.post.updateMany.mockResolvedValue({ count: 1 });
+    prisma.postReviewDecision.create.mockResolvedValue({ id: "review-edited" });
+
+    await service.approve("post-review-edited", editedContent, {
+      reasonCodes: ["VOICE_AI_GENERIC"],
+    });
+
+    expect(prisma.postReviewDecision.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        decision: "APPROVE_EDITED",
+        originalContentHash: hashReviewContent("Original ✅"),
+        finalContentHash: hashReviewContent(editedContent),
+        normalizedEditDistance: expect.any(Number),
+      }),
+    });
+  });
+
+  it("EVAL-501: reject() stores feedback and preserves legacy no-body behavior", async () => {
+    const existing = { ...fixturePost, id: "post-review-2", status: "DRAFT" };
+    prisma.post.findUnique.mockResolvedValue(existing);
+    prisma.post.updateMany.mockResolvedValue({ count: 1 });
+    prisma.postReviewDecision.create.mockResolvedValue({ id: "review-2" });
+
+    await service.reject("post-review-2", {
+      reasonCodes: ["FACT_UNSUPPORTED"],
+      comment: "Needs a source",
+    });
+
+    expect(prisma.postReviewDecision.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        decision: "REJECT",
+        reasonCodes: ["FACT_UNSUPPORTED"],
+        comment: "Needs a source",
+        finalContentHash: null,
+        normalizedEditDistance: null,
+      }),
+    });
+  });
+
+  it("EVAL-501: enforced rejection feedback remains fail-closed", async () => {
+    const enforced = new PostsService(
+      prisma as never,
+      eventEmitter as never,
+      {
+        get: vi.fn((_key: string, fallback?: unknown) =>
+          fallback === "false" ? "true" : fallback,
+        ),
+      } as never,
+    );
+    const existing = { ...fixturePost, id: "post-review-3", status: "DRAFT" };
+    prisma.post.findUnique.mockResolvedValue(existing);
+
+    await expect(enforced.reject("post-review-3")).rejects.toThrow(BadRequestException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
   it("P2-2.3.2: updateStatus() throws BadRequestException for invalid transition", async () => {
     const existing = { ...fixturePost, id: "post-1", status: "POSTED" };
     prisma.post.findUnique.mockResolvedValue(existing);
@@ -368,11 +469,11 @@ describe("MOD-02: PostsService", () => {
   it("P2-2.3.3: reject() emits PostEvents.REJECTED and only works from DRAFT", async () => {
     const existing = { ...fixturePost, id: "post-1", status: "DRAFT" };
     prisma.post.findUnique.mockResolvedValue(existing);
-    prisma.post.update.mockResolvedValue({ ...existing, status: "REJECTED" });
+    prisma.post.updateMany.mockResolvedValue({ count: 1 });
 
     await service.reject("post-1");
 
-    const arg = prisma.post.update.mock.calls[0][0];
+    const arg = prisma.post.updateMany.mock.calls[0][0];
     expect(arg.data.status).toBe(PostStatus.REJECTED);
     expect(eventEmitter.emit).toHaveBeenCalledWith(PostEvents.REJECTED, {
       postId: "post-1",

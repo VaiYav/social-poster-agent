@@ -14,9 +14,9 @@
 import { createHash } from "node:crypto";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { PrismaService } from "../../infrastructure/prisma/prisma.service";
-import { PostStatus, SocialNetwork } from "../../generated/prisma/client";
-import type { Prisma } from "../../generated/prisma/client";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { PostStatus, SocialNetwork } from "../../generated/prisma/client.js";
+import type { Prisma } from "../../generated/prisma/client.js";
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
 import type { ABVariantPair } from "./ab-variant.generator.js";
 import type { JudgeScores } from "@spa/shared";

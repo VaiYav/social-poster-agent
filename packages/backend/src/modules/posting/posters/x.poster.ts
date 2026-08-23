@@ -1,13 +1,17 @@
 import { Injectable, Logger, Inject } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import fs from "node:fs";
-import type { BrowserContext, Page, Locator } from "../../../domain/ports/browser-primitives.js";
+import type { BrowserContext, Page } from "../../../domain/ports/browser-primitives.js";
 import { IBrowserPort } from "../../../domain/ports/browser.port.js";
 import { BasePoster, type PostResult } from "./base.poster.js";
 import { X_SELECTORS } from "./selectors/x.selectors.js";
 import { normalizePermalink } from "./permalink.js";
-import { ValidationError, ComposeDialogError } from "../../../domain/errors.js";
+import { ValidationError } from "../../../domain/errors.js";
 import { parseBool } from "../../../infrastructure/config/parse-bool.js";
+import { SocialNetwork } from "../../../generated/prisma/client.js";
+import { checkContentLength } from "../../posts/network-limits.js";
+import { XComposePage } from "./x-compose.page.js";
+import { XThreadReplies } from "./x-thread-replies.page.js";
+import { XVerification } from "./x-verification.page.js";
 
 /**
  * X.com (Twitter) poster — browser automation for posting tweets and threads.
@@ -27,12 +31,37 @@ import { parseBool } from "../../../infrastructure/config/parse-bool.js";
 export class XPoster extends BasePoster {
   protected readonly logger = new Logger(XPoster.name);
   protected readonly network = "X" as const;
+  private readonly composePage: XComposePage;
+  private readonly threadReplies: XThreadReplies;
+  private readonly verificationPage: XVerification;
 
   constructor(
     @Inject(IBrowserPort) browser: IBrowserPort,
     @Inject(ConfigService) configService: ConfigService,
   ) {
     super(browser, configService);
+    const pageSupport = {
+      browser: this.browser,
+      network: SocialNetwork.X,
+      logger: this.logger,
+      assertPageAlive: (page: Page, context: string) => this.assertPageAlive(page, context),
+    };
+    this.composePage = new XComposePage(pageSupport);
+    this.threadReplies = new XThreadReplies({
+      browser: this.browser,
+      logger: this.logger,
+      assertPageAlive: (page, context) => this.assertPageAlive(page, context),
+      humanPreAction: (page, locator) => this.humanPreAction(page, locator),
+      setComposeText: (page, textbox, content) => this.composePage.setText(page, textbox, content),
+      pasteContent: (page, textbox, content) => this.composePage.paste(page, textbox, content),
+      retryWithBackoff: (operation, maxRetries, baseDelayMs, isDead) =>
+        this.retryWithBackoff(operation, maxRetries, baseDelayMs, isDead),
+    });
+    this.verificationPage = new XVerification({
+      logger: this.logger,
+      configService: this.configService,
+      screenshot: (page, phase) => this.screenshot(page, phase),
+    });
   }
 
   async post(
@@ -40,21 +69,20 @@ export class XPoster extends BasePoster {
     _browserPort: IBrowserPort,
     content: string,
     threadItems?: string[],
+    imagePath?: string,
   ): Promise<PostResult> {
     this.logger.log(
       `X post started — content length: ${content.length}, thread items: ${threadItems?.length ?? 0}`,
     );
 
-    // Pre-flight check: X limit is 280 chars for standard accounts.
-    // If content exceeds this, the Post button will be disabled and the tweet won't publish.
-    // Fail fast with a clear error instead of wasting a browser session.
-    const X_CHAR_LIMIT = 280;
-    if (content.length > X_CHAR_LIMIT) {
+    // Pre-flight check uses the canonical network profile registry.
+    const lengthCheck = checkContentLength(SocialNetwork.X, content);
+    if (!lengthCheck.ok) {
       this.logger.warn(
-        `X content ${content.length} chars exceeds limit ${X_CHAR_LIMIT} — rejecting before browser session`,
+        `X content ${lengthCheck.length} chars exceeds limit ${lengthCheck.limit} — rejecting before browser session`,
       );
       return {
-        error: `Content ${content.length} chars exceeds X limit ${X_CHAR_LIMIT}`,
+        error: `Content ${lengthCheck.length} chars exceeds X limit ${lengthCheck.limit}`,
         retryable: false,
       };
     }
@@ -73,7 +101,7 @@ export class XPoster extends BasePoster {
       // without actually submitting the tweet. The home page compose dialog's Post button
       // is a proper submit button that triggers the X API call.
       this.logger.log(`X using home page compose dialog (primary path)...`);
-      const homeResult = await this.postViaHomePageCompose(page, content);
+      const homeResult = await this.postViaHomePageCompose(page, content, imagePath);
       if (homeResult && !homeResult.error) {
         // Successfully posted via home page compose — post thread replies if needed
         if (homeResult.url && threadItems && threadItems.length > 0) {
@@ -91,10 +119,15 @@ export class XPoster extends BasePoster {
 
       // Fallback 1a: try the profile page — some sessions get a WAF/noscript page on /home
       // but the profile page loads and the side nav "Post" button works the same way.
-      const profileHandle = await this.getAccountHandleFromConfig();
+      const profileHandle = await this.verificationPage.getAccountHandleFromConfig();
       if (profileHandle) {
         this.logger.log(`X trying profile page compose dialog for @${profileHandle}...`);
-        const profileResult = await this.postViaProfilePageCompose(page, content, profileHandle);
+        const profileResult = await this.postViaProfilePageCompose(
+          page,
+          content,
+          profileHandle,
+          imagePath,
+        );
         if (profileResult && !profileResult.error) {
           if (profileResult.url && threadItems && threadItems.length > 0) {
             const replyResults = await this.postThreadReplies(page, profileResult.url, threadItems);
@@ -173,7 +206,8 @@ export class XPoster extends BasePoster {
       // Strategy 1: human-like typing via locator.pressSequentially — fires the real key events
       // X/Lexical needs to update React state and enable the Post button.
       this.logger.log(`X typing tweet via humanType (locator.pressSequentially)...`);
-      await this.setComposeText(page, textbox, content);
+      await this.composePage.setText(page, textbox, content);
+      await this.attachImage(page, imagePath);
       await this.browser.randomDelay(500, 1000);
 
       // Verify content was entered
@@ -200,7 +234,7 @@ export class XPoster extends BasePoster {
       // Strategy 3: if fill() didn't work either, try clipboard paste then keyboard.type() (last resort)
       if (!enteredText || enteredText.trim().length < 10) {
         this.logger.warn(`X fill() didn't enter text — trying clipboard paste...`);
-        const pasted = await this.pasteContent(page, textbox, content);
+        const pasted = await this.composePage.paste(page, textbox, content);
         if (!pasted) {
           this.logger.warn(`X clipboard paste failed — trying keyboard.type() with slow delay...`);
           await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
@@ -243,7 +277,7 @@ export class XPoster extends BasePoster {
       if (!buttonVisible) {
         this.logger.warn(`X post button not visible — retrying text entry via clipboard paste...`);
         // Try clipboard paste first (more reliable for multilingual content)
-        const pasted = await this.pasteContent(page, textbox, content);
+        const pasted = await this.composePage.paste(page, textbox, content);
         if (!pasted) {
           // Fallback: re-focus and re-type to trigger DraftJS state update
           await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
@@ -264,7 +298,7 @@ export class XPoster extends BasePoster {
         this.logger.warn(
           `X post button still not visible — falling back to home page compose dialog...`,
         );
-        const fallbackResult = await this.postViaHomePageCompose(page, content);
+        const fallbackResult = await this.postViaHomePageCompose(page, content, imagePath);
         if (fallbackResult) {
           // BUG-6: the fallback posts only the root tweet. For a multi-tweet thread we must
           // post the replies here too — otherwise every threadItem is silently dropped while
@@ -320,7 +354,7 @@ export class XPoster extends BasePoster {
       if (isDisabled) {
         // Strategy B: try clipboard paste (more reliable for multilingual content)
         this.logger.warn(`X post button still disabled after fill() — trying clipboard paste...`);
-        const pasted = await this.pasteContent(page, textbox, content);
+        const pasted = await this.composePage.paste(page, textbox, content);
         if (!pasted) {
           // Fallback: clear and re-type via locator.pressSequentially into the focused textbox.
           // Real key events (not execCommand) are required for X/Lexical to update React state.
@@ -498,18 +532,19 @@ export class XPoster extends BasePoster {
         this.logger.log(`X posted — URL matches pattern: ${postUrl}`);
       } else {
         // Second try: search page DOM for our tweet link
-        const accountHandle = await this.getAccountHandle(page);
+        const accountHandle = await this.verificationPage.getAccountHandle(page);
         this.logger.log(
           `X account handle: ${accountHandle ?? "not found"}, current URL: ${currentUrl}`,
         );
-        const foundUrl = await this.findTweetUrlOnPage(page, accountHandle);
+        const foundUrl = await this.verificationPage.findTweetUrlOnPage(page, accountHandle);
 
         if (foundUrl) {
           postUrl = foundUrl;
         } else {
           // Third try: navigate to profile and find the tweet there
           this.logger.log(`X tweet not on current page — checking profile...`);
-          const handle = accountHandle ?? (await this.getAccountHandleFromConfig());
+          const handle =
+            accountHandle ?? (await this.verificationPage.getAccountHandleFromConfig());
           if (handle) {
             // Retry profile validation up to 3 times — X may have a delay showing new posts.
             // Break early if the page crashed/closed — retrying on a dead page is futile
@@ -582,294 +617,12 @@ export class XPoster extends BasePoster {
   }
 
   /**
-   * BUG-6: post each thread reply with per-reply retry + a human-like delay. Extracted so
-   * BOTH the primary compose path AND the home-page fallback post the full thread — the
-   * fallback previously returned after the root tweet only, silently dropping every reply.
-   * Per-reply failures are recorded (not thrown) so a partial thread is reported accurately.
-   */
-  private async postThreadReplies(
-    page: Page,
-    postUrl: string,
-    threadItems: string[],
-  ): Promise<Array<{ index: number; success: boolean; error?: string }>> {
-    const replyResults: Array<{ index: number; success: boolean; error?: string }> = [];
-    for (let i = 0; i < threadItems.length; i++) {
-      // Human-like delay between replies (skip before the first reply). Posting all
-      // replies instantly is not human-like and may trigger X anti-bot / rate limiting.
-      if (i > 0) {
-        this.logger.debug(`X thread: waiting before reply ${i + 1}/${threadItems.length}`);
-        await this.browser.randomDelay(30000, 90000);
-      }
-      try {
-        // Retry each reply with exponential backoff (2 attempts); abort early if page crashed
-        await this.retryWithBackoff(
-          () => this.postReply(page, postUrl, threadItems[i]!),
-          2,
-          5000,
-          () => page.isClosed?.() ?? false,
-        );
-        replyResults.push({ index: i, success: true });
-      } catch (replyErr) {
-        const errMsg = (replyErr as Error).message;
-        this.logger.error(
-          `Thread reply ${i + 1}/${threadItems.length} failed after retries: ${errMsg}`,
-        );
-        replyResults.push({ index: i, success: false, error: errMsg });
-      }
-    }
-    const succeeded = replyResults.filter((r) => r.success).length;
-    const failed = replyResults.filter((r) => !r.success).length;
-    this.logger.log(
-      `Thread replies: ${succeeded} succeeded, ${failed} failed out of ${threadItems.length}`,
-    );
-    return replyResults;
-  }
-
-  /**
    * Insert text into X's DraftJS contenteditable compose box using character-by-character
    * document.execCommand('insertText'). This fires the per-character `beforeinput` event
    * sequence React/DraftJS listens to, so the Post button becomes genuinely enabled and
    * the tweet is actually submitted when clicked. Falls back to the legacy per-character
    * typeHuman strategy if execCommand fails or returns false.
    */
-  /**
-   * Normalize text for comparison: collapse whitespace, strip leading/trailing,
-   * and normalize Unicode so `innerText` and the target content can be compared
-   * regardless of how the browser renders non-breaking spaces, etc.
-   */
-  private normalizeText(text: string): string {
-    return text
-      .replace(/\u00a0/g, " ")
-      .replace(/\s+/g, " ")
-      .trim()
-      .normalize("NFKC");
-  }
-
-  private async setComposeText(page: Page, textbox: Locator, content: string): Promise<void> {
-    const target = this.normalizeText(content);
-    const marker = target.slice(0, 30);
-    const hasTarget = (text: string): boolean => this.normalizeText(text).includes(marker);
-
-    // Fail fast if the compose box is not in the DOM (e.g. X /compose/post
-    // page served the "JavaScript is not available" noscript fallback).
-    // Without this check, pressSequentially/keyboard.type can hang forever
-    // waiting on a locator that matched no elements.
-    const count = await textbox.count();
-    if (count === 0) {
-      this.logger.warn("X setComposeText: compose textbox is not present in DOM");
-      throw new ComposeDialogError(this.network, "Compose textbox not found");
-    }
-
-    // Helper: focus the contenteditable and select all of its current contents.
-    const focusAndSelect = async (): Promise<void> => {
-      this.assertPageAlive(page, "focus textbox");
-      await textbox.focus({ timeout: 5000 }).catch(() => {});
-      this.assertPageAlive(page, "click textbox");
-      await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
-      await textbox
-        .evaluate(
-          (el: HTMLElement) => {
-            el.focus();
-            try {
-              const sel = window.getSelection();
-              const range = document.createRange();
-              range.selectNodeContents(el);
-              sel?.removeAllRanges();
-              sel?.addRange(range);
-            } catch {
-              // ignore
-            }
-          },
-          { timeout: 5000 },
-        )
-        .catch(() => {});
-      await this.browser.randomDelay(150, 300);
-    };
-
-    // Helper: clear the textbox via DOM so the next strategy starts from a
-    // blank state (humanType does not select all before typing).
-    const clearTextbox = async (): Promise<void> => {
-      this.assertPageAlive(page, "clear textbox");
-      await textbox
-        .evaluate(
-          (el: HTMLElement) => {
-            el.focus();
-            el.textContent = "";
-            el.innerText = "";
-            try {
-              const sel = window.getSelection();
-              if (sel) {
-                sel.removeAllRanges();
-                const range = document.createRange();
-                range.selectNodeContents(el);
-                sel.addRange(range);
-              }
-            } catch {
-              // ignore
-            }
-          },
-          { timeout: 5000 },
-        )
-        .catch(() => {});
-    };
-
-    // Strategy 1: real key events via locator.pressSequentially.
-    // X's composer (Lexical/DraftJS) only enables the Post button when it
-    // processes the genuine beforeinput/input sequence produced by real key
-    // events. Synthetic paste/execCommand/beforeinput dispatch leaves the DOM
-    // text visible but the React editor state empty, so the button stays disabled.
-    // focusAndSelect ensures any existing placeholder/content is replaced.
-    this.logger.log("X setComposeText: typing via pressSequentially...");
-    try {
-      await focusAndSelect();
-      this.assertPageAlive(page, "pressSequentially");
-      await textbox.pressSequentially(content, { delay: 30, timeout: 30000 });
-      await this.browser.randomDelay(500, 800);
-      const typedText = await textbox.innerText().catch(() => "");
-      if (hasTarget(typedText)) {
-        this.logger.debug("X setComposeText via pressSequentially succeeded");
-        return;
-      }
-    } catch (err) {
-      this.logger.debug(`X setComposeText pressSequentially failed: ${(err as Error).message}`);
-    }
-
-    // Strategy 2: fallback to browser-port humanType (focus + click + pressSequentially
-    // with a short timeout, then fill). Uses the same real key events, but the
-    // port's implementation adds timeouts that prevent hanging on a dead page.
-    this.logger.warn("X pressSequentially failed — falling back to browser.humanType");
-    try {
-      await clearTextbox();
-      this.assertPageAlive(page, "humanType");
-      await this.browser.humanType(textbox, content, { delayMs: 30 });
-      await this.browser.randomDelay(500, 800);
-      const typedText = await textbox.innerText().catch(() => "");
-      if (hasTarget(typedText)) {
-        this.logger.debug("X setComposeText via humanType succeeded");
-        return;
-      }
-    } catch (err) {
-      this.logger.debug(`X setComposeText humanType failed: ${(err as Error).message}`);
-    }
-
-    // Strategy 3: synthetic paste event. May insert text but usually does not
-    // update the React editor state; kept only as a last resort for content
-    // that cannot be typed (e.g. certain Unicode edge cases).
-    this.logger.warn("X key typing failed — falling back to pasteContent");
-    this.assertPageAlive(page, "pasteContent");
-    const pasted = await this.pasteContent(page, textbox, content);
-    if (pasted) {
-      const enteredText = await textbox.innerText().catch(() => "");
-      if (hasTarget(enteredText)) {
-        this.logger.debug("X setComposeText via pasteContent succeeded");
-        return;
-      }
-    }
-
-    throw new ComposeDialogError(this.network, "Could not enter text into compose box");
-  }
-
-  /**
-   * Paste content into the compose textbox via a synthetic clipboard paste event.
-   * Modeled after wingman-x's fillReplyComposer: selects all contents, dispatches
-   * a ClipboardEvent with the text, and checks that the editor handled the event
-   * (preventDefault) and that the final text actually contains the target content.
-   *
-   * Falls back to document.execCommand('insertText') if the editor did not handle
-   * the synthetic paste.
-   *
-   * @returns true if the textbox contains the target content, false otherwise.
-   */
-  private async pasteContent(page: Page, textbox: Locator, content: string): Promise<boolean> {
-    try {
-      const target = this.normalizeText(content);
-      const marker = target.slice(0, 30);
-      const hasTarget = (text: string): boolean => this.normalizeText(text).includes(marker);
-
-      await textbox.focus({ timeout: 5000 }).catch(() => {});
-      await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
-      await textbox
-        .evaluate((el: HTMLElement) => {
-          el.focus();
-          try {
-            const sel = window.getSelection();
-            const range = document.createRange();
-            range.selectNodeContents(el);
-            sel?.removeAllRanges();
-            sel?.addRange(range);
-          } catch {
-            // ignore
-          }
-        })
-        .catch(() => {});
-      await this.browser.randomDelay(150, 300);
-
-      const result = await textbox
-        .evaluate((el: HTMLElement, text: string) => {
-          return new Promise<{ cancelled: boolean; afterText: string }>((resolve) => {
-            const dt = new DataTransfer();
-            dt.setData("text/plain", text);
-            const ev = new ClipboardEvent("paste", {
-              bubbles: true,
-              cancelable: true,
-              clipboardData: dt as unknown as ClipboardEventInit["clipboardData"],
-            });
-            const cancelled = !el.dispatchEvent(ev);
-            requestAnimationFrame(() => {
-              resolve({ cancelled, afterText: el.textContent ?? "" });
-            });
-          });
-        }, content)
-        .catch(() => ({ cancelled: false, afterText: "" }));
-
-      if (hasTarget(result.afterText)) {
-        this.logger.debug(
-          `X pasteContent: DraftJS handled paste (cancelled=${result.cancelled}), text matches target`,
-        );
-        return true;
-      }
-
-      if (result.cancelled) {
-        this.logger.debug(
-          "X pasteContent: paste was cancelled but final text does not match target; will fallback",
-        );
-      } else {
-        this.logger.debug(
-          "X pasteContent: paste not handled by editor, trying execCommand insertText",
-        );
-      }
-
-      // Fallback: execCommand('insertText', false, text) to replace the selection.
-      await textbox
-        .evaluate((el: HTMLElement, text: string) => {
-          el.focus();
-          try {
-            const sel = window.getSelection();
-            const range = document.createRange();
-            range.selectNodeContents(el);
-            sel?.removeAllRanges();
-            sel?.addRange(range);
-          } catch {
-            // ignore
-          }
-          document.execCommand("insertText", false, text);
-        }, content)
-        .catch(() => {});
-
-      await this.browser.randomDelay(300, 600);
-      const execText = await textbox.innerText().catch(() => "");
-      if (hasTarget(execText)) {
-        this.logger.debug("X pasteContent: execCommand insertText succeeded");
-        return true;
-      }
-
-      this.logger.warn("X pasteContent failed — content not entered");
-      return false;
-    } catch (err) {
-      this.logger.warn(`X pasteContent error: ${(err as Error).message}`);
-      return false;
-    }
-  }
 
   /**
    * Fallback posting strategy: navigate to an X page (home or profile), open the compose
@@ -887,6 +640,7 @@ export class XPoster extends BasePoster {
     content: string,
     baseUrl: string,
     label: string,
+    imagePath?: string,
   ): Promise<PostResult | null> {
     try {
       this.logger.log(`X ${label}: navigating to ${baseUrl}...`);
@@ -935,7 +689,10 @@ export class XPoster extends BasePoster {
         this.logger.warn(
           `X ${label}: SPA still not mounted after reload — giving up on ${label} compose`,
         );
-        await this.dumpPageForDiagnostics(page, `${label.replace(/ /g, "-")}-spa-not-mounted`);
+        await this.verificationPage.dumpPageForDiagnostics(
+          page,
+          `${label.replace(/ /g, "-")}-spa-not-mounted`,
+        );
         return null;
       }
 
@@ -974,7 +731,10 @@ export class XPoster extends BasePoster {
         this.logger.warn(
           `X ${label}: compose button not found. Body text (first 200): "${bodyText?.slice(0, 200)}"`,
         );
-        await this.dumpPageForDiagnostics(page, `${label.replace(/ /g, "-")}-compose-not-found`);
+        await this.verificationPage.dumpPageForDiagnostics(
+          page,
+          `${label.replace(/ /g, "-")}-compose-not-found`,
+        );
         return null;
       }
 
@@ -996,7 +756,8 @@ export class XPoster extends BasePoster {
       // key events X/Lexical needs to update React state and enable the Post button).
       this.logger.log(`X ${label}: typing tweet via humanType...`);
       this.assertPageAlive(page, `type tweet content (${label} compose)`);
-      await this.setComposeText(page, textbox, content);
+      await this.composePage.setText(page, textbox, content);
+      await this.attachImage(page, imagePath);
       await page.waitForTimeout(1000);
 
       await this.screenshot(page, "after-type-fallback");
@@ -1145,15 +906,15 @@ export class XPoster extends BasePoster {
       this.logger.log(`X ${label}: after submit — URL: ${currentUrl}`);
 
       // Try to find post URL
-      const accountHandle = await this.getAccountHandle(page);
-      const foundUrl = await this.findTweetUrlOnPage(page, accountHandle);
+      const accountHandle = await this.verificationPage.getAccountHandle(page);
+      const foundUrl = await this.verificationPage.findTweetUrlOnPage(page, accountHandle);
       if (foundUrl) {
         this.logger.log(`X ${label}: posted successfully — ${foundUrl}`);
         return { url: foundUrl };
       }
 
       // Check profile
-      const handle = accountHandle ?? (await this.getAccountHandleFromConfig());
+      const handle = accountHandle ?? (await this.verificationPage.getAccountHandleFromConfig());
       if (handle) {
         const postUrl = await this.validatePostOnProfile(
           page,
@@ -1192,252 +953,30 @@ export class XPoster extends BasePoster {
     }
   }
 
-  private async postViaHomePageCompose(page: Page, content: string): Promise<PostResult | null> {
-    return this.postViaSideNavCompose(page, content, "https://x.com/home", "home page");
+  private async postViaHomePageCompose(
+    page: Page,
+    content: string,
+    imagePath?: string,
+  ): Promise<PostResult | null> {
+    return this.postViaSideNavCompose(page, content, "https://x.com/home", "home page", imagePath);
   }
 
   private async postViaProfilePageCompose(
     page: Page,
     content: string,
     handle: string,
+    imagePath?: string,
   ): Promise<PostResult | null> {
     const clean = handle.replace(/^@/, "").trim();
     return clean
-      ? this.postViaSideNavCompose(page, content, `https://x.com/${clean}`, "profile page")
+      ? this.postViaSideNavCompose(
+          page,
+          content,
+          `https://x.com/${clean}`,
+          "profile page",
+          imagePath,
+        )
       : null;
-  }
-
-  /**
-   * Dump the current page HTML and visible text to SPA_DEBUG_DIR (default /tmp/spa-debug)
-   * for forensic analysis. Called when X fails to render the compose dialog so operators
-   * can see the exact error page the browser received.
-   */
-  private async dumpPageForDiagnostics(page: Page, label: string): Promise<void> {
-    try {
-      const debugDir = process.env.SPA_DEBUG_DIR ?? "/tmp/spa-debug";
-      fs.mkdirSync(debugDir, { recursive: true });
-      const timestamp = Date.now();
-      const base = `${debugDir}/x-${label}-${timestamp}`;
-      const html = await page.content().catch(() => "");
-      const bodyText = (await page.textContent("body").catch(() => "")) ?? "";
-      const title = await page.title().catch(() => "");
-      fs.writeFileSync(`${base}.html`, html);
-      fs.writeFileSync(
-        `${base}.txt`,
-        `url: ${page.url()}\n\ntitle: ${title}\n\n${bodyText.slice(0, 5000)}`,
-      );
-      await this.screenshot(page, "on-error");
-      this.logger.warn(`X diagnostic dump saved: ${base}.html`);
-    } catch (dumpErr) {
-      this.logger.warn(`X diagnostic dump failed: ${(dumpErr as Error).message}`);
-    }
-  }
-
-  /**
-   * Search the page DOM for a tweet link matching our account handle.
-   * Returns the full URL if found, null otherwise.
-   */
-  private async findTweetUrlOnPage(
-    page: Page,
-    accountHandle: string | null,
-  ): Promise<string | null> {
-    try {
-      const tweetLinks = await page.locator('a[href*="/status/"]').all();
-      for (const link of tweetLinks) {
-        const href = await link.getAttribute("href").catch(() => null);
-        if (!href) continue;
-        const full = href.startsWith("http") ? href : `https://x.com${href}`;
-        // If we know our handle, only accept links matching it
-        if (accountHandle && full.includes(`/${accountHandle}/status/`)) {
-          this.logger.log(`X found our tweet link in DOM: ${full}`);
-          return full;
-        }
-      }
-      // No handle filter — accept first tweet link as fallback
-      if (!accountHandle && tweetLinks.length > 0) {
-        const href = await tweetLinks[0]!.getAttribute("href").catch(() => null);
-        if (href) {
-          const full = href.startsWith("http") ? href : `https://x.com${href}`;
-          this.logger.log(`X found tweet link in DOM (no handle filter): ${full}`);
-          return full;
-        }
-      }
-    } catch {
-      // ignore
-    }
-    return null;
-  }
-
-  /**
-   * Extract the current account handle from the page.
-   * X shows the handle in the side nav profile link: a[href="/{handle}"]
-   * or via data-testid="AppTabBar_Profile_Link".
-   */
-  private async getAccountHandle(page: Page): Promise<string | null> {
-    try {
-      // Profile link in side nav: <a href="/{handle}"> with aria-label containing "Profile"
-      const profileLink = page.locator('a[aria-label*="Profile"][href^="/"]').first();
-      const href = await profileLink.getAttribute("href").catch(() => null);
-      if (href) {
-        const handle = href.replace(/^\//, "").split("/")[0];
-        if (handle && handle !== "home" && handle !== "explore" && handle !== "notifications") {
-          this.logger.debug(`X account handle from profile link: @${handle}`);
-          return handle;
-        }
-      }
-      // Fallback: look for data-testid="AppTabBar_Profile_Link"
-      const tabProfile = page.locator('[data-testid="AppTabBar_Profile_Link"]').first();
-      const tabHref = await tabProfile.getAttribute("href").catch(() => null);
-      if (tabHref) {
-        const handle = tabHref.replace(/^\//, "").split("/")[0];
-        if (handle) {
-          this.logger.debug(`X account handle from tab bar: @${handle}`);
-          return handle;
-        }
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Get account handle from config (SOCIAL_X_USERNAME) as fallback.
-   */
-  private async getAccountHandleFromConfig(): Promise<string | null> {
-    try {
-      const username = this.configService.get<string>("SOCIAL_X_USERNAME", "");
-      if (username) {
-        this.logger.debug(`X account handle from config: @${username}`);
-        return username;
-      }
-    } catch {
-      // ignore
-    }
-    return null;
-  }
-
-  /**
-   * Post a reply in a thread — navigates to the root tweet, clicks reply,
-   * types in the reply dialog, and submits.
-   *
-   * Uses typeHuman for stealth typing (randomized per-key delay + thinking pauses).
-   * Falls back to Cmd+Enter keyboard shortcut if the Reply button is not clickable.
-   * Verifies the reply was posted by checking page content after submit.
-   */
-  private async postReply(page: Page, rootTweetUrl: string, content: string): Promise<void> {
-    // Suppress page errors (same as main compose — X throws uncaught JS errors).
-    // Called before goto so the script is active during page load.
-    // (Redundant if main post() already injected it, but Playwright deduplicates.)
-    await page
-      .addInitScript(() => {
-        window.addEventListener(
-          "error",
-          (e) => {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-          },
-          true,
-        );
-        window.addEventListener(
-          "unhandledrejection",
-          (e) => {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-          },
-          true,
-        );
-      })
-      .catch(() => {});
-
-    this.assertPageAlive(page, `navigate to root tweet for reply`);
-    await page.goto(rootTweetUrl, { waitUntil: "domcontentloaded" });
-    await this.browser.randomDelay(2000, 4000);
-
-    // Click the reply button on the root tweet
-    // Use multiple selectors — X may use [data-testid="reply"] or an icon button
-    const replyButton = page
-      .locator('[data-testid="reply"]')
-      .first()
-      .or(page.locator('[aria-label*="Reply" i]').first());
-    await this.humanPreAction(page, replyButton);
-    await replyButton.click({ force: true, timeout: 10000 }).catch(() => {});
-    await this.browser.randomDelay(1500, 3000);
-
-    // Reply dialog opens with a textarea — wait for it
-    await page.waitForSelector('[data-testid="tweetTextarea_0"], div[contenteditable="true"]', {
-      timeout: 10000,
-    });
-    const textbox = page
-      .locator('[data-testid="tweetTextarea_0"]')
-      .first()
-      .or(page.locator('div[contenteditable="true"]').first());
-
-    await textbox.click({ force: true, timeout: 10000 }).catch(() => {});
-    await this.browser.randomDelay(300, 800);
-
-    // Type content — per-character execCommand so DraftJS enables the Reply button
-    await this.setComposeText(page, textbox, content);
-    await this.browser.randomDelay(500, 1000);
-
-    // Verify text was entered
-    const enteredText = await textbox.innerText().catch(() => "");
-    if (!enteredText || enteredText.trim().length < 5) {
-      this.logger.warn(`X reply: typeHuman didn't enter text — trying clipboard paste...`);
-      const pasted = await this.pasteContent(page, textbox, content);
-      if (!pasted) {
-        this.logger.warn(
-          `X reply: clipboard paste failed — trying keyboard.type() with slow delay...`,
-        );
-        await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
-        await page.keyboard.type(content, { delay: 50 });
-      }
-      await this.browser.randomDelay(500, 1000);
-    }
-
-    // Submit reply — try button click first, then Cmd+Enter fallback
-    const submitButton = page
-      .locator('[data-testid="tweetButton"]')
-      .first()
-      .or(page.getByRole("button", { name: "Reply", exact: true }).first());
-    await this.humanPreAction(page, submitButton);
-
-    let replyClickSuccess = false;
-    try {
-      await this.browser.humanClick(submitButton, { timeoutMs: 10000 });
-      replyClickSuccess = true;
-    } catch (clickErr) {
-      this.logger.warn(
-        `X reply: humanClick on Reply button failed: ${(clickErr as Error).message}`,
-      );
-    }
-    await this.browser.randomDelay(2000, 4000);
-
-    // Cmd+Enter fallback — X keyboard shortcut for submitting reply
-    if (!replyClickSuccess) {
-      this.logger.log(`X reply: trying Cmd+Enter keyboard shortcut...`);
-      await textbox.click({ force: true, timeout: 5000 }).catch(() => {});
-      await this.browser.randomDelay(300, 600);
-      await page.keyboard.press("Meta+Enter").catch(() => {});
-      await this.browser.randomDelay(200, 400);
-      await page.keyboard.press("Control+Enter").catch(() => {});
-      await this.browser.randomDelay(2000, 4000);
-      this.logger.log(`X reply: Cmd+Enter sent`);
-    }
-
-    // Verify reply was posted — check if content appears on the page
-    const pageText = await page.textContent("body").catch(() => "");
-    const contentSnippet = content
-      .slice(0, 30)
-      .trim()
-      .replace(/^["']+|["']+$/g, "");
-    if (pageText && pageText.includes(contentSnippet)) {
-      this.logger.debug(`X reply verified on page: "${contentSnippet}..."`);
-    } else {
-      this.logger.warn(`X reply may not have posted — content not found on page after submit`);
-    }
-
-    this.logger.debug(`Posted thread reply: ${content.slice(0, 30)}...`);
   }
 
   /**
@@ -1445,6 +984,23 @@ export class XPoster extends BasePoster {
    * Used by the delayed multi-stage posting worker, which schedules each
    * continuation 30 minutes apart via BullMQ.
    */
+  private async postThreadReplies(
+    page: Page,
+    postUrl: string,
+    threadItems: string[],
+  ): Promise<Array<{ index: number; success: boolean; error?: string }>> {
+    return this.threadReplies.postThreadReplies(
+      page,
+      postUrl,
+      threadItems,
+      (replyPage, replyUrl, content) => this.postReply(replyPage, replyUrl, content),
+    );
+  }
+
+  private async postReply(page: Page, rootTweetUrl: string, content: string): Promise<void> {
+    return this.threadReplies.postReply(page, rootTweetUrl, content);
+  }
+
   async postThreadReply(
     context: BrowserContext,
     rootTweetUrl: string,

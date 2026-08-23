@@ -4,8 +4,8 @@
  * Covers URL allow-list and content safety guardrails for engagement actions.
  */
 import { describe, it, expect } from "vitest";
-import { EngagementSafetyService } from "../../../src/modules/engagement/engagement-safety.service";
-import { SocialNetwork } from "../../../src/generated/prisma/client";
+import { EngagementSafetyService } from "../../../src/modules/engagement/engagement-safety.service.js";
+import { SocialNetwork } from "../../../src/generated/prisma/client.js";
 
 describe("F1: EngagementSafetyService", () => {
   const service = new EngagementSafetyService();

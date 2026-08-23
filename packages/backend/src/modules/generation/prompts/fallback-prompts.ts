@@ -64,7 +64,7 @@ ANTI-AI RULES — CRITICAL:
 - Do NOT use the same opener for every hook. Vary structure.
 - DO write like someone who just had a thought at 2am and needs to share it.
 - DO be specific, opinionated, sometimes weird. Bland = AI. Specific = human.
-- DO include personal stakes — "I" not "you" in at least one hook. What does this mean for YOU?
+- Use first person only when the author context explicitly allows it and an approved memory episode is available. Never invent personal stakes.
 
 Each hook MUST use a DIFFERENT technique:
   1. A provocative question that makes you pause (not rhetorical, genuinely unsettling — you don't know the answer)
@@ -135,9 +135,9 @@ HOW TO SOUND HUMAN — CONCRETE TECHNIQUES:
    BAD: "Deadlines affect productivity."
    GOOD: "Sent three emails I regret before a deadline. All at 1am. All to my manager."
 
-3. PERSONAL ANECDOTES — invent them. They don't need to be real, they need to FEEL real:
+3. PERSONAL ANECDOTES — use them only when the author context explicitly permits an approved memory episode. Otherwise write an observation, example, or question without claiming that it happened to the author:
    BAD: "Many people find this subject helpful for self-reflection."
-   GOOD: "My friend asked why I keep reordering the same planner. I didn't have a good answer."
+GOOD: "Someone asked why people keep reordering the same planner. I didn't have a good answer."
 
 4. CONVERSATIONAL IMPERFECTIONS — talk like a real person talks:
    - Start sentences with "And" or "But" or "Look" or "Honestly" or "Okay so"

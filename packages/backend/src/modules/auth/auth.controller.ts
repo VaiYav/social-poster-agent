@@ -26,11 +26,11 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth } from "@nestjs/swagger";
 import { ConfigService } from "@nestjs/config";
 import type { Request, Response } from "express";
-import { AuthService } from "./auth.service";
+import { AuthService } from "./auth.service.js";
 import { LoginDtoSchema, type LoginDto, type AuthUser } from "@spa/shared";
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
-import { LoginRateLimitGuard } from "./login-rate-limit.guard";
-import { Public } from "./public.decorator";
+import { LoginRateLimitGuard } from "./login-rate-limit.guard.js";
+import { Public } from "./public.decorator.js";
 
 const COOKIE_NAME = "spa_token";
 

@@ -55,7 +55,7 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("@langchain/openai", () => ({ ChatOpenAI: mocks.ChatOpenAI }));
 
-import { LlmService } from "../../../src/infrastructure/llm/llm.service";
+import { LlmService } from "../../../src/infrastructure/llm/llm.service.js";
 import { createMockRedis } from "../../mocks/index.js";
 
 function makeService(env: Record<string, string | number>): LlmService {

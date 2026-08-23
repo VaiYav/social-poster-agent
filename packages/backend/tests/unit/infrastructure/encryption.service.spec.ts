@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ConfigService } from "@nestjs/config";
 import * as crypto from "node:crypto";
-import { EncryptionService } from "../../../src/infrastructure/crypto/encryption.service";
+import { EncryptionService } from "../../../src/infrastructure/crypto/encryption.service.js";
 
 // ── Helpers ──
 

@@ -3,14 +3,14 @@
  * Source: src/modules/content-enhancements/humor-mechanics.ts
  */
 import { describe, it, expect } from "vitest";
-import { SocialNetwork } from "../../../src/generated/prisma/client";
+import { SocialNetwork } from "../../../src/generated/prisma/client.js";
 import {
   pickHumorMechanic,
   getHumorPromptGuidance,
   HUMOR_MECHANICS,
   HUMOR_MECHANICS_BY_ID,
 } from "../../../src/modules/content-enhancements/humor-mechanics.js";
-import { CONTENT_STYLES } from "../../../src/modules/content-enhancements/content-style.rotation";
+import { CONTENT_STYLES } from "../../../src/modules/content-enhancements/content-style.rotation.js";
 
 describe("Humor Mechanics", () => {
   it("HM-001: pick is deterministic for the same day/network/seed", () => {

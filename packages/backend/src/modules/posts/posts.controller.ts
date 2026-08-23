@@ -13,12 +13,17 @@ import {
   ConflictException,
   Logger,
   Inject,
+  Req,
+  Res,
 } from "@nestjs/common";
-import { type SocialNetwork, PostStatus, type Prisma } from "../../generated/prisma/client";
+import type { Response } from "express";
+import { createReadStream } from "node:fs";
+import type { Request } from "express";
+import { type SocialNetwork, PostStatus, type Prisma } from "../../generated/prisma/client.js";
 import { IPostingQueuePort } from "../../domain/ports/posting-queue.port.js";
 import { PostingWindowService } from "../orchestrator/posting-window.service.js";
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiParam } from "@nestjs/swagger";
-import { PostsService } from "./posts.service";
+import { PostsService } from "./posts.service.js";
 import { ZodError } from "zod";
 import { formatZodError } from "../../infrastructure/zod-error.js";
 import {
@@ -26,12 +31,14 @@ import {
   UpdatePostStatusDtoSchema,
   PostQueryDtoSchema,
   ApprovePostDtoSchema,
+  RejectPostDtoSchema,
   CalendarQueryDtoSchema,
   SchedulePostDtoSchema,
   type CreatePostDto,
   type UpdatePostStatusDto,
   type PostQueryDto,
   type ApprovePostDto,
+  type RejectPostDto,
   type CalendarQueryDto,
   type SchedulePostDto,
 } from "../../domain/dtos.js";
@@ -47,6 +54,11 @@ export class PostsController {
     private readonly postingWindowService: PostingWindowService,
   ) {}
 
+  private actorId(request?: Request): string | undefined {
+    const user = (request as (Request & { user?: { sub?: unknown } }) | undefined)?.user;
+    return typeof user?.sub === "string" ? user.sub : undefined;
+  }
+
   /**
    * A5: enqueue via IPostingQueuePort (bound in QueueInfraModule). The port breaks the
    * PostsModule → QueueModule → PostingModule → PostsModule cycle without a ModuleRef hack.
@@ -58,6 +70,7 @@ export class PostsController {
    */
   private async enqueueForPosting(post: {
     id: string;
+    accountId: string;
     network: SocialNetwork;
     approvedAt: Date | null;
     threadPosition?: number;
@@ -72,7 +85,7 @@ export class PostsController {
         this.logger.log(
           `Post ${postId} scheduled for ${approvedAt.toISOString()} — delaying ${Math.round(delay / 60000)}min`,
         );
-        await this.postingQueue.enqueuePosting(postId, network, { delay });
+        await this.postingQueue.enqueuePosting(postId, network, { delay }, post.accountId);
         return;
       }
 
@@ -86,7 +99,12 @@ export class PostsController {
         this.logger.log(
           `F2: continuation ${postId} (position ${threadPosition}) queued with ${Math.round(delay / 60000)}min delay`,
         );
-        await this.postingQueue.enqueuePosting(postId, network, { delay, priority: 5 });
+        await this.postingQueue.enqueuePosting(
+          postId,
+          network,
+          { delay, priority: 5 },
+          post.accountId,
+        );
         return;
       }
 
@@ -96,10 +114,10 @@ export class PostsController {
         this.logger.log(
           `Post ${postId} approved outside posting window for ${network} — delaying ${Math.round(delay / 60000)}min`,
         );
-        await this.postingQueue.enqueuePosting(postId, network, { delay });
+        await this.postingQueue.enqueuePosting(postId, network, { delay }, post.accountId);
         return;
       }
-      await this.postingQueue.enqueuePosting(postId, network);
+      await this.postingQueue.enqueuePosting(postId, network, undefined, post.accountId);
     } catch (err) {
       this.logger.error(`Failed to enqueue post ${post.id}: ${(err as Error).message}`);
     }
@@ -129,6 +147,18 @@ export class PostsController {
   @ApiResponse({ status: 200, description: "List of draft posts" })
   async findDrafts(@Query("network") network?: "X" | "THREADS" | "FACEBOOK") {
     return this.postsService.findDrafts(network);
+  }
+
+  @Get(":id/media")
+  @HttpCode(HttpStatus.OK)
+  async media(@Param("id") id: string, @Res() response: Response) {
+    const media = await this.postsService.getMediaFile(id);
+    if (!media) {
+      response.status(HttpStatus.NOT_FOUND).json({ message: "Media not found" });
+      return;
+    }
+    response.type(media.mimeType);
+    createReadStream(media.path).pipe(response);
   }
 
   @Get("calendar")
@@ -244,7 +274,7 @@ export class PostsController {
   @ApiParam({ name: "id", type: String })
   @ApiResponse({ status: 200, description: "Post approved and enqueued for posting" })
   @ApiResponse({ status: 404, description: "Post not found" })
-  async approve(@Param("id") id: string, @Body() rawBody: unknown) {
+  async approve(@Param("id") id: string, @Body() rawBody: unknown, @Req() request?: Request) {
     // Minor-30: return 400 for Zod validation errors instead of 404
     let dto: ApprovePostDto;
     try {
@@ -255,7 +285,11 @@ export class PostsController {
       );
     }
     try {
-      const post = await this.postsService.approve(id, dto.editedContent);
+      const reviewerId = this.actorId(request);
+      const post =
+        dto.feedback || reviewerId
+          ? await this.postsService.approve(id, dto.editedContent, dto.feedback, reviewerId)
+          : await this.postsService.approve(id, dto.editedContent);
 
       // P0 fix: enqueue to BullMQ posting queue — this is the core approve→post happy path
       await this.enqueueForPosting(post);
@@ -322,9 +356,20 @@ export class PostsController {
   @ApiParam({ name: "id", type: String })
   @ApiResponse({ status: 200, description: "Post rejected" })
   @ApiResponse({ status: 404, description: "Post not found" })
-  async reject(@Param("id") id: string) {
+  async reject(@Param("id") id: string, @Body() rawBody?: unknown, @Req() request?: Request) {
+    let dto: RejectPostDto;
     try {
-      return await this.postsService.reject(id);
+      dto = RejectPostDtoSchema.parse(rawBody ?? {}) as RejectPostDto;
+    } catch (err) {
+      throw new BadRequestException(
+        err instanceof ZodError ? formatZodError(err) : (err as Error).message,
+      );
+    }
+    try {
+      const reviewerId = this.actorId(request);
+      return dto.feedback || reviewerId
+        ? await this.postsService.reject(id, dto.feedback, reviewerId)
+        : await this.postsService.reject(id);
     } catch (err) {
       if (err instanceof ConflictException || err instanceof NotFoundException) throw err;
       throw new NotFoundException(`Post ${id} not found`);

@@ -10,11 +10,11 @@
  *   - cron is gated by METRICS_SCRAPER_ENABLED
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { MetricsScraperService } from "../../../src/modules/analytics/metrics-scraper.service";
-import { PrismaService } from "../../../src/infrastructure/prisma/prisma.service";
-import { SseService } from "../../../src/infrastructure/sse/sse.service";
-import { IBrowserPort } from "../../../src/domain/ports/browser.port";
-import { SocialNetwork, PostStatus } from "../../../src/generated/prisma/client";
+import { MetricsScraperService } from "../../../src/modules/analytics/metrics-scraper.service.js";
+import { PrismaService } from "../../../src/infrastructure/prisma/prisma.service.js";
+import { SseService } from "../../../src/infrastructure/sse/sse.service.js";
+import { IBrowserPort } from "../../../src/domain/ports/browser.port.js";
+import { SocialNetwork, PostStatus } from "../../../src/generated/prisma/client.js";
 import { createMockConfigService, createMockRedis } from "../../mocks/index.js";
 
 // Mock IBrowserPort

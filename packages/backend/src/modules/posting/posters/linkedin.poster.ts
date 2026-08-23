@@ -11,7 +11,7 @@
  * article editor is not available, the LLM will report the failure.
  */
 import { Injectable } from "@nestjs/common";
-import { SocialNetwork } from "../../../generated/prisma/client";
+import { SocialNetwork } from "../../../generated/prisma/client.js";
 import { ArticleBasePoster, type ArticlePosterDeps } from "./article-base.poster.js";
 import type { IBrowserPort } from "../../../domain/ports/browser.port.js";
 

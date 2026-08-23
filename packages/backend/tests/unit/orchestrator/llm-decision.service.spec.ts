@@ -4,8 +4,8 @@
  * Source: packages/backend/src/modules/orchestrator/llm-decision.service.ts
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { SocialNetwork } from "../../../src/generated/prisma/client";
-import { LlmDecisionService } from "../../../src/modules/orchestrator/llm-decision.service";
+import { SocialNetwork } from "../../../src/generated/prisma/client.js";
+import { LlmDecisionService } from "../../../src/modules/orchestrator/llm-decision.service.js";
 import type { WorldState } from "../../../src/modules/orchestrator/types.js";
 
 function makeWorld(overrides: Partial<WorldState> = {}): WorldState {

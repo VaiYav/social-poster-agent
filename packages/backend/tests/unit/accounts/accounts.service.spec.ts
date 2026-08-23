@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ConfigService } from "@nestjs/config";
-import { SocialNetwork } from "../../../src/generated/prisma/client";
-import { AccountsService } from "../../../src/modules/accounts/accounts.service";
+import { SocialNetwork } from "../../../src/generated/prisma/client.js";
+import { AccountsService } from "../../../src/modules/accounts/accounts.service.js";
 import { createMockPrismaService } from "../../mocks/index.js";
 
 function createMockConfigService(values: Record<string, string | undefined> = {}): ConfigService {

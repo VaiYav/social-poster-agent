@@ -10,9 +10,9 @@
  * Source: packages/backend/src/modules/autonomy/auto-approve.service.ts
  */
 import { describe, it, expect, vi } from "vitest";
-import { PostStatus, SocialNetwork } from "../../../src/generated/prisma/client";
+import { PostStatus, SocialNetwork } from "../../../src/generated/prisma/client.js";
 
-import { AutoApproveService } from "../../../src/modules/autonomy/auto-approve.service";
+import { AutoApproveService } from "../../../src/modules/autonomy/auto-approve.service.js";
 
 import type { JudgeScores } from "@spa/shared";
 

@@ -4,7 +4,7 @@
  * Focus: flow-control kill-switches and LLM triage pause behavior.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { QueueTriageService } from "../../../src/modules/queue/queue-triage.service";
+import { QueueTriageService } from "../../../src/modules/queue/queue-triage.service.js";
 
 function createMockConfig(values: Record<string, unknown> = {}): {
   get: (key: string, defaultValue?: unknown) => unknown;

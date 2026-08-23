@@ -21,95 +21,100 @@
  *   6. F2 multi-stage: scheduleMultiStagePosting with thread root
  */
 import "reflect-metadata";
-import { TopicGenerationService } from "../../src/infrastructure/content/topic-generation.service";
+import { TopicGenerationService } from "../../src/infrastructure/content/topic-generation.service.js";
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from "vitest";
 import { Test } from "@nestjs/testing";
 import type { TestingModule } from "@nestjs/testing";
 import { INestApplication } from "@nestjs/common";
 import request from "supertest";
-import { ContentType } from "../../src/generated/prisma/client";
+import { ContentType } from "../../src/generated/prisma/client.js";
 import "./env-syndication";
 
-import { AppModule } from "../../src/app.module";
-import { PrismaService } from "../../src/infrastructure/prisma/prisma.service";
+import { AppModule } from "../../src/app.module.js";
+import { PrismaService } from "../../src/infrastructure/prisma/prisma.service.js";
 import { ILlmPort } from "../../src/domain/ports/llm.port.js";
 import { IBrowserPort } from "../../src/domain/ports/browser.port.js";
-import { QueueFactory } from "../../src/infrastructure/queue/queue.factory";
-import { EncryptionService } from "../../src/infrastructure/crypto/encryption.service";
-import { TrendingScraperService } from "../../src/modules/trending/trending-scraper.service";
-import { BrowserFactory } from "../../src/infrastructure/browser/browser.factory";
-import { LlmService } from "../../src/infrastructure/llm/llm.service";
+import { QueueFactory } from "../../src/infrastructure/queue/queue.factory.js";
+import { EncryptionService } from "../../src/infrastructure/crypto/encryption.service.js";
+import { TrendingScraperService } from "../../src/modules/trending/trending-scraper.service.js";
+import { BrowserFactory } from "../../src/infrastructure/browser/browser.factory.js";
+import { LlmService } from "../../src/infrastructure/llm/llm.service.js";
 import { ContentReader } from "../../src/infrastructure/content/content-reader.js";
-import { SseService } from "../../src/infrastructure/sse/sse.service";
-import { SseModule } from "../../src/infrastructure/sse/sse.module";
+import { SseService } from "../../src/infrastructure/sse/sse.service.js";
+import { SseModule } from "../../src/infrastructure/sse/sse.module.js";
 import { RedisCheckpointSaver } from "../../src/infrastructure/checkpoint/redis-checkpoint.js";
-import { HealthController } from "../../src/modules/health/health.controller";
-import { GenerationService } from "../../src/modules/generation/generation.service";
-import { XPoster } from "../../src/modules/posting/posters/x.poster";
-import { ThreadsPoster } from "../../src/modules/posting/posters/threads.poster";
-import { FacebookPoster } from "../../src/modules/posting/posters/facebook.poster";
+import { HealthController } from "../../src/modules/health/health.controller.js";
+import { GenerationService } from "../../src/modules/generation/generation.service.js";
+import { XPoster } from "../../src/modules/posting/posters/x.poster.js";
+import { ThreadsPoster } from "../../src/modules/posting/posters/threads.poster.js";
+import { FacebookPoster } from "../../src/modules/posting/posters/facebook.poster.js";
 import { BlueskyPoster } from "../../src/modules/posting/posters/bluesky.poster.js";
 import { ConfigService } from "@nestjs/config";
 import { SchedulerRegistry } from "@nestjs/schedule";
-import { RateLimitService } from "../../src/modules/rate-limit/rate-limit.service";
-import { HealthMonitorService } from "../../src/modules/health-monitor/health-monitor.service";
-import { CronService } from "../../src/modules/generation/cron.service";
-import { WarmupService } from "../../src/modules/sessions/warmup.service";
-import { QueueService } from "../../src/modules/queue/queue.service";
-import { QueueModule } from "../../src/modules/queue/queue.module";
-import { PostsService } from "../../src/modules/posts/posts.service";
-import { PostsController } from "../../src/modules/posts/posts.controller";
-import { PostingController } from "../../src/modules/posting/posting.controller";
-import { PostingService } from "../../src/modules/posting/posting.service";
-import { ThreadProgressService } from "../../src/modules/posting/thread-progress.service";
-import { AccountsService } from "../../src/modules/accounts/accounts.service";
-import { SessionsService } from "../../src/modules/sessions/sessions.service";
-import { MetricsScraperService } from "../../src/modules/analytics/metrics-scraper.service";
+import { RateLimitService } from "../../src/modules/rate-limit/rate-limit.service.js";
+import { HealthMonitorService } from "../../src/modules/health-monitor/health-monitor.service.js";
+import { CronService } from "../../src/modules/generation/cron.service.js";
+import { WarmupService } from "../../src/modules/sessions/warmup.service.js";
+import { QueueService } from "../../src/modules/queue/queue.service.js";
+import { QueueModule } from "../../src/modules/queue/queue.module.js";
+import { PostsService } from "../../src/modules/posts/posts.service.js";
+import { PostsController } from "../../src/modules/posts/posts.controller.js";
+import { PostingController } from "../../src/modules/posting/posting.controller.js";
+import { PostingService } from "../../src/modules/posting/posting.service.js";
+import { PostingGuardService } from "../../src/modules/posting/posting-guards.service.js";
+import { PosterRegistryService } from "../../src/modules/posting/poster-registry.service.js";
+import { PostVerificationService } from "../../src/modules/posting/post-verification.service.js";
+import { ThreadPostingService } from "../../src/modules/posting/thread-posting.service.js";
+import { PostSideEffectsService } from "../../src/modules/posting/post-side-effects.service.js";
+import { ThreadProgressService } from "../../src/modules/posting/thread-progress.service.js";
+import { AccountsService } from "../../src/modules/accounts/accounts.service.js";
+import { SessionsService } from "../../src/modules/sessions/sessions.service.js";
+import { MetricsScraperService } from "../../src/modules/analytics/metrics-scraper.service.js";
 
 import {
   createMockLlmPort,
   createMockBrowserPort,
   createMockPrismaService,
 } from "../mocks/index.js";
-import { SocialNetwork, PostStatus } from "../../src/generated/prisma/client";
+import { SocialNetwork, PostStatus } from "../../src/generated/prisma/client.js";
 import {
   SHARED_REDIS,
   SHARED_REDIS_SUBSCRIBER,
   SHARED_REDIS_PUBLISHER,
-} from "../../src/infrastructure/redis/redis.module";
+} from "../../src/infrastructure/redis/redis.module.js";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { ModuleRef } from "@nestjs/core";
-import { DiscordNotificationService } from "../../src/infrastructure/notifications/discord-notification.service";
-import { SseEventListener } from "../../src/events/listeners/sse-event.listener";
-import { AutoApproveListener } from "../../src/modules/autonomy/auto-approve.listener";
-import { VisualConceptService } from "../../src/modules/content-enhancements/visual-concept.service";
+import { DiscordNotificationService } from "../../src/infrastructure/notifications/discord-notification.service.js";
+import { SseEventListener } from "../../src/events/listeners/sse-event.listener.js";
+import { AutoApproveListener } from "../../src/modules/autonomy/auto-approve.listener.js";
+import { VisualConceptService } from "../../src/modules/content-enhancements/visual-concept.service.js";
 import { BrowserAgentService } from "../../src/modules/browser-agent/browser-agent.service.js";
 import { DevtoPoster } from "../../src/modules/posting/posters/devto.poster.js";
 import { HashnodePoster } from "../../src/modules/posting/posters/hashnode.poster.js";
 import { LinkedinPoster } from "../../src/modules/posting/posters/linkedin.poster.js";
-import { ABVariantGenerator } from "../../src/modules/content-enhancements/ab-variant.generator";
-import { ThreadDepthService } from "../../src/modules/content-enhancements/thread-depth.service";
-import { ContentPillarTracker } from "../../src/modules/content-enhancements/content-pillar.tracker";
+import { ABVariantGenerator } from "../../src/modules/content-enhancements/ab-variant.generator.js";
+import { ThreadDepthService } from "../../src/modules/content-enhancements/thread-depth.service.js";
+import { ContentPillarTracker } from "../../src/modules/content-enhancements/content-pillar.tracker.js";
 import { HookPerformanceBank } from "../../src/modules/content-enhancements/hook-performance-bank.js";
 import { HumanBehaviorEngine } from "../../src/modules/engagement/human-behavior-engine.js";
-import { TargetingService } from "../../src/modules/engagement/targeting.service";
-import { RepliesMonitorService } from "../../src/modules/replies/replies-monitor.service";
-import { EngagementSchedulerService } from "../../src/modules/engagement/engagement-scheduler.service";
-import { BrowsingSessionService } from "../../src/modules/engagement/browsing-session.service";
-import { EngagementService } from "../../src/modules/engagement/engagement.service";
-import { EngagementController } from "../../src/modules/engagement/engagement.controller";
-import { XEngager } from "../../src/modules/engagement/engagers/x.engager";
-import { ThreadsEngager } from "../../src/modules/engagement/engagers/threads.engager";
-import { FacebookEngager } from "../../src/modules/engagement/engagers/facebook.engager";
-import { ContentSourceService } from "../../src/modules/content-source/content-source.service";
-import { ContentSourceController } from "../../src/modules/content-source/content-source.controller";
-import { GenerationController } from "../../src/modules/generation/generation.controller";
-import { QueueController } from "../../src/modules/queue/queue.controller";
-import { AccountsController } from "../../src/modules/accounts/accounts.controller";
-import { SessionsController } from "../../src/modules/sessions/sessions.controller";
-import { SseController } from "../../src/modules/sse/sse.controller";
+import { TargetingService } from "../../src/modules/engagement/targeting.service.js";
+import { RepliesMonitorService } from "../../src/modules/replies/replies-monitor.service.js";
+import { EngagementSchedulerService } from "../../src/modules/engagement/engagement-scheduler.service.js";
+import { BrowsingSessionService } from "../../src/modules/engagement/browsing-session.service.js";
+import { EngagementService } from "../../src/modules/engagement/engagement.service.js";
+import { EngagementController } from "../../src/modules/engagement/engagement.controller.js";
+import { XEngager } from "../../src/modules/engagement/engagers/x.engager.js";
+import { ThreadsEngager } from "../../src/modules/engagement/engagers/threads.engager.js";
+import { FacebookEngager } from "../../src/modules/engagement/engagers/facebook.engager.js";
+import { ContentSourceService } from "../../src/modules/content-source/content-source.service.js";
+import { ContentSourceController } from "../../src/modules/content-source/content-source.controller.js";
+import { GenerationController } from "../../src/modules/generation/generation.controller.js";
+import { QueueController } from "../../src/modules/queue/queue.controller.js";
+import { AccountsController } from "../../src/modules/accounts/accounts.controller.js";
+import { SessionsController } from "../../src/modules/sessions/sessions.controller.js";
+import { SseController } from "../../src/modules/sse/sse.controller.js";
 import { restoreAllDesignParamtypes } from "../helpers/restore-paramtypes.js";
-import { clearHookCache } from "../../src/modules/generation/generation.graph";
+import { clearHookCache } from "../../src/modules/generation/generation.graph.js";
 
 // In-memory post store for E2E so PostsService.updateStatus transitions work
 const postStore = new Map<string, Record<string, unknown>>();

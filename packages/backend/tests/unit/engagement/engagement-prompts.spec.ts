@@ -17,7 +17,7 @@ import {
   parseQuoteResponse,
 } from "../../../src/infrastructure/llm/prompts/v0.4.0/engagement-decision.js";
 import { interpolate } from "../../../src/domain/prompt-interpolation.js";
-import type { PostContext } from "../../../src/domain/ports/engagement-decision.port";
+import type { PostContext } from "../../../src/domain/ports/engagement-decision.port.js";
 
 function createPostContext(overrides: Partial<PostContext> = {}): PostContext {
   return {

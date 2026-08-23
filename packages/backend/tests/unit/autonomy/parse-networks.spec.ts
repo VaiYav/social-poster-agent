@@ -4,7 +4,7 @@
  * Source: packages/backend/src/modules/autonomy/parse-networks.ts
  */
 import { describe, it, expect } from "vitest";
-import { SocialNetwork } from "../../../src/generated/prisma/client";
+import { SocialNetwork } from "../../../src/generated/prisma/client.js";
 
 import { parseTargetNetworks } from "../../../src/modules/autonomy/parse-networks.js";
 

@@ -1,7 +1,7 @@
 import { Controller, Get, Req, Res } from "@nestjs/common";
 import { ApiTags, ApiOperation } from "@nestjs/swagger";
 import type { Request, Response } from "express";
-import { SseService } from "../../infrastructure/sse/sse.service";
+import { SseService } from "../../infrastructure/sse/sse.service.js";
 
 /**
  * SSE controller — SSE endpoint for real-time post status updates.

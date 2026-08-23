@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   FlowControlService,
   type FlowName,
-} from "../../../src/modules/flow-control/flow-control.service";
+} from "../../../src/modules/flow-control/flow-control.service.js";
 import { createMockRedis, createMockSseService } from "../../mocks/index.js";
 
 describe("MOD-FC: FlowControlService", () => {
@@ -184,5 +184,38 @@ describe("MOD-FC: FlowControlService", () => {
     redis.mget.mockResolvedValue([null, null]);
 
     await expect(service.assertNotPaused("generation")).resolves.toBeUndefined();
+  });
+
+  it("FC-012: scoped pause is checked independently from the global flow flag", async () => {
+    redis.mget.mockResolvedValue([null, null, "1"]);
+
+    await expect(service.isPaused("engagement", "account-1")).resolves.toBe(true);
+    expect(redis.mget).toHaveBeenCalledWith([
+      "flow:pause_all",
+      "flow:pause_engagement",
+      "flow:pause_engagement:account-1",
+    ]);
+  });
+
+  it("FC-013: scoped pause/resume publishes the scope for operator audit", async () => {
+    await service.pauseScoped("posting", "account-1", "reputation incident");
+    expect(redis.set).toHaveBeenCalledWith("flow:pause_posting:account-1", "1");
+    expect(sse.publish).toHaveBeenCalledWith({
+      type: "flow_control",
+      action: "paused",
+      flow: "posting",
+      reason: "reputation incident",
+      scopeKey: "account-1",
+    });
+
+    await service.resumeScoped("posting", "account-1");
+    expect(redis.del).toHaveBeenCalledWith("flow:pause_posting:account-1");
+    expect(sse.publish).toHaveBeenCalledWith({
+      type: "flow_control",
+      action: "resumed",
+      flow: "posting",
+      reason: null,
+      scopeKey: "account-1",
+    });
   });
 });

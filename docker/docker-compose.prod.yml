@@ -31,7 +31,13 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    # CI-002 (HARDEN-001): this single Redis instance serves BullMQ, so the
+    # eviction policy MUST stay `noeviction` — `allkeys-lru` silently deletes
+    # queued/delayed posting and engagement jobs under memory pressure
+    # (see AGENTS.md "Railway / managed Redis"). If you need LRU behaviour for
+    # generation checkpoints, point `CHECKPOINT_REDIS_URL` at a separate Redis
+    # instance with `allkeys-lru` and keep BullMQ here.
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy noeviction
     volumes:
       - redis_data:/data
     # No ports exposed — internal-only (backend connects via docker network)

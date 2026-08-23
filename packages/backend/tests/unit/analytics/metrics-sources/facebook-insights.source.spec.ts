@@ -10,7 +10,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
   FacebookInsightsSource,
   parseFacebookPostCounts,
-} from "../../../../src/modules/analytics/metrics-sources/facebook-insights.source";
+} from "../../../../src/modules/analytics/metrics-sources/facebook-insights.source.js";
 
 const POST = {
   id: "p1",

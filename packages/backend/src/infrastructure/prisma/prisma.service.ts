@@ -1,7 +1,7 @@
 import { Injectable, type OnModuleInit, type OnModuleDestroy, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { Prisma, PrismaClient } from "../../generated/prisma/client";
+import { Prisma, PrismaClient } from "../../generated/prisma/client.js";
 
 function buildPrismaUrl(configService: ConfigService): string | undefined {
   const rawUrl = configService.get<string>("DATABASE_URL") ?? process.env.DATABASE_URL;

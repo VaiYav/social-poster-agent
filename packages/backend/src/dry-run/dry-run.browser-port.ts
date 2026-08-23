@@ -16,9 +16,9 @@
 
 import { Logger } from "@nestjs/common";
 import type { BrowserContext, Locator, Page } from "../domain/ports/browser-primitives.js";
-import type { SocialNetwork } from "../generated/prisma/client";
-import type { IBrowserPort, ScrollDirection, ScreenshotPhase } from "../domain/ports/browser.port";
-import { BrowserFactory } from "../infrastructure/browser/browser.factory";
+import type { SocialNetwork } from "../generated/prisma/client.js";
+import type { IBrowserPort, ScrollDirection, ScreenshotPhase } from "../domain/ports/browser.port.js";
+import { BrowserFactory } from "../infrastructure/browser/browser.factory.js";
 
 /** Sentinel symbol used to unwrap a proxied Page to its real Page. */
 const REAL_PAGE = Symbol("realPage");

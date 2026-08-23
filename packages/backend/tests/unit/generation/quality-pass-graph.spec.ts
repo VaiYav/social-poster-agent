@@ -10,15 +10,16 @@
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { MemorySaver, Command } from "@langchain/langgraph";
-import { SocialNetwork } from "../../../src/generated/prisma/client";
+import { SocialNetwork } from "../../../src/generated/prisma/client.js";
 import type { ContentTopic } from "@spa/shared";
-import type { ILlmPort, LlmResponse, GenerateOptions } from "../../../src/domain/ports/llm.port";
+import type { ILlmPort, LlmResponse, GenerateOptions } from "../../../src/domain/ports/llm.port.js";
+import { DEFAULT_PERSONA_PROFILES } from "../../../src/modules/persona/persona.defaults.js";
 import {
   buildGenerationGraph,
   createInitialState,
   clearHookCache,
   type GeneratedPost,
-} from "../../../src/modules/generation/generation.graph";
+} from "../../../src/modules/generation/generation.graph.js";
 import { detectLanguage } from "../../../src/infrastructure/util/language-detector.js";
 
 // Passes the humanizer gate: varied sentence lengths, no slop, no em dashes.
@@ -177,6 +178,38 @@ describe("Quality pass — generation graph", () => {
 
     expect(llm.counts.refine).toBe(0);
     expect(postsOf(state)[0]?.content).toBe(CLEAN_DRAFT);
+  });
+
+  it("PERSONA-102: applies the versioned author context and carries its identity to the output", async () => {
+    const llm = makeLlm();
+    const compiled = buildGenerationGraph(llm).compile();
+    const profile = DEFAULT_PERSONA_PROFILES.cosmic_analyst!.profile;
+    const state = await compiled.invoke(
+      createInitialState(createTopic(), [SocialNetwork.X], "brand voice", false, "en", {
+        [SocialNetwork.X]: {
+          accountId: "account-x",
+          network: SocialNetwork.X,
+          personaId: "persona-1",
+          personaRevisionId: "revision-1",
+          voiceMode: "pattern_breakdown",
+          experimentAssignmentId: null,
+          profile,
+          disclosure: profile.identity.disclosure,
+          safetyPolicyVersion: "persona-policy-v1",
+          source: "PERSONA",
+        },
+      }),
+      { configurable: { thread_id: "persona-102" } },
+    );
+
+    expect(llm.lastPrompt.draft?.system).toContain("versioned revision-1");
+    expect(llm.lastPrompt.draft?.system).toContain("Never fabricate memories");
+    expect(postsOf(state)[0]).toMatchObject({
+      accountId: "account-x",
+      personaRevisionId: "revision-1",
+      voiceMode: "pattern_breakdown",
+      authorContextSource: "PERSONA",
+    });
   });
 
   it('QP-003: legacy "GOOD — no changes needed" (line start) is still accepted', async () => {

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ConfigService } from "@nestjs/config";
-import { IndexNowService } from "../../../src/infrastructure/indexnow/indexnow.service";
+import { IndexNowService } from "../../../src/infrastructure/indexnow/indexnow.service.js";
 
 function createConfigService(env: Record<string, string>): ConfigService {
   return {

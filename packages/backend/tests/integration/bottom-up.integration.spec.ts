@@ -22,23 +22,23 @@ import { EventEmitter2 } from "@nestjs/event-emitter";
 import { Test } from "@nestjs/testing";
 import type { TestingModule } from "@nestjs/testing";
 import { ConfigService } from "@nestjs/config";
-import { PostStatus, SessionStatus, SocialNetwork } from "../../src/generated/prisma/client";
+import { PostStatus, SessionStatus, SocialNetwork } from "../../src/generated/prisma/client.js";
 
 // ── Source imports ──
-import { PrismaService } from "../../src/infrastructure/prisma/prisma.service";
-import { PostsService } from "../../src/modules/posts/posts.service";
-import { HealthController } from "../../src/modules/health/health.controller";
-import { SessionsService } from "../../src/modules/sessions/sessions.service";
+import { PrismaService } from "../../src/infrastructure/prisma/prisma.service.js";
+import { PostsService } from "../../src/modules/posts/posts.service.js";
+import { HealthController } from "../../src/modules/health/health.controller.js";
+import { SessionsService } from "../../src/modules/sessions/sessions.service.js";
 import { EncryptionService } from "../../src/infrastructure/crypto/encryption.service.js";
-import { AccountsService } from "../../src/modules/accounts/accounts.service";
-import { RateLimitService } from "../../src/modules/rate-limit/rate-limit.service";
-import { SseService } from "../../src/infrastructure/sse/sse.service";
-import { SseController } from "../../src/modules/sse/sse.controller";
-import { ContentSourceService } from "../../src/modules/content-source/content-source.service";
+import { AccountsService } from "../../src/modules/accounts/accounts.service.js";
+import { RateLimitService } from "../../src/modules/rate-limit/rate-limit.service.js";
+import { SseService } from "../../src/infrastructure/sse/sse.service.js";
+import { SseController } from "../../src/modules/sse/sse.controller.js";
+import { ContentSourceService } from "../../src/modules/content-source/content-source.service.js";
 import { ContentReader } from "../../src/infrastructure/content/content-reader.js";
-import { ILlmPort } from "../../src/domain/ports/llm.port";
-import { IBrowserPort } from "../../src/domain/ports/browser.port";
-import { IContentPort } from "../../src/domain/ports/content.port";
+import { ILlmPort } from "../../src/domain/ports/llm.port.js";
+import { IBrowserPort } from "../../src/domain/ports/browser.port.js";
+import { IContentPort } from "../../src/domain/ports/content.port.js";
 import {
   createMockPrismaService,
   createMockBrowserPort,
@@ -48,9 +48,9 @@ import {
   SHARED_REDIS,
   SHARED_REDIS_SUBSCRIBER,
   SHARED_REDIS_PUBLISHER,
-} from "../../src/infrastructure/redis/redis.module";
-import { DiscordNotificationService } from "../../src/infrastructure/notifications/discord-notification.service";
-import { EmailReaderService } from "../../src/infrastructure/email/email-reader.service";
+} from "../../src/infrastructure/redis/redis.module.js";
+import { DiscordNotificationService } from "../../src/infrastructure/notifications/discord-notification.service.js";
+import { EmailReaderService } from "../../src/infrastructure/email/email-reader.service.js";
 
 // ── ioredis mock (hoisted) ──
 const { redisStore, sseMessageHandlers } = vi.hoisted(() => ({

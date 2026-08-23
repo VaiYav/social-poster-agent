@@ -17,26 +17,26 @@ import type { TestingModule } from "@nestjs/testing";
 import { INestApplication } from "@nestjs/common";
 import request from "supertest";
 
-import { AppModule } from "../../src/app.module";
-import { PrismaService } from "../../src/infrastructure/prisma/prisma.service";
+import { AppModule } from "../../src/app.module.js";
+import { PrismaService } from "../../src/infrastructure/prisma/prisma.service.js";
 import { ILlmPort } from "../../src/domain/ports/llm.port.js";
 import { IBrowserPort } from "../../src/domain/ports/browser.port.js";
-import { QueueFactory } from "../../src/infrastructure/queue/queue.factory";
-import { BrowserFactory } from "../../src/infrastructure/browser/browser.factory";
-import { LlmService } from "../../src/infrastructure/llm/llm.service";
+import { QueueFactory } from "../../src/infrastructure/queue/queue.factory.js";
+import { BrowserFactory } from "../../src/infrastructure/browser/browser.factory.js";
+import { LlmService } from "../../src/infrastructure/llm/llm.service.js";
 import { ContentReader } from "../../src/infrastructure/content/content-reader.js";
 import { RedisCheckpointSaver } from "../../src/infrastructure/checkpoint/redis-checkpoint.js";
-import { HealthController } from "../../src/modules/health/health.controller";
-import { EncryptionService } from "../../src/infrastructure/crypto/encryption.service";
-import { TrendingScraperService } from "../../src/modules/trending/trending-scraper.service";
+import { HealthController } from "../../src/modules/health/health.controller.js";
+import { EncryptionService } from "../../src/infrastructure/crypto/encryption.service.js";
+import { TrendingScraperService } from "../../src/modules/trending/trending-scraper.service.js";
 import { ConfigService } from "@nestjs/config";
-import { GenerationService } from "../../src/modules/generation/generation.service";
+import { GenerationService } from "../../src/modules/generation/generation.service.js";
 import { SchedulerRegistry } from "@nestjs/schedule";
-import { RateLimitService } from "../../src/modules/rate-limit/rate-limit.service";
-import { CronService } from "../../src/modules/generation/cron.service";
-import { MetricsScraperService } from "../../src/modules/analytics/metrics-scraper.service";
-import { WarmupService } from "../../src/modules/sessions/warmup.service";
-import { HealthMonitorService } from "../../src/modules/health-monitor/health-monitor.service";
+import { RateLimitService } from "../../src/modules/rate-limit/rate-limit.service.js";
+import { CronService } from "../../src/modules/generation/cron.service.js";
+import { MetricsScraperService } from "../../src/modules/analytics/metrics-scraper.service.js";
+import { WarmupService } from "../../src/modules/sessions/warmup.service.js";
+import { HealthMonitorService } from "../../src/modules/health-monitor/health-monitor.service.js";
 
 import { BlueskyPoster } from "../../src/modules/posting/posters/bluesky.poster.js";
 import { MastodonPoster } from "../../src/modules/posting/posters/mastodon.poster.js";
@@ -49,8 +49,8 @@ import {
   createMockPrismaService,
 } from "../mocks/index.js";
 import { restoreAllDesignParamtypes } from "../helpers/restore-paramtypes.js";
-import { SocialNetwork, PostStatus, ContentType } from "../../src/generated/prisma/client";
-import { clearHookCache } from "../../src/modules/generation/generation.graph";
+import { SocialNetwork, PostStatus, ContentType } from "../../src/generated/prisma/client.js";
+import { clearHookCache } from "../../src/modules/generation/generation.graph.js";
 
 const { sharedRedisStore } = vi.hoisted(() => ({
   sharedRedisStore: new Map<string, string>(),

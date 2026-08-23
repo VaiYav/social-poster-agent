@@ -14,7 +14,7 @@
  */
 
 import { Injectable, Logger } from "@nestjs/common";
-import { PrismaService } from "../../infrastructure/prisma/prisma.service";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 
 @Injectable()
 export class ThreadProgressService {

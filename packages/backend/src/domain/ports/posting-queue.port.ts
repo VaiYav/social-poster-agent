@@ -1,4 +1,4 @@
-import type { SocialNetwork } from "../../generated/prisma/client";
+import type { SocialNetwork } from "../../generated/prisma/client.js";
 
 /**
  * A5: DI token + interface for enqueuing a post onto the BullMQ posting queue.
@@ -15,5 +15,6 @@ export interface IPostingQueuePort {
     postId: string,
     network: SocialNetwork,
     opts?: { priority?: number; delay?: number },
+    accountId?: string,
   ): Promise<void>;
 }

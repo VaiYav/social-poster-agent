@@ -37,6 +37,13 @@ export interface FallbackOptions<T = unknown> {
   failureLevel?: DegradationLevel;
 }
 
+export interface ProbeOptions {
+  /** Maximum random offset applied between scheduled probe attempts. */
+  jitterMs?: number;
+  /** Run the first probe immediately; defaults to true for compatibility. */
+  runImmediately?: boolean;
+}
+
 export const IResiliencePort = Symbol("IResiliencePort");
 
 export interface IResiliencePort {
@@ -59,7 +66,12 @@ export interface IResiliencePort {
   withFallback<T>(subsystem: string, options: FallbackOptions<T>, fn: () => Promise<T>): Promise<T>;
 
   /** Register a canary probe; it runs when due via runDueProbes(). */
-  scheduleProbe(subsystem: string, probe: () => Promise<boolean>, intervalMs: number): void;
+  scheduleProbe(
+    subsystem: string,
+    probe: () => Promise<boolean>,
+    intervalMs: number,
+    options?: ProbeOptions,
+  ): void;
 
   /** Execute all due probes; passing streak promotes out of CRITICAL/DOWN. */
   runDueProbes(): Promise<void>;

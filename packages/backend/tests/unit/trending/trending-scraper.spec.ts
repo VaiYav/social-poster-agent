@@ -12,7 +12,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ConfigService } from "@nestjs/config";
-import { TrendingScraperService } from "../../../src/modules/trending/trending-scraper.service";
+import { TrendingScraperService } from "../../../src/modules/trending/trending-scraper.service.js";
 
 // ── Sample Google Trends RSS XML ──
 const SAMPLE_API_JSON = [

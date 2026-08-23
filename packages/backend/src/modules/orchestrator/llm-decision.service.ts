@@ -7,7 +7,7 @@
 
 import { Injectable, Logger, Inject, Optional } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { SocialNetwork } from "../../generated/prisma/client";
+import { SocialNetwork } from "../../generated/prisma/client.js";
 import { ILlmPort } from "../../domain/ports/llm.port.js";
 import { LangfuseService } from "../../infrastructure/langfuse/langfuse.service.js";
 import { z } from "zod";
@@ -91,6 +91,7 @@ export class LlmDecisionService {
     // tags enable filtering orchestrator decisions from generation traces.
     // promptNames links this trace to the Langfuse Prompt Management prompt used.
     const handler = this.langfuse?.createHandler({
+      sessionId: "orchestrator",
       tags: ["orchestrator", "decision"],
       traceMetadata: {
         utcHour: world.utcHour,
@@ -104,6 +105,16 @@ export class LlmDecisionService {
     const controller = new AbortController();
     const stopSignal = combineSignals(controller.signal, signal);
 
+    const generateDecision = () =>
+      this.llm!.generateChat(systemPrompt, userPrompt, {
+        temperature: 0.3,
+        maxTokens: 200,
+        callbacks,
+        signal: stopSignal,
+        budgetScope: "orchestrator",
+        traceName: "orchestrator.decision",
+      });
+
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutId = setTimeout(() => {
@@ -112,13 +123,30 @@ export class LlmDecisionService {
       }, this.llmTimeoutMs);
     });
 
-    const llmPromise = this.llm.generateChat(systemPrompt, userPrompt, {
-      temperature: 0.3,
-      maxTokens: 200,
-      callbacks,
-      signal: stopSignal,
-      budgetScope: "orchestrator",
-    });
+    const llmPromise = this.langfuse?.isEnabled
+      ? this.langfuse.withTrace(
+          {
+            rootName: "agent.orchestrator-decision",
+            feature: "orchestrator",
+            sessionId: "orchestrator",
+            tags: ["orchestrator", "decision"],
+            metadata: {
+              utcHour: world.utcHour,
+              utcDayOfWeek: world.utcDayOfWeek,
+              degraded: world._degraded.length > 0,
+              promptNames: "orchestrator-system",
+            },
+            input: {
+              run_id: "orchestrator",
+              utc_hour: world.utcHour,
+              utc_day_of_week: world.utcDayOfWeek,
+              degraded: world._degraded.length > 0,
+            },
+            output: () => ({ status: "completed" }),
+          },
+          generateDecision,
+        )
+      : generateDecision();
 
     // 2.6.4: clear the timeout and suppress the LLM promise rejection when the
     // timeout wins. The original llmPromise is still observed by Promise.race.

@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ConfigService } from "@nestjs/config";
-import { ABVariantService } from "../../../src/modules/content-enhancements/ab-variant.service";
+import { ABVariantService } from "../../../src/modules/content-enhancements/ab-variant.service.js";
 import { createMockPrismaService } from "../../mocks/index.js";
-import { SocialNetwork } from "../../../src/generated/prisma/client";
+import { SocialNetwork } from "../../../src/generated/prisma/client.js";
 
 describe("ABVariantService", () => {
   let prisma: ReturnType<typeof createMockPrismaService>;

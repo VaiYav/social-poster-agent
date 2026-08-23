@@ -9,11 +9,11 @@ import {
   ParseEnumPipe,
   UseGuards,
 } from "@nestjs/common";
-import { SocialNetwork } from "../../generated/prisma/client";
+import { SocialNetwork } from "../../generated/prisma/client.js";
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from "@nestjs/swagger";
-import { Public } from "../auth/public.decorator";
-import { LoginRateLimitGuard } from "../auth/login-rate-limit.guard";
-import { SessionsService } from "./sessions.service";
+import { Public } from "../auth/public.decorator.js";
+import { LoginRateLimitGuard } from "../auth/login-rate-limit.guard.js";
+import { SessionsService } from "./sessions.service.js";
 
 @ApiTags("sessions")
 @Controller("sessions")

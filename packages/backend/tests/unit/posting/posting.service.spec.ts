@@ -18,11 +18,17 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NotFoundException } from "@nestjs/common";
-import { PostStatus, SocialNetwork, ContentType } from "../../../src/generated/prisma/client";
+import { PostStatus, SocialNetwork, ContentType } from "../../../src/generated/prisma/client.js";
 import type { ModuleRef } from "@nestjs/core";
 
-import { PostingService } from "../../../src/modules/posting/posting.service";
-import { PostEvents } from "../../../src/events/enums/post-events.enum";
+import { PostingService } from "../../../src/modules/posting/posting.service.js";
+import { PostingGuardChain } from "../../../src/modules/posting/posting-guards.service.js";
+import { PostingDispatcher } from "../../../src/modules/posting/poster-registry.service.js";
+import { PostVerificationService } from "../../../src/modules/posting/post-verification.service.js";
+import { ThreadOrchestrator } from "../../../src/modules/posting/thread-posting.service.js";
+import { PostSideEffectsService } from "../../../src/modules/posting/post-side-effects.service.js";
+import { CtaAttributionService } from "../../../src/modules/posting/cta-attribution.service.js";
+import { PostEvents } from "../../../src/events/enums/post-events.enum.js";
 import {
   createMockBrowserPort,
   createMockRateLimitService,
@@ -156,6 +162,7 @@ interface TestContext {
   telegramAdapter: ReturnType<typeof createMockTelegramAdapter>;
   configService: ReturnType<typeof createMockConfigService>;
   queueFactory?: ReturnType<typeof createMockQueueFactory>;
+  devtoPoster: { postArticle: ReturnType<typeof vi.fn>; verifyPosted: ReturnType<typeof vi.fn> };
 }
 
 function buildContext(
@@ -204,28 +211,58 @@ function buildContext(
   // (the shared mock returns undefined which doesn't match the service contract)
   rateLimitService.checkRateLimit = vi.fn().mockResolvedValue({ allowed: true });
 
+  const guards = new PostingGuardChain(
+    postsService as never,
+    rateLimitService as never,
+    warmupService as never,
+  );
+  const posterRegistry = new PostingDispatcher(
+    xPoster as never,
+    threadsPoster as never,
+    facebookPoster as never,
+    configService as never,
+    moduleRef,
+    blueskyPoster as never,
+    mastodonPoster as never,
+    linkedinSocialPoster as never,
+    telegramAdapter as never,
+  );
+  const sideEffects = new PostSideEffectsService();
+  const ctaAttribution = new CtaAttributionService(posterRegistry);
+  const verification = new PostVerificationService(
+    postsService as never,
+    sessionsService as never,
+    posterRegistry,
+    eventEmitter as never,
+    browser as never,
+  );
+  const threads = new ThreadOrchestrator(
+    postsService as never,
+    threadProgressService as never,
+    posterRegistry,
+    sideEffects,
+    eventEmitter as never,
+    configService as never,
+    queueFactory as never,
+  );
+
   const service = new PostingService(
     browser as unknown,
-    accountsService as unknown,
     sessionsService as unknown,
-    warmupService as unknown,
     postsService as unknown,
     rateLimitService as unknown,
     eventEmitter as unknown,
-    threadProgressService as unknown,
-    xPoster as unknown,
-    threadsPoster as unknown,
-    facebookPoster as unknown,
     configService as unknown,
-    moduleRef as unknown,
+    guards,
+    posterRegistry,
+    verification,
+    threads,
+    sideEffects,
+    ctaAttribution,
+    undefined,
+    undefined,
     queueFactory as unknown,
-    undefined as unknown,
-    undefined as unknown,
-    undefined as unknown,
-    blueskyPoster as unknown,
-    mastodonPoster as unknown,
-    linkedinSocialPoster as unknown,
-    telegramAdapter as unknown,
+    undefined,
   );
 
   return {
@@ -734,6 +771,55 @@ describe("MOD-03: PostingService", () => {
       syndicatedUrl: "https://dev.to/testuser/test-devto-article-123",
       contentType: "ARTICLE",
     });
+    expect(ctx.devtoPoster.verifyPosted).toHaveBeenCalledWith(
+      mockContext,
+      "https://dev.to/testuser/test-devto-article-123",
+      "https://example.com/blog/test-devto-article",
+    );
+  });
+
+  it("P1-10: canonical mismatch keeps article unverified and requests re-verification", async () => {
+    process.env.ENABLED_NETWORKS = "X,THREADS,FACEBOOK,DEVTO";
+    const mockContext = createMockContext();
+    ctx.browser.acquireContext.mockResolvedValue(mockContext);
+    ctx.browser.saveStorageState.mockResolvedValue('{"cookies":[]}');
+    ctx.postsService.findById.mockResolvedValue({
+      ...APPROVED_POST_X,
+      id: "post-devto-canonical-mismatch",
+      network: SocialNetwork.DEVTO,
+      contentType: ContentType.ARTICLE,
+      content: JSON.stringify({
+        title: "Test Dev.to Article",
+        bodyMarkdown: "# Hello\n\nThis is a test article.",
+        tags: ["test"],
+        slug: "test-devto-article",
+        excerpt: "A test article.",
+      }),
+      canonicalUrl: "https://example.com/blog/test-devto-article",
+    });
+    ctx.sessionsService.getOrCreateSession.mockResolvedValue(ACTIVE_SESSION);
+    ctx.devtoPoster.postArticle.mockResolvedValue({
+      success: true,
+      url: "https://dev.to/testuser/test-devto-article-123",
+    });
+    ctx.devtoPoster.verifyPosted.mockResolvedValue(null);
+
+    const result = await ctx.service.postById("post-devto-canonical-mismatch");
+
+    expect(result).toEqual({
+      success: false,
+      error: "Post verification failed",
+      retryable: true,
+    });
+    expect(ctx.devtoPoster.verifyPosted).toHaveBeenCalledWith(
+      mockContext,
+      "https://dev.to/testuser/test-devto-article-123",
+      "https://example.com/blog/test-devto-article",
+    );
+    expect(ctx.eventEmitter.emit).not.toHaveBeenCalledWith(
+      PostEvents.VERIFIED,
+      expect.objectContaining({ postId: "post-devto-canonical-mismatch" }),
+    );
   });
 
   // ── postById() — Poster Error (result.error) ───────────────────────────────
@@ -1110,6 +1196,7 @@ describe("MOD-03: PostingService", () => {
       "post-ms-cont-2",
       "X",
       expect.objectContaining({ delay: 1800000, priority: 5 }),
+      "acc-001",
     );
   });
 

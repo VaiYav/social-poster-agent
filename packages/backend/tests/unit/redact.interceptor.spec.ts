@@ -14,7 +14,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { of, lastValueFrom } from "rxjs";
 import { ExecutionContext, CallHandler } from "@nestjs/common";
-import { RedactInterceptor } from "../../src/infrastructure/logging/redact.interceptor";
+import { RedactInterceptor } from "../../src/infrastructure/logging/redact.interceptor.js";
 
 describe("RedactInterceptor (MOD-07 — UTC-120..125)", () => {
   let interceptor: RedactInterceptor;

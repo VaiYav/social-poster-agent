@@ -17,21 +17,23 @@ import { ConfigService } from "@nestjs/config";
 import { createMockPrismaService } from "../mocks/index.js";
 import { createControllerTestingModule } from "../helpers/nest.js";
 import { defineParamtypes } from "../helpers/restore-paramtypes.js";
-import { HealthController } from "../../src/modules/health/health.controller";
-import { AdminGuard } from "../../src/modules/auth/admin.guard";
-import { PrismaService } from "../../src/infrastructure/prisma/prisma.service";
-import { SHARED_REDIS } from "../../src/infrastructure/redis/redis.module";
-import { QueueFactory } from "../../src/infrastructure/queue/queue.factory";
+import { HealthController } from "../../src/modules/health/health.controller.js";
+import { AdminGuard } from "../../src/modules/auth/admin.guard.js";
+import { PrismaService } from "../../src/infrastructure/prisma/prisma.service.js";
+import { SHARED_REDIS } from "../../src/infrastructure/redis/redis.module.js";
+import { QueueFactory } from "../../src/infrastructure/queue/queue.factory.js";
+import { IResiliencePort } from "../../src/domain/ports/resilience.port.js";
 
 // vitest transpiles via esbuild which does NOT emit `design:paramtypes` metadata,
 // so NestJS DI-by-type fails. We attach it explicitly to the controller class.
-defineParamtypes(HealthController, [PrismaService, Object, ConfigService, QueueFactory]);
+defineParamtypes(HealthController, [PrismaService, Object, ConfigService, QueueFactory, Object]);
 
 // Sprint L: Redis is now injected via SHARED_REDIS token instead of created locally.
 // Mock the shared Redis instance.
-const { mockRedisInstance, mockQueueFactory } = vi.hoisted(() => ({
+const { mockRedisInstance, mockQueueFactory, mockResilience } = vi.hoisted(() => ({
   mockRedisInstance: { ping: vi.fn() },
   mockQueueFactory: { getJobCounts: vi.fn() },
+  mockResilience: { getAllHealth: vi.fn(), reportHealth: vi.fn().mockResolvedValue(undefined) },
 }));
 
 function mockResponse() {
@@ -65,6 +67,7 @@ describe("HealthController (MOD-07 — UTC-115..119)", () => {
       { provide: ConfigService, useValue: configService },
       { provide: SHARED_REDIS, useValue: mockRedisInstance },
       { provide: QueueFactory, useValue: mockQueueFactory },
+      { provide: IResiliencePort, useValue: mockResilience },
       AdminGuard,
     ]);
     controller = ctrl;
@@ -175,5 +178,17 @@ describe("HealthController (MOD-07 — UTC-115..119)", () => {
     const body = res.json.mock.calls[0][0];
     expect(body.status).toBe("ok");
     expect(body.timestamp).toBeDefined();
+  });
+
+  it("/health/degradation returns the current subsystem snapshots", async () => {
+    mockResilience.getAllHealth.mockResolvedValue([
+      { subsystem: "llm", level: "DEGRADED", since: 1, consecutiveProbePasses: 0 },
+    ]);
+
+    const body = await controller.degradation();
+
+    expect(body.subsystems).toHaveLength(1);
+    expect(body.subsystems[0]?.level).toBe("DEGRADED");
+    expect(Number.isNaN(Date.parse(body.timestamp))).toBe(false);
   });
 });

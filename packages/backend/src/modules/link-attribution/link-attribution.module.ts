@@ -1,7 +1,7 @@
 import { Module } from "@nestjs/common";
-import { LinkModule } from "../../infrastructure/link/link.module";
-import { LinkAttributionService } from "./link-attribution.service";
-import { LinkAttributionController } from "./link-attribution.controller";
+import { LinkModule } from "../../infrastructure/link/link.module.js";
+import { LinkAttributionService } from "./link-attribution.service.js";
+import { LinkAttributionController } from "./link-attribution.controller.js";
 
 /**
  * LinkAttributionModule — M2.1/M2.4: assigns trackable CTA links to posts

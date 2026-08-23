@@ -14,7 +14,7 @@ import {
   InteractionType,
   InteractionStatus,
   BrowsingSessionStatus,
-} from "../../generated/prisma/client";
+} from "../../generated/prisma/client.js";
 
 const likeSchema = z.object({
   network: z.enum(["X", "THREADS", "FACEBOOK"]),

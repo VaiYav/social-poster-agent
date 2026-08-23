@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { SocialNetwork } from "../../generated/prisma/client";
+import { SocialNetwork } from "../../generated/prisma/client.js";
 import { getEnabledNetworks } from "../../domain/enabled-networks.js";
 import type { SessionState, WorldState } from "./types.js";
 

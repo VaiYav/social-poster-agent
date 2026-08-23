@@ -11,9 +11,10 @@
 // The engine is network-agnostic — it delegates to BaseEngager for all
 // browser actions, so the same logic works across X, Threads, and Facebook.
 
-import { Injectable, Logger, Inject } from "@nestjs/common";
+import { Injectable, Logger, Inject, Optional } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import type { Page } from "../../domain/ports/browser-primitives.js";
-import { InteractionStatus, InteractionType, SocialNetwork } from "../../generated/prisma/client";
+import { InteractionStatus, InteractionType, SocialNetwork } from "../../generated/prisma/client.js";
 import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import { IBrowserPort } from "../../domain/ports/browser.port.js";
 import { SseService, type SseInteractionEvent } from "../../infrastructure/sse/sse.service.js";
@@ -27,6 +28,18 @@ import {
 import type { BaseEngager } from "./engagers/base.engager.js";
 import { calculateDwellTimeMs, calculateThreadReadTimeMs } from "./dwell-time-calculator.js";
 import { withTimeout } from "../../infrastructure/util/with-timeout.js";
+import {
+  IRuntimeActionAuthorizer,
+  type AuthorizePlatformActionParams,
+  type PlatformAuthorizationDecision,
+} from "../policy/policy.types.js";
+import { EngagementCandidateScorer } from "./engagement-candidate-scorer.js";
+import { EngagementSuggestionService } from "./engagement-suggestion.service.js";
+import {
+  IAuthorContextPort,
+  type IAuthorContextPort as AuthorContextPort,
+} from "../../domain/ports/author-context.port.js";
+import { CreatorRelationshipService } from "../crm/creator-relationship.service.js";
 
 /**
  * Result of a single post interaction within a browsing session.
@@ -37,6 +50,8 @@ export interface PostInteractionResult {
   interactionId?: string;
   success: boolean;
   error?: string;
+  suggestionId?: string;
+  suggested?: boolean;
 }
 
 /**
@@ -75,7 +90,69 @@ export class HumanBehaviorEngine {
     private readonly sseService: SseService,
     private readonly rateLimitService: RateLimitService,
     @Inject(IEngagementDecisionPort) private readonly decisionPort: IEngagementDecisionPort,
+    @Optional()
+    @Inject(IRuntimeActionAuthorizer)
+    private readonly actionAuthorizer?: {
+      authorize(params: AuthorizePlatformActionParams): Promise<PlatformAuthorizationDecision>;
+      reauthorize(
+        params: AuthorizePlatformActionParams,
+        expectedPolicyHash: string,
+      ): Promise<PlatformAuthorizationDecision>;
+    },
+    @Optional() private readonly candidateScorer?: EngagementCandidateScorer,
+    @Optional() private readonly suggestionService?: EngagementSuggestionService,
+    @Optional() @Inject(IAuthorContextPort) private readonly authorContext?: AuthorContextPort,
+    @Optional() private readonly creatorRelationships?: CreatorRelationshipService,
   ) {}
+
+  private async recordCreatorInteractionEvidence(
+    context: PostContext,
+    config: BehaviorEngineConfig,
+    interactionId: string | undefined,
+    kind: "like" | "comment" | "repost" | "quote",
+  ): Promise<void> {
+    if (!this.creatorRelationships || !context.authorHandle || !interactionId) return;
+    try {
+      await this.creatorRelationships.recordPublicInteraction({
+        accountId: config.accountId,
+        network: context.network,
+        authorHandle: context.authorHandle,
+        interactionId,
+        postUrl: context.postUrl,
+        kind,
+      });
+    } catch (err) {
+      this.logger.warn(`CRM evidence recording skipped: ${errorMessage(err)}`);
+    }
+  }
+
+  private async authorizeSideEffect(
+    config: BehaviorEngineConfig,
+    action: "like" | "comment" | "repost" | "quote",
+    targetRelationship: "UNKNOWN" | "OWN_POST" = "UNKNOWN",
+  ): Promise<string | null> {
+    if (!this.actionAuthorizer) return null;
+    const params: AuthorizePlatformActionParams = {
+      accountId: config.accountId,
+      network: config.network,
+      action:
+        action === "comment"
+          ? "REPLY"
+          : (action.toUpperCase() as AuthorizePlatformActionParams["action"]),
+      transport: "BROWSER",
+      targetRelationship,
+      contentRiskTier: "LOW",
+      requestedMode: "APPROVED_AUTOMATION",
+    };
+    const decision = await this.actionAuthorizer.authorize(params);
+    if (decision.allowedMode !== "APPROVED_AUTOMATION") {
+      return `Policy mode ${decision.allowedMode}: ${decision.blockReasons.join("; ")}`;
+    }
+    const current = await this.actionAuthorizer.reauthorize(params, decision.policyHash);
+    return current.allowedMode === "APPROVED_AUTOMATION"
+      ? null
+      : `Policy changed before engagement side effect: ${current.blockReasons.join("; ")}`;
+  }
 
   /**
    * Process a list of discovered posts with LLM-driven decisions.
@@ -166,6 +243,7 @@ export class HumanBehaviorEngine {
             config.discussionsMaxPerSession ??
             (config.repostsMaxPerSession ?? 0) + (config.quotesMaxPerSession ?? 0);
           contexts.push({
+            accountId: config.accountId,
             network: config.network,
             postUrl,
             postText: extracted.text,
@@ -204,50 +282,89 @@ export class HumanBehaviorEngine {
 
       if (contexts.length === 0) continue;
 
+      // Deterministic candidate scoring is upstream of LLM action selection.
+      // SKIP is terminal and never spends tokens or becomes a reply merely
+      // because a session budget is still available.
+      const candidateScores = new Map<string, ReturnType<EngagementCandidateScorer["score"]>>();
+      const decisionContexts = this.candidateScorer
+        ? contexts.filter((context) => {
+            const score = this.candidateScorer!.score({
+              network: context.network,
+              postUrl: context.postUrl,
+              postText: context.postText,
+              authorHandle: context.authorHandle,
+              source: context.source,
+            });
+            candidateScores.set(context.postUrl, score);
+            return score.decision !== "SKIP";
+          })
+        : contexts;
+      const mergeDecisions = (eligibleDecisions: ActionDecision[]): ActionDecision[] => {
+        let eligibleIndex = 0;
+        return contexts.map((context) => {
+          const score = candidateScores.get(context.postUrl);
+          if (score?.decision === "SKIP") {
+            return {
+              action: "skip",
+              reason: `Candidate gate: ${score.reasons.join("; ")}`,
+              confidence: 1,
+            };
+          }
+          return eligibleDecisions[eligibleIndex++] ?? this.fallbackDecision(context);
+        });
+      };
+
       // Step 2: Get decisions (batched or individual) with a hard timeout so an LLM
       // provider that never responds cannot hang the whole browsing session. If batch
       // fails, fall back to individual calls; if those also fail, use safe read decisions.
-      let decisions: ActionDecision[];
+      let decisions: ActionDecision[] = [];
+      if (decisionContexts.length === 0) {
+        decisions = mergeDecisions([]);
+      }
       try {
-        if (supportsBatch && contexts.length > 1) {
+        if (decisionContexts.length === 0) {
+          // All candidates were terminal SKIP decisions.
+        } else if (supportsBatch && decisionContexts.length > 1) {
           const raw = await withTimeout(
-            this.decisionPort.decideActionsBatch!(contexts),
+            this.decisionPort.decideActionsBatch!(decisionContexts),
             HumanBehaviorEngine.DECISION_TIMEOUT_MS,
             "Batch LLM decision",
           );
-          decisions = normalizeDecisions(contexts, raw);
+          decisions = mergeDecisions(normalizeDecisions(decisionContexts, raw));
         } else {
           const raw = await withTimeout(
-            Promise.all(contexts.map((ctx) => this.decisionPort.decideAction(ctx))),
+            Promise.all(decisionContexts.map((ctx) => this.decisionPort.decideAction(ctx))),
             HumanBehaviorEngine.DECISION_TIMEOUT_MS,
             "Individual LLM decisions",
           );
-          decisions = normalizeDecisions(contexts, raw);
+          decisions = mergeDecisions(normalizeDecisions(decisionContexts, raw));
         }
       } catch (err) {
         const errorMessage = (err as Error).message.slice(0, 80);
-        if (supportsBatch && contexts.length > 1) {
+        if (decisionContexts.length === 0) {
+          decisions = mergeDecisions([]);
+        } else if (supportsBatch && decisionContexts.length > 1) {
           this.logger.warn(
             `Batch decision failed/timed out, falling back to individual: ${errorMessage}`,
           );
           try {
             const raw = await withTimeout(
-              Promise.all(contexts.map((ctx) => this.decisionPort.decideAction(ctx))),
+              Promise.all(decisionContexts.map((ctx) => this.decisionPort.decideAction(ctx))),
               HumanBehaviorEngine.DECISION_TIMEOUT_MS,
               "Individual LLM decisions",
             );
-            decisions = normalizeDecisions(contexts, raw);
+            decisions = mergeDecisions(normalizeDecisions(decisionContexts, raw));
           } catch (err2) {
             this.logger.warn(
               `Individual decision also failed/timed out, using fallback decisions: ${(err2 as Error).message.slice(0, 80)}`,
             );
-            decisions = contexts.map((ctx) => this.fallbackDecision(ctx));
+            decisions = mergeDecisions(decisionContexts.map((ctx) => this.fallbackDecision(ctx)));
           }
         } else {
           this.logger.warn(
             `Decision call failed/timed out, using fallback decisions: ${errorMessage}`,
           );
-          decisions = contexts.map((ctx) => this.fallbackDecision(ctx));
+          decisions = mergeDecisions(decisionContexts.map((ctx) => this.fallbackDecision(ctx)));
         }
       }
 
@@ -399,6 +516,13 @@ export class HumanBehaviorEngine {
           }
         }
 
+        const suggestion = await this.createSuggestionIfRequired(decision, context, config);
+        if (suggestion) {
+          results.push(suggestion);
+          await this.postActionPause(decision.action, context);
+          continue;
+        }
+
         const result = await withTimeout(
           this.executeDecision(
             page,
@@ -448,6 +572,106 @@ export class HumanBehaviorEngine {
     }
 
     return results;
+  }
+
+  /**
+   * Suggestion-first boundary for reply/quote actions. A suggestion is a
+   * database write, not a network side effect, so SUGGEST_ONLY and
+   * HUMAN_APPROVAL_REQUIRED may reach this method while APPROVED_AUTOMATION
+   * continues through the normal executor below.
+   */
+  private async createSuggestionIfRequired(
+    decision: ActionDecision,
+    context: PostContext,
+    config: BehaviorEngineConfig,
+  ): Promise<PostInteractionResult | null> {
+    if (
+      (decision.action !== "comment" && decision.action !== "quote") ||
+      !this.actionAuthorizer ||
+      !this.suggestionService ||
+      !this.authorContext
+    ) {
+      return null;
+    }
+
+    const policyParams: AuthorizePlatformActionParams = {
+      accountId: config.accountId,
+      network: config.network,
+      action: decision.action === "comment" ? "REPLY" : "QUOTE",
+      transport: "BROWSER",
+      targetRelationship: config.source === "notifications" ? "MENTIONED_US" : "STRANGER",
+      contentRiskTier: "LOW",
+      requestedMode: "APPROVED_AUTOMATION",
+    };
+    const policy = await this.actionAuthorizer.authorize(policyParams);
+    if (policy.allowedMode === "DISABLED" || policy.allowedMode === "APPROVED_AUTOMATION") {
+      return null;
+    }
+
+    let authorContext;
+    try {
+      authorContext = await this.authorContext.resolve({
+        accountId: config.accountId,
+        network: config.network,
+      });
+    } catch (err) {
+      return {
+        postUrl: context.postUrl,
+        decision,
+        success: false,
+        error: `Author context unavailable for suggestion: ${errorMessage(err)}`,
+      };
+    }
+    if (!authorContext.personaRevisionId || authorContext.source !== "PERSONA") {
+      return {
+        postUrl: context.postUrl,
+        decision,
+        success: false,
+        error: "Suggestion requires an assigned versioned persona",
+      };
+    }
+
+    const content = decision.action === "comment" ? decision.commentText : decision.quoteText;
+    if (!content) return null;
+    try {
+      const suggestion = await this.suggestionService.create({
+        accountId: config.accountId,
+        personaRevisionId: authorContext.personaRevisionId,
+        network: config.network,
+        targetUrl: context.postUrl,
+        targetAuthorHandleHash: context.authorHandle
+          ? createHash("sha256").update(context.authorHandle, "utf8").digest("hex")
+          : undefined,
+        sourceSnapshotHash: createHash("sha256")
+          .update(`${context.postUrl}\n${context.postText}\n${config.source}`, "utf8")
+          .digest("hex"),
+        threadContextRef: {
+          source: config.source,
+          authorHandlePresent: Boolean(context.authorHandle),
+        },
+        voiceMode: authorContext.voiceMode,
+        intent: decision.action === "comment" ? "ASK_SPECIFIC_QUESTION" : "ADD_NUANCE",
+        content,
+        claimTrace: { policyHash: policy.policyHash, policyVersionIds: policy.policyVersionIds },
+        memoryTrace: { source: "IMMUTABLE_PERSONA_ONLY" },
+        policyMode: policy.allowedMode,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      });
+      return {
+        postUrl: context.postUrl,
+        decision,
+        success: true,
+        suggested: true,
+        suggestionId: suggestion.id,
+      };
+    } catch (err) {
+      return {
+        postUrl: context.postUrl,
+        decision,
+        success: false,
+        error: `Suggestion persistence failed: ${errorMessage(err)}`,
+      };
+    }
   }
 
   /**
@@ -523,6 +747,15 @@ export class HumanBehaviorEngine {
     context: PostContext,
     config: BehaviorEngineConfig,
   ): Promise<PostInteractionResult> {
+    const policyError = await this.authorizeSideEffect(config, "like");
+    if (policyError) {
+      return {
+        postUrl: context.postUrl,
+        decision: { action: "like", reason: "Policy blocked", confidence: 0 },
+        success: false,
+        error: policyError,
+      };
+    }
     // Rate limit check — per network, account, and action
     const rateCheck = await this.rateLimitService.checkRateLimit(
       context.network as string,
@@ -585,6 +818,10 @@ export class HumanBehaviorEngine {
           "like",
           result.error,
         );
+      }
+
+      if (result.success) {
+        await this.recordCreatorInteractionEvidence(context, config, interaction.id, "like");
       }
 
       return {
@@ -657,6 +894,11 @@ export class HumanBehaviorEngine {
       };
     }
 
+    const policyError = await this.authorizeSideEffect(config, "comment");
+    if (policyError) {
+      return { postUrl: context.postUrl, decision, success: false, error: policyError };
+    }
+
     // Rate limit check — per network, account, and action
     const rateCheck = await this.rateLimitService.checkRateLimit(
       context.network as string,
@@ -711,6 +953,10 @@ export class HumanBehaviorEngine {
         );
       }
 
+      if (result.success) {
+        await this.recordCreatorInteractionEvidence(context, config, interaction.id, "comment");
+      }
+
       return {
         postUrl: context.postUrl,
         decision,
@@ -739,6 +985,15 @@ export class HumanBehaviorEngine {
     context: PostContext,
     config: BehaviorEngineConfig,
   ): Promise<PostInteractionResult> {
+    const policyError = await this.authorizeSideEffect(config, "repost");
+    if (policyError) {
+      return {
+        postUrl: context.postUrl,
+        decision: { action: "repost", reason: "Policy blocked", confidence: 0 },
+        success: false,
+        error: policyError,
+      };
+    }
     // Rate limit check — per network, account, and action
     const rateCheck = await this.rateLimitService.checkRateLimit(
       context.network as string,
@@ -806,6 +1061,10 @@ export class HumanBehaviorEngine {
         );
       }
 
+      if (result.success) {
+        await this.recordCreatorInteractionEvidence(context, config, interaction.id, "repost");
+      }
+
       return {
         postUrl: context.postUrl,
         decision: { action: "repost", reason: "Reposted", confidence: 1 },
@@ -843,6 +1102,11 @@ export class HumanBehaviorEngine {
         success: false,
         error: "No quote text generated",
       };
+    }
+
+    const policyError = await this.authorizeSideEffect(config, "quote");
+    if (policyError) {
+      return { postUrl: context.postUrl, decision, success: false, error: policyError };
     }
 
     const rateCheck = await this.rateLimitService.checkRateLimit(
@@ -895,6 +1159,10 @@ export class HumanBehaviorEngine {
           context,
           "quote",
         );
+      }
+
+      if (result.success) {
+        await this.recordCreatorInteractionEvidence(context, config, interaction.id, "quote");
       }
 
       return {
@@ -1098,4 +1366,8 @@ export class HumanBehaviorEngine {
       error,
     });
   }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

@@ -18,9 +18,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ConfigService } from "@nestjs/config";
 import { SchedulerRegistry } from "@nestjs/schedule";
-import { PostStatus, SessionStatus, SocialNetwork } from "../../../src/generated/prisma/client";
+import { PostStatus, SessionStatus, SocialNetwork } from "../../../src/generated/prisma/client.js";
 
-import { HealthMonitorService } from "../../../src/modules/health-monitor/health-monitor.service";
+import { HealthMonitorService } from "../../../src/modules/health-monitor/health-monitor.service.js";
 
 // ── Mock Factories ───────────────────────────────────────────────────────────
 
@@ -80,6 +80,13 @@ function createMockSchedulerRegistry() {
   };
 }
 
+function createMockResilience() {
+  return {
+    reportHealth: vi.fn().mockResolvedValue(undefined),
+    runDueProbes: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
 function createMockConfigService(overrides: Record<string, unknown> = {}): ConfigService {
   const defaults: Record<string, unknown> = {
     HEALTH_MONITOR_BAN_THRESHOLD: 5,
@@ -105,6 +112,7 @@ interface TestContext {
   queue: ReturnType<typeof createMockQueue>;
   queueFactory: ReturnType<typeof createMockQueueFactory>;
   schedulerRegistry: ReturnType<typeof createMockSchedulerRegistry>;
+  resilience: ReturnType<typeof createMockResilience>;
 }
 
 function buildContext(overrides?: Record<string, unknown>): TestContext {
@@ -115,6 +123,7 @@ function buildContext(overrides?: Record<string, unknown>): TestContext {
   const queue = createMockQueue();
   const queueFactory = createMockQueueFactory(queue);
   const schedulerRegistry = createMockSchedulerRegistry();
+  const resilience = createMockResilience();
   const configService = createMockConfigService(overrides);
 
   const service = new HealthMonitorService(
@@ -125,6 +134,8 @@ function buildContext(overrides?: Record<string, unknown>): TestContext {
     queueFactory as never,
     configService,
     schedulerRegistry as never,
+    undefined,
+    resilience as never,
   );
 
   return {
@@ -137,6 +148,7 @@ function buildContext(overrides?: Record<string, unknown>): TestContext {
     queue,
     queueFactory,
     schedulerRegistry,
+    resilience,
   };
 }
 
@@ -617,6 +629,19 @@ describe("HealthMonitorService (F21 — Health Monitor + B3 Reconciliation)", ()
     expect(report.sessions).toEqual([]);
     expect(report.posts.failedCount).toBe(0);
     expect(report.queues.dlqDepth).toBe(0);
+  });
+
+  it("REL-102: runHealthCheck reports subsystem levels and runs due recovery probes", async () => {
+    ctx.prisma.session.findMany.mockResolvedValue([]);
+    postCountAllZero(ctx.prisma);
+    queueCountsByNetwork(ctx.queueService, {});
+
+    await ctx.service.runHealthCheck({ emitAlerts: false });
+
+    expect(ctx.resilience.reportHealth).toHaveBeenCalledWith("sessions", "HEALTHY", undefined);
+    expect(ctx.resilience.reportHealth).toHaveBeenCalledWith("posting", "HEALTHY", undefined);
+    expect(ctx.resilience.reportHealth).toHaveBeenCalledWith("queues", "HEALTHY", undefined);
+    expect(ctx.resilience.runDueProbes).toHaveBeenCalledOnce();
   });
 
   it("HC-005: runHealthCheck() publishes SSE health_alert for each alert", async () => {

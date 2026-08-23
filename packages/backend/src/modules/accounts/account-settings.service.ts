@@ -15,7 +15,7 @@ import {
   type AccountSettingsSource,
   type ResolvedAccountSettings,
 } from "@spa/shared";
-import { PrismaService } from "../../infrastructure/prisma/prisma.service";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 
 /** Hard defaults — layer 0 of the chain. Mirrors current env defaults. */
 const HARD_DEFAULTS: Required<AccountSettings> = {
@@ -34,7 +34,8 @@ const HARD_DEFAULTS: Required<AccountSettings> = {
   bannedPhrases: [],
   exampleSwipes: [],
   imageGenerationEnabled: false,
-  imageDailyLimit: 0,
+  imageDailyLimit: 3,
+  imageCostBudgetUsdPerDay: 1,
   imageModel: "",
   imageResolution: "1K",
   imageStyle: "quote_card",
@@ -61,12 +62,16 @@ export class AccountSettingsService {
   async resolve(accountId: string): Promise<ResolvedAccountSettings> {
     const account = await this.prisma.socialAccount.findUnique({
       where: { id: accountId },
-      select: { id: true, network: true, settings: true },
+      select: { id: true, network: true, settings: true, active: true },
     });
     if (!account) throw new NotFoundException(`Account ${accountId} not found`);
 
     const envLayer = this.envLayer(account.network);
     const accountLayer = AccountSettingsSchema.parse(account.settings ?? {});
+    // `SocialAccount.active` is the persisted identity switch used by account
+    // selection. Mirror it into the resolved settings contract so the UI cannot
+    // show an enabled override while runtime selection has disabled the row.
+    if (accountLayer.active === undefined) accountLayer.active = account.active;
 
     const values = { ...HARD_DEFAULTS } as Required<AccountSettings>;
     const sources = {} as Record<keyof AccountSettings, AccountSettingsSource>;
@@ -108,7 +113,10 @@ export class AccountSettingsService {
 
     await this.prisma.socialAccount.update({
       where: { id: accountId },
-      data: { settings: merged },
+      data: {
+        settings: merged,
+        ...(validatedPatch.active === undefined ? {} : { active: validatedPatch.active }),
+      },
     });
     this.logger.log(`Updated settings overrides for account ${accountId}`);
     return merged;
@@ -119,7 +127,10 @@ export class AccountSettingsService {
     const merged = AccountSettingsSchema.parse(next);
     await this.prisma.socialAccount.update({
       where: { id: accountId },
-      data: { settings: merged },
+      data: {
+        settings: merged,
+        ...(merged.active === undefined ? {} : { active: merged.active }),
+      },
     });
     return merged;
   }
@@ -132,7 +143,6 @@ export class AccountSettingsService {
     const get = (key: string): string | undefined =>
       this.configService.get<string>(key)?.toString();
 
-    const firstLanguage = get("POSTING_LANGUAGES")?.split(",")[0]?.trim();
     const rateLimitDaily =
       get(`RATE_LIMIT_${network}_MAX_PER_DAY`) ?? get("RATE_LIMIT_X_MAX_PER_DAY");
     const rateLimitWeekly =
@@ -142,7 +152,6 @@ export class AccountSettingsService {
     const autoApproveMinScoreRaw = get("AUTO_APPROVE_MIN_SCORE");
 
     return {
-      ...(firstLanguage ? { postingLanguage: firstLanguage } : {}),
       ...(rateLimitDaily !== undefined && !Number.isNaN(Number(rateLimitDaily))
         ? { rateLimitDaily: Number(rateLimitDaily) }
         : {}),

@@ -7,7 +7,7 @@
  * POSSE: sets canonical URL pointing back to the configured BLOG_BASE_URL.
  */
 import { Injectable } from "@nestjs/common";
-import { SocialNetwork } from "../../../generated/prisma/client";
+import { SocialNetwork } from "../../../generated/prisma/client.js";
 import { ArticleBasePoster, type ArticlePosterDeps } from "./article-base.poster.js";
 import type { IBrowserPort } from "../../../domain/ports/browser.port.js";
 

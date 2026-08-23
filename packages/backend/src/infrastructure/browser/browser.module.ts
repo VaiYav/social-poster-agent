@@ -1,5 +1,5 @@
 import { Module } from "@nestjs/common";
-import { BrowserFactory } from "./browser.factory";
+import { BrowserFactory } from "./browser.factory.js";
 import { SelectorHealthService } from "./selector-health.service.js";
 import { IBrowserPort } from "../../domain/ports/browser.port.js";
 import { parseBool } from "../config/parse-bool.js";

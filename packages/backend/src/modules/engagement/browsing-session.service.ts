@@ -25,7 +25,7 @@ import {
   BrowsingSessionStatus,
   Session,
   type Prisma,
-} from "../../generated/prisma/client";
+} from "../../generated/prisma/client.js";
 import type { BaseEngager } from "./engagers/base.engager.js";
 import { XEngager } from "./engagers/x.engager.js";
 import { ThreadsEngager } from "./engagers/threads.engager.js";

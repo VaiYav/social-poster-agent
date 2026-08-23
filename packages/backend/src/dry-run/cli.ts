@@ -15,11 +15,11 @@ import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { SocialNetwork } from "../generated/prisma/client";
-import { AppModule } from "../app.module";
-import { LlmService } from "../infrastructure/llm/llm.service";
-import { DryRunReporter } from "./dry-run.reporter";
-import { DryRunRunner, type DryRunOptions } from "./dry-run.runner";
+import { SocialNetwork } from "../generated/prisma/client.js";
+import { AppModule } from "../app.module.js";
+import { LlmService } from "../infrastructure/llm/llm.service.js";
+import { DryRunReporter } from "./dry-run.reporter.js";
+import { DryRunRunner, type DryRunOptions } from "./dry-run.runner.js";
 
 interface ParsedArgs {
   feature: "generation" | "posting" | "engagement" | "trending" | "replies" | "all";

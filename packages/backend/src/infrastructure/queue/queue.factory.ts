@@ -9,9 +9,13 @@ import {
 import { ConfigService } from "@nestjs/config";
 import { Queue, Worker, type Job } from "bullmq";
 import IORedis from "ioredis";
-import { DiscordNotificationService } from "../notifications/discord-notification.service";
+import { DiscordNotificationService } from "../notifications/discord-notification.service.js";
 import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER } from "../redis/redis.module.js";
 import { isJobInFlight } from "./queue-state-utils.js";
+import {
+  IResiliencePort,
+  type IResiliencePort as ResiliencePort,
+} from "../../domain/ports/resilience.port.js";
 
 /**
  * BullMQ queue factory — creates Redis-backed queues and workers for posting.
@@ -67,6 +71,7 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
     private readonly discord: DiscordNotificationService,
     @Optional() @Inject(SHARED_REDIS) private readonly injectedClient?: IORedis,
     @Optional() @Inject(SHARED_REDIS_SUBSCRIBER) private readonly injectedSubscriber?: IORedis,
+    @Optional() @Inject(IResiliencePort) private readonly resilience?: ResiliencePort,
   ) {
     this.redisUrl = this.configService.get<string>("REDIS_URL", "redis://localhost:6381");
     // NOTE: parse env ints with an explicit fallback that preserves a valid 0.
@@ -220,6 +225,7 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
     postId: string,
     network: string,
     opts?: { priority?: number; delay?: number },
+    accountId?: string,
   ): Promise<void> {
     const queue = this.getQueue(network, "posting");
 
@@ -268,7 +274,7 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
 
     await queue.add(
       "post",
-      { postId, network },
+      { postId, network, ...(accountId ? { accountId } : {}) },
       {
         jobId: postId, // idempotent — won't create duplicate jobs
         priority: opts?.priority ?? 10, // Sprint K: default priority 10, trending = 1
@@ -410,6 +416,9 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
 
     worker.on("completed", (job) => {
       this.logger.log(`Job ${job.id} completed (${queueName})`);
+      void this.resilience
+        ?.reportHealth(`queue:${network}:${action}`, "HEALTHY")
+        .catch(() => void 0);
     });
 
     worker.on("failed", (job, err) => {
@@ -417,6 +426,9 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
       this.logger.error(
         `Job ${job?.id} failed (${queueName}): ${err.message} (attempts: ${attemptsMade}/${effectiveMaxRetries})`,
       );
+      void this.resilience
+        ?.reportHealth(`queue:${network}:${action}`, "CRITICAL", err.message)
+        .catch(() => void 0);
 
       // Send Discord alert when job exhausts all retries → enters DLQ
       if (attemptsMade >= effectiveMaxRetries) {
@@ -436,9 +448,27 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
 
     worker.on("stalled", (jobId) => {
       this.logger.warn(`Job ${jobId} stalled (${queueName}) — will be retried`);
+      void this.resilience
+        ?.reportHealth(`queue:${network}:${action}`, "CRITICAL", `job ${jobId} stalled`)
+        .catch(() => void 0);
     });
 
     this.workers.set(queueName, worker);
+    this.resilience?.scheduleProbe?.(
+      `queue:${network}:${action}`,
+      async () => {
+        try {
+          await this.getQueue(network, action).getJobCounts("waiting", "active", "delayed");
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      this.configService.get<number>("RESILIENCE_QUEUE_PROBE_INTERVAL_MS", 300_000),
+      {
+        jitterMs: this.configService.get<number>("RESILIENCE_PROBE_JITTER_MS", 30_000),
+      },
+    );
     this.logger.log(`Worker registered for ${queueName} (concurrency=${this.concurrency})`);
     return worker;
   }
@@ -452,10 +482,36 @@ export class QueueFactory implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Get active/waiting job counts for a network.
+   * Get active/waiting job counts for a network or account.
+   *
+   * Network queues remain the default for backward compatibility. When an
+   * account is supplied, inspect the live jobs and count only jobs carrying
+   * that account id. Posting enqueue paths include the id in the payload so
+   * WorldState can report account ownership without creating one queue per
+   * account.
    */
-  async getJobCounts(network: string, action: "posting" | "engagement" = "posting") {
+  async getJobCounts(
+    network: string,
+    action: "posting" | "engagement" = "posting",
+    accountId?: string,
+  ) {
     const queue = this.getQueue(network, action);
+    if (accountId) {
+      const states = ["waiting", "active", "delayed"] as const;
+      const jobsByState = await Promise.all(
+        states.map(async (state) => {
+          const jobs = await queue.getJobs([state], 0, -1, false);
+          return [state, jobs.filter((job) => job.data?.accountId === accountId).length] as const;
+        }),
+      );
+      return {
+        waiting: Object.fromEntries(jobsByState).waiting ?? 0,
+        active: Object.fromEntries(jobsByState).active ?? 0,
+        delayed: Object.fromEntries(jobsByState).delayed ?? 0,
+        completed: 0,
+        failed: 0,
+      };
+    }
     return queue.getJobCounts("waiting", "active", "completed", "failed", "delayed");
   }
 

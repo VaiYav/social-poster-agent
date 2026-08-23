@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { PrismaService } from "../../infrastructure/prisma/prisma.service";
-import { SocialAccount, SocialNetwork } from "../../generated/prisma/client";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { SocialAccount, SocialNetwork } from "../../generated/prisma/client.js";
 import { WarmupService } from "../sessions/warmup.service.js";
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
 import { isNetworkEnabled } from "../../domain/enabled-networks.js";
@@ -22,6 +22,8 @@ export interface AccountCredentials {
 export interface NextAccountOptions {
   /** Prefer this account if it is active. */
   preferredAccountId?: string;
+  /** Restrict rotation to this already-approved account set. */
+  allowedAccountIds?: string[];
   /** Rotation strategy (default: round-robin). */
   strategy?: "round-robin" | "priority";
 }
@@ -219,21 +221,24 @@ export class AccountsService implements OnModuleInit {
     opts: NextAccountOptions = {},
   ): Promise<SocialAccount | null> {
     const accounts = await this.findByNetwork(network);
-    if (accounts.length === 0) return null;
+    const allowedAccounts = opts.allowedAccountIds?.length
+      ? accounts.filter((account) => opts.allowedAccountIds?.includes(account.id))
+      : accounts;
+    if (allowedAccounts.length === 0) return null;
 
     if (opts.preferredAccountId) {
-      const preferred = accounts.find((a) => a.id === opts.preferredAccountId);
+      const preferred = allowedAccounts.find((a) => a.id === opts.preferredAccountId);
       if (preferred) return preferred;
     }
 
     if (opts.strategy === "priority") {
-      return accounts[0] ?? null;
+      return allowedAccounts[0] ?? null;
     }
 
     // Round-robin with in-memory pointer per network.
     const current = this.rotationIndexes.get(network) ?? 0;
-    const next = accounts[current % accounts.length] ?? accounts[0];
-    this.rotationIndexes.set(network, (current + 1) % accounts.length);
+    const next = allowedAccounts[current % allowedAccounts.length] ?? allowedAccounts[0];
+    this.rotationIndexes.set(network, (current + 1) % allowedAccounts.length);
     return next ?? null;
   }
 

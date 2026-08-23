@@ -16,7 +16,7 @@ import {
   InteractionType,
   SocialNetwork,
   type Prisma,
-} from "../../generated/prisma/client";
+} from "../../generated/prisma/client.js";
 import type { Page } from "../../domain/ports/browser-primitives.js";
 import type { BaseEngager } from "./engagers/base.engager.js";
 import { XEngager } from "./engagers/x.engager.js";
@@ -25,6 +25,11 @@ import { FacebookEngager } from "./engagers/facebook.engager.js";
 import type { EngagementResult } from "../posting/posters/base.poster.js";
 import { isNetworkEnabled } from "../../domain/enabled-networks.js";
 import type { IEngagementPort } from "../orchestrator/ports.js";
+import {
+  IRuntimeActionAuthorizer,
+  type AuthorizePlatformActionParams,
+  type PlatformAuthorizationDecision,
+} from "../policy/policy.types.js";
 
 @Injectable()
 export class EngagementService implements IEngagementPort {
@@ -43,6 +48,15 @@ export class EngagementService implements IEngagementPort {
     @Optional() private readonly accountsService?: AccountsService,
     @Optional() private readonly warmupService?: WarmupService,
     private readonly engagementSafetyService: EngagementSafetyService = new EngagementSafetyService(),
+    @Optional()
+    @Inject(IRuntimeActionAuthorizer)
+    private readonly actionAuthorizer?: {
+      authorize(params: AuthorizePlatformActionParams): Promise<PlatformAuthorizationDecision>;
+      reauthorize(
+        params: AuthorizePlatformActionParams,
+        expectedPolicyHash: string,
+      ): Promise<PlatformAuthorizationDecision>;
+    },
   ) {}
 
   /**
@@ -204,6 +218,45 @@ export class EngagementService implements IEngagementPort {
       accountId = account?.id;
     }
 
+    if (accountId && (await this.flowControlService.isPaused("engagement", accountId))) {
+      this.logger.warn(`Engagement flow paused for account ${accountId} — skipping ${type}`);
+      return { success: false, error: "Engagement flow paused for account", interactionId: "" };
+    }
+
+    const policyAction = type === InteractionType.COMMENT ? "REPLY" : (type as string);
+    const policyParams: AuthorizePlatformActionParams | undefined = accountId
+      ? {
+          accountId,
+          network,
+          action: policyAction as AuthorizePlatformActionParams["action"],
+          transport: "BROWSER",
+          targetRelationship: "UNKNOWN",
+          contentRiskTier: "LOW",
+          requestedMode: "APPROVED_AUTOMATION",
+        }
+      : undefined;
+    let policyDecision: PlatformAuthorizationDecision | undefined;
+    if (this.actionAuthorizer) {
+      if (!policyParams) {
+        return {
+          success: false,
+          error: "Policy authorization requires a selected account",
+          interactionId: "",
+        };
+      }
+      policyDecision = await this.actionAuthorizer.authorize(policyParams);
+      if (policyDecision.allowedMode !== "APPROVED_AUTOMATION") {
+        this.logger.warn(
+          `Policy blocked ${type} on ${network}: ${policyDecision.blockReasons.join("; ")}`,
+        );
+        return {
+          success: false,
+          error: `Policy mode ${policyDecision.allowedMode}: ${policyDecision.blockReasons.join("; ")}`,
+          interactionId: "",
+        };
+      }
+    }
+
     // Rate limit check — per network, account, and action so multi-account
     // setups don't share a single counter.
     const action = type.toLowerCase();
@@ -280,8 +333,25 @@ export class EngagementService implements IEngagementPort {
       context = await this.browser.acquireContext(network, storageState, accountId);
       page = await context.newPage();
 
-      // Perform the engagement action
-      result = await performAction(engager, page);
+      // ADR-012: reauthorize immediately before the browser side effect. A
+      // source expiry, operator pause or policy revision must win a cached
+      // decision and fail closed.
+      if (this.actionAuthorizer && policyParams && policyDecision) {
+        const current = await this.actionAuthorizer.reauthorize(
+          policyParams,
+          policyDecision.policyHash,
+        );
+        if (current.allowedMode !== "APPROVED_AUTOMATION") {
+          result = {
+            success: false,
+            error: `Policy changed before side effect: ${current.blockReasons.join("; ")}`,
+          };
+        } else {
+          result = await performAction(engager, page);
+        }
+      } else {
+        result = await performAction(engager, page);
+      }
 
       // Save updated session state
       const updatedState = await this.browser.saveStorageState(context);

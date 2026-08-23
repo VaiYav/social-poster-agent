@@ -4,8 +4,8 @@
  * P2: eval harness for per-dimension hard-fail thresholds and A/B skip threshold.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { BatchedJudgeService } from "../../../src/modules/generation/batched-judge.service";
-import type { ILlmPort } from "../../../src/domain/ports/llm.port";
+import { BatchedJudgeService } from "../../../src/modules/generation/batched-judge.service.js";
+import type { ILlmPort } from "../../../src/domain/ports/llm.port.js";
 
 function createMockLlm(content: string): ILlmPort {
   return {

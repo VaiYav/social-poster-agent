@@ -9,10 +9,10 @@
 import { Injectable, Logger, Optional, Inject } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { ModuleRef } from "@nestjs/core";
-import { PostStatus, SocialNetwork, GenerationTrigger } from "../../generated/prisma/client";
+import { PostStatus, SocialNetwork, GenerationTrigger } from "../../generated/prisma/client.js";
 import type { JudgeScores } from "@spa/shared";
 import { RateLimitService } from "../rate-limit/rate-limit.service.js";
-import { PrismaService } from "../../infrastructure/prisma/prisma.service";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
 import { GenerationService } from "../generation/generation.service.js";
 import { QueueService } from "../queue/queue.service.js";
@@ -118,36 +118,77 @@ export class GeneratePostsHandler implements IActionHandler {
     // by successful posts plus in-flight approved/posting posts. This prevents the
     // orchestrator from burning LLM quota on posts that will immediately fail rate checks.
     const rateLimitService = resolveOptional(this.moduleRef, RateLimitService);
+    const accountsService = resolveOptional(this.moduleRef, AccountsService);
     let effectivePostsPerRun = postsPerRun;
+    const readyAccountIds = new Set<string>();
     if (rateLimitService) {
       const readyNetworks: SocialNetwork[] = [];
       let minDailyRemaining = Number.MAX_SAFE_INTEGER;
       let minWeeklyRemaining = Number.MAX_SAFE_INTEGER;
       for (const network of networks) {
-        const [status, inFlight] = await Promise.all([
-          rateLimitService.getStatus(network),
-          this.prisma.post.count({
-            where: {
-              network,
-              status: { in: [PostStatus.APPROVED, PostStatus.POSTING] },
-            },
-          }),
-        ]);
-        const dailyRemaining =
-          status.dailyLimit > 0
-            ? Math.max(0, status.dailyLimit - status.dailyCount - inFlight)
+        const accounts = accountsService
+          ? (await accountsService.findByNetwork(network)).filter((account) => account.active)
+          : [];
+        const accountCapacity = accountsService
+          ? await Promise.all(
+              accounts.map(async (account) => {
+                const [status, inFlight] = await Promise.all([
+                  rateLimitService.getStatus(network, account.id),
+                  this.prisma.post.count({
+                    where: {
+                      network,
+                      accountId: account.id,
+                      status: { in: [PostStatus.APPROVED, PostStatus.POSTING] },
+                    },
+                  }),
+                ]);
+                return {
+                  accountId: account.id,
+                  dailyRemaining:
+                    status.dailyLimit > 0
+                      ? Math.max(0, status.dailyLimit - status.dailyCount - inFlight)
+                      : Number.MAX_SAFE_INTEGER,
+                  weeklyRemaining:
+                    status.weeklyLimit > 0
+                      ? Math.max(0, status.weeklyLimit - status.weeklyCount - inFlight)
+                      : Number.MAX_SAFE_INTEGER,
+                };
+              }),
+            )
+          : [];
+        const [legacyStatus, legacyInFlight] = accountsService
+          ? [undefined, 0]
+          : await Promise.all([
+              rateLimitService.getStatus(network),
+              this.prisma.post.count({
+                where: {
+                  network,
+                  status: { in: [PostStatus.APPROVED, PostStatus.POSTING] },
+                },
+              }),
+            ]);
+        const dailyRemaining = accountsService
+          ? accountCapacity.reduce((sum, item) => sum + item.dailyRemaining, 0)
+          : legacyStatus && legacyStatus.dailyLimit > 0
+            ? Math.max(0, legacyStatus.dailyLimit - legacyStatus.dailyCount - legacyInFlight)
             : Number.MAX_SAFE_INTEGER;
-        const weeklyRemaining =
-          status.weeklyLimit > 0
-            ? Math.max(0, status.weeklyLimit - status.weeklyCount - inFlight)
+        const weeklyRemaining = accountsService
+          ? accountCapacity.reduce((sum, item) => sum + item.weeklyRemaining, 0)
+          : legacyStatus && legacyStatus.weeklyLimit > 0
+            ? Math.max(0, legacyStatus.weeklyLimit - legacyStatus.weeklyCount - legacyInFlight)
             : Number.MAX_SAFE_INTEGER;
         if (dailyRemaining > 0 && weeklyRemaining > 0) {
-          readyNetworks.push(network);
+          if (!accountsService || accountCapacity.length > 0) readyNetworks.push(network);
+          for (const account of accountCapacity) {
+            if (account.dailyRemaining > 0 && account.weeklyRemaining > 0) {
+              readyAccountIds.add(account.accountId);
+            }
+          }
           minDailyRemaining = Math.min(minDailyRemaining, dailyRemaining);
           minWeeklyRemaining = Math.min(minWeeklyRemaining, weeklyRemaining);
         } else {
           this.logger.warn(
-            `Skipping generation for ${network}: daily=${status.dailyCount}/${status.dailyLimit}, weekly=${status.weeklyCount}/${status.weeklyLimit}, inFlight=${inFlight}`,
+            `Skipping generation for ${network}: no account has remaining daily and weekly capacity`,
           );
         }
       }
@@ -174,6 +215,7 @@ export class GeneratePostsHandler implements IActionHandler {
       false,
       undefined,
       options?.signal,
+      readyAccountIds.size > 0 ? { accountIds: [...readyAccountIds] } : undefined,
     );
 
     let postsApproved = 0;
@@ -256,7 +298,7 @@ export class PostHandler implements IActionHandler {
     const delay = delayMin + Math.random() * (delayMax - delayMin);
     const delayMs = Math.round(delay);
 
-    await queueService.enqueuePosting(post.id, action.network, { delay: delayMs });
+    await queueService.enqueuePosting(post.id, action.network, { delay: delayMs }, post.accountId);
 
     return { enqueued: true, postId: post.id, delayMs };
   }

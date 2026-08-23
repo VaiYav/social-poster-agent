@@ -27,6 +27,15 @@ const mocks = vi.hoisted(() => ({
     delayed: 0,
   }),
   queueGetJob: vi.fn().mockResolvedValue(null),
+  queueGetJobs: vi
+    .fn()
+    .mockImplementation(async (states: string[]) =>
+      states[0] === "waiting"
+        ? [{ data: { accountId: "account-a" } }]
+        : states[0] === "active"
+          ? [{ data: { accountId: "account-b" } }]
+          : [{ data: { accountId: "account-a" } }],
+    ),
   queuePause: vi.fn().mockResolvedValue(undefined),
   queueResume: vi.fn().mockResolvedValue(undefined),
   queueIsPaused: vi.fn().mockResolvedValue(false),
@@ -47,6 +56,7 @@ vi.mock("bullmq", () => ({
       getFailed: mocks.queueGetFailed,
       getJobCounts: mocks.queueGetJobCounts,
       getJob: mocks.queueGetJob,
+      getJobs: mocks.queueGetJobs,
       pause: mocks.queuePause,
       resume: mocks.queueResume,
       isPaused: mocks.queueIsPaused,
@@ -64,7 +74,7 @@ vi.mock("bullmq", () => ({
 
 import { ConfigService } from "@nestjs/config";
 import IORedis from "ioredis";
-import { QueueFactory } from "../../../src/infrastructure/queue/queue.factory";
+import { QueueFactory } from "../../../src/infrastructure/queue/queue.factory.js";
 
 // ── Helpers ──
 
@@ -329,6 +339,42 @@ describe("QueueFactory (MOD-05 — Infrastructure Adapters)", () => {
     expect(eventTypes).toContain("stalled");
   });
 
+  it("reports worker failures and stalls to the resilience port", async () => {
+    const resilience = {
+      reportHealth: vi.fn().mockResolvedValue(undefined),
+      scheduleProbe: vi.fn(),
+    };
+    const resilientFactory = new QueueFactory(
+      configService,
+      discord as never,
+      undefined,
+      undefined,
+      resilience as never,
+    );
+    resilientFactory.registerWorker("X", vi.fn().mockResolvedValue(undefined));
+
+    const failedHandler = mocks.workerOn.mock.calls.find((call) => call[0] === "failed")?.[1] as
+      | ((job: { id: string; attemptsMade: number }, err: Error) => void)
+      | undefined;
+    const stalledHandler = mocks.workerOn.mock.calls.find((call) => call[0] === "stalled")?.[1] as
+      | ((jobId: string) => void)
+      | undefined;
+    failedHandler?.({ id: "job-failed", attemptsMade: 1 }, new Error("provider down"));
+    stalledHandler?.("job-stalled");
+    await Promise.resolve();
+
+    expect(resilience.reportHealth).toHaveBeenCalledWith(
+      "queue:X:posting",
+      "CRITICAL",
+      "provider down",
+    );
+    expect(resilience.reportHealth).toHaveBeenCalledWith(
+      "queue:X:posting",
+      "CRITICAL",
+      "job job-stalled stalled",
+    );
+  });
+
   it("registerWorker() returns existing worker if already registered (no duplicate)", () => {
     const handler = vi.fn().mockResolvedValue(undefined);
     const w1 = factory.registerWorker("X", handler);
@@ -368,6 +414,30 @@ describe("QueueFactory (MOD-05 — Infrastructure Adapters)", () => {
       completed: 10,
       failed: 1,
       delayed: 0,
+    });
+  });
+
+  it("getJobCounts(accountId) counts only active jobs owned by that account", async () => {
+    const counts = await factory.getJobCounts("THREADS", "posting", "account-a");
+
+    expect(mocks.queueGetJobs).toHaveBeenCalledTimes(3);
+    expect(counts).toEqual({
+      waiting: 1,
+      active: 0,
+      completed: 0,
+      failed: 0,
+      delayed: 1,
+    });
+  });
+
+  it("enqueuePosting(accountId) persists account ownership in the job payload", async () => {
+    await factory.enqueuePosting("post-account", "THREADS", undefined, "account-a");
+
+    const addArgs = mocks.queueAdd.mock.calls[0]!;
+    expect(addArgs[1]).toEqual({
+      postId: "post-account",
+      network: "THREADS",
+      accountId: "account-a",
     });
   });
 

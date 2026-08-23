@@ -9,7 +9,7 @@
  * only when the feature flag is enabled.
  */
 
-import type { SocialNetwork } from "../../generated/prisma/client";
+import type { SocialNetwork } from "../../generated/prisma/client.js";
 import type { EngagementResult } from "../posting/posters/base.poster.js";
 
 // ── Engagement Action Port ─────────────────────────────────────────────────

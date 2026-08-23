@@ -9,8 +9,8 @@
 import "reflect-metadata";
 import type { INestApplication } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
-import { SocialNetwork, PostStatus, GenerationTrigger } from "../generated/prisma/client";
-import { AppModule } from "../app.module";
+import { SocialNetwork, PostStatus, GenerationTrigger } from "../generated/prisma/client.js";
+import { AppModule } from "../app.module.js";
 import type { BrowserContext, Page } from "../domain/ports/browser-primitives.js";
 import type { BaseEngager } from "../modules/engagement/engagers/base.engager.js";
 import type {
@@ -18,17 +18,17 @@ import type {
   MergedTrendingTopic,
 } from "../modules/trending/trending-scraper.service.js";
 import type { TrendingTopic } from "../modules/trending/trending.service.js";
-import { GenerationService } from "../modules/generation/generation.service";
-import { PostingService } from "../modules/posting/posting.service";
-import { PostsService } from "../modules/posts/posts.service";
-import { SessionsService } from "../modules/sessions/sessions.service";
-import { AccountsService } from "../modules/accounts/accounts.service";
-import { TrendingScraperService } from "../modules/trending/trending-scraper.service";
-import { TrendingService } from "../modules/trending/trending.service";
-import { RepliesMonitorService } from "../modules/replies/replies-monitor.service";
-import { XEngager } from "../modules/engagement/engagers/x.engager";
-import { ThreadsEngager } from "../modules/engagement/engagers/threads.engager";
-import { IBrowserPort } from "../domain/ports/browser.port";
+import { GenerationService } from "../modules/generation/generation.service.js";
+import { PostingService } from "../modules/posting/posting.service.js";
+import { PostsService } from "../modules/posts/posts.service.js";
+import { SessionsService } from "../modules/sessions/sessions.service.js";
+import { AccountsService } from "../modules/accounts/accounts.service.js";
+import { TrendingScraperService } from "../modules/trending/trending-scraper.service.js";
+import { TrendingService } from "../modules/trending/trending.service.js";
+import { RepliesMonitorService } from "../modules/replies/replies-monitor.service.js";
+import { XEngager } from "../modules/engagement/engagers/x.engager.js";
+import { ThreadsEngager } from "../modules/engagement/engagers/threads.engager.js";
+import { IBrowserPort } from "../domain/ports/browser.port.js";
 
 interface Args {
   feature: "posting" | "engagement" | "trending" | "replies" | "all";

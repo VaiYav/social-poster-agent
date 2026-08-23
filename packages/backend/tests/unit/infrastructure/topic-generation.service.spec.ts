@@ -4,7 +4,7 @@
  * Traces to: Phase 5.11 — bulk topic insert with Prisma createMany + skipDuplicates.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { TopicGenerationService } from "../../../src/infrastructure/content/topic-generation.service";
+import { TopicGenerationService } from "../../../src/infrastructure/content/topic-generation.service.js";
 import { createMockConfigService } from "../../mocks/index.js";
 
 function createMockPrisma() {

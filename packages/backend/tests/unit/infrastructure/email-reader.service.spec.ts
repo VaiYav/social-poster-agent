@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "node:events";
 import { ConfigService } from "@nestjs/config";
-import { EmailReaderService } from "../../../src/infrastructure/email/email-reader.service";
+import { EmailReaderService } from "../../../src/infrastructure/email/email-reader.service.js";
 import { ImapFlow } from "imapflow";
 
 // Mock ImapFlow module so each new EmailReaderService gets a controlled client.

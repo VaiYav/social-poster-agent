@@ -9,8 +9,8 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { OnEvent } from "@nestjs/event-emitter";
 import { ConfigService } from "@nestjs/config";
-import { PrismaService } from "../../infrastructure/prisma/prisma.service";
-import { GenerationService } from "../../modules/generation/generation.service";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { GenerationService } from "../../modules/generation/generation.service.js";
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
 import type { PostVerifiedEvent } from "../post-verified.event.js";
 

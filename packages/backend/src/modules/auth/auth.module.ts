@@ -13,11 +13,11 @@
 import { Global, Module } from "@nestjs/common";
 import { JwtModule } from "@nestjs/jwt";
 import { ConfigModule, ConfigService } from "@nestjs/config";
-import { AuthService } from "./auth.service";
-import { AuthController } from "./auth.controller";
-import { JwtAuthGuard } from "./jwt-auth.guard";
-import { AdminGuard } from "./admin.guard";
-import { LoginRateLimitGuard } from "./login-rate-limit.guard";
+import { AuthService } from "./auth.service.js";
+import { AuthController } from "./auth.controller.js";
+import { JwtAuthGuard } from "./jwt-auth.guard.js";
+import { AdminGuard } from "./admin.guard.js";
+import { LoginRateLimitGuard } from "./login-rate-limit.guard.js";
 
 /** Auth module is global so AdminGuard is available to any controller. */
 @Global()

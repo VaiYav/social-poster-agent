@@ -23,11 +23,11 @@ import { Test } from "@nestjs/testing";
 import type { TestingModule } from "@nestjs/testing";
 import { ConfigService } from "@nestjs/config";
 import { SchedulerRegistry } from "@nestjs/schedule";
-import { SessionStatus, SocialNetwork } from "../../../src/generated/prisma/client";
+import { SessionStatus, SocialNetwork } from "../../../src/generated/prisma/client.js";
 
-import { SessionsService } from "../../../src/modules/sessions/sessions.service";
-import { AccountsService } from "../../../src/modules/accounts/accounts.service";
-import { PrismaService } from "../../../src/infrastructure/prisma/prisma.service";
+import { SessionsService } from "../../../src/modules/sessions/sessions.service.js";
+import { AccountsService } from "../../../src/modules/accounts/accounts.service.js";
+import { PrismaService } from "../../../src/infrastructure/prisma/prisma.service.js";
 import { EncryptionService } from "../../../src/infrastructure/crypto/encryption.service.js";
 import { DiscordNotificationService } from "../../../src/infrastructure/notifications/discord-notification.service.js";
 import { IBrowserPort } from "../../../src/domain/ports/browser.port.js";

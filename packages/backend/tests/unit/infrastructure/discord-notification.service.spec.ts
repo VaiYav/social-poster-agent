@@ -10,7 +10,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ConfigService } from "@nestjs/config";
-import { DiscordNotificationService } from "../../../src/infrastructure/notifications/discord-notification.service";
+import { DiscordNotificationService } from "../../../src/infrastructure/notifications/discord-notification.service.js";
 
 // ── Helpers ──
 

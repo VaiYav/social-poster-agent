@@ -4,8 +4,8 @@
  * Source: packages/backend/src/modules/orchestrator/guardrails.service.ts
  */
 import { describe, it, expect, beforeEach } from "vitest";
-import { SocialNetwork, SessionStatus } from "../../../src/generated/prisma/client";
-import { GuardrailsService } from "../../../src/modules/orchestrator/guardrails.service";
+import { SocialNetwork, SessionStatus } from "../../../src/generated/prisma/client.js";
+import { GuardrailsService } from "../../../src/modules/orchestrator/guardrails.service.js";
 import { NetworkSelector } from "../../../src/modules/orchestrator/network-selector.js";
 import type { Action, WorldState } from "../../../src/modules/orchestrator/types.js";
 import { createMockConfigService } from "../../mocks/index.js";

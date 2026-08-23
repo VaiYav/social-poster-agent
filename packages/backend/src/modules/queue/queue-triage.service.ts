@@ -13,13 +13,13 @@
  */
 import { Injectable, Logger, Inject, Optional } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { PostStatus, SocialNetwork } from "../../generated/prisma/client";
+import { PostStatus, SocialNetwork } from "../../generated/prisma/client.js";
 import type { Job } from "bullmq";
 import { z } from "zod";
-import { QueueFactory } from "../../infrastructure/queue/queue.factory";
+import { QueueFactory } from "../../infrastructure/queue/queue.factory.js";
 import { FlowControlService } from "../flow-control/flow-control.service.js";
-import { PrismaService } from "../../infrastructure/prisma/prisma.service";
-import { SseService } from "../../infrastructure/sse/sse.service";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { SseService } from "../../infrastructure/sse/sse.service.js";
 import { ILlmPort, type LlmResponse } from "../../domain/ports/llm.port.js";
 import { IPromptPort } from "../../domain/ports/prompt.port.js";
 import { parseBool } from "../../infrastructure/config/parse-bool.js";
@@ -229,6 +229,7 @@ export class QueueTriageService {
         content: true,
         errorMessage: true,
         network: true,
+        accountId: true,
       },
     });
     const postById = new Map(posts.map((p) => [p.id, p]));
@@ -368,7 +369,7 @@ export class QueueTriageService {
   ): Promise<void> {
     const post = await this.prisma.post.findUnique({
       where: { id: decision.postId },
-      select: { id: true, status: true, network: true },
+      select: { id: true, status: true, network: true, accountId: true },
     });
 
     // REJECT is allowed for terminal/missing posts so we can clear stale dead jobs.
@@ -412,7 +413,7 @@ export class QueueTriageService {
         await this.applyRetry(network, decision, result);
         break;
       case "REQUEUE_DELAY":
-        await this.applyRequeueDelay(network, decision, result);
+        await this.applyRequeueDelay(network, decision, result, post.accountId);
         break;
       case "ESCALATE":
         await this.applyEscalate(network, decision, result);
@@ -434,10 +435,11 @@ export class QueueTriageService {
     network: SocialNetwork,
     decision: TriageDecisionItem,
     result: TriageResult,
+    accountId?: string,
   ): Promise<void> {
     const delayMinutes = decision.delayMinutes ?? 60;
     const delayMs = delayMinutes * 60 * 1000;
-    await this.queueFactory.enqueuePosting(decision.postId, network, { delay: delayMs });
+    await this.queueFactory.enqueuePosting(decision.postId, network, { delay: delayMs }, accountId);
     this.logger.log(
       `Queue triage: REQUEUE_DELAY ${decision.postId} for ${delayMinutes}min — ${decision.reason}`,
     );
