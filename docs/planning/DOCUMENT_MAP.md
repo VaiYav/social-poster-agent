@@ -77,6 +77,7 @@ current sprint, feature register or single source of status.
 | ADR-012 policy/reputation | Accepted 2026-08-23 | `POLICY-001`. |
 | ADR-013 creator CRM | Accepted 2026-08-23 | `CRM-001`. |
 | ADR-014 editorial bridge | Accepted 2026-08-23 | `BRIDGE-001`. |
+| ADR-015 API-first network transport | Accepted 2026-08-23 | `NETWORK-001`; Bluesky/Mastodon use free official APIs by default, browser transport remains rollback-only. |
 
 ADR decision status is legitimate and separate from implementation status. An accepted
 ADR does not make its feature `DONE`.
@@ -108,6 +109,24 @@ ADR does not make its feature `DONE`.
 | `.forge/orchestrator/*` | Original orchestrator workstream design | Frozen task status; map through `ORCH-101`. |
 
 Runbooks keep operational checkboxes because they are procedures, not task status.
+
+## Legacy terminology cross-reference (DOCS-103)
+
+Code comments and env docs from pre-planning-hub eras reference "Sprint X" letters and
+"F-numbers" that have no defining document. They are historical labels only — never
+sources of status. When touching a file, replace the legacy label with the canonical
+feature/task ID from the map below; do not do bulk comment sweeps in files owned by
+active workstreams.
+
+| Legacy label | Meaning | Canonical reference |
+|---|---|---|
+| Sprint P | Prompt registry / Langfuse prompt versioning | `PLATFORM-004` (done) |
+| Sprint Q / F4 | Replies monitoring UI, question classifier, incoming comments | Replies module (`REPLIES_ENABLED`), conversation work → `ENGAGE-001` |
+| Sprint T | LLM-in-the-loop queue triage | `CONTROL-001` adjacent ops tooling (`queue.controller.ts`) |
+| Sprint I | Resumability + HITL review interrupt | Generation graph `human_review` node (`generation.controller.ts` resume/review endpoints) |
+| Sprint J/K/L/N/O | Hardening waves: LLM quality, browser pool/perf, SSE+Redis pooling, resource limits, EDA+flagged modules | Superseded by `HARDEN-001` (`CI-*`, `REFACTOR-*`, `DESIGN-*`) and `REL-001` |
+| F6 / F13 / F19 / F20 / F21 / F22 | Metrics scraping / recycling / quote cards / warm-up / ban detection / trending | `AnalyticsModule` metrics, `RECYCLE-*`, quote-cards flag, sessions warm-up, health monitor, trending module |
+| F1 / F8 | Autonomous agent / A-B infra | `ORCH-001` / `PLATFORM-001` |
 
 ## Known overlap requiring later consolidation
 
