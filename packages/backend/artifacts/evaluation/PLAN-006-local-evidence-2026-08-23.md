@@ -9,8 +9,9 @@ claimed from code presence.
 - Added `scripts/validate-planning-docs.mjs` and the root `planning:check` command.
 - Added the guard to `.github/workflows/ci.yml` before runtime lint/build/test jobs.
 - The validator checks required canonical planning entry points, task/feature/archive
-  row IDs and statuses, duplicate canonical IDs, every `docs/roadmap/*.md` mapping in
-  `DOCUMENT_MAP.md`, and active status rows outside canonical planning files.
+  row IDs and statuses, duplicate canonical IDs, active/archive task overlap, every
+  `docs/roadmap/*.md` mapping in `DOCUMENT_MAP.md`, and active status rows outside
+  canonical planning files.
 - Research-only `roadmap/07-additional-features-research.md` is explicitly allowed to
   map to `none`; it cannot silently become a feature status source.
 - `PLAN-003` and `PLAN-004` decisions are recorded in the planning archive, and the

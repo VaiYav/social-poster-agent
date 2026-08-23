@@ -72,6 +72,13 @@ function validateCanonicalRows(errors) {
   errors.push(...duplicateIds(backlogRows, "BACKLOG.md"));
   errors.push(...duplicateIds(featureRows, "FEATURES.md"));
 
+  const archivedIds = new Set(archiveRows.map((row) => row.id));
+  for (const row of backlogRows) {
+    if (archivedIds.has(row.id)) {
+      errors.push(`BACKLOG.md:${row.line}: ${row.id} exists in both active backlog and archive`);
+    }
+  }
+
   for (const row of backlogRows) {
     if (!taskIdPattern.test(row.id)) errors.push(`BACKLOG.md:${row.line}: invalid task ID ${row.id}`);
     if (!activeTaskStatuses.has(row.status)) {
