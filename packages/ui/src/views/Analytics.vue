@@ -16,7 +16,7 @@ import {
 } from "@lucide/vue";
 import { useApi } from "../composables/useApi";
 import { useToast } from "../composables/useToast";
-import { Card, ProgressBar, Badge, SectionHeader, Button, Select } from "../components/ui";
+import { Card, ProgressBar, Badge, SectionHeader, Button, Select, Table } from "../components/ui";
 import StatCard from "../components/StatCard.vue";
 import LoadingSpinner from "../components/LoadingSpinner.vue";
 import ErrorState from "../components/ErrorState.vue";
@@ -512,7 +512,7 @@ const statIcons = {
           >
             No CTA-bearing posts in this window.
           </div>
-          <div v-else class="overflow-x-auto">
+          <Table v-else>
             <table class="w-full min-w-[42rem] text-left text-sm">
               <caption class="sr-only">
                 Recent CTA performance
@@ -547,7 +547,7 @@ const statIcons = {
                 </tr>
               </tbody>
             </table>
-          </div>
+          </Table>
         </div>
       </Card>
 

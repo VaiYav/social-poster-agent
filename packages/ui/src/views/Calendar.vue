@@ -8,11 +8,10 @@ import {
   Filter,
   LayoutGrid,
   List,
-  X,
 } from "@lucide/vue";
 import { useApi } from "../composables/useApi";
 import { useToast } from "../composables/useToast";
-import { Card, Button, SectionHeader, Badge, Select, Input } from "../components/ui";
+import { Card, Button, SectionHeader, Badge, Select, Input, Modal } from "../components/ui";
 import LoadingSpinner from "../components/LoadingSpinner.vue";
 import ErrorState from "../components/ErrorState.vue";
 import NetworkIcon from "../components/NetworkIcon.vue";
@@ -427,53 +426,44 @@ onMounted(() => {
       </div>
     </Card>
 
-    <!-- Reschedule modal -->
-    <div
-      v-if="selectedEvent"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      @click.self="closeModal"
+    <!-- Reschedule modal (DESIGN-102: Modal primitive) -->
+    <Modal
+      :open="selectedEvent !== null"
+      title="Reschedule Post"
+      size="sm"
+      @update:open="(value) => !value && closeModal()"
+      @close="closeModal"
     >
-      <Card class="w-full max-w-md">
-        <template #header>
-          <div class="flex items-center justify-between">
-            <h3 class="text-lg font-semibold text-text-primary">Reschedule Post</h3>
-            <button class="rounded p-1 text-text-muted hover:text-text-primary" @click="closeModal">
-              <X class="h-4 w-4" />
-            </button>
-          </div>
-        </template>
-
-        <div class="space-y-4" v-if="selectedEvent">
-          <div
-            class="rounded-md border border-border bg-surface-elevated p-3 text-sm text-text-secondary"
-          >
-            <p class="line-clamp-3">{{ selectedEvent.content }}</p>
-            <div class="mt-2 flex items-center gap-2 text-xs text-text-muted">
-              <NetworkIcon :network="selectedEvent.network" class="h-3 w-3" />
-              <span>{{ selectedEvent.network }}</span>
-              <Badge size="sm">{{ selectedEvent.status }}</Badge>
-            </div>
-          </div>
-
-          <div>
-            <label class="mb-1.5 block text-sm font-medium text-text-secondary">
-              <Clock class="mr-1 inline h-4 w-4" />
-              Scheduled at
-            </label>
-            <Input v-model="scheduleValue" type="datetime-local" />
-            <p class="mt-1 text-xs text-text-muted">
-              DRAFT posts keep their status; APPROVED/POSTING posts are re-enqueued.
-            </p>
-          </div>
-
-          <div class="flex justify-end gap-2">
-            <Button variant="ghost" @click="closeModal">Cancel</Button>
-            <Button :loading="scheduling" :disabled="scheduling" @click="saveSchedule">
-              Save Schedule
-            </Button>
+      <div class="space-y-4" v-if="selectedEvent">
+        <div
+          class="rounded-md border border-border bg-surface-elevated p-3 text-sm text-text-secondary"
+        >
+          <p class="line-clamp-3">{{ selectedEvent.content }}</p>
+          <div class="mt-2 flex items-center gap-2 text-xs text-text-muted">
+            <NetworkIcon :network="selectedEvent.network" class="h-3 w-3" />
+            <span>{{ selectedEvent.network }}</span>
+            <Badge size="sm">{{ selectedEvent.status }}</Badge>
           </div>
         </div>
-      </Card>
-    </div>
+
+        <div>
+          <label class="mb-1.5 block text-sm font-medium text-text-secondary">
+            <Clock class="mr-1 inline h-4 w-4" />
+            Scheduled at
+          </label>
+          <Input v-model="scheduleValue" type="datetime-local" />
+          <p class="mt-1 text-xs text-text-muted">
+            DRAFT posts keep their status; APPROVED/POSTING posts are re-enqueued.
+          </p>
+        </div>
+
+        <div class="flex justify-end gap-2">
+          <Button variant="ghost" @click="closeModal">Cancel</Button>
+          <Button :loading="scheduling" :disabled="scheduling" @click="saveSchedule">
+            Save Schedule
+          </Button>
+        </div>
+      </div>
+    </Modal>
   </div>
 </template>
