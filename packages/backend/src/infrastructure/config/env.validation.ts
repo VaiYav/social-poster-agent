@@ -468,6 +468,7 @@ const envSchema = Joi.object({
   BRAND_DESCRIPTION: Joi.string().allow("").default(""),
   DOMAIN: Joi.string().allow("").default(""),
   BRAND_VOICE_PATH: Joi.string().allow("").default("../brand-voice.md"),
+  PERSONA_PROFILES_PATH: Joi.string().allow("").default(""),
   DOMAIN_PROMPT_DIR: Joi.string().allow("").default("config/prompts"),
   TOPIC_CATEGORIES: Joi.string().allow("").default(""),
   CONTENT_PILLARS_PATH: Joi.string().allow("").default(""),

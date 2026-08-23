@@ -8,12 +8,13 @@
  * All LLM calls are dispatched by GenerateOptions.role — deterministic under
  * LangGraph's parallel fan-out (call ORDER is not).
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
 import { MemorySaver, Command } from "@langchain/langgraph";
 import { SocialNetwork } from "../../../src/generated/prisma/client.js";
 import type { ContentTopic } from "@spa/shared";
 import type { ILlmPort, LlmResponse, GenerateOptions } from "../../../src/domain/ports/llm.port.js";
-import { DEFAULT_PERSONA_PROFILES } from "../../../src/modules/persona/persona.defaults.js";
+import { loadPersonaProfiles, type PersonaSeedProfiles } from "../../../src/modules/persona/persona-profile-config.js";
+import { createMockConfigService } from "../../mocks/index.js";
 import {
   buildGenerationGraph,
   createInitialState,
@@ -148,6 +149,14 @@ function postsOf(state: unknown): GeneratedPost[] {
 }
 
 describe("Quality pass — generation graph", () => {
+  let personaProfiles: PersonaSeedProfiles;
+
+  beforeAll(async () => {
+    personaProfiles = await loadPersonaProfiles(
+      createMockConfigService({ PERSONA_PROFILES_PATH: "config/personas.example.md" }),
+    );
+  });
+
   beforeEach(() => {
     clearHookCache();
   });
@@ -183,7 +192,7 @@ describe("Quality pass — generation graph", () => {
   it("PERSONA-102: applies the versioned author context and carries its identity to the output", async () => {
     const llm = makeLlm();
     const compiled = buildGenerationGraph(llm).compile();
-    const profile = DEFAULT_PERSONA_PROFILES.cosmic_analyst!.profile;
+    const profile = personaProfiles.cosmic_analyst!.profile;
     const state = await compiled.invoke(
       createInitialState(createTopic(), [SocialNetwork.X], "brand voice", false, "en", {
         [SocialNetwork.X]: {
