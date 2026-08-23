@@ -62,4 +62,79 @@ describe("QueueService", () => {
     expect(result[0]).not.toHaveProperty("credentials");
     expect(result[0]).not.toHaveProperty("opts");
   });
+
+  it("delegates enqueue, counts, pause/resume, pause status, and completed cleanup", async () => {
+    const queueFactory = {
+      enqueuePosting: vi.fn().mockResolvedValue(undefined),
+      getJobCounts: vi.fn().mockResolvedValue({ waiting: 2, active: 1 }),
+      pauseQueue: vi.fn().mockResolvedValue(undefined),
+      resumeQueue: vi.fn().mockResolvedValue(undefined),
+      isQueuePaused: vi.fn().mockResolvedValue(true),
+      clearCompletedJobs: vi.fn().mockResolvedValue(4),
+    } as unknown as QueueFactory;
+    const service = new QueueService(queueFactory);
+
+    await service.enqueuePosting("post-1", "X", { delay: 500 }, "account-1");
+    await expect(service.getJobCounts("X")).resolves.toEqual({ waiting: 2, active: 1 });
+    await service.pauseQueue("X");
+    await service.resumeQueue("X");
+    await expect(service.isQueuePaused("X")).resolves.toBe(true);
+    await expect(service.clearCompleted("X")).resolves.toBe(4);
+
+    expect(queueFactory.enqueuePosting).toHaveBeenCalledWith(
+      "post-1",
+      "X",
+      { delay: 500 },
+      "account-1",
+    );
+    expect(queueFactory.getJobCounts).toHaveBeenCalledWith("X");
+    expect(queueFactory.pauseQueue).toHaveBeenCalledWith("X");
+    expect(queueFactory.resumeQueue).toHaveBeenCalledWith("X");
+    expect(queueFactory.isQueuePaused).toHaveBeenCalledWith("X");
+    expect(queueFactory.clearCompletedJobs).toHaveBeenCalledWith("X");
+  });
+
+  it("retries only eligible failed jobs and continues after individual failures", async () => {
+    const jobs = [
+      { id: "retry-1", failedReason: "temporary browser timeout" },
+      { id: "rate-1", failedReason: "rate limit reached" },
+      { id: undefined, failedReason: "temporary network error" },
+      { id: "retry-2", failedReason: "provider unavailable" },
+    ];
+    const queueFactory = {
+      getFailedJobs: vi.fn().mockResolvedValue(jobs),
+      retryFailedJob: vi.fn().mockImplementation(async (_network: string, id: string) => {
+        if (id === "retry-2") throw new Error("queue unavailable");
+      }),
+    } as unknown as QueueFactory;
+    const service = new QueueService(queueFactory);
+
+    await expect(service.retryAllFailed("X")).resolves.toBe(1);
+    expect(queueFactory.retryFailedJob).toHaveBeenCalledTimes(2);
+    expect(queueFactory.retryFailedJob).toHaveBeenNthCalledWith(1, "X", "retry-1");
+    expect(queueFactory.retryFailedJob).toHaveBeenNthCalledWith(2, "X", "retry-2");
+  });
+
+  it("maps optional BullMQ fields to safe defaults", async () => {
+    const queueFactory = {
+      getFailedJobs: vi.fn().mockResolvedValue([
+        {
+          name: "post",
+          data: { postId: "post-2" },
+          timestamp: 0,
+        },
+      ]),
+    } as unknown as QueueFactory;
+    const service = new QueueService(queueFactory);
+
+    await expect(service.getFailedJobs("THREADS")).resolves.toEqual([
+      expect.objectContaining({
+        name: "post",
+        attemptsMade: 0,
+        totalAttempts: 1,
+        status: "failed",
+        timestamp: 0,
+      }),
+    ]);
+  });
 });
