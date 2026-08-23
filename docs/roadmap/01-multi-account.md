@@ -1,6 +1,8 @@
 # 01 — Multi-Account Support
 
-## Status
+## Document maturity (non-canonical)
+
+Feature status: `ACCOUNT-001` in [the canonical register](../planning/FEATURES.md).
 
 Proposal. The current codebase is built around **one active account per network**.
 

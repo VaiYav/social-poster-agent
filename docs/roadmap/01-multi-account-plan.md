@@ -1,5 +1,9 @@
 # 01 — Multi-Account Support: Detailed Implementation Plan
 
+> **Planning boundary:** task status is canonical only under `ACCOUNT-001` in
+> [docs/planning](../planning/README.md). Checklists here explain implementation intent
+> and are not updated as a parallel backlog.
+
 > Companion to [`01-multi-account.md`](./01-multi-account.md).  
 > This plan is based on source-level analysis of the SPA backend, external research (Exa) on multi-account operational security, Camoufox per-context fingerprinting, and Threads/Instagram account linkage.
 
