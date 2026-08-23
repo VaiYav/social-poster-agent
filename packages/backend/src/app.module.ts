@@ -38,6 +38,7 @@ import { AnalyticsModule } from "./modules/analytics/analytics.module.js";
 import { RecyclingModule } from "./modules/recycling/recycling.module.js";
 import { QuoteCardModule } from "./modules/quote-cards/quote-card.module.js";
 import { RepliesModule } from "./modules/replies/replies.module.js";
+import { ControlBotModule } from "./modules/control-bot/control-bot.module.js";
 import { FlowControlModule } from "./modules/flow-control/flow-control.module.js";
 import { AutonomyModule } from "./modules/autonomy/autonomy.module.js";
 import { CaptchaModule } from "./infrastructure/captcha/captcha.module.js";
@@ -81,11 +82,20 @@ const repliesImports = parseBool(process.env.REPLIES_ENABLED)
   : [];
 
 /**
+ * TGBOT-101 / CONTROL-001: Telegram operator control bot.
+ * Gated behind CONTROL_BOT_ENABLED (default: false); requires
+ * TELEGRAM_CONTROL_BOT_TOKEN + TELEGRAM_CONTROL_CHAT_IDS allowlist.
+ */
+const controlBotImports = parseBool(process.env.CONTROL_BOT_ENABLED) ? [ControlBotModule] : [];
+
+/**
  * Orchestrator (LangGraph agent loop) — replaces all crons when enabled.
  * Gated behind ORCHESTRATOR_ENABLED (default: false).
  * When disabled, the old cron-based scheduling is used.
  */
-const orchestratorImports = parseBool(process.env.ORCHESTRATOR_ENABLED) ? [OrchestratorModule] : [];
+const orchestratorImports = parseBool(process.env.ORCHESTRATOR_ENABLED)
+  ? [OrchestratorModule.forRoot(parseBool(process.env.ENGAGEMENT_ENABLED))]
+  : [];
 
 /**
  * Syndication (cross-platform content syndication) — Phase 0+.
@@ -150,6 +160,8 @@ const syndicationImports = parseBool(process.env.SYNDICATION_ENABLED)
     ...captchaImports, // Sprint O: Captcha solver — gated by CAPTCHA_SOLVER_ENABLED
     ...quoteCardImports, // Sprint O / F19: Quote cards — gated by QUOTE_CARDS_ENABLED
     ...repliesImports, // Sprint O / F4: Adaptive replies — gated by REPLIES_ENABLED
+    ...controlBotImports, // TGBOT-101: operator control bot — gated by CONTROL_BOT_ENABLED
+    ...controlBotImports, // TGBOT-101: operator control bot — gated by CONTROL_BOT_ENABLED
     FlowControlModule, // ADR-006: Flow control (pause/resume, crisis mode)
     AutonomyModule, // ADR-006: Auto-check, auto-approve, autonomous runner
     ...orchestratorImports, // LangGraph orchestrator — gated by ORCHESTRATOR_ENABLED

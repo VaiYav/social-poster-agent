@@ -22,6 +22,17 @@ interface TelegramApiResponse {
   };
 }
 
+/** TGBOT-101: minimal shape of a getUpdates result we consume. */
+export interface TelegramUpdate {
+  update_id: number;
+  message?: {
+    message_id: number;
+    chat: { id: number | string; type: string };
+    from?: { id: number | string; username?: string };
+    text?: string;
+  };
+}
+
 /** Characters that Telegram MarkdownV2 treats as formatting syntax. */
 const MARKDOWN_V2_RESERVED = /[\\_\*\[\]()~`>#+=|{}.!-]/g;
 
@@ -98,6 +109,73 @@ export class TelegramAdapter {
 
     this.logger.log(`Telegram message sent: chat=${chatId}, messageId=${messageId}`);
     return { success: true, messageId, chatUsername };
+  }
+
+  /**
+   * TGBOT-101: send a plain-text message to a specific chat id (operator control
+   * bot). Unlike sendMessage(), no MarkdownV2 escaping and no channel binding —
+   * the caller owns the chat id (allowlist) and formatting.
+   */
+  async sendMessageToChat(
+    chatId: string | number,
+    text: string,
+  ): Promise<{ success: boolean; messageId?: number; error?: string }> {
+    const token = this.configService.get<string>("TELEGRAM_CONTROL_BOT_TOKEN", "");
+    if (!token) {
+      return { success: false, error: "TELEGRAM_CONTROL_BOT_TOKEN not configured" };
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { success: false, error: `Telegram network error: ${message}` };
+    }
+
+    let result: TelegramApiResponse;
+    try {
+      result = (await response.json()) as TelegramApiResponse;
+    } catch {
+      return { success: false, error: `Telegram returned non-JSON (HTTP ${response.status})` };
+    }
+    if (!response.ok || result.ok === false) {
+      return {
+        success: false,
+        error: result.description ?? `HTTP ${response.status}`,
+      };
+    }
+    return { success: true, messageId: result.result?.message_id };
+  }
+
+  /** TGBOT-101: one long-poll getUpdates call. Returns raw Telegram updates. */
+  async getUpdates(
+    offset: number,
+    timeoutSec: number,
+  ): Promise<{ ok: boolean; updates?: TelegramUpdate[]; error?: string }> {
+    const token = this.configService.get<string>("TELEGRAM_CONTROL_BOT_TOKEN", "");
+    if (!token) return { ok: false, error: "TELEGRAM_CONTROL_BOT_TOKEN not configured" };
+
+    let response: Response;
+    try {
+      response = await fetch(
+        `https://api.telegram.org/bot${token}/getUpdates?offset=${offset}&timeout=${timeoutSec}`,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: `Telegram network error: ${message}` };
+    }
+    if (!response.ok) return { ok: false, error: `HTTP ${response.status}` };
+    try {
+      const body = (await response.json()) as { ok: boolean; result?: TelegramUpdate[] };
+      return { ok: body.ok !== false, updates: body.result ?? [] };
+    } catch {
+      return { ok: false, error: "non-JSON response" };
+    }
   }
 
   /**

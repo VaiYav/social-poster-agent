@@ -226,6 +226,7 @@ const envSchema = Joi.object({
   SPA_SCREENSHOTS: Joi.string().valid("true", "false").default("false"),
   SPA_SCREENSHOT_FULLPAGE: Joi.string().valid("true", "false").default("false"),
   SPA_DEBUG_SELECTORS: Joi.string().valid("true", "false").default("false"),
+  SPA_DEBUG_DIR: Joi.string().default("/tmp/spa-debug"),
   // SE1: deferred login + out-of-band re-login schedule
   SESSION_DEFERRED_LOGIN: Joi.string().valid("true", "false").default("false"),
   SESSION_RELOGIN_CRON: Joi.string().default("*/15 * * * *"),
@@ -288,7 +289,6 @@ const envSchema = Joi.object({
   ORCHESTRATOR_LLM_ENABLED: Joi.string().valid("true", "false").default("true"),
   ORCHESTRATOR_MAX_ACTIONS_PER_HOUR: Joi.number().integer().min(1).default(60),
   ORCHESTRATOR_HEARTBEAT_TTL_MS: Joi.number().integer().min(10000).default(600000),
-  ORCHESTRATOR_CHECKPOINT_KEY: Joi.string().default("spa:orchestrator:checkpoint"),
   ORCHESTRATOR_HEARTBEAT_KEY: Joi.string().default("spa:orchestrator:heartbeat"),
   ORCHESTRATOR_HISTORY_KEY: Joi.string().default("spa:orchestrator:history"),
   ORCHESTRATOR_LEADER_KEY: Joi.string().default("spa:orchestrator:leader"),
@@ -486,12 +486,14 @@ const envSchema = Joi.object({
   BLOG_BASE_URL: Joi.string().uri().allow("").default(""),
   // Article generation cron schedule (default: weekly Monday 9am)
   CRON_ARTICLE_GENERATION_SCHEDULE: Joi.string().default("0 9 * * 1"),
-  // Participation cron schedule (default: daily 10am)
-  CRON_PARTICIPATION_SCHEDULE: Joi.string().default("0 10 * * *"),
 
   // Telegram (only API-based platform — Bot API is free, no approval)
   TELEGRAM_BOT_TOKEN: Joi.string().allow("").default(""),
   TELEGRAM_CHANNEL_ID: Joi.string().allow("").default(""),
+  // TGBOT-101: operator control bot (separate token; chat allowlist)
+  TELEGRAM_CONTROL_BOT_TOKEN: Joi.string().allow("").default(""),
+  TELEGRAM_CONTROL_CHAT_IDS: Joi.string().allow("").default(""),
+  CONTROL_BOT_ENABLED: Joi.boolean().default(false),
 
   // Account credentials for Camoufox login (email/password)
   // Stored as credentials_ref in DB (env var name, not the secret itself)
