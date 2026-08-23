@@ -106,7 +106,7 @@ Feature: `EVAL-001`.
 |---|---|---:|---|---|
 | `EVAL-302` Curate generation cases | `BLOCKED` | P0 | `EVAL-301`, manual/editorial curator | 60 reviewed X/Threads cases across five languages/six archetypes; human review required before dataset evidence. |
 | `EVAL-303` Curate orchestrator/runtime/safety cases | `BLOCKED` | P0 | `EVAL-301`, manual/editorial curator | 30 action, 20 resilience and 10 adversarial cases; human review required before dataset evidence. |
-| `EVAL-304` Upload/version hosted Langfuse dataset | `BLOCKED` | P0 | `EVAL-302`, `EVAL-303` | External Langfuse dataset/run evidence; current live dataset count is zero. |
+| `EVAL-304` Upload/version hosted Langfuse dataset | `BLOCKED` | P0 | `EVAL-302`, `EVAL-303` | Langfuse is reachable, but hosted dataset and score-config counts are both zero; no synthetic/local manifest is uploaded. Read-only preflight: `packages/backend/artifacts/evaluation/EVAL-304-langfuse-preflight-2026-08-23.md`. Human/editorial curation remains required. |
 | `EVAL-401` Langfuse experiment runner | `TODO` | P0 | `EVAL-202`, `EVAL-203`, `EVAL-304` | Hosted dataset run, item/run scores, bounded concurrency/budget, flush. |
 | `EVAL-402` Immutable JSON/Markdown report | `TODO` | P1 | `EVAL-204`, `EVAL-401` | SHA/dataset/candidate-bound artifact with missing evidence. |
 | `EVAL-501` Durable review decision model | `VERIFY` | P0 | `ACCOUNT-101` | Additive model/migration, transactional Post+review write, shared DTO/UI feedback contract and local tests are recorded in `packages/backend/artifacts/evaluation/EVAL-501-local-evidence-2026-08-23.md`; real DB/operator evidence remains open.  evidence: manual |
