@@ -96,8 +96,11 @@ Boundary: local CI command and UI lane only; no GitHub Actions run or clean-SHA 
   non-reproducible under the final serialized run; the affected files also pass
   in isolation. This is local evidence only, not production or GitHub Actions
   evidence.
-- The original roadmap target `80/75/80/80`, exact clean-SHA reconciliation and
-  the first green GitHub Actions run remain open.
+- The original roadmap target `80/75/80/80` remains open. A first real GitHub
+  Actions attempt was made from PR #1 at SHA `bdcc52d` (runs `32668293611` and
+  `32668293736`), but GitHub did not start either job because the account was
+  locked due to a billing issue. This is an external infrastructure blocker,
+  not a workflow/test result; a green Actions run remains open.
 - The SimHash performance benchmark is explicitly skipped under V8
   instrumentation because coverage distorts wall-clock measurements; it remains
   active in the normal unit lane.
