@@ -8,6 +8,8 @@ Boundary: local CI command and UI lane only; no GitHub Actions run or clean-SHA 
 
 - `.github/workflows/ci.yml` runs backend `test:coverage` and a separate UI
   `vue-tsc` + Vitest job.
+- Both CI jobs pin Node `24.19.0`, matching the workspace/backend/UI engine
+  contract `>=24.0.0 <25.0.0`.
 - `packages/backend/test:coverage` serializes the coverage worker with
   `--maxWorkers=1`, preventing inter-file Nest fixture races and shared V8 temp
   directory collisions observed under parallel lanes.
