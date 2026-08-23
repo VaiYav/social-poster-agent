@@ -16,6 +16,7 @@ import {
   Req,
   Res,
 } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import type { Response } from "express";
 import { createReadStream } from "node:fs";
 import type { Request } from "express";
@@ -52,6 +53,7 @@ export class PostsController {
     private readonly postsService: PostsService,
     @Inject(IPostingQueuePort) private readonly postingQueue: IPostingQueuePort,
     private readonly postingWindowService: PostingWindowService,
+    private readonly configService: ConfigService,
   ) {}
 
   private actorId(request?: Request): string | undefined {
@@ -94,7 +96,10 @@ export class PostsController {
       const llmMetadata = (post.llmMetadata as { multiStage?: boolean } | null) ?? {};
       const isMultiStage = llmMetadata.multiStage === true;
       if (isMultiStage && threadPosition > 0) {
-        const delayMs = parseInt(process.env["THREAD_CONTINUATION_DELAY_MS"] ?? "1800000", 10);
+        const delayMs = parseInt(
+          this.configService.get<string>("THREAD_CONTINUATION_DELAY_MS", "1800000"),
+          10,
+        );
         const delay = delayMs * threadPosition;
         this.logger.log(
           `F2: continuation ${postId} (position ${threadPosition}) queued with ${Math.round(delay / 60000)}min delay`,
@@ -151,6 +156,7 @@ export class PostsController {
 
   @Get(":id/media")
   @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: "Serve the generated image media for a post (MEDIA-001)" })
   async media(@Param("id") id: string, @Res() response: Response) {
     const media = await this.postsService.getMediaFile(id);
     if (!media) {

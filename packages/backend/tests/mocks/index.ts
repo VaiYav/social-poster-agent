@@ -271,9 +271,9 @@ export function createMockPrismaService() {
     createMany: vi.fn(),
     findUnique: vi.fn(),
     findFirst: vi.fn(),
-    findMany: vi.fn(),
+    findMany: vi.fn().mockResolvedValue([]),
     update: vi.fn(),
-    updateMany: vi.fn(),
+    updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     upsert: vi.fn(),
     delete: vi.fn(),
     deleteMany: vi.fn(),
@@ -326,6 +326,34 @@ export function createMockPrismaService() {
     editorialAssignmentRecord: {
       ...createModelMock(),
     },
+    platformActionPolicy: {
+      ...createModelMock(),
+      // Application-level E2E flows exercise posting, not policy authoring.
+      // Give them one current, verified, broad test policy; POLICY-101 unit
+      // tests provide their own Prisma fixture and remain fail-closed.
+      findMany: vi.fn().mockResolvedValue([
+        {
+          id: "test-policy-v1",
+          transport: "ANY",
+          targetRelationship: "ANY",
+          executionMode: "APPROVED_AUTOMATION",
+          effectiveAt: new Date(0),
+          expiresAt: null,
+          requirements: [],
+          evidence: { status: "VERIFIED", expiresAt: null },
+        },
+      ]),
+    },
+    platformPolicyEvidence: {
+      ...createModelMock(),
+    },
+    compiledExecutionPolicy: {
+      ...createModelMock(),
+    },
+    accountReputationState: {
+      ...createModelMock(),
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
     browsingSession: {
       ...createModelMock(),
     },
@@ -336,6 +364,58 @@ export function createMockPrismaService() {
       ...createModelMock(),
     },
     contentSource: {
+      ...createModelMock(),
+    },
+    topic: {
+      ...createModelMock(),
+    },
+    threadProgress: {
+      ...createModelMock(),
+    },
+    // POLICY-102 / reputation control plane
+    accountReputationState: {
+      ...createModelMock(),
+    },
+    reputationSignal: {
+      ...createModelMock(),
+    },
+    reputationIncident: {
+      ...createModelMock(),
+    },
+    // GROUND-001 / persona memory
+    personaMemory: {
+      ...createModelMock(),
+    },
+    knowledgeEvidence: {
+      ...createModelMock(),
+    },
+    // INTEL-001 demand radar
+    audienceSignal: {
+      ...createModelMock(),
+    },
+    audienceQuestionCluster: {
+      ...createModelMock(),
+    },
+    audienceClusterMembership: {
+      ...createModelMock(),
+    },
+    productInsightProposal: {
+      ...createModelMock(),
+    },
+    // CRM-001 creator relationships
+    creatorProfile: {
+      ...createModelMock(),
+    },
+    creatorIdentityLink: {
+      ...createModelMock(),
+    },
+    creatorRelationship: {
+      ...createModelMock(),
+    },
+    creatorInteractionEvidence: {
+      ...createModelMock(),
+    },
+    collaborationOpportunity: {
       ...createModelMock(),
     },
     $connect: vi.fn(),
@@ -349,7 +429,49 @@ export function createMockPrismaService() {
   prisma.$transaction = vi.fn((arg: unknown) =>
     Array.isArray(arg) ? Promise.all(arg) : (arg as (c: unknown) => unknown)(prisma),
   );
+
+  // Keep the shared post fixture compatible with PostsService's atomic
+  // conditional transition. E2E fixtures commonly implement post.update()
+  // with an in-memory store; updateMany should claim that same row and then
+  // delegate the state mutation to update(). Individual suites can override
+  // this when they need stricter concurrency behaviour.
+  const post = prisma.post as {
+    findUnique: ReturnType<typeof vi.fn>;
+    update: ReturnType<typeof vi.fn>;
+    updateMany: ReturnType<typeof vi.fn>;
+  };
+  post.updateMany = vi.fn(
+    async (args: { where: { id: string; status?: string }; data: unknown }) => {
+      const current = await post.findUnique({ where: { id: args.where.id } });
+      if (!current || (args.where.status && current.status !== args.where.status)) {
+        return { count: 0 };
+      }
+      await post.update({ where: { id: args.where.id }, data: args.data });
+      return { count: 1 };
+    },
+  );
   return prisma;
+}
+
+/**
+ * Test-only policy seam for flows that are not testing POLICY-101 itself.
+ * Production remains fail-closed; application-level posting tests must opt in
+ * to this explicit approved decision instead of depending on an empty policy DB.
+ */
+export function createMockRuntimeActionAuthorizer() {
+  const decision = {
+    allowedMode: "APPROVED_AUTOMATION" as const,
+    policyVersionIds: ["test-policy-v1"],
+    policyHash: "test-policy-hash",
+    reputationState: "HEALTHY" as const,
+    requirements: [],
+    blockReasons: [],
+    validUntil: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+  };
+  return {
+    authorize: vi.fn().mockResolvedValue(decision),
+    reauthorize: vi.fn().mockResolvedValue(decision),
+  };
 }
 
 // ── Redis Mock ──

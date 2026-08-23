@@ -49,6 +49,8 @@ import { XPoster } from "../../src/modules/posting/posters/x.poster.js";
 import { ThreadsPoster } from "../../src/modules/posting/posters/threads.poster.js";
 import { FacebookPoster } from "../../src/modules/posting/posters/facebook.poster.js";
 import { BlueskyPoster } from "../../src/modules/posting/posters/bluesky.poster.js";
+import { BlueskyApiPoster } from "../../src/modules/posting/posters/bluesky-api.poster.js";
+import { MastodonApiPoster } from "../../src/modules/posting/posters/mastodon-api.poster.js";
 import { ConfigService } from "@nestjs/config";
 import { SchedulerRegistry } from "@nestjs/schedule";
 import { RateLimitService } from "../../src/modules/rate-limit/rate-limit.service.js";
@@ -122,6 +124,7 @@ const postStore = new Map<string, Record<string, unknown>>();
 const mockRedis = {
   get: vi.fn().mockResolvedValue(null),
   set: vi.fn().mockResolvedValue("OK"),
+  mget: vi.fn((keys: string[]) => Promise.resolve(keys.map(() => null))),
   eval: vi.fn().mockResolvedValue(1),
   defineCommand: vi.fn(),
   del: vi.fn().mockResolvedValue(1),
@@ -161,11 +164,14 @@ describe("E2E: Posting flow with mocked browser", () => {
   let moduleRef: TestingModule;
   let prisma: ReturnType<typeof createMockPrismaService>;
   let browserPort: ReturnType<typeof createMockBrowserPort>;
+  let originalBlueskyTransport: string | undefined;
 
   beforeAll(async () => {
     // P1-10: enable all networks for the Dev.to E2E flow
     process.env.ENABLED_NETWORKS =
       "X,THREADS,FACEBOOK,DEVTO,HASHNODE,LINKEDIN,BLUESKY,MASTODON,TELEGRAM";
+    originalBlueskyTransport = process.env.BLUESKY_TRANSPORT;
+    process.env.BLUESKY_TRANSPORT = "browser";
     await restoreAllDesignParamtypes();
     prisma = createMockPrismaService();
     browserPort = createMockBrowserPort();
@@ -422,6 +428,21 @@ describe("E2E: Posting flow with mocked browser", () => {
         }),
         verifyPosted: vi.fn().mockResolvedValue(null),
       })
+      .overrideProvider(BlueskyApiPoster)
+      .useValue({
+        post: vi.fn().mockResolvedValue({
+          success: true,
+          url: "https://bsky.app/profile/handle.bsky.social/post/3k2jexample",
+        }),
+        verifyPosted: vi
+          .fn()
+          .mockResolvedValue("https://bsky.app/profile/handle.bsky.social/post/3k2jexample"),
+      })
+      .overrideProvider(MastodonApiPoster)
+      .useValue({
+        post: vi.fn().mockResolvedValue({ success: true, url: "https://mastodon.social//112233445566778899" }),
+        verifyPosted: vi.fn().mockResolvedValue("https://mastodon.social//112233445566778899"),
+      })
       .overrideProvider(DevtoPoster)
       .useValue({
         postArticle: vi.fn().mockResolvedValue({
@@ -485,6 +506,11 @@ describe("E2E: Posting flow with mocked browser", () => {
 
   afterAll(async () => {
     if (app) await app.close();
+    if (originalBlueskyTransport !== undefined) {
+      process.env.BLUESKY_TRANSPORT = originalBlueskyTransport;
+    } else {
+      delete process.env.BLUESKY_TRANSPORT;
+    }
   });
 
   beforeEach(() => {
