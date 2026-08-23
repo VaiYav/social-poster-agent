@@ -19,7 +19,7 @@
     "test:system": "vitest run tests/system",
     "test:acceptance": "vitest run tests/acceptance",
     "test:e2e": "vitest run tests/e2e",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "SPA_COVERAGE=1 vitest run --coverage --maxWorkers=1",
     "test:infra:up": "docker compose -f ../../infra/docker-compose.test.yml up -d",
     "test:infra:down": "docker compose -f ../../infra/docker-compose.test.yml down -v",
     "prisma:migrate": "prisma migrate dev",
