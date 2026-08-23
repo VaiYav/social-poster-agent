@@ -68,7 +68,7 @@ const props = withDefaults(
   border-bottom: none;
 }
 
-.ui-table:hoverable :deep(tbody tr) {
+.ui-table.hoverable :deep(tbody tr) {
   cursor: default;
   transition: background-color 120ms ease;
 }
