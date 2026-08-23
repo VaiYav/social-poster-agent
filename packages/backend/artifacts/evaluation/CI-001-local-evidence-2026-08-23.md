@@ -72,7 +72,7 @@ Boundary: local CI command and UI lane only; no GitHub Actions run or clean-SHA 
 - UI typecheck — exit 0.
 - UI Vitest suite — exit 0, 29 files / 136 tests.
 - Full layered suite without coverage — PASS_LOCAL, 223 files / 2,406 tests and
-  0 failures at the current committed slice `92ffc15`.
+  0 failures in the worktree based on `92ffc15`.
 - Full serialized coverage suite — PASS_LOCAL in the latest terminal run:
   223 files, 2,405 passed, 1 skipped, 0 failed; Statements `75.75%`, Branches
   `66.58%`, Functions `73.82%`, Lines `77.19%`. All current ratchet floors
