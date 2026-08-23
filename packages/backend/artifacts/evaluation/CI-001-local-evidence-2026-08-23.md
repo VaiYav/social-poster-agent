@@ -75,6 +75,12 @@ Boundary: local CI command and UI lane only; no GitHub Actions run or clean-SHA 
 - UI Vitest suite — exit 0, 29 files / 136 tests.
 - Latest backend unit lane on the current worktree (`pnpm --filter
   @spa/backend test:unit`, 2026-08-24) — exit 0, 206 files / 2,192 tests.
+- Latest backend integration lane (`pnpm --filter @spa/backend test:integration`,
+  2026-08-24) — exit 0, 5 files / 39 tests.
+- Latest backend system lane (`pnpm --filter @spa/backend test:system`,
+  2026-08-24) — exit 0, 3 files / 46 tests.
+- Latest backend acceptance lane (`pnpm --filter @spa/backend test:acceptance`,
+  2026-08-24) — exit 0, 2 files / 82 tests.
 - Full layered suite without coverage — PASS_LOCAL, 223 files / 2,406 tests and
   0 failures in the worktree based on `92ffc15`.
 - Full serialized coverage suite — PASS_LOCAL in the latest terminal run:
