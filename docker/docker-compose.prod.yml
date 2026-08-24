@@ -31,7 +31,13 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    # CI-002 (HARDEN-001): this single Redis instance serves BullMQ, so the
+    # eviction policy MUST stay `noeviction` — `allkeys-lru` silently deletes
+    # queued/delayed posting and engagement jobs under memory pressure
+    # (see AGENTS.md "Railway / managed Redis"). If you need LRU behaviour for
+    # generation checkpoints, point `CHECKPOINT_REDIS_URL` at a separate Redis
+    # instance with `allkeys-lru` and keep BullMQ here.
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy noeviction
     volumes:
       - redis_data:/data
     # No ports exposed — internal-only (backend connects via docker network)
@@ -80,6 +86,7 @@ services:
       SESSION_ENCRYPTION_KEY: ${SESSION_ENCRYPTION_KEY:-}
       # SEC2: persistent browser profiles — mount encrypted/restricted volume at /app/profiles
       CAMOUFOX_PROFILE_DIR: ${CAMOUFOX_PROFILE_DIR:-/app/profiles}
+      CAMOUFOX_INSTALL_DIR: ${CAMOUFOX_INSTALL_DIR:-/app/.cache/camoufox}
       # Cron schedules
       CRON_GENERATION_SCHEDULE: ${CRON_GENERATION_SCHEDULE:-0 9,21 * * *}
       CRON_GENERATION_JITTER_MINUTES: ${CRON_GENERATION_JITTER_MINUTES:-30}
@@ -101,7 +108,7 @@ services:
     ports:
       - "3100:3100"
     volumes:
-      - browser_data:/app/.cache/ms-playwright
+      - browser_data:/app/.cache/camoufox
       - browser_profiles:/app/profiles
       - ${CONTENT_DIR:-../content}:/data:ro
       # Quote cards output — writable (content mount is read-only)

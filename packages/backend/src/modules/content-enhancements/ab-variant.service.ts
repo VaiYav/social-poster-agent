@@ -11,33 +11,30 @@
  * the current topic + network and uses a weighted selection (e.g. 80% winner,
  * 20% challenger) while still preserving exploration for new topics.
  */
-import { createHash } from 'node:crypto';
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { PostStatus, SocialNetwork } from '@prisma/client';
-import type { Prisma } from '@prisma/client';
-import { parseBool } from '../../infrastructure/config/parse-bool.js';
-import type { ABVariantPair } from './ab-variant.generator.js';
-import type { JudgeScores } from '@spa/shared';
+import { createHash } from "node:crypto";
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { PostStatus, SocialNetwork } from "../../generated/prisma/client.js";
+import type { Prisma } from "../../generated/prisma/client.js";
+import { parseBool } from "../../infrastructure/config/parse-bool.js";
+import type { ABVariantPair } from "./ab-variant.generator.js";
+import type { JudgeScores } from "@spa/shared";
 import {
   type VariantStatsRow,
   computeVariantStats,
   extractTopic,
   pickWinner,
-} from './ab-test.utils.js';
+} from "./ab-test.utils.js";
 
 function normalize(text: string): string {
   // Collapse whitespace and lower-case for case-insensitive, whitespace-tolerant comparison.
   // Hashtags are intentionally preserved: they are part of the variant content.
-  return text
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
+  return text.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 function hashProbability(seed: string): number {
-  const hex = createHash('sha256').update(seed).digest('hex').slice(0, 8);
+  const hex = createHash("sha256").update(seed).digest("hex").slice(0, 8);
   const n = parseInt(hex, 16);
   return Number.isNaN(n) ? 0 : n / 0xffffffff;
 }
@@ -63,10 +60,10 @@ export class ABVariantService {
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
   ) {
-    this.abEnabled = parseBool(this.configService.get<string>('AB_VARIANTS_ENABLED', 'false'));
-    this.lookbackDays = Number(this.configService.get('AB_TEST_LOOKBACK_DAYS', 30));
-    this.minSampleSize = Number(this.configService.get('AB_TEST_MIN_SAMPLE_SIZE', 3));
-    this.exploitationWeight = Number(this.configService.get('AB_TEST_EXPLOITATION_WEIGHT', 0.8));
+    this.abEnabled = parseBool(this.configService.get<string>("AB_VARIANTS_ENABLED", "false"));
+    this.lookbackDays = Number(this.configService.get("AB_TEST_LOOKBACK_DAYS", 30));
+    this.minSampleSize = Number(this.configService.get("AB_TEST_MIN_SAMPLE_SIZE", 3));
+    this.exploitationWeight = Number(this.configService.get("AB_TEST_EXPLOITATION_WEIGHT", 0.8));
   }
 
   /**
@@ -82,9 +79,7 @@ export class ABVariantService {
     abVariants: ABVariantPair | null,
     judgeScores?: JudgeScores,
   ): Promise<void> {
-    const judgeScoresJson = judgeScores
-      ? (judgeScores as Prisma.InputJsonValue)
-      : undefined;
+    const judgeScoresJson = judgeScores ? (judgeScores as Prisma.InputJsonValue) : undefined;
 
     const data: Prisma.PostVariantCreateManyInput[] = [];
 
@@ -93,7 +88,7 @@ export class ABVariantService {
         {
           postId,
           network,
-          label: 'a',
+          label: "a",
           content: abVariants.a.content,
           judgeScores: judgeScoresJson,
           selected: false,
@@ -101,7 +96,7 @@ export class ABVariantService {
         {
           postId,
           network,
-          label: 'b',
+          label: "b",
           content: abVariants.b.content,
           judgeScores: judgeScoresJson,
           selected: false,
@@ -109,7 +104,7 @@ export class ABVariantService {
         {
           postId,
           network,
-          label: 'base',
+          label: "base",
           content: baseContent,
           judgeScores: judgeScoresJson,
           selected: false,
@@ -119,7 +114,7 @@ export class ABVariantService {
       data.push({
         postId,
         network,
-        label: 'default',
+        label: "default",
         content: baseContent,
         judgeScores: judgeScoresJson,
         selected: false,
@@ -161,15 +156,15 @@ export class ABVariantService {
         data: {
           postId,
           network,
-          label: 'default',
+          label: "default",
           content: currentContent,
           selected: true,
         },
       });
-      return { id: created.id, label: 'default', content: currentContent, changed: false };
+      return { id: created.id, label: "default", content: currentContent, changed: false };
     }
 
-    const defaultVariant = variants.find((v) => v.label === 'default');
+    const defaultVariant = variants.find((v) => v.label === "default");
     if (defaultVariant) {
       // Non-A/B mode: keep the default variant content in sync with the post.
       const changed = normalize(defaultVariant.content) !== normalize(currentContent);
@@ -177,24 +172,24 @@ export class ABVariantService {
         where: { id: defaultVariant.id },
         data: { content: currentContent, selected: true },
       });
-      return { id: defaultVariant.id, label: 'default', content: currentContent, changed };
+      return { id: defaultVariant.id, label: "default", content: currentContent, changed };
     }
 
-    const a = variants.find((v) => v.label === 'a');
-    const b = variants.find((v) => v.label === 'b');
-    const base = variants.find((v) => v.label === 'base');
+    const a = variants.find((v) => v.label === "a");
+    const b = variants.find((v) => v.label === "b");
+    const base = variants.find((v) => v.label === "base");
 
     if (!this.abEnabled || !a || !b) {
       const created = await this.prisma.postVariant.create({
         data: {
           postId,
           network,
-          label: 'default',
+          label: "default",
           content: currentContent,
           selected: true,
         },
       });
-      return { id: created.id, label: 'default', content: currentContent, changed: false };
+      return { id: created.id, label: "default", content: currentContent, changed: false };
     }
 
     const normalizedCurrent = normalize(currentContent);
@@ -206,7 +201,12 @@ export class ABVariantService {
         : currentContent.slice(0, 50);
 
       const winner = await this.getWinnerForTopic(topic, network);
-      const weightA = winner === 'a' ? this.exploitationWeight : winner === 'b' ? 1 - this.exploitationWeight : 0.5;
+      const weightA =
+        winner === "a"
+          ? this.exploitationWeight
+          : winner === "b"
+            ? 1 - this.exploitationWeight
+            : 0.5;
 
       const selected = pickVariantByWeight(postId, a, b, weightA);
       await this.prisma.postVariant.updateMany({ where: { postId }, data: { selected: false } });
@@ -226,13 +226,13 @@ export class ABVariantService {
     if (normalizedCurrent === normalize(a.content)) {
       await this.prisma.postVariant.updateMany({ where: { postId }, data: { selected: false } });
       await this.prisma.postVariant.update({ where: { id: a.id }, data: { selected: true } });
-      return { id: a.id, label: 'a', content: a.content, changed: false };
+      return { id: a.id, label: "a", content: a.content, changed: false };
     }
 
     if (normalizedCurrent === normalize(b.content)) {
       await this.prisma.postVariant.updateMany({ where: { postId }, data: { selected: false } });
       await this.prisma.postVariant.update({ where: { id: b.id }, data: { selected: true } });
-      return { id: b.id, label: 'b', content: b.content, changed: false };
+      return { id: b.id, label: "b", content: b.content, changed: false };
     }
 
     // Custom operator edit: create a custom variant and select it.
@@ -241,12 +241,12 @@ export class ABVariantService {
       data: {
         postId,
         network,
-        label: 'custom',
+        label: "custom",
         content: currentContent,
         selected: true,
       },
     });
-    return { id: custom.id, label: 'custom', content: currentContent, changed: false };
+    return { id: custom.id, label: "custom", content: currentContent, changed: false };
   }
 
   /**
@@ -259,7 +259,7 @@ export class ABVariantService {
     topic: string,
     network: SocialNetwork,
     options?: { minSampleSize?: number; days?: number },
-  ): Promise<'a' | 'b' | null> {
+  ): Promise<"a" | "b" | null> {
     const minSampleSize = options?.minSampleSize ?? this.minSampleSize;
     const days = options?.days ?? this.lookbackDays;
     const since = new Date();
@@ -269,7 +269,7 @@ export class ABVariantService {
       where: {
         selected: true,
         network,
-        label: { in: ['a', 'b'] },
+        label: { in: ["a", "b"] },
         post: {
           status: PostStatus.POSTED,
           postedAt: { gte: since },
@@ -286,7 +286,7 @@ export class ABVariantService {
           },
         },
       },
-      orderBy: { post: { postedAt: 'desc' } },
+      orderBy: { post: { postedAt: "desc" } },
     });
 
     const typedRows = rows as VariantStatsRow[];
@@ -305,7 +305,7 @@ export class ABVariantService {
     }
 
     const winner = pickWinner(variants, minSampleSize);
-    if (winner === 'a' || winner === 'b') return winner;
+    if (winner === "a" || winner === "b") return winner;
     return null;
   }
 

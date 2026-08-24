@@ -10,7 +10,7 @@
  * Output must be a JSON object with a `decisions` array only.
  */
 
-import type { CompiledChatPrompt } from '../../../domain/ports/prompt.port';
+import type { CompiledChatPrompt } from "../../../domain/ports/prompt.port.js";
 
 export const QUEUE_TRIAGE_SYSTEM_PROMPT = `You are a queue triage operator for a social-media posting agent.
 You decide what to do with failed BullMQ jobs.

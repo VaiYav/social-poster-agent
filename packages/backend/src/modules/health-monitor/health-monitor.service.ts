@@ -1,18 +1,27 @@
-import { Injectable, Logger, Inject, type OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { SchedulerRegistry } from '@nestjs/schedule';
-import { CronJob } from 'cron';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { SseService } from '../../infrastructure/sse/sse.service';
-import { DiscordNotificationService } from '../../infrastructure/notifications/discord-notification.service';
-import { QueueService } from '../queue/queue.service';
-import { QueueFactory } from '../../infrastructure/queue/queue.factory';
-import { isJobInFlight } from '../../infrastructure/queue/queue-state-utils.js';
-import { SessionStatus, PostStatus, SocialNetwork, BrowsingSessionStatus } from '@prisma/client';
-import { parseBool } from '../../infrastructure/config/parse-bool.js';
-import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
-import { getEnabledNetworks, isNetworkEnabled } from '../../domain/enabled-networks.js';
-import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
+import { Injectable, Logger, Inject, Optional, type OnModuleInit } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { SchedulerRegistry } from "@nestjs/schedule";
+import { CronJob } from "cron";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { SseService } from "../../infrastructure/sse/sse.service.js";
+import { DiscordNotificationService } from "../../infrastructure/notifications/discord-notification.service.js";
+import { QueueService } from "../queue/queue.service.js";
+import { QueueFactory } from "../../infrastructure/queue/queue.factory.js";
+import { isJobInFlight } from "../../infrastructure/queue/queue-state-utils.js";
+import {
+  SessionStatus,
+  PostStatus,
+  SocialNetwork,
+  BrowsingSessionStatus,
+} from "../../generated/prisma/client.js";
+import { parseBool } from "../../infrastructure/config/parse-bool.js";
+import { isOrchestratorEnabled } from "../../domain/feature-flags.js";
+import { getEnabledNetworks, isNetworkEnabled } from "../../domain/enabled-networks.js";
+import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
+import {
+  IResiliencePort,
+  type IResiliencePort as ResiliencePort,
+} from "../../domain/ports/resilience.port.js";
 
 /**
  * F21: Account Health Monitor — hourly cron that checks:
@@ -49,50 +58,51 @@ export class HealthMonitorService implements OnModuleInit {
     private readonly queueFactory: QueueFactory,
     private readonly configService: ConfigService,
     private readonly schedulerRegistry: SchedulerRegistry,
-    @Inject(SHARED_REDIS) private readonly redis: InstanceType<typeof import('ioredis').default>,
+    @Inject(SHARED_REDIS) private readonly redis: InstanceType<typeof import("ioredis").default>,
+    @Optional() @Inject(IResiliencePort) private readonly resilience?: ResiliencePort,
   ) {
-    this.banThreshold = this.configService?.get<number>('HEALTH_MONITOR_BAN_THRESHOLD', 5) ?? 5;
-    this.stuckPostingGraceMin = this.configService?.get<number>('STUCK_POSTING_GRACE_MIN', 5) ?? 5;
-    this.engagementLockKey = this.configService?.get<string>('ENGAGEMENT_LOCK_KEY', 'spa:lock:engagement') ?? 'spa:lock:engagement';
+    this.banThreshold = this.configService?.get<number>("HEALTH_MONITOR_BAN_THRESHOLD", 5) ?? 5;
+    this.stuckPostingGraceMin = this.configService?.get<number>("STUCK_POSTING_GRACE_MIN", 5) ?? 5;
+    this.engagementLockKey =
+      this.configService?.get<string>("ENGAGEMENT_LOCK_KEY", "spa:lock:engagement") ??
+      "spa:lock:engagement";
   }
 
   onModuleInit(): void {
     // SPA_DRY_RUN: skip cron registration in dry-run mode
-    const isDryRun = parseBool(this.configService?.get<string>('SPA_DRY_RUN', 'false'));
+    const isDryRun = parseBool(this.configService?.get<string>("SPA_DRY_RUN", "false"));
     if (isDryRun) {
-      this.logger.warn('SPA_DRY_RUN=true — health monitor cron jobs NOT registered');
+      this.logger.warn("SPA_DRY_RUN=true — health monitor cron jobs NOT registered");
       return;
     }
 
     // Orchestrator mode: health checks + reconciliation are handled by the
     // orchestrator decision loop (HEALTH_CHECK, RECONCILE actions), no crons needed.
     if (isOrchestratorEnabled()) {
-      this.logger.log('Orchestrator is enabled — health monitor crons NOT registered');
+      this.logger.log("Orchestrator is enabled — health monitor crons NOT registered");
       return;
     }
 
-    const cronExpr = this.configService?.get<string>(
-      'HEALTH_MONITOR_SCHEDULE',
-      '0 * * * *',
-    ) ?? '0 * * * *';
-    const job = new CronJob(cronExpr, async () => { await this.runHealthCheck(); });
+    const cronExpr =
+      this.configService?.get<string>("HEALTH_MONITOR_SCHEDULE", "0 * * * *") ?? "0 * * * *";
+    const job = new CronJob(cronExpr, async () => {
+      await this.runHealthCheck();
+    });
     try {
-      this.schedulerRegistry?.addCronJob('health-monitor', job);
+      this.schedulerRegistry?.addCronJob("health-monitor", job);
       job.start();
     } catch {
-      this.logger.warn('SchedulerRegistry not available — cron jobs will not run');
+      this.logger.warn("SchedulerRegistry not available — cron jobs will not run");
     }
 
-    const reconExpr = this.configService?.get<string>(
-      'RECONCILIATION_SCHEDULE',
-      '30 * * * *',
-    ) ?? '30 * * * *';
+    const reconExpr =
+      this.configService?.get<string>("RECONCILIATION_SCHEDULE", "30 * * * *") ?? "30 * * * *";
     const reconJob = new CronJob(reconExpr, async () => {
       await this.runReconciliation();
       await this.reapStuckPosting();
     });
     try {
-      this.schedulerRegistry?.addCronJob('reconciliation', reconJob);
+      this.schedulerRegistry?.addCronJob("reconciliation", reconJob);
       reconJob.start();
     } catch {
       // already warned above
@@ -120,7 +130,7 @@ export class HealthMonitorService implements OnModuleInit {
    * could create duplicate jobs, leading to double-posting.
    */
   async runReconciliation(): Promise<{ requeued: number; skipped: number; deduplicated: number }> {
-    this.logger.log('Running reconciliation — checking for orphaned APPROVED posts...');
+    this.logger.log("Running reconciliation — checking for orphaned APPROVED posts...");
 
     // P1: Paginate through ALL APPROVED posts instead of capping at 1000.
     // Uses cursor-based pagination on approvedAt to avoid loading everything
@@ -139,21 +149,27 @@ export class HealthMonitorService implements OnModuleInit {
     let totalScanned = 0;
 
     while (hasMore) {
-      const page: Array<{ id: string; network: string; approvedAt: Date | null; createdAt: Date }> =
-        await this.prisma.post.findMany({
-          where: {
-            status: PostStatus.APPROVED,
-            ...(cursor ? { approvedAt: { lt: cursor } } : {}),
-          },
-          orderBy: { approvedAt: 'desc' },
-          take: PAGE_SIZE,
-          select: {
-            id: true,
-            network: true,
-            approvedAt: true,
-            createdAt: true,
-          },
-        });
+      const page: Array<{
+        id: string;
+        accountId?: string;
+        network: string;
+        approvedAt: Date | null;
+        createdAt: Date;
+      }> = await this.prisma.post.findMany({
+        where: {
+          status: PostStatus.APPROVED,
+          ...(cursor ? { approvedAt: { lt: cursor } } : {}),
+        },
+        orderBy: { approvedAt: "desc" },
+        take: PAGE_SIZE,
+        select: {
+          id: true,
+          accountId: true,
+          network: true,
+          approvedAt: true,
+          createdAt: true,
+        },
+      });
 
       if (page.length === 0) {
         hasMore = false;
@@ -181,7 +197,7 @@ export class HealthMonitorService implements OnModuleInit {
         // P0-H5: Check if BullMQ already has this job.
         // Use isJobInFlight so we also catch 'prioritized' and 'waiting-children'.
         try {
-          const queue = this.queueFactory.getQueue(post.network, 'posting');
+          const queue = this.queueFactory.getQueue(post.network, "posting");
           const existingJob = await queue.getJob(post.id);
           if (existingJob) {
             const state = await existingJob.getState();
@@ -198,7 +214,7 @@ export class HealthMonitorService implements OnModuleInit {
 
             // Completed but post is still APPROVED = possible double-post risk.
             // Do NOT auto-re-enqueue; alert and leave for manual verification.
-            if (state === 'completed') {
+            if (state === "completed") {
               this.logger.error(
                 `Reconciliation: post ${post.id} has a COMPLETED BullMQ job but is still APPROVED. ` +
                   `Possible data inconsistency / double-post risk — manual verification required`,
@@ -209,8 +225,8 @@ export class HealthMonitorService implements OnModuleInit {
 
             // Failed job with a rate-limit reason will just fail again if re-enqueued.
             // Leave it for QueueTriageService (LLM-in-the-loop) instead of blind retry.
-            if (state === 'failed') {
-              const reason = String(existingJob.failedReason ?? '').toLowerCase();
+            if (state === "failed") {
+              const reason = String(existingJob.failedReason ?? "").toLowerCase();
               if (/rate.?limit|daily limit|weekly limit|too many requests|429/.test(reason)) {
                 this.logger.warn(
                   `Reconciliation: post ${post.id} job is failed due to rate limit — not re-enqueuing blindly`,
@@ -244,7 +260,18 @@ export class HealthMonitorService implements OnModuleInit {
         );
 
         try {
-          await this.queueService.enqueuePosting(post.id, post.network as SocialNetwork);
+          if (post.accountId) {
+            await this.queueService.enqueuePosting(
+              post.id,
+              post.network as SocialNetwork,
+              undefined,
+              post.accountId,
+            );
+          } else {
+            // Legacy rows/tests without account ownership retain the network-only
+            // enqueue contract until their account reference is reconciled.
+            await this.queueService.enqueuePosting(post.id, post.network as SocialNetwork);
+          }
         } catch (err) {
           this.logger.error(
             `Reconciliation: failed to re-enqueue post ${post.id}: ${(err as Error).message}`,
@@ -254,7 +281,7 @@ export class HealthMonitorService implements OnModuleInit {
         }
 
         await this.sseService.publish({
-          type: 'reconciliation_requeue',
+          type: "reconciliation_requeue",
           postId: post.id,
           network: post.network,
         });
@@ -306,8 +333,8 @@ export class HealthMonitorService implements OnModuleInit {
 
     for (const post of postingPosts) {
       let errorMessage =
-        'Stuck in POSTING with no active job (likely crash mid-post). Marked FAILED by reaper — ' +
-        'VERIFY the account timeline before re-approving: the post MAY already be live.';
+        "Stuck in POSTING with no active job (likely crash mid-post). Marked FAILED by reaper — " +
+        "VERIFY the account timeline before re-approving: the post MAY already be live.";
       let isNetworkDisabled = false;
 
       if (!isNetworkEnabled(post.network as SocialNetwork)) {
@@ -316,7 +343,7 @@ export class HealthMonitorService implements OnModuleInit {
       } else {
         // If BullMQ still has an in-flight/pending job, the post is genuinely being processed.
         try {
-          const queue = this.queueFactory.getQueue(post.network, 'posting');
+          const queue = this.queueFactory.getQueue(post.network, "posting");
           const job = await queue.getJob(post.id);
           if (job) {
             const state = await job.getState();
@@ -349,15 +376,15 @@ export class HealthMonitorService implements OnModuleInit {
       }
 
       await this.sseService.publish({
-        type: 'post_status',
+        type: "post_status",
         postId: post.id,
-        status: 'FAILED',
+        status: "FAILED",
         network: post.network,
         error: errorMessage,
       });
       await this.discord
         .warning(
-          isNetworkDisabled ? 'Disabled network post reaped' : 'Stuck POSTING reaped',
+          isNetworkDisabled ? "Disabled network post reaped" : "Stuck POSTING reaped",
           `Post **${post.id}** (${post.network}): ${errorMessage}`,
         )
         .catch(() => void 0);
@@ -384,7 +411,9 @@ export class HealthMonitorService implements OnModuleInit {
    * session is never reaped.
    */
   async reapStuckBrowsingSessions(): Promise<{ reaped: number }> {
-    const browsingMinutes = Number(this.configService.get<number>('F1_BROWSING_SESSION_MINUTES', 15));
+    const browsingMinutes = Number(
+      this.configService.get<number>("F1_BROWSING_SESSION_MINUTES", 15),
+    );
     const graceMs = browsingMinutes * 60 * 1000 + 180_000 + 5 * 60 * 1000;
     const cutoff = new Date(Date.now() - graceMs);
 
@@ -437,8 +466,10 @@ export class HealthMonitorService implements OnModuleInit {
   /**
    * Run a full health check — called by cron and manually via API.
    */
-  async runHealthCheck(opts: { emitAlerts?: boolean } = { emitAlerts: true }): Promise<HealthReport> {
-    this.logger.log('Running health check...');
+  async runHealthCheck(
+    opts: { emitAlerts?: boolean } = { emitAlerts: true },
+  ): Promise<HealthReport> {
+    this.logger.log("Running health check...");
 
     const [sessionHealth, postHealth, queueHealth] = await Promise.all([
       this.checkSessionHealth(),
@@ -454,15 +485,20 @@ export class HealthMonitorService implements OnModuleInit {
       alerts: [],
     };
 
+    await this.reportResilienceHealth(report).catch((err) => {
+      this.logger.warn(`Resilience health reporting failed: ${(err as Error).message}`);
+    });
+    await this.resilience?.runDueProbes().catch(() => void 0);
+
     for (const session of sessionHealth) {
-      if (session.status === 'BANNED') {
+      if (session.status === "BANNED") {
         report.alerts.push({
-          severity: 'critical',
+          severity: "critical",
           message: `Account ${session.accountId} (${session.network}) appears BANNED — ${session.consecutiveFailures} consecutive failures`,
         });
-      } else if (session.status === 'EXPIRED') {
+      } else if (session.status === "EXPIRED") {
         report.alerts.push({
-          severity: 'warning',
+          severity: "warning",
           message: `Session for ${session.network} is EXPIRED — auto-login will be needed`,
         });
       }
@@ -470,14 +506,14 @@ export class HealthMonitorService implements OnModuleInit {
 
     if (postHealth.failedCount > 0) {
       report.alerts.push({
-        severity: postHealth.failedCount > 5 ? 'critical' : 'warning',
+        severity: postHealth.failedCount > 5 ? "critical" : "warning",
         message: `${postHealth.failedCount} posts in FAILED status — review needed`,
       });
     }
 
     if (queueHealth.dlqDepth > 0) {
       report.alerts.push({
-        severity: 'critical',
+        severity: "critical",
         message: `DLQ has ${queueHealth.dlqDepth} dead jobs — manual intervention needed`,
       });
     }
@@ -486,28 +522,63 @@ export class HealthMonitorService implements OnModuleInit {
     if (opts.emitAlerts) {
       for (const alert of report.alerts) {
         await this.sseService.publish({
-          type: 'health_alert',
+          type: "health_alert",
           severity: alert.severity, // P1-6: use dedicated severity field, not postId
           error: alert.message,
         });
 
         // Send critical/warning alerts to Discord
-        if (alert.severity === 'critical') {
-          await this.discord.critical('Health Alert', alert.message);
-        } else if (alert.severity === 'warning') {
-          await this.discord.warning('Health Alert', alert.message);
+        if (alert.severity === "critical") {
+          await this.discord.critical("Health Alert", alert.message);
+        } else if (alert.severity === "warning") {
+          await this.discord.warning("Health Alert", alert.message);
         }
       }
     }
 
     this.logger.log(
       `Health check complete: ${report.alerts.length} alerts ` +
-        `(${report.alerts.filter((a) => a.severity === 'critical').length} critical)`,
+        `(${report.alerts.filter((a) => a.severity === "critical").length} critical)`,
     );
 
     this.lastReport = report;
     this.lastReportAt = Date.now();
     return report;
+  }
+
+  private async reportResilienceHealth(report: HealthReport): Promise<void> {
+    if (!this.resilience) return;
+
+    const sessionLevel = report.sessions.some((session) => session.status === "BANNED")
+      ? "CRITICAL"
+      : report.sessions.some((session) => session.status === "EXPIRED")
+        ? "DEGRADED"
+        : "HEALTHY";
+    const postingLevel =
+      report.posts.stuckPosting > 0
+        ? "CRITICAL"
+        : report.posts.failedCount > 0
+          ? "DEGRADED"
+          : "HEALTHY";
+    const queueLevel = report.queues.dlqDepth > 0 ? "CRITICAL" : "HEALTHY";
+
+    await Promise.all([
+      this.resilience.reportHealth(
+        "sessions",
+        sessionLevel,
+        sessionLevel === "HEALTHY" ? undefined : "session health alert",
+      ),
+      this.resilience.reportHealth(
+        "posting",
+        postingLevel,
+        postingLevel === "HEALTHY" ? undefined : "posting health alert",
+      ),
+      this.resilience.reportHealth(
+        "queues",
+        queueLevel,
+        queueLevel === "HEALTHY" ? undefined : "dead-letter jobs present",
+      ),
+    ]);
   }
 
   /**
@@ -521,7 +592,7 @@ export class HealthMonitorService implements OnModuleInit {
         account: { network: { in: getEnabledNetworks() } },
       },
       include: { account: { select: { network: true } } },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
     });
 
     if (sessions.length === 0) return [];
@@ -536,7 +607,7 @@ export class HealthMonitorService implements OnModuleInit {
         createdAt: { gte: twentyFourHoursAgo },
       },
       select: { accountId: true, status: true, createdAt: true },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
     });
 
     // Group posts by accountId
@@ -572,7 +643,7 @@ export class HealthMonitorService implements OnModuleInit {
       if (isBanned && session.status === SessionStatus.ACTIVE) {
         await this.prisma.session.update({
           where: { id: session.id },
-          data: { status: 'BANNED' as SessionStatus },
+          data: { status: "BANNED" as SessionStatus },
         });
         this.logger.warn(
           `Account ${session.accountId} flagged as BANNED (${consecutiveFailures} consecutive failures)`,
@@ -582,7 +653,7 @@ export class HealthMonitorService implements OnModuleInit {
       results.push({
         accountId: session.accountId,
         network: session.account.network,
-        status: isBanned ? 'BANNED' : session.status,
+        status: isBanned ? "BANNED" : session.status,
         consecutiveFailures,
         lastHealthCheck: session.lastHealthCheck?.toISOString() ?? null,
       });
@@ -663,11 +734,11 @@ export class HealthMonitorService implements OnModuleInit {
       const report = this.lastReport;
       const summary: HealthSummary = {
         totalAlerts: report.alerts.length,
-        criticalAlerts: report.alerts.filter((a) => a.severity === 'critical').length,
-        warningAlerts: report.alerts.filter((a) => a.severity === 'warning').length,
-        healthySessions: report.sessions.filter((s) => s.status === 'ACTIVE').length,
-        bannedSessions: report.sessions.filter((s) => s.status === 'BANNED').length,
-        expiredSessions: report.sessions.filter((s) => s.status === 'EXPIRED').length,
+        criticalAlerts: report.alerts.filter((a) => a.severity === "critical").length,
+        warningAlerts: report.alerts.filter((a) => a.severity === "warning").length,
+        healthySessions: report.sessions.filter((s) => s.status === "ACTIVE").length,
+        bannedSessions: report.sessions.filter((s) => s.status === "BANNED").length,
+        expiredSessions: report.sessions.filter((s) => s.status === "EXPIRED").length,
       };
       return { ...report, summary };
     }
@@ -676,11 +747,11 @@ export class HealthMonitorService implements OnModuleInit {
 
     const summary: HealthSummary = {
       totalAlerts: report.alerts.length,
-      criticalAlerts: report.alerts.filter((a) => a.severity === 'critical').length,
-      warningAlerts: report.alerts.filter((a) => a.severity === 'warning').length,
-      healthySessions: report.sessions.filter((s) => s.status === 'ACTIVE').length,
-      bannedSessions: report.sessions.filter((s) => s.status === 'BANNED').length,
-      expiredSessions: report.sessions.filter((s) => s.status === 'EXPIRED').length,
+      criticalAlerts: report.alerts.filter((a) => a.severity === "critical").length,
+      warningAlerts: report.alerts.filter((a) => a.severity === "warning").length,
+      healthySessions: report.sessions.filter((s) => s.status === "ACTIVE").length,
+      bannedSessions: report.sessions.filter((s) => s.status === "BANNED").length,
+      expiredSessions: report.sessions.filter((s) => s.status === "EXPIRED").length,
     };
 
     return { ...report, summary };
@@ -696,7 +767,7 @@ export class HealthMonitorService implements OnModuleInit {
   async checkBanRecovery(accountId: string): Promise<boolean> {
     const session = await this.prisma.session.findFirst({
       where: { accountId, status: SessionStatus.BANNED },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
     });
     if (!session) return false;
 
@@ -708,7 +779,9 @@ export class HealthMonitorService implements OnModuleInit {
     const RECOVERY_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24h
 
     if (banAgeMs < RECOVERY_THRESHOLD_MS) {
-      this.logger.debug(`Ban recovery: session ${session.id} banned ${Math.round(banAgeMs / 3600000)}h ago — waiting for 24h threshold`);
+      this.logger.debug(
+        `Ban recovery: session ${session.id} banned ${Math.round(banAgeMs / 3600000)}h ago — waiting for 24h threshold`,
+      );
       return false;
     }
 
@@ -722,7 +795,9 @@ export class HealthMonitorService implements OnModuleInit {
     });
 
     if (recentFailures > 0) {
-      this.logger.debug(`Ban recovery: session ${session.id} has ${recentFailures} recent failures — not recovering`);
+      this.logger.debug(
+        `Ban recovery: session ${session.id} has ${recentFailures} recent failures — not recovering`,
+      );
       return false;
     }
 
@@ -733,8 +808,8 @@ export class HealthMonitorService implements OnModuleInit {
     });
 
     this.sseService.publish({
-      type: 'health_alert',
-      severity: 'info',
+      type: "health_alert",
+      severity: "info",
       error: `Ban lifted for account ${accountId} — session reactivated`,
     });
     this.logger.log(`Ban recovery: session ${session.id} reactivated for account ${accountId}`);
@@ -793,7 +868,7 @@ export interface QueueHealth {
 }
 
 export interface HealthAlert {
-  severity: 'critical' | 'warning' | 'info';
+  severity: "critical" | "warning" | "info";
   message: string;
 }
 

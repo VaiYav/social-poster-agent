@@ -10,14 +10,14 @@
  * BLUESKY_HANDLE + BLUESKY_APP_PASSWORD to log in directly (no LLM sees
  * the password), then proceeds to the composer.
  */
-import { Injectable, Logger, Inject } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { SocialNetwork } from '@prisma/client';
-import { z } from 'zod';
-import type { BrowserContext, Page, Locator } from '../../../domain/ports/browser-primitives.js';
-import { IBrowserPort } from '../../../domain/ports/browser.port.js';
-import { BasePoster, type PostResult } from './base.poster.js';
-import { checkContentLength } from '../../posts/network-limits.js';
+import { Injectable, Logger, Inject } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { SocialNetwork } from "../../../generated/prisma/client.js";
+import { z } from "zod";
+import type { BrowserContext, Page, Locator } from "../../../domain/ports/browser-primitives.js";
+import { IBrowserPort } from "../../../domain/ports/browser.port.js";
+import { BasePoster, type PostResult } from "./base.poster.js";
+import { checkContentLength } from "../../posts/network-limits.js";
 
 @Injectable()
 export class BlueskyPoster extends BasePoster {
@@ -54,24 +54,24 @@ export class BlueskyPoster extends BasePoster {
       await this.browser.suppressPageErrors(page);
       this.registerCrashHandler(page, context);
 
-      this.assertPageAlive(page, 'navigate to Bluesky compose');
-      await this.navigate(page, 'https://bsky.app/compose/post', 'domcontentloaded');
+      this.assertPageAlive(page, "navigate to Bluesky compose");
+      await this.navigate(page, "https://bsky.app/compose/post", "domcontentloaded");
 
       // P2-01: inline login if the session has expired. Credentials are typed
       // with direct Playwright locators so the app password is never sent to the LLM.
       if (await this.isOnLoginPage(page)) {
-        this.logger.warn('Bluesky session expired — attempting login with app password');
+        this.logger.warn("Bluesky session expired — attempting login with app password");
         await this.performLogin(page);
 
         // Re-open the composer now that we're logged in.
-        this.assertPageAlive(page, 're-navigate to Bluesky compose after login');
-        await this.navigate(page, 'https://bsky.app/compose/post', 'domcontentloaded');
+        this.assertPageAlive(page, "re-navigate to Bluesky compose after login");
+        await this.navigate(page, "https://bsky.app/compose/post", "domcontentloaded");
       }
 
       // Best-effort shadowban/restriction detection (BasePoster only knows X/Threads/Facebook).
       await this.detectShadowban(page);
 
-      await this.screenshot(page, 'before-compose');
+      await this.screenshot(page, "before-compose");
 
       // Step 1: LLM finds the compose textarea and types the content.
       const typeResult = await this.browser.act(
@@ -80,7 +80,7 @@ export class BlueskyPoster extends BasePoster {
       );
       if (!typeResult.success) {
         this.logger.warn(`Bluesky act(type) failed: ${typeResult.error}`);
-        throw new Error(`Failed to type Bluesky post: ${typeResult.error ?? 'unknown error'}`);
+        throw new Error(`Failed to type Bluesky post: ${typeResult.error ?? "unknown error"}`);
       }
 
       // Step 2: LLM clicks the Post button.
@@ -90,11 +90,11 @@ export class BlueskyPoster extends BasePoster {
       );
       if (!postResult.success) {
         this.logger.warn(`Bluesky act(post) failed: ${postResult.error}`);
-        throw new Error(`Failed to submit Bluesky post: ${postResult.error ?? 'unknown error'}`);
+        throw new Error(`Failed to submit Bluesky post: ${postResult.error ?? "unknown error"}`);
       }
 
       await this.browser.randomDelay(3000, 6000);
-      await this.screenshot(page, 'after-submit');
+      await this.screenshot(page, "after-submit");
 
       // Step 3: Extract the published post URL.
       const urlSchema = z.object({ url: z.string().url() });
@@ -115,7 +115,7 @@ export class BlueskyPoster extends BasePoster {
       }
 
       if (!url) {
-        throw new Error('Could not extract or determine Bluesky post URL after publish');
+        throw new Error("Could not extract or determine Bluesky post URL after publish");
       }
 
       this.logger.log(`Bluesky post published: ${url}`);
@@ -128,10 +128,10 @@ export class BlueskyPoster extends BasePoster {
           async () => {
             throw err;
           },
-          'bluesky post',
+          "bluesky post",
         );
       }
-      const classified = await this.classifyError(err, null, 'bluesky post');
+      const classified = await this.classifyError(err, null, "bluesky post");
       return {
         error: classified.message,
         screenshotPath: classified.screenshotPath,
@@ -147,9 +147,9 @@ export class BlueskyPoster extends BasePoster {
    * Used by PostingService.findLivePostUrl for self-recovery (pre-retry duplicate check).
    */
   async verifyPosted(context: BrowserContext, content: string): Promise<string | null> {
-    const handle = this.configService.get<string>('BLUESKY_HANDLE', '');
+    const handle = this.configService.get<string>("BLUESKY_HANDLE", "");
     if (!handle) {
-      this.logger.warn('BLUESKY_HANDLE not set — cannot verify Bluesky post');
+      this.logger.warn("BLUESKY_HANDLE not set — cannot verify Bluesky post");
       return null;
     }
 
@@ -159,7 +159,7 @@ export class BlueskyPoster extends BasePoster {
       page = await context.newPage();
       await this.browser.suppressPageErrors(page);
       await this.browser.applyResourceBlocking(page, { blockImages: true });
-      await this.navigate(page, profileUrl, 'domcontentloaded');
+      await this.navigate(page, profileUrl, "domcontentloaded");
 
       const urlSchema = z
         .object({ postUrl: z.string().url() })
@@ -196,7 +196,10 @@ export class BlueskyPoster extends BasePoster {
     ];
 
     for (const selector of blueskyLoginIndicators) {
-      const count = await page.locator(selector).count().catch(() => 0);
+      const count = await page
+        .locator(selector)
+        .count()
+        .catch(() => 0);
       if (count > 0) return true;
     }
     return false;
@@ -207,15 +210,15 @@ export class BlueskyPoster extends BasePoster {
    * Direct Playwright selectors are used so the LLM never sees the password.
    */
   private async performLogin(page: Page): Promise<void> {
-    const handle = this.configService.get<string>('BLUESKY_HANDLE', '');
-    const appPassword = this.configService.get<string>('BLUESKY_APP_PASSWORD', '');
+    const handle = this.configService.get<string>("BLUESKY_HANDLE", "");
+    const appPassword = this.configService.get<string>("BLUESKY_APP_PASSWORD", "");
 
     if (!handle || !appPassword) {
-      throw new Error('BLUESKY_HANDLE and BLUESKY_APP_PASSWORD must be set for login');
+      throw new Error("BLUESKY_HANDLE and BLUESKY_APP_PASSWORD must be set for login");
     }
 
     // Strip @ if the operator included it in the handle.
-    const cleanHandle = handle.startsWith('@') ? handle.slice(1) : handle;
+    const cleanHandle = handle.startsWith("@") ? handle.slice(1) : handle;
 
     const identifierInput = await this.findFirstVisible(page, [
       'input[name="identifier"]',
@@ -225,7 +228,7 @@ export class BlueskyPoster extends BasePoster {
       'input[type="text"]',
     ]);
     if (!identifierInput) {
-      throw new Error('Bluesky username/handle input not found');
+      throw new Error("Bluesky username/handle input not found");
     }
     await identifierInput.fill(cleanHandle);
 
@@ -235,7 +238,7 @@ export class BlueskyPoster extends BasePoster {
       'input[placeholder*="password" i]',
     ]);
     if (!passwordInput) {
-      throw new Error('Bluesky password input not found');
+      throw new Error("Bluesky password input not found");
     }
     await passwordInput.fill(appPassword);
 
@@ -246,14 +249,14 @@ export class BlueskyPoster extends BasePoster {
       'button:has-text("Log in")',
     ]);
     if (!submitButton) {
-      throw new Error('Bluesky sign-in button not found');
+      throw new Error("Bluesky sign-in button not found");
     }
     await submitButton.click();
 
     await this.browser.randomDelay(3000, 6000);
 
     if (await this.isOnLoginPage(page)) {
-      throw new Error('Bluesky login failed — still on login page after submit');
+      throw new Error("Bluesky login failed — still on login page after submit");
     }
   }
 

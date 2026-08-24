@@ -20,11 +20,11 @@
  *
  * The key file at https://{host}/{key}.txt must be served by the host.
  */
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { parseBool } from '../config/parse-bool.js';
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { parseBool } from "../config/parse-bool.js";
 
-const INDEXNOW_ENDPOINT = 'https://api.indexnow.org/indexnow';
+const INDEXNOW_ENDPOINT = "https://api.indexnow.org/indexnow";
 const MAX_BATCH_SIZE = 10_000;
 
 @Injectable()
@@ -35,9 +35,9 @@ export class IndexNowService {
   private readonly host: string;
 
   constructor(private readonly configService: ConfigService) {
-    this.enabled = parseBool(this.configService.get<string>('INDEXNOW_ENABLED', 'false'));
-    this.key = this.configService.get<string>('INDEXNOW_KEY', '');
-    this.host = this.configService.get<string>('INDEXNOW_HOST', '');
+    this.enabled = parseBool(this.configService.get<string>("INDEXNOW_ENABLED", "false"));
+    this.key = this.configService.get<string>("INDEXNOW_KEY", "");
+    this.host = this.configService.get<string>("INDEXNOW_HOST", "");
   }
 
   /**
@@ -49,11 +49,11 @@ export class IndexNowService {
    */
   async submit(urls: string | string[]): Promise<void> {
     if (!this.enabled) {
-      this.logger.debug('IndexNow disabled — skipping');
+      this.logger.debug("IndexNow disabled — skipping");
       return;
     }
     if (!this.key) {
-      this.logger.warn('IndexNow enabled but INDEXNOW_KEY is empty — skipping');
+      this.logger.warn("IndexNow enabled but INDEXNOW_KEY is empty — skipping");
       return;
     }
 
@@ -63,7 +63,7 @@ export class IndexNowService {
     const unique = [...new Set(list)];
 
     if (unique.length === 0) {
-      this.logger.debug('IndexNow: no URLs to submit');
+      this.logger.debug("IndexNow: no URLs to submit");
       return;
     }
 
@@ -88,15 +88,17 @@ export class IndexNowService {
 
     try {
       const response = await fetch(INDEXNOW_ENDPOINT, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
         body: JSON.stringify(payload),
       });
       if (response.ok) {
         this.logger.log(`IndexNow: submitted ${urlList.length} URL(s) for host ${host}`);
       } else {
-        const body = await response.text().catch(() => '');
-        this.logger.warn(`IndexNow ${INDEXNOW_ENDPOINT} returned ${response.status}: ${body.slice(0, 200)}`);
+        const body = await response.text().catch(() => "");
+        this.logger.warn(
+          `IndexNow ${INDEXNOW_ENDPOINT} returned ${response.status}: ${body.slice(0, 200)}`,
+        );
       }
     } catch (err) {
       this.logger.warn(`IndexNow ${INDEXNOW_ENDPOINT} request failed: ${(err as Error).message}`);

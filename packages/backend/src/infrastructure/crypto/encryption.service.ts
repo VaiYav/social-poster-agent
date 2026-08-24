@@ -18,15 +18,15 @@
  * A warning is logged on init. Production MUST set the key.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import * as crypto from 'crypto';
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import * as crypto from "crypto";
 
-const ALGORITHM = 'aes-256-gcm';
+const ALGORITHM = "aes-256-gcm";
 const KEY_LENGTH = 32; // 256 bits
 const IV_LENGTH = 12; // 96 bits (NIST recommended for GCM)
 const AUTH_TAG_LENGTH = 16; // 128 bits
-const VERSION_PREFIX = 'v1';
+const VERSION_PREFIX = "v1";
 export const KEY_HEX_REGEX = /^[a-f0-9]{64}$/i;
 const HEX_REGEX = /^[a-f0-9]*$/i;
 
@@ -37,19 +37,19 @@ export class EncryptionService {
   private readonly enabled: boolean;
 
   constructor(private readonly configService: ConfigService) {
-    const keyHex = this.configService.get<string>('SESSION_ENCRYPTION_KEY', '');
-    const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
+    const keyHex = this.configService.get<string>("SESSION_ENCRYPTION_KEY", "");
+    const nodeEnv = this.configService.get<string>("NODE_ENV", "development");
 
     if (keyHex && KEY_HEX_REGEX.test(keyHex)) {
-      this.key = Buffer.from(keyHex, 'hex');
+      this.key = Buffer.from(keyHex, "hex");
       this.enabled = true;
-      this.logger.log('Session encryption enabled (AES-256-GCM)');
+      this.logger.log("Session encryption enabled (AES-256-GCM)");
     } else if (keyHex) {
       // Key present but wrong length — always an error
       const msg =
         `SESSION_ENCRYPTION_KEY must be ${KEY_LENGTH * 2} hex characters (32 bytes), ` +
         `got ${keyHex.length} characters — encryption DISABLED`;
-      if (nodeEnv === 'production') {
+      if (nodeEnv === "production") {
         // Fail-fast: a malformed key in production is a misconfiguration that
         // would silently store session cookies in plaintext. Refuse to boot.
         throw new Error(msg);
@@ -60,14 +60,14 @@ export class EncryptionService {
     } else {
       // Key absent
       const msg =
-        'SESSION_ENCRYPTION_KEY not set — storageState stored in plaintext. ' +
-        'Set it in production for security (use: openssl rand -hex 32)';
-      if (nodeEnv === 'production') {
+        "SESSION_ENCRYPTION_KEY not set — storageState stored in plaintext. " +
+        "Set it in production for security (use: openssl rand -hex 32)";
+      if (nodeEnv === "production") {
         // Fail-fast: plaintext storage of session cookies in production is
         // an unacceptable risk (DB leak = full account takeover).
         throw new Error(
-          'SESSION_ENCRYPTION_KEY is required in production but not set. ' +
-            'Generate one with: openssl rand -hex 32',
+          "SESSION_ENCRYPTION_KEY is required in production but not set. " +
+            "Generate one with: openssl rand -hex 32",
         );
       }
       this.logger.warn(msg);
@@ -96,13 +96,15 @@ export class EncryptionService {
     });
 
     const plaintext = JSON.stringify(data);
-    const encrypted = Buffer.concat([
-      cipher.update(plaintext, 'utf8'),
-      cipher.final(),
-    ]);
+    const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
     const authTag = cipher.getAuthTag();
 
-    return [VERSION_PREFIX, iv.toString('hex'), encrypted.toString('hex'), authTag.toString('hex')].join(':');
+    return [
+      VERSION_PREFIX,
+      iv.toString("hex"),
+      encrypted.toString("hex"),
+      authTag.toString("hex"),
+    ].join(":");
   }
 
   /**
@@ -118,35 +120,34 @@ export class EncryptionService {
 
     if (!this.enabled || !this.key) {
       throw new Error(
-        'Cannot decrypt: SESSION_ENCRYPTION_KEY not configured, but data is encrypted. ' +
-          'Set SESSION_ENCRYPTION_KEY to the correct value.',
+        "Cannot decrypt: SESSION_ENCRYPTION_KEY not configured, but data is encrypted. " +
+          "Set SESSION_ENCRYPTION_KEY to the correct value.",
       );
     }
 
-    const parts = encryptedString.split(':');
+    const parts = encryptedString.split(":");
     if (parts.length !== 4) {
-      throw new Error('Invalid encrypted string format — expected "v1:{iv}:{ciphertext}:{authTag}"');
+      throw new Error(
+        'Invalid encrypted string format — expected "v1:{iv}:{ciphertext}:{authTag}"',
+      );
     }
 
     const [, ivHex, encryptedHex, authTagHex] = parts;
     if (!ivHex || !encryptedHex || !authTagHex) {
-      throw new Error('Invalid encrypted string format — missing components');
+      throw new Error("Invalid encrypted string format — missing components");
     }
-    const iv = Buffer.from(ivHex, 'hex');
-    const encrypted = Buffer.from(encryptedHex, 'hex');
-    const authTag = Buffer.from(authTagHex, 'hex');
+    const iv = Buffer.from(ivHex, "hex");
+    const encrypted = Buffer.from(encryptedHex, "hex");
+    const authTag = Buffer.from(authTagHex, "hex");
 
     const decipher = crypto.createDecipheriv(ALGORITHM, this.key, iv, {
       authTagLength: AUTH_TAG_LENGTH,
     });
     decipher.setAuthTag(authTag);
 
-    const decrypted = Buffer.concat([
-      decipher.update(encrypted),
-      decipher.final(),
-    ]);
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
 
-    return JSON.parse(decrypted.toString('utf8')) as T;
+    return JSON.parse(decrypted.toString("utf8")) as T;
   }
 
   /**
@@ -158,7 +159,7 @@ export class EncryptionService {
     if (!value.startsWith(`${VERSION_PREFIX}:`)) {
       return false;
     }
-    const parts = value.split(':');
+    const parts = value.split(":");
     if (parts.length !== 4) {
       return false;
     }

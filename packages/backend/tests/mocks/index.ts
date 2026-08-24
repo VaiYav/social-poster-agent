@@ -8,18 +8,20 @@
  *          mock.generateChat = vi.fn().mockResolvedValue({ content: '...' });
  */
 
-import { vi } from 'vitest';
-import type { ConfigService } from '@nestjs/config';
-import type { ILlmPort, LlmResponse, GenerateOptions } from '../../src/domain/ports/llm.port';
-import type { IContentPort } from '../../src/domain/ports/content.port';
-import type { IBrowserPort } from '../../src/domain/ports/browser.port';
-import type { ContentTopic } from '@spa/shared';
+import { vi } from "vitest";
+import type { ConfigService } from "@nestjs/config";
+import type { ILlmPort, LlmResponse, GenerateOptions } from "../../src/domain/ports/llm.port.js";
+import type { IContentPort } from "../../src/domain/ports/content.port.js";
+import type { IBrowserPort } from "../../src/domain/ports/browser.port.js";
+import type { ContentTopic } from "@spa/shared";
 
 // ── ConfigService Mock ──
 
 export function createMockConfigService(values: Record<string, unknown> = {}): ConfigService {
   return {
-    get: vi.fn((key: string, defaultValue?: unknown) => (key in values ? values[key] : defaultValue)),
+    get: vi.fn((key: string, defaultValue?: unknown) =>
+      key in values ? values[key] : defaultValue,
+    ),
     getOrThrow: vi.fn((key: string) => {
       if (!(key in values)) throw new Error(`Missing required config key: ${key}`);
       return values[key];
@@ -32,20 +34,20 @@ export function createMockConfigService(values: Record<string, unknown> = {}): C
 export function createMockLlmPort(): ILlmPort {
   return {
     generate: vi.fn().mockResolvedValue({
-      content: 'Mock LLM generated content',
-      model: 'gpt-5-nano',
+      content: "Mock LLM generated content",
+      model: "gpt-5-nano",
       tokens: 100,
       cost: 0.001,
     } satisfies LlmResponse),
     generateChat: vi.fn().mockResolvedValue({
-      content: 'Mock LLM chat content',
-      model: 'gpt-5-nano',
+      content: "Mock LLM chat content",
+      model: "gpt-5-nano",
       tokens: 150,
       cost: 0.001,
     } satisfies LlmResponse),
     generateVision: vi.fn().mockResolvedValue({
-      content: 'true',
-      model: 'gpt-5-nano',
+      content: "true",
+      model: "gpt-5-nano",
       tokens: 10,
       cost: 0.001,
     } satisfies LlmResponse),
@@ -57,25 +59,25 @@ export function createMockLlmPort(): ILlmPort {
 export function createMockContentPort(topics?: ContentTopic[]): IContentPort {
   const defaultTopics: ContentTopic[] = [
     {
-      id: 'topic-1',
-      title: 'Workflow Trends 2026',
-      type: 'brief',
-      facts: ['Workflow Trends starts July 14', 'Ends August 7'],
-      sourceRef: { type: 'brief', path: 'briefs/workflow-retro-2026.json' },
+      id: "topic-1",
+      title: "Workflow Trends 2026",
+      type: "brief",
+      facts: ["Workflow Trends starts July 14", "Ends August 7"],
+      sourceRef: { type: "brief", path: "briefs/workflow-retro-2026.json" },
     },
     {
-      id: 'topic-2',
-      title: 'Product Launch in Q4',
-      type: 'article',
-      facts: ['Product launch on July 21', 'Q4 energy: Discipline'],
-      sourceRef: { type: 'article', path: 'blog/en/product-launch-q4.md' },
+      id: "topic-2",
+      title: "Product Launch in Q4",
+      type: "article",
+      facts: ["Product launch on July 21", "Q4 energy: Discipline"],
+      sourceRef: { type: "article", path: "blog/en/product-launch-q4.md" },
     },
   ];
   const data = topics ?? defaultTopics;
   return {
     getTopics: vi.fn().mockResolvedValue(data),
-    readBriefs: vi.fn().mockResolvedValue(data.filter((t) => t.type === 'brief')),
-    readArticles: vi.fn().mockResolvedValue(data.filter((t) => t.type === 'article')),
+    readBriefs: vi.fn().mockResolvedValue(data.filter((t) => t.type === "brief")),
+    readArticles: vi.fn().mockResolvedValue(data.filter((t) => t.type === "article")),
   };
 }
 
@@ -90,11 +92,11 @@ export function createMockLocator() {
   // Store content typed/filled so innerText can reflect it and
   // setComposeText's hasTarget() check passes. count defaults to 1
   // so the compose box is considered present.
-  let typedContent = '';
+  let typedContent = "";
   locator.waitFor = vi.fn().mockResolvedValue(undefined);
   locator.click = vi.fn().mockResolvedValue(undefined);
   locator.fill = vi.fn().mockImplementation((value: string) => {
-    typedContent = String(value ?? '');
+    typedContent = String(value ?? "");
     return Promise.resolve(undefined);
   });
   locator.focus = vi.fn().mockResolvedValue(undefined);
@@ -115,13 +117,13 @@ export function createMockLocator() {
   locator.evaluateAll = vi.fn().mockResolvedValue([]);
   locator.boundingBox = vi.fn().mockResolvedValue({ x: 0, y: 0, width: 100, height: 50 });
   locator.getAttribute = vi.fn().mockResolvedValue(null);
-  locator.textContent = vi.fn().mockResolvedValue('');
+  locator.textContent = vi.fn().mockResolvedValue("");
   locator.innerText = vi.fn().mockImplementation(() => Promise.resolve(typedContent));
   locator.inputValue = vi.fn().mockImplementation(() => Promise.resolve(typedContent));
   locator.allTextContents = vi.fn().mockResolvedValue([]);
   locator.scrollIntoViewIfNeeded = vi.fn().mockResolvedValue(undefined);
   locator.pressSequentially = vi.fn().mockImplementation((value: string) => {
-    typedContent = String(value ?? '');
+    typedContent = String(value ?? "");
     return Promise.resolve(undefined);
   });
   locator.press = vi.fn().mockResolvedValue(undefined);
@@ -133,11 +135,13 @@ export function createMockLocator() {
  * Create a mock Playwright Page that supports the methods used by BasePoster.
  * Includes: goto, locator, getByRole, getByLabel, getByText, url, close, keyboard, etc.
  */
-export function createMockPage(opts: {
-  url?: string;
-  urlSequence?: string[];
-  bodyText?: string;
-} = {}) {
+export function createMockPage(
+  opts: {
+    url?: string;
+    urlSequence?: string[];
+    bodyText?: string;
+  } = {},
+) {
   const mockLocator = createMockLocator();
 
   let urlCallIndex = 0;
@@ -145,7 +149,7 @@ export function createMockPage(opts: {
     if (opts.urlSequence && urlCallIndex < opts.urlSequence.length) {
       return opts.urlSequence[urlCallIndex++];
     }
-    return opts.url ?? 'https://x.com/user/status/1234567890';
+    return opts.url ?? "https://x.com/user/status/1234567890";
   });
 
   const page = {
@@ -176,12 +180,12 @@ export function createMockPage(opts: {
       type: vi.fn().mockResolvedValue(undefined),
       press: vi.fn().mockResolvedValue(undefined),
     },
-    textContent: vi.fn().mockResolvedValue(opts.bodyText ?? ''),
-    innerText: vi.fn().mockResolvedValue(opts.bodyText ?? ''),
-    screenshot: vi.fn().mockResolvedValue('/tmp/mock-screenshot.png'),
+    textContent: vi.fn().mockResolvedValue(opts.bodyText ?? ""),
+    innerText: vi.fn().mockResolvedValue(opts.bodyText ?? ""),
+    screenshot: vi.fn().mockResolvedValue("/tmp/mock-screenshot.png"),
     evaluate: vi.fn().mockResolvedValue(undefined),
     evaluateAll: vi.fn().mockResolvedValue([]),
-    content: vi.fn().mockResolvedValue('<html></html>'),
+    content: vi.fn().mockResolvedValue("<html></html>"),
     waitForTimeout: vi.fn().mockResolvedValue(undefined),
     waitForLoadState: vi.fn().mockResolvedValue(undefined),
     waitForSelector: vi.fn().mockResolvedValue(undefined),
@@ -219,7 +223,7 @@ export function createMockBrowserPort(): IBrowserPort {
     waitForSelector: vi.fn(),
     waitForTimeout: vi.fn().mockResolvedValue(undefined),
     screenshot: vi.fn(),
-    url: vi.fn().mockReturnValue('https://example.com/post/123'),
+    url: vi.fn().mockReturnValue("https://example.com/post/123"),
     close: vi.fn().mockResolvedValue(undefined),
   };
   const mockContext = {
@@ -231,9 +235,7 @@ export function createMockBrowserPort(): IBrowserPort {
     createContext: vi.fn().mockResolvedValue(mockContext),
     acquireContext: vi.fn().mockResolvedValue(mockContext),
     releaseContext: vi.fn(),
-    saveStorageState: vi.fn().mockResolvedValue(
-      JSON.stringify({ cookies: [], origins: [] }),
-    ),
+    saveStorageState: vi.fn().mockResolvedValue(JSON.stringify({ cookies: [], origins: [] })),
     randomDelay: vi.fn().mockResolvedValue(undefined),
     // New methods added in Phase 1.1
     humanType: vi.fn().mockResolvedValue(undefined),
@@ -243,14 +245,14 @@ export function createMockBrowserPort(): IBrowserPort {
     hover: vi.fn().mockResolvedValue(undefined),
     scrollPage: vi.fn().mockResolvedValue(undefined),
     scrollToElement: vi.fn().mockResolvedValue(undefined),
-    screenshot: vi.fn().mockResolvedValue('/tmp/mock-screenshot.png'),
-    extractText: vi.fn().mockResolvedValue(''),
+    screenshot: vi.fn().mockResolvedValue("/tmp/mock-screenshot.png"),
+    extractText: vi.fn().mockResolvedValue(""),
     waitForStable: vi.fn().mockResolvedValue(undefined),
     dismissDialogs: vi.fn().mockResolvedValue(undefined),
     suppressPageErrors: vi.fn().mockResolvedValue(undefined),
     applyResourceBlocking: vi.fn().mockResolvedValue(undefined),
     // P2 LLM-in-the-loop primitives
-    act: vi.fn().mockResolvedValue({ success: true, action: 'mock' }),
+    act: vi.fn().mockResolvedValue({ success: true, action: "mock" }),
     extract: vi.fn().mockResolvedValue(null),
     observe: vi.fn().mockResolvedValue([]),
     verify: vi.fn().mockResolvedValue(true),
@@ -269,9 +271,9 @@ export function createMockPrismaService() {
     createMany: vi.fn(),
     findUnique: vi.fn(),
     findFirst: vi.fn(),
-    findMany: vi.fn(),
+    findMany: vi.fn().mockResolvedValue([]),
     update: vi.fn(),
-    updateMany: vi.fn(),
+    updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     upsert: vi.fn(),
     delete: vi.fn(),
     deleteMany: vi.fn(),
@@ -286,6 +288,9 @@ export function createMockPrismaService() {
       _count: { posts: vi.fn() },
     },
     post: {
+      ...createModelMock(),
+    },
+    postReviewDecision: {
       ...createModelMock(),
     },
     postVariant: {
@@ -303,6 +308,52 @@ export function createMockPrismaService() {
     socialAccount: {
       ...createModelMock(),
     },
+    editorialPersona: {
+      ...createModelMock(),
+    },
+    personaRevision: {
+      ...createModelMock(),
+    },
+    accountPersonaAssignment: {
+      ...createModelMock(),
+    },
+    llmUsageEvent: {
+      ...createModelMock(),
+    },
+    editorialOpportunity: {
+      ...createModelMock(),
+    },
+    editorialAssignmentRecord: {
+      ...createModelMock(),
+    },
+    platformActionPolicy: {
+      ...createModelMock(),
+      // Application-level E2E flows exercise posting, not policy authoring.
+      // Give them one current, verified, broad test policy; POLICY-101 unit
+      // tests provide their own Prisma fixture and remain fail-closed.
+      findMany: vi.fn().mockResolvedValue([
+        {
+          id: "test-policy-v1",
+          transport: "ANY",
+          targetRelationship: "ANY",
+          executionMode: "APPROVED_AUTOMATION",
+          effectiveAt: new Date(0),
+          expiresAt: null,
+          requirements: [],
+          evidence: { status: "VERIFIED", expiresAt: null },
+        },
+      ]),
+    },
+    platformPolicyEvidence: {
+      ...createModelMock(),
+    },
+    compiledExecutionPolicy: {
+      ...createModelMock(),
+    },
+    accountReputationState: {
+      ...createModelMock(),
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
     browsingSession: {
       ...createModelMock(),
     },
@@ -313,6 +364,58 @@ export function createMockPrismaService() {
       ...createModelMock(),
     },
     contentSource: {
+      ...createModelMock(),
+    },
+    topic: {
+      ...createModelMock(),
+    },
+    threadProgress: {
+      ...createModelMock(),
+    },
+    // POLICY-102 / reputation control plane
+    accountReputationState: {
+      ...createModelMock(),
+    },
+    reputationSignal: {
+      ...createModelMock(),
+    },
+    reputationIncident: {
+      ...createModelMock(),
+    },
+    // GROUND-001 / persona memory
+    personaMemory: {
+      ...createModelMock(),
+    },
+    knowledgeEvidence: {
+      ...createModelMock(),
+    },
+    // INTEL-001 demand radar
+    audienceSignal: {
+      ...createModelMock(),
+    },
+    audienceQuestionCluster: {
+      ...createModelMock(),
+    },
+    audienceClusterMembership: {
+      ...createModelMock(),
+    },
+    productInsightProposal: {
+      ...createModelMock(),
+    },
+    // CRM-001 creator relationships
+    creatorProfile: {
+      ...createModelMock(),
+    },
+    creatorIdentityLink: {
+      ...createModelMock(),
+    },
+    creatorRelationship: {
+      ...createModelMock(),
+    },
+    creatorInteractionEvidence: {
+      ...createModelMock(),
+    },
+    collaborationOpportunity: {
       ...createModelMock(),
     },
     $connect: vi.fn(),
@@ -326,7 +429,49 @@ export function createMockPrismaService() {
   prisma.$transaction = vi.fn((arg: unknown) =>
     Array.isArray(arg) ? Promise.all(arg) : (arg as (c: unknown) => unknown)(prisma),
   );
+
+  // Keep the shared post fixture compatible with PostsService's atomic
+  // conditional transition. E2E fixtures commonly implement post.update()
+  // with an in-memory store; updateMany should claim that same row and then
+  // delegate the state mutation to update(). Individual suites can override
+  // this when they need stricter concurrency behaviour.
+  const post = prisma.post as {
+    findUnique: ReturnType<typeof vi.fn>;
+    update: ReturnType<typeof vi.fn>;
+    updateMany: ReturnType<typeof vi.fn>;
+  };
+  post.updateMany = vi.fn(
+    async (args: { where: { id: string; status?: string }; data: unknown }) => {
+      const current = await post.findUnique({ where: { id: args.where.id } });
+      if (!current || (args.where.status && current.status !== args.where.status)) {
+        return { count: 0 };
+      }
+      await post.update({ where: { id: args.where.id }, data: args.data });
+      return { count: 1 };
+    },
+  );
   return prisma;
+}
+
+/**
+ * Test-only policy seam for flows that are not testing POLICY-101 itself.
+ * Production remains fail-closed; application-level posting tests must opt in
+ * to this explicit approved decision instead of depending on an empty policy DB.
+ */
+export function createMockRuntimeActionAuthorizer() {
+  const decision = {
+    allowedMode: "APPROVED_AUTOMATION" as const,
+    policyVersionIds: ["test-policy-v1"],
+    policyHash: "test-policy-hash",
+    reputationState: "HEALTHY" as const,
+    requirements: [],
+    blockReasons: [],
+    validUntil: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+  };
+  return {
+    authorize: vi.fn().mockResolvedValue(decision),
+    reauthorize: vi.fn().mockResolvedValue(decision),
+  };
 }
 
 // ── Redis Mock ──
@@ -335,10 +480,7 @@ export function createMockRedis() {
   const store = new Map<string, string>();
   const lists = new Map<string, string[]>();
   const globToRegex = (pattern: string) => {
-    const re = pattern
-      .replace(/\./g, '\\.')
-      .replace(/\*/g, '.*')
-      .replace(/\?/g, '.');
+    const re = pattern.replace(/\./g, "\\.").replace(/\*/g, ".*").replace(/\?/g, ".");
     return new RegExp(`^${re}$`);
   };
   return {
@@ -357,29 +499,29 @@ export function createMockRedis() {
       let i = 0;
       while (i < args.length) {
         const arg = args[i];
-        if (arg === 'PX' || arg === 'EX' || arg === 'PXAT' || arg === 'EXAT') {
+        if (arg === "PX" || arg === "EX" || arg === "PXAT" || arg === "EXAT") {
           i += 2;
           continue;
         }
-        if (arg === 'NX' || arg === 'XX') {
-          if (arg === 'NX' && store.has(key)) return Promise.resolve(null);
-          if (arg === 'XX' && !store.has(key)) return Promise.resolve(null);
+        if (arg === "NX" || arg === "XX") {
+          if (arg === "NX" && store.has(key)) return Promise.resolve(null);
+          if (arg === "XX" && !store.has(key)) return Promise.resolve(null);
         }
         i += 1;
       }
       store.set(key, val);
-      return Promise.resolve('OK');
+      return Promise.resolve("OK");
     }),
     setex: vi.fn((key: string, _ttl: number, val: string) => {
       store.set(key, val);
-      return Promise.resolve('OK');
+      return Promise.resolve("OK");
     }),
     psetex: vi.fn((key: string, _ttl: number, val: string) => {
       store.set(key, val);
-      return Promise.resolve('OK');
+      return Promise.resolve("OK");
     }),
     incr: vi.fn((key: string) => {
-      const val = parseInt(store.get(key) ?? '0', 10) + 1;
+      const val = parseInt(store.get(key) ?? "0", 10) + 1;
       store.set(key, String(val));
       return Promise.resolve(val);
     }),
@@ -398,10 +540,10 @@ export function createMockRedis() {
       return Promise.resolve(count);
     }),
     exists: vi.fn((key: string) => Promise.resolve(store.has(key) ? 1 : 0)),
-    ping: vi.fn().mockResolvedValue('PONG'),
+    ping: vi.fn().mockResolvedValue("PONG"),
     publish: vi.fn().mockResolvedValue(1),
-    subscribe: vi.fn().mockResolvedValue('OK'),
-    unsubscribe: vi.fn().mockResolvedValue('OK'),
+    subscribe: vi.fn().mockResolvedValue("OK"),
+    unsubscribe: vi.fn().mockResolvedValue("OK"),
     on: vi.fn(),
     off: vi.fn(),
     disconnect: vi.fn(),
@@ -410,17 +552,17 @@ export function createMockRedis() {
     evalsha: vi.fn().mockResolvedValue(undefined),
     scan: vi.fn((cursor: string, ...args: unknown[]) => {
       const params = args;
-      let match = '*';
+      let match = "*";
       for (let i = 0; i < params.length; i += 2) {
         const cmd = params[i];
-        if (cmd === 'MATCH') match = params[i + 1] as string;
+        if (cmd === "MATCH") match = params[i + 1] as string;
       }
       const regex = globToRegex(match);
       const keys: string[] = [];
       for (const k of store.keys()) {
         if (regex.test(k)) keys.push(k);
       }
-      return Promise.resolve(['0', keys]);
+      return Promise.resolve(["0", keys]);
     }),
     _store: store, // exposed for test assertions
   };
@@ -472,7 +614,7 @@ export function createMockEncryptionService() {
     encrypt: vi.fn((data: unknown) => JSON.stringify(data)),
     decrypt: vi.fn((s: string) => JSON.parse(s)),
     isEnabled: vi.fn().mockReturnValue(false),
-    isEncrypted: vi.fn((s: string) => s.startsWith('v1:')),
+    isEncrypted: vi.fn((s: string) => s.startsWith("v1:")),
   };
 }
 
@@ -513,8 +655,8 @@ export function createMockThreadProgressService() {
 
 export function createMockQueueService() {
   return {
-    add: vi.fn().mockResolvedValue({ id: 'job-1' }),
-    addBulk: vi.fn().mockResolvedValue([{ id: 'job-1' }]),
+    add: vi.fn().mockResolvedValue({ id: "job-1" }),
+    addBulk: vi.fn().mockResolvedValue([{ id: "job-1" }]),
     getJobCounts: vi.fn().mockResolvedValue({
       waiting: 0,
       active: 0,
@@ -530,14 +672,16 @@ export function createMockQueueService() {
 
 // ── QueueFactory Mock ──
 
-import type { QueueFactory } from '../../src/infrastructure/queue/queue.factory';
+import type { QueueFactory } from "../../src/infrastructure/queue/queue.factory.js";
 
 export function createMockQueueFactory(): QueueFactory {
   return {
     createQueue: vi.fn().mockReturnValue({
       add: vi.fn(),
       close: vi.fn(),
-      getJobCounts: vi.fn().mockResolvedValue({ waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 }),
+      getJobCounts: vi
+        .fn()
+        .mockResolvedValue({ waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 }),
       getFailed: vi.fn().mockResolvedValue([]),
       isPaused: vi.fn().mockResolvedValue(false),
       pause: vi.fn(),
@@ -547,7 +691,9 @@ export function createMockQueueFactory(): QueueFactory {
     registerWorker: vi.fn(),
     closeAll: vi.fn(),
     enqueuePosting: vi.fn().mockResolvedValue(undefined),
-    getJobCounts: vi.fn().mockResolvedValue({ waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 }),
+    getJobCounts: vi
+      .fn()
+      .mockResolvedValue({ waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 }),
     getFailedJobs: vi.fn().mockResolvedValue([]),
     pauseQueue: vi.fn().mockResolvedValue(undefined),
     resumeQueue: vi.fn().mockResolvedValue(undefined),
@@ -596,64 +742,64 @@ export function createMockCheckpointSaver() {
 
 export const fixtureTopics: ContentTopic[] = [
   {
-    id: 'topic-1',
-    title: 'Workflow Trends July 2026',
-    type: 'brief',
-    facts: ['Workflow Trends: July 14 – August 7, 2026', 'workflow signs affected: Q2, Q3'],
-    sourceRef: { type: 'brief', path: 'briefs/workflow-retro-2026.json' },
+    id: "topic-1",
+    title: "Workflow Trends July 2026",
+    type: "brief",
+    facts: ["Workflow Trends: July 14 – August 7, 2026", "workflow signs affected: Q2, Q3"],
+    sourceRef: { type: "brief", path: "briefs/workflow-retro-2026.json" },
   },
   {
-    id: 'topic-2',
-    title: 'Product Launch in Q4',
-    type: 'article',
-    facts: ['Product launch on July 21, 2026', 'Q4 energy: Discipline, ambition'],
-    sourceRef: { type: 'article', path: 'blog/en/product-launch-q4.md' },
+    id: "topic-2",
+    title: "Product Launch in Q4",
+    type: "article",
+    facts: ["Product launch on July 21, 2026", "Q4 energy: Discipline, ambition"],
+    sourceRef: { type: "article", path: "blog/en/product-launch-q4.md" },
   },
   {
-    id: 'topic-3',
-    title: 'weekly roundup Weekly',
-    type: 'topic',
-    facts: ['Week of July 15: Team Milestone', 'Favorable for relationships'],
-    sourceRef: { type: 'topic', path: 'topics/cosmic-weather-w28.json' },
+    id: "topic-3",
+    title: "weekly roundup Weekly",
+    type: "topic",
+    facts: ["Week of July 15: Team Milestone", "Favorable for relationships"],
+    sourceRef: { type: "topic", path: "topics/cosmic-weather-w28.json" },
   },
 ];
 
 export const fixturePost = {
-  id: 'post-001',
-  network: 'X' as const,
-  content: 'Workflow trends are coming! Time to focus, not react. 🎯',
-  status: 'DRAFT' as const,
-  generationRunId: 'run-001',
-  sourceRef: { type: 'brief', path: 'briefs/workflow-retro-2026.json' },
-  llmMetadata: { model: 'gpt-5-nano', tokens: 120, cost: 0.001 },
-  createdAt: new Date('2026-07-15T10:00:00Z'),
-  updatedAt: new Date('2026-07-15T10:00:00Z'),
+  id: "post-001",
+  network: "X" as const,
+  content: "Workflow trends are coming! Time to focus, not react. 🎯",
+  status: "DRAFT" as const,
+  generationRunId: "run-001",
+  sourceRef: { type: "brief", path: "briefs/workflow-retro-2026.json" },
+  llmMetadata: { model: "gpt-5-nano", tokens: 120, cost: 0.001 },
+  createdAt: new Date("2026-07-15T10:00:00Z"),
+  updatedAt: new Date("2026-07-15T10:00:00Z"),
   approvedAt: null,
   postedAt: null,
   postUrl: null,
   errorMessage: null,
   threadId: null,
   threadPosition: null,
-  accountId: 'acc-001',
+  accountId: "acc-001",
 };
 
 export const fixtureGenerationRun = {
-  id: 'run-001',
-  status: 'COMPLETED' as const,
-  triggeredBy: 'MANUAL' as const,
-  sourceTopics: ['topic-1', 'topic-2'],
-  startedAt: new Date('2026-07-15T10:00:00Z'),
-  completedAt: new Date('2026-07-15T10:05:00Z'),
+  id: "run-001",
+  status: "COMPLETED" as const,
+  triggeredBy: "MANUAL" as const,
+  sourceTopics: ["topic-1", "topic-2"],
+  startedAt: new Date("2026-07-15T10:00:00Z"),
+  completedAt: new Date("2026-07-15T10:05:00Z"),
   errorMessage: null,
   posts: [],
 };
 
 export const fixtureSession = {
-  id: 'session-001',
-  network: 'X' as const,
-  status: 'ACTIVE' as const,
+  id: "session-001",
+  network: "X" as const,
+  status: "ACTIVE" as const,
   storageState: JSON.stringify({ cookies: [], origins: [] }),
-  lastHealthCheck: new Date('2026-07-15T10:00:00Z'),
-  createdAt: new Date('2026-07-01T00:00:00Z'),
-  updatedAt: new Date('2026-07-15T10:00:00Z'),
+  lastHealthCheck: new Date("2026-07-15T10:00:00Z"),
+  createdAt: new Date("2026-07-01T00:00:00Z"),
+  updatedAt: new Date("2026-07-15T10:00:00Z"),
 };

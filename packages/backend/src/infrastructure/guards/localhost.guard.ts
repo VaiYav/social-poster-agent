@@ -19,10 +19,10 @@ import {
   ExecutionContext,
   ForbiddenException,
   Logger,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import type { Request } from 'express';
-import type { Socket } from 'net';
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import type { Request } from "express";
+import type { Socket } from "net";
 
 @Injectable()
 export class LocalhostGuard implements CanActivate {
@@ -32,11 +32,11 @@ export class LocalhostGuard implements CanActivate {
 
   canActivate(context: ExecutionContext): boolean {
     // Bypass in test env — supertest connects via localhost but NODE_ENV=test
-    if (this.configService.get<string>('NODE_ENV') === 'test') return true;
+    if (this.configService.get<string>("NODE_ENV") === "test") return true;
 
     const request = context.switchToHttp().getRequest<Request>();
     const socket = request.socket as Socket | undefined;
-    const remoteAddress = this.normalizeIp(socket?.remoteAddress ?? '');
+    const remoteAddress = this.normalizeIp(socket?.remoteAddress ?? "");
 
     // Allow loopback and the Docker internal network (UI container → backend).
     if (this.isLoopback(remoteAddress) || this.isDockerPrivate(remoteAddress)) return true;
@@ -44,32 +44,32 @@ export class LocalhostGuard implements CanActivate {
     // SEC1: only consult X-Forwarded-For when the DIRECT peer is a configured trusted
     // proxy. Otherwise any client could send `X-Forwarded-For: 127.0.0.1` and bypass
     // the guard. TRUSTED_PROXY_IPS is empty by default → XFF is ignored entirely.
-    const trustedProxies = (this.configService.get<string>('TRUSTED_PROXY_IPS', '') ?? '')
-      .split(',')
+    const trustedProxies = (this.configService.get<string>("TRUSTED_PROXY_IPS", "") ?? "")
+      .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
     if (trustedProxies.includes(remoteAddress)) {
-      const xff = request.headers['x-forwarded-for'];
+      const xff = request.headers["x-forwarded-for"];
       // `xff[0]` is `string | undefined` (empty array / noUncheckedIndexedAccess),
       // so coalesce to '' to keep `raw` a string.
-      const raw = (Array.isArray(xff) ? xff[0] : xff) ?? '';
-      const firstIp = this.normalizeIp((raw.split(',')[0] ?? '').trim());
+      const raw = (Array.isArray(xff) ? xff[0] : xff) ?? "";
+      const firstIp = this.normalizeIp((raw.split(",")[0] ?? "").trim());
       if (this.isLoopback(firstIp) || this.isDockerPrivate(firstIp)) return true;
     }
 
     this.logger.warn(
       `Blocked non-localhost access to guarded endpoint: ${request.method} ${request.url} from ${remoteAddress}`,
     );
-    throw new ForbiddenException('This endpoint is only accessible from localhost');
+    throw new ForbiddenException("This endpoint is only accessible from localhost");
   }
 
   /** Strip the IPv4-mapped IPv6 prefix (::ffff:127.0.0.1 → 127.0.0.1). */
   private normalizeIp(ip: string): string {
-    return ip.replace(/^::ffff:/i, '');
+    return ip.replace(/^::ffff:/i, "");
   }
 
   private isLoopback(ip: string): boolean {
-    return ip === '127.0.0.1' || ip === '::1';
+    return ip === "127.0.0.1" || ip === "::1";
   }
 
   /** True for the Docker private range 172.16.0.0/12 (172.16.x – 172.31.x). */

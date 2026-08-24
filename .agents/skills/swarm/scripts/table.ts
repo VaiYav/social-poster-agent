@@ -138,19 +138,14 @@ export function parseJsonl(content: string): Record<string, unknown>[] {
   const parseLine = (line: string, idx: number): Record<string, unknown> => {
     try {
       const parsed = JSON.parse(line);
-      if (
-        typeof parsed !== "object" ||
-        parsed === null ||
-        Array.isArray(parsed)
-      ) {
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
         throw new Error(`expected object`);
       }
       return parsed as Record<string, unknown>;
     } catch (e) {
-      throw new Error(
-        `JSONL parse error at line ${idx + 1}: ${(e as Error).message}`,
-        { cause: e },
-      );
+      throw new Error(`JSONL parse error at line ${idx + 1}: ${(e as Error).message}`, {
+        cause: e,
+      });
     }
   };
 
@@ -195,9 +190,7 @@ export function extractSeqFromPath(filePath: string): number {
  * @param paths - List of file paths.
  * @returns Array of `{ id, file }` row objects.
  */
-export function pathsToRows(
-  paths: string[],
-): Array<{ id: string; file: string }> {
+export function pathsToRows(paths: string[]): Array<{ id: string; file: string }> {
   const basenames = paths.map((p) => {
     const parts = p.split("/");
     return parts[parts.length - 1] || p;
@@ -286,9 +279,7 @@ export async function globFiles(pattern: string): Promise<string[]> {
  */
 export async function readFile(path: string): Promise<string> {
   if (typeof tools.readFile !== "function") {
-    throw new Error(
-      `Swarm requires a 'readFile' tool in the PTC configuration`,
-    );
+    throw new Error(`Swarm requires a 'readFile' tool in the PTC configuration`);
   }
   return tools.readFile({ file_path: path });
 }
@@ -315,16 +306,12 @@ export async function writeFile(
   previousContent?: string,
 ): Promise<void> {
   if (typeof tools.writeFile !== "function") {
-    throw new Error(
-      `Swarm requires a 'writeFile' tool in the PTC configuration`,
-    );
+    throw new Error(`Swarm requires a 'writeFile' tool in the PTC configuration`);
   }
   const result = await tools.writeFile({ file_path: path, content });
   if (typeof result === "string" && result.includes("already exists")) {
     if (typeof tools.editFile !== "function") {
-      throw new Error(
-        "Swarm requires an 'edit_file' PTC tool to update existing tables",
-      );
+      throw new Error("Swarm requires an 'edit_file' PTC tool to update existing tables");
     }
     if (previousContent == null) {
       throw new Error(
@@ -438,14 +425,10 @@ async function resolveGlob(pattern: string | string[]): Promise<string[]> {
  * @throws Error if the source is invalid, empty, or missing required PTC tools.
  */
 export async function createTable(source: CreateSource): Promise<SwarmHandle> {
-  const sourceCount = [source.glob, source.filePaths, source.tasks].filter(
-    (s) => s != null,
-  ).length;
+  const sourceCount = [source.glob, source.filePaths, source.tasks].filter((s) => s != null).length;
 
   if (sourceCount === 0) {
-    throw new Error(
-      "create() requires exactly one source: glob, filePaths, or tasks",
-    );
+    throw new Error("create() requires exactly one source: glob, filePaths, or tasks");
   }
 
   if (sourceCount > 1) {
@@ -510,9 +493,7 @@ export async function createTable(source: CreateSource): Promise<SwarmHandle> {
  * @returns The table's row array (by reference — mutations are visible).
  * @throws Error if the table is not found (evicted or never created).
  */
-export async function loadTable(
-  id: string,
-): Promise<Record<string, unknown>[]> {
+export async function loadTable(id: string): Promise<Record<string, unknown>[]> {
   const cached = cache.get(id);
   if (cached) {
     return cached.rows;
@@ -546,10 +527,7 @@ export async function loadTable(
  * @param rows - The updated row array to persist.
  * @throws Error if the table has not been loaded into cache.
  */
-export async function saveTable(
-  id: string,
-  rows: Record<string, unknown>[],
-): Promise<void> {
+export async function saveTable(id: string, rows: Record<string, unknown>[]): Promise<void> {
   const cached = cache.get(id);
   if (!cached) {
     throw new Error(`Table "${id}" is not loaded - call loadTable first`);

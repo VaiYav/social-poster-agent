@@ -1,4 +1,4 @@
-import type { ContentTopic } from '@spa/shared';
+import type { ContentTopic } from "@spa/shared";
 
 /**
  * A6: extracted from GenerationService (god-object split, step 1).
@@ -25,13 +25,13 @@ export function prioritizeTopics(topics: ContentTopic[], count: number): Content
 
   while (remaining.length > 0 && result.length < count) {
     // First topic whose category differs from the last picked one.
-    let idx = remaining.findIndex((t) => (t.category ?? 'uncategorized') !== lastCategory);
+    let idx = remaining.findIndex((t) => (t.category ?? "uncategorized") !== lastCategory);
     // If all remaining share the last category, just take the first.
     if (idx === -1) idx = 0;
 
     const picked = remaining.splice(idx, 1)[0]!;
     result.push(picked);
-    lastCategory = picked.category ?? 'uncategorized';
+    lastCategory = picked.category ?? "uncategorized";
   }
 
   return result;

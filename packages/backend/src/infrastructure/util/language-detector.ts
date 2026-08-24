@@ -14,10 +14,10 @@
  * far more maintainable than growing ad-hoc word lists per language.
  */
 
-import { detect } from 'tinyld';
-import type { SupportedLanguage } from './script-check.js';
+import { detect } from "tinyld";
+import type { SupportedLanguage } from "./script-check.js";
 
-const SUPPORTED_LANGS: ReadonlySet<string> = new Set(['en', 'ru', 'uk', 'es', 'it']);
+const SUPPORTED_LANGS: ReadonlySet<string> = new Set(["en", "ru", "uk", "es", "it"]);
 
 const CYRILLIC_RE = /[\u0400-\u04FF]/g;
 const LATIN_RE = /[a-zA-Z]/g;
@@ -30,18 +30,18 @@ const RUSSIAN_CHARS_RE = /[ыэёъ]/i;
  * Primarily script-based, with a tiny vocabulary bias to keep it simple.
  */
 function heuristicFallback(text: string): SupportedLanguage {
-  if (!text || text.trim().length === 0) return 'en';
+  if (!text || text.trim().length === 0) return "en";
 
   const cyrillicCount = (text.match(CYRILLIC_RE) ?? []).length;
   const latinCount = (text.match(LATIN_RE) ?? []).length;
 
   if (cyrillicCount >= latinCount && cyrillicCount > 0) {
-    if (UKRAINIAN_CHARS_RE.test(text)) return 'uk';
-    if (RUSSIAN_CHARS_RE.test(text)) return 'ru';
-    return 'ru';
+    if (UKRAINIAN_CHARS_RE.test(text)) return "uk";
+    if (RUSSIAN_CHARS_RE.test(text)) return "ru";
+    return "ru";
   }
 
-  return 'en';
+  return "en";
 }
 
 /**
@@ -51,7 +51,7 @@ function heuristicFallback(text: string): SupportedLanguage {
  * Falls back to 'en' for empty or undetectable input.
  */
 export function detectLanguage(text: string): SupportedLanguage {
-  if (!text || text.trim().length === 0) return 'en';
+  if (!text || text.trim().length === 0) return "en";
 
   const raw = detect(text);
   if (SUPPORTED_LANGS.has(raw)) {
@@ -61,11 +61,11 @@ export function detectLanguage(text: string): SupportedLanguage {
   // TinyLD sometimes returns ISO-639-2/3 codes or 'und' for very short input.
   // Map common related codes and fall back to the heuristic for the rest.
   const iso2Map: Record<string, SupportedLanguage> = {
-    eng: 'en',
-    rus: 'ru',
-    ukr: 'uk',
-    spa: 'es',
-    ita: 'it',
+    eng: "en",
+    rus: "ru",
+    ukr: "uk",
+    spa: "es",
+    ita: "it",
   };
   if (raw.length === 3 && raw in iso2Map) {
     return iso2Map[raw]!;

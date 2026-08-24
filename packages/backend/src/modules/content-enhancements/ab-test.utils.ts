@@ -4,8 +4,8 @@
  * Keeping the winner/topic/stats logic in one place avoids duplication
  * between the analytics aggregation and the runtime selection feedback loop.
  */
-import type { SocialNetwork } from '@prisma/client';
-import type { ABTestVariant } from '@spa/shared';
+import type { SocialNetwork } from "../../generated/prisma/client.js";
+import type { ABTestVariant } from "@spa/shared";
 
 export interface VariantStatsRow {
   id: string;
@@ -31,13 +31,13 @@ export interface VariantStatsRow {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
+  return typeof value === "object" && value !== null;
 }
 
 function getJudgeScore(row: VariantStatsRow, key: string): number | null {
   if (!isRecord(row.judgeScores)) return null;
   const value = row.judgeScores[key];
-  if (typeof value === 'number') return value;
+  if (typeof value === "number") return value;
   return null;
 }
 
@@ -57,12 +57,15 @@ function averageMaybe(
   return values.length > 0 ? values.reduce((sum, v) => sum + v, 0) / values.length : null;
 }
 
-export function extractTopic(row: { post: Pick<VariantStatsRow['post'], 'sourceRef'>; content: string }): string {
+export function extractTopic(row: {
+  post: Pick<VariantStatsRow["post"], "sourceRef">;
+  content: string;
+}): string {
   if (isRecord(row.post.sourceRef)) {
     const ref = row.post.sourceRef;
-    if (typeof ref['topic'] === 'string') return ref['topic'];
-    if (typeof ref['originalTopic'] === 'string') return ref['originalTopic'];
-    if (typeof ref['title'] === 'string') return ref['title'];
+    if (typeof ref["topic"] === "string") return ref["topic"];
+    if (typeof ref["originalTopic"] === "string") return ref["originalTopic"];
+    if (typeof ref["title"] === "string") return ref["title"];
   }
   return row.content.slice(0, 50);
 }
@@ -74,8 +77,8 @@ export function computeVariantStats(label: string, rows: VariantStatsRow[]): ABT
   const avgImpressions = averageMaybe(rows, (r) => r.impressions);
   const avgEngagement = avgLikes + avgComments + avgShares;
 
-  const avgAntiAiTone = averageMaybe(rows, (r) => getJudgeScore(r, 'anti_ai_tone'));
-  const avgHookStrength = averageMaybe(rows, (r) => getJudgeScore(r, 'hook_strength'));
+  const avgAntiAiTone = averageMaybe(rows, (r) => getJudgeScore(r, "anti_ai_tone"));
+  const avgHookStrength = averageMaybe(rows, (r) => getJudgeScore(r, "hook_strength"));
 
   return {
     label,
@@ -83,10 +86,15 @@ export function computeVariantStats(label: string, rows: VariantStatsRow[]): ABT
     avgLikes,
     avgComments,
     avgShares,
-    avgImpressions: typeof avgImpressions === 'number' && Number.isFinite(avgImpressions) ? avgImpressions : null,
+    avgImpressions:
+      typeof avgImpressions === "number" && Number.isFinite(avgImpressions) ? avgImpressions : null,
     avgEngagement,
-    avgAntiAiTone: typeof avgAntiAiTone === 'number' && Number.isFinite(avgAntiAiTone) ? avgAntiAiTone : null,
-    avgHookStrength: typeof avgHookStrength === 'number' && Number.isFinite(avgHookStrength) ? avgHookStrength : null,
+    avgAntiAiTone:
+      typeof avgAntiAiTone === "number" && Number.isFinite(avgAntiAiTone) ? avgAntiAiTone : null,
+    avgHookStrength:
+      typeof avgHookStrength === "number" && Number.isFinite(avgHookStrength)
+        ? avgHookStrength
+        : null,
   };
 }
 

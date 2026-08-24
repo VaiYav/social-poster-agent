@@ -5,9 +5,9 @@ import {
   HttpException,
   HttpStatus,
   Logger,
-} from '@nestjs/common';
-import { Request, Response } from 'express';
-import { ZodError } from 'zod';
+} from "@nestjs/common";
+import { Request, Response } from "express";
+import { ZodError } from "zod";
 
 /**
  * Global exception filter — converts ZodError to HTTP 400 Bad Request.
@@ -22,7 +22,7 @@ import { ZodError } from 'zod';
  */
 @Catch()
 export class ZodValidationFilter implements ExceptionFilter {
-  private readonly logger = new Logger('ExceptionFilter');
+  private readonly logger = new Logger("ExceptionFilter");
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
@@ -30,8 +30,8 @@ export class ZodValidationFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request>();
 
     if (exception instanceof ZodError) {
-      const errors = exception.errors.map((err) => ({
-        path: err.path.join('.'),
+      const errors = exception.issues.map((err) => ({
+        path: err.path.join("."),
         message: err.message,
         code: err.code,
       }));
@@ -42,8 +42,8 @@ export class ZodValidationFilter implements ExceptionFilter {
 
       response.status(HttpStatus.BAD_REQUEST).json({
         statusCode: HttpStatus.BAD_REQUEST,
-        error: 'Bad Request',
-        message: 'Validation failed',
+        error: "Bad Request",
+        message: "Validation failed",
         details: errors,
       });
       return;
@@ -52,11 +52,9 @@ export class ZodValidationFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
       const res = exception.getResponse();
-      response.status(status).json(
-        typeof res === 'string'
-          ? { statusCode: status, message: res }
-          : res,
-      );
+      response
+        .status(status)
+        .json(typeof res === "string" ? { statusCode: status, message: res } : res);
       return;
     }
 
@@ -67,8 +65,8 @@ export class ZodValidationFilter implements ExceptionFilter {
     );
     response.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-      error: 'Internal Server Error',
-      message: 'An unexpected error occurred',
+      error: "Internal Server Error",
+      message: "An unexpected error occurred",
     });
   }
 }

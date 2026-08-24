@@ -1,14 +1,14 @@
 /**
- * Sprint Q: Replies store — human-review queue and reply monitoring controls.
+ * ENGAGE-101: Replies store — human-review queue and reply monitoring controls.
  *
  * Aggregates data from:
  * - REST API (/api/v1/replies/pending, /api/v1/replies/stats)
  * - SSE events (replies_monitor, reply_posted)
  */
-import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
-import api from '../composables/useApi';
-import type { SSEvent } from '@spa/shared';
+import { defineStore } from "pinia";
+import { ref, computed } from "vue";
+import api from "../composables/useApi";
+import type { SSEvent } from "@spa/shared";
 
 export interface ReplyPendingItem {
   id: string;
@@ -41,7 +41,7 @@ export interface RepliesCycleStats {
   humanReview: number;
 }
 
-export const useRepliesStore = defineStore('replies', () => {
+export const useRepliesStore = defineStore("replies", () => {
   // ── State ──
   const pending = ref<ReplyPendingItem[]>([]);
   const stats = ref<RepliesStats | null>(null);
@@ -57,7 +57,7 @@ export const useRepliesStore = defineStore('replies', () => {
 
   async function fetchPending() {
     try {
-      const { data } = await api.get('/replies/pending');
+      const { data } = await api.get("/replies/pending");
       pending.value = data;
     } catch (err) {
       error.value = (err as Error).message;
@@ -66,7 +66,7 @@ export const useRepliesStore = defineStore('replies', () => {
 
   async function fetchStats() {
     try {
-      const { data } = await api.get('/replies/stats');
+      const { data } = await api.get("/replies/stats");
       stats.value = data;
     } catch (err) {
       error.value = (err as Error).message;
@@ -104,7 +104,7 @@ export const useRepliesStore = defineStore('replies', () => {
   async function runCycle() {
     try {
       loading.value = true;
-      const { data } = await api.post('/replies/run');
+      const { data } = await api.post("/replies/run");
       lastCycle.value = data;
       await Promise.all([fetchPending(), fetchStats()]);
     } catch (err) {
@@ -128,7 +128,7 @@ export const useRepliesStore = defineStore('replies', () => {
    * Handle SSE events for real-time reply updates.
    */
   function handleSseEvent(data: SSEvent) {
-    if (data.type === 'replies_monitor' || data.type === 'reply_posted') {
+    if (data.type === "replies_monitor" || data.type === "reply_posted") {
       void fetchAll();
     }
   }

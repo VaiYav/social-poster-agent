@@ -1,17 +1,17 @@
-import { OptionalFactoryDependency } from '@nestjs/common';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { LlmService } from '../../infrastructure/llm/llm.service';
-import { HealthMonitorService } from '../health-monitor/health-monitor.service';
-import { QueueService } from '../queue/queue.service';
-import { SessionsService } from '../sessions/sessions.service';
-import { RateLimitService } from '../rate-limit/rate-limit.service';
-import { AnalyticsService } from '../analytics/analytics.service';
-import { TrendingScraperService } from '../trending/trending-scraper.service';
-import { FlowControlService } from '../flow-control/flow-control.service';
-import { GenerationService } from '../generation/generation.service';
-import { OrchestratorService } from '../orchestrator/orchestrator.service.js';
-import { MetricsPublisher } from './metrics-publisher.js';
-import { IMetricsCollector } from './metrics-collector.js';
+import { OptionalFactoryDependency } from "@nestjs/common";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { ILlmPort } from "../../domain/ports/llm.port.js";
+import { HealthMonitorService } from "../health-monitor/health-monitor.service.js";
+import { QueueService } from "../queue/queue.service.js";
+import { SessionsService } from "../sessions/sessions.service.js";
+import { RateLimitService } from "../rate-limit/rate-limit.service.js";
+import { AnalyticsService } from "../analytics/analytics.service.js";
+import { TrendingScraperService } from "../trending/trending-scraper.service.js";
+import { FlowControlService } from "../flow-control/flow-control.service.js";
+import { GenerationService } from "../generation/generation.service.js";
+import { OrchestratorService } from "../orchestrator/orchestrator.service.js";
+import { MetricsPublisher } from "./metrics-publisher.js";
+import { IMetricsCollector } from "./metrics-collector.js";
 import {
   AnalyticsMetricsCollector,
   EngagementMetricsCollector,
@@ -26,7 +26,7 @@ import {
   RepliesMetricsCollector,
   SessionsMetricsCollector,
   TrendingMetricsCollector,
-} from './collectors.js';
+} from "./collectors.js";
 
 /**
  * Collector registry provider.
@@ -50,7 +50,7 @@ export const metricsPublisherProviders = [
       rateLimit: RateLimitService,
       analytics: AnalyticsService,
       trending: TrendingScraperService,
-      llm: LlmService,
+      llm: ILlmPort,
       flowControl: FlowControlService,
       orchestrator: OrchestratorService | undefined,
       prisma: PrismaService,
@@ -77,7 +77,7 @@ export const metricsPublisherProviders = [
       RateLimitService,
       AnalyticsService,
       TrendingScraperService,
-      LlmService,
+      ILlmPort,
       FlowControlService,
       { token: OrchestratorService, optional: true } as OptionalFactoryDependency,
       PrismaService,

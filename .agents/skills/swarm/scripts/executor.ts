@@ -39,9 +39,7 @@ export async function callTask(args: {
   mode?: "agent" | "invoke";
 }): Promise<string> {
   if (typeof tools.swarmTask !== "function") {
-    throw new Error(
-      "Swarm requires a 'swarm_task' tool in the PTC configuration.",
-    );
+    throw new Error("Swarm requires a 'swarm_task' tool in the PTC configuration.");
   }
   return tools.swarmTask(args);
 }
@@ -148,10 +146,7 @@ export function deduplicateFailures(results: TaskResult[]): FailureGroup[] {
  * @param row - The table row to update (mutated in place).
  * @param value - The subagent's parsed structured output.
  */
-export function mergeResult(
-  row: Record<string, unknown>,
-  value: Record<string, unknown>,
-): void {
+export function mergeResult(row: Record<string, unknown>, value: Record<string, unknown>): void {
   for (const [k, v] of Object.entries(value)) {
     if (!RESERVED_COLUMNS.has(k)) {
       row[k] = v;

@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { TrendingUp, RefreshCw, Flame, Calendar, AlertTriangle } from '@lucide/vue';
-import { useStatsStore, type TrendingTopic, type MergedTrendingTopic } from '../stores/stats';
-import { Card, Button, Badge, SectionHeader } from '../components/ui';
-import LoadingSpinner from '../components/LoadingSpinner.vue';
-import ErrorState from '../components/ErrorState.vue';
-import EmptyState from '../components/EmptyState.vue';
-import NetworkIcon from '../components/NetworkIcon.vue';
+import { ref, onMounted } from "vue";
+import { TrendingUp, RefreshCw, Flame, Calendar, AlertTriangle } from "@lucide/vue";
+import { useStatsStore, type TrendingTopic, type MergedTrendingTopic } from "../stores/stats";
+import { Card, Button, Badge, SectionHeader } from "../components/ui";
+import LoadingSpinner from "../components/LoadingSpinner.vue";
+import ErrorState from "../components/ErrorState.vue";
+import EmptyState from "../components/EmptyState.vue";
+import NetworkIcon from "../components/NetworkIcon.vue";
 
 const statsStore = useStatsStore();
 const loading = ref(true);
@@ -21,7 +21,7 @@ async function loadEvents() {
     await statsStore.fetchTrending();
     eventTopics.value = statsStore.trending;
   } catch (err) {
-    error.value = (err as Error).message ?? 'Failed to load trending topics';
+    error.value = (err as Error).message ?? "Failed to load trending topics";
   }
 }
 
@@ -32,7 +32,8 @@ async function loadMerged() {
     await statsStore.fetchMergedTrends();
     mergedTopics.value = statsStore.mergedTrending;
   } catch (err) {
-    error.value = (err as Error).message ?? 'Failed to load merged trends (requires localhost access)';
+    error.value =
+      (err as Error).message ?? "Failed to load merged trends (requires localhost access)";
   } finally {
     scraping.value = false;
   }
@@ -45,19 +46,19 @@ onMounted(async () => {
 });
 
 const sourceLabels: Record<string, string> = {
-  events: 'Events',
-  google_trends: 'Google',
-  x_trends: 'X',
+  events: "Events",
+  google_trends: "Google",
+  x_trends: "X",
 };
 
 function formatSources(sources: string[]) {
-  return sources.map((s) => sourceLabels[s] ?? s).join(' · ');
+  return sources.map((s) => sourceLabels[s] ?? s).join(" · ");
 }
 
 function formatDays(days: number): string {
-  if (days === 0) return 'Today';
-  if (days > 0) return `In ${days} day${days > 1 ? 's' : ''}`;
-  return `${Math.abs(days)} day${Math.abs(days) > 1 ? 's' : ''} ago`;
+  if (days === 0) return "Today";
+  if (days > 0) return `In ${days} day${days > 1 ? "s" : ""}`;
+  return `${Math.abs(days)} day${Math.abs(days) > 1 ? "s" : ""} ago`;
 }
 </script>
 
@@ -69,17 +70,10 @@ function formatDays(days: number): string {
     />
 
     <div class="mb-6 flex items-center justify-between">
-      <p class="text-sm text-text-secondary">
-        Events with 🔥 are currently trending.
-      </p>
-      <Button
-        :loading="scraping"
-        variant="secondary"
-        size="sm"
-        @click="loadMerged"
-      >
+      <p class="text-sm text-text-secondary">Events with 🔥 are currently trending.</p>
+      <Button :loading="scraping" variant="secondary" size="sm" @click="loadMerged">
         <RefreshCw class="h-4 w-4" />
-        {{ scraping ? 'Scraping...' : 'Refresh X + Google Trends' }}
+        {{ scraping ? "Scraping..." : "Refresh X + Google Trends" }}
       </Button>
     </div>
 
@@ -101,7 +95,11 @@ function formatDays(days: number): string {
             v-for="topic in eventTopics"
             :key="topic.event"
             class="rounded-lg border p-4"
-            :class="topic.trending ? 'border-primary/50 bg-primary-subtle' : 'border-border bg-surface-elevated'"
+            :class="
+              topic.trending
+                ? 'border-primary/50 bg-primary-subtle'
+                : 'border-border bg-surface-elevated'
+            "
           >
             <div class="flex items-start justify-between gap-3">
               <div>
@@ -116,11 +114,7 @@ function formatDays(days: number): string {
               </Badge>
             </div>
             <div class="mt-3 flex flex-wrap gap-2">
-              <NetworkIcon
-                v-for="net in topic.networks"
-                :key="net"
-                :network="net"
-              />
+              <NetworkIcon v-for="net in topic.networks" :key="net" :network="net" />
             </div>
           </div>
         </div>
@@ -145,7 +139,9 @@ function formatDays(days: number): string {
             >
               <div>
                 <span class="text-sm text-text-primary">{{ topic.topic }}</span>
-                <span class="ml-2 text-xs text-text-muted">({{ formatSources(topic.sources) }})</span>
+                <span class="ml-2 text-xs text-text-muted"
+                  >({{ formatSources(topic.sources) }})</span
+                >
               </div>
               <Badge v-if="topic.priority" variant="secondary">{{ topic.priority }}</Badge>
             </div>
@@ -161,7 +157,9 @@ function formatDays(days: number): string {
             <AlertTriangle class="mt-0.5 h-4 w-4 text-warning" />
             <div>
               <p class="text-sm text-warning">{{ error }}</p>
-              <p class="mt-1 text-xs text-text-secondary">X/Google trend scraping requires localhost access.</p>
+              <p class="mt-1 text-xs text-text-secondary">
+                X/Google trend scraping requires localhost access.
+              </p>
             </div>
           </div>
         </div>

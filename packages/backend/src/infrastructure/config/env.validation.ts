@@ -1,5 +1,5 @@
-import * as Joi from 'joi';
-import { KEY_HEX_REGEX } from '../crypto/encryption.service.js';
+import * as Joi from "joi";
+import { KEY_HEX_REGEX } from "../crypto/encryption.service.js";
 
 /**
  * P1-3 fix: Env-var validation schema.
@@ -10,70 +10,77 @@ import { KEY_HEX_REGEX } from '../crypto/encryption.service.js';
  */
 const envSchema = Joi.object({
   // ── Social credentials (required for posting) ──
-  SOCIAL_X_USERNAME: Joi.string().allow('').default(''),
-  SOCIAL_X_PASSWORD: Joi.string().allow('').default(''),
-  SOCIAL_THREADS_USERNAME: Joi.string().allow('').default(''),
-  SOCIAL_THREADS_PASSWORD: Joi.string().allow('').default(''),
-  SOCIAL_FACEBOOK_EMAIL: Joi.string().allow('').default(''),
-  SOCIAL_FACEBOOK_PASSWORD: Joi.string().allow('').default(''),
-  SOCIAL_FACEBOOK_PAGE_SLUG: Joi.string().allow('').default(''),
+  SOCIAL_X_USERNAME: Joi.string().allow("").default(""),
+  SOCIAL_X_PASSWORD: Joi.string().allow("").default(""),
+  SOCIAL_THREADS_USERNAME: Joi.string().allow("").default(""),
+  SOCIAL_THREADS_PASSWORD: Joi.string().allow("").default(""),
+  SOCIAL_FACEBOOK_EMAIL: Joi.string().allow("").default(""),
+  SOCIAL_FACEBOOK_PASSWORD: Joi.string().allow("").default(""),
+  SOCIAL_FACEBOOK_PAGE_SLUG: Joi.string().allow("").default(""),
   // 7.6: per-network active flags override ENABLED_NETWORKS
-  SOCIAL_X_ACTIVE: Joi.string().valid('true', 'false').optional(),
-  SOCIAL_THREADS_ACTIVE: Joi.string().valid('true', 'false').optional(),
-  SOCIAL_FACEBOOK_ACTIVE: Joi.string().valid('true', 'false').optional(),
+  SOCIAL_X_ACTIVE: Joi.string().valid("true", "false").optional(),
+  SOCIAL_THREADS_ACTIVE: Joi.string().valid("true", "false").optional(),
+  SOCIAL_FACEBOOK_ACTIVE: Joi.string().valid("true", "false").optional(),
 
   // ── Email IMAP — automatic 2FA/verification code retrieval ──
-  EMAIL_IMAP_HOST: Joi.string().default('imap.gmail.com'),
+  EMAIL_IMAP_HOST: Joi.string().default("imap.gmail.com"),
   EMAIL_IMAP_PORT: Joi.number().integer().default(993),
-  EMAIL_USER: Joi.string().allow('').default(''),
-  EMAIL_PASSWORD: Joi.string().allow('').default(''),
-  EMAIL_FROM_FILTER: Joi.string().default('x.com'),
+  EMAIL_USER: Joi.string().allow("").default(""),
+  EMAIL_PASSWORD: Joi.string().allow("").default(""),
+  EMAIL_FROM_FILTER: Joi.string().default("x.com"),
   EMAIL_IMAP_IDLE_TIMEOUT_MS: Joi.number().integer().min(0).default(300_000),
 
   // ── Prisma observability ──
   SLOW_QUERY_THRESHOLD_MS: Joi.number().integer().min(0).default(500),
 
   // ── AN1: metrics-scraper (free official read APIs — own account) ──
-  METRICS_SCRAPER_ENABLED: Joi.string().valid('true', 'false').default('false'),
-  METRICS_SCRAPER_SCHEDULE: Joi.string().default('0 6 * * *'),
-  METRICS_SCRAPER_LOCK_KEY: Joi.string().default('spa:lock:metrics-scraper'),
+  METRICS_SCRAPER_ENABLED: Joi.string().valid("true", "false").default("false"),
+  METRICS_SCRAPER_SCHEDULE: Joi.string().default("0 6 * * *"),
+  METRICS_SCRAPER_LOCK_KEY: Joi.string().default("spa:lock:metrics-scraper"),
   METRICS_SCRAPER_LOCK_TTL_MS: Joi.number().integer().min(0).default(600_000),
-  THREADS_ACCESS_TOKEN: Joi.string().allow('').default(''), // Threads Insights API (own account)
-  FACEBOOK_PAGE_TOKEN: Joi.string().allow('').default(''), // Graph API Page insights (next increment)
+  THREADS_ACCESS_TOKEN: Joi.string().allow("").default(""), // Threads Insights API (own account)
+  FACEBOOK_PAGE_TOKEN: Joi.string().allow("").default(""), // Graph API Page insights (next increment)
 
   // ── Social cookies (optional — used for cookie-based auth, more stable than login) ──
   // Format: "name1=value1; name2=value2" (same as browser cookie header)
   // X: requires auth_token + ct0
   // Threads: requires sessionid
   // Facebook: requires c_user + xs
-  SOCIAL_X_COOKIES: Joi.string().allow('').default(''),
-  SOCIAL_THREADS_COOKIES: Joi.string().allow('').default(''),
-  SOCIAL_FACEBOOK_COOKIES: Joi.string().allow('').default(''),
+  SOCIAL_X_COOKIES: Joi.string().allow("").default(""),
+  SOCIAL_THREADS_COOKIES: Joi.string().allow("").default(""),
+  SOCIAL_FACEBOOK_COOKIES: Joi.string().allow("").default(""),
 
   // ── Warm-up ──
-  SOCIAL_X_WARMUP: Joi.string().valid('true', 'false').default('false'),
-  SOCIAL_THREADS_WARMUP: Joi.string().valid('true', 'false').default('false'),
-  SOCIAL_FACEBOOK_WARMUP: Joi.string().valid('true', 'false').default('false'),
+  SOCIAL_X_WARMUP: Joi.string().valid("true", "false").default("false"),
+  SOCIAL_THREADS_WARMUP: Joi.string().valid("true", "false").default("false"),
+  SOCIAL_FACEBOOK_WARMUP: Joi.string().valid("true", "false").default("false"),
   WARMUP_DAYS_TOTAL: Joi.number().integer().min(1).max(30).default(7),
 
   // ── LLM ──
-  OPENAI_API_KEY: Joi.string().allow('').default(''),
-  ANTHROPIC_API_KEY: Joi.string().allow('').default(''),
-  LLM_DEFAULT_MODEL: Joi.string().default('gpt-5-nano'),
+  OPENAI_API_KEY: Joi.string().allow("").default(""),
+  GEMINI_API_KEY: Joi.string().allow("").default(""),
+  GOOGLE_API_KEY: Joi.string().allow("").default(""),
+  ANTHROPIC_API_KEY: Joi.string().allow("").default(""),
+  LLM_DEFAULT_MODEL: Joi.string().default("gpt-5-nano"),
   // Sprint J: LLM circuit breaker + cache config
   LLM_CB_THRESHOLD: Joi.number().default(3),
   LLM_CB_COOLDOWN_MS: Joi.number().default(60000),
   LLM_CB_TERMINAL_COOLDOWN_MS: Joi.number().default(6 * 60 * 60 * 1000),
-  LLM_CACHE_SHARED: Joi.string().valid('true', 'false').default('true'),
-  LLM_CACHE_KEY_PREFIX: Joi.string().default('spa:cache:llm'),
+  LLM_CACHE_SHARED: Joi.string().valid("true", "false").default("true"),
+  LLM_CACHE_KEY_PREFIX: Joi.string().default("spa:cache:llm"),
   LLM_CACHE_TTL_MS: Joi.number().default(300000),
   LLM_CACHE_MAX_SIZE: Joi.number().default(100),
+  LLM_PROMPT_COMPRESSION_ENABLED: Joi.string().valid("true", "false").default("false"),
+  LLM_PROMPT_COMPRESSION_URL: Joi.string().allow("").default(""),
+  LLM_PROMPT_COMPRESSION_MIN_TOKENS: Joi.number().integer().min(1).default(500),
+  LLM_PROMPT_COMPRESSION_TIMEOUT_MS: Joi.number().integer().min(100).default(1500),
   CONTENT_CACHE_TTL_MS: Joi.number().default(120000),
   // Q1: Per-role provider routing defaults. Creative roles use strong models;
   // analytical roles use the cheapest available chain.
   LLM_ROLE_CHAINS: Joi.string().default(
-    'draft=anthropic,google,openai;hook=anthropic,google,openai;critique=groq,cerebras,sambanova;judge=groq,cerebras,sambanova;facts=groq,cerebras,sambanova;utility=groq,cerebras,sambanova',
+    "draft=anthropic,google,openai;hook=anthropic,google,openai;critique=groq,cerebras,sambanova;judge=groq,cerebras,sambanova;facts=groq,cerebras,sambanova;utility=groq,cerebras,sambanova",
   ),
+  LLM_COST_ROUTER_ENABLED: Joi.string().valid("true", "false").default("false"),
   // Per-generation-stage temperature overrides
   GENERATION_TEMPERATURE_HOOK: Joi.number().min(0).max(2).default(0.95),
   GENERATION_TEMPERATURE_DRAFT: Joi.number().min(0).max(2).default(0.8),
@@ -88,17 +95,18 @@ const envSchema = Joi.object({
   JUDGE_HARD_FAIL_CHARACTER: Joi.number().min(0).max(1).optional(),
   JUDGE_SKIP_AB_THRESHOLD: Joi.number().min(0).max(1).default(0.6),
   // P1: LLM-in-the-loop queue triage
-  LLM_QUEUE_TRIAGE_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  LLM_QUEUE_TRIAGE_ENABLED: Joi.string().valid("true", "false").default("false"),
   LLM_QUEUE_TRIAGE_MAX_JOBS: Joi.number().integer().min(1).default(20),
   LLM_QUEUE_TRIAGE_MAX_TOKENS: Joi.number().integer().min(1).default(800),
   // P1: full LLM-in-the-loop orchestrator mode
-  LLM_FULL_LOOP_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  LLM_FULL_LOOP_ENABLED: Joi.string().valid("true", "false").default("false"),
   LLM_FULL_LOOP_MAX_DECISIONS_PER_HOUR: Joi.number().integer().min(0).default(60),
   // P0: token/cost budgets. 0 = unlimited.
   ORCHESTRATOR_TOKEN_BUDGET_PER_HOUR: Joi.number().integer().min(0).default(0),
   ORCHESTRATOR_COST_BUDGET_PER_HOUR: Joi.number().min(0).default(0),
   GENERATION_TOKEN_BUDGET_PER_RUN: Joi.number().integer().min(0).default(0),
   GENERATION_COST_BUDGET_PER_RUN: Joi.number().min(0).default(0),
+  LLM_DAILY_BUDGET_PER_ACCOUNT_USD: Joi.number().min(0).default(0),
   // P0: F1 engagement per-session soft caps (names say _PER_DAY for historical reasons,
   // but these are per-session targets; global *_GLOBAL vars below are the daily hard caps).
   F1_LIKES_MAX_PER_DAY: Joi.number().integer().min(0).default(4),
@@ -114,39 +122,37 @@ const envSchema = Joi.object({
   // P0: engagement-first guardrail weight. Higher value = more likely to override POST/GENERATE with BROWSE.
   // A value of 0 disables the override. Formula: debt * weight > approvedDrafts.
   ENGAGEMENT_PRIORITY_WEIGHT: Joi.number().min(0).default(1.0),
-  // Multilingual generation: comma-separated ISO 639-1 codes (default: en)
-  POSTING_LANGUAGES: Joi.string().default('en'),
   // Q2: Global concurrency cap and 429 retry delay
   LLM_MAX_CONCURRENT: Joi.number().integer().min(1).default(4),
   LLM_RATE_LIMIT_RETRY_MS: Joi.number().integer().min(0).default(2500),
-  // Sprint Q: per-provider rate-limit backoff
+  // REL-102: per-provider rate-limit backoff
   LLM_RATE_LIMIT_MAX_COOLDOWN_MS: Joi.number().default(2 * 60 * 60 * 1000),
   LLM_RATE_LIMIT_BASE_BACKOFF_MS: Joi.number().default(10000),
   LLM_RATE_LIMIT_STRIKE_WINDOW_MS: Joi.number().default(10 * 60 * 1000),
   LLM_RATE_LIMIT_STRIKE_THRESHOLD: Joi.number().default(3),
   LLM_RATE_LIMIT_STRIKE_PENALTY_MS: Joi.number().default(30 * 60 * 1000),
   LLM_RATE_LIMIT_RETRY_AFTER_MAX_MS: Joi.number().default(10000),
-  GROQ_API_KEY: Joi.string().allow('').default(''),
-  GROQ_MODEL: Joi.string().default('meta-llama/llama-4-scout-17b-16e-instruct'),
-  OPENROUTER_API_KEY: Joi.string().allow('').default(''),
-  OPENROUTER_MODEL: Joi.string().default('meta-llama/llama-4-maverick:free'),
-  DEEPSEEK_API_KEY: Joi.string().allow('').default(''),
-  DEEPSEEK_MODEL: Joi.string().default('deepseek-chat'),
-  CEREBRAS_API_KEY: Joi.string().allow('').default(''),
-  CEREBRAS_MODEL: Joi.string().default('gpt-oss-120b'),
+  GROQ_API_KEY: Joi.string().allow("").default(""),
+  GROQ_MODEL: Joi.string().default("meta-llama/llama-4-scout-17b-16e-instruct"),
+  OPENROUTER_API_KEY: Joi.string().allow("").default(""),
+  OPENROUTER_MODEL: Joi.string().default("meta-llama/llama-4-maverick:free"),
+  DEEPSEEK_API_KEY: Joi.string().allow("").default(""),
+  DEEPSEEK_MODEL: Joi.string().default("deepseek-chat"),
+  CEREBRAS_API_KEY: Joi.string().allow("").default(""),
+  CEREBRAS_MODEL: Joi.string().default("gpt-oss-120b"),
   // New free-tier providers (added 2026-07-07)
-  SAMBANOVA_API_KEY: Joi.string().allow('').default(''),
-  SAMBANOVA_MODEL: Joi.string().default('Meta-Llama-3.3-70B-Instruct'),
-  GITHUB_TOKEN: Joi.string().allow('').default(''),
-  GITHUB_MODEL: Joi.string().default('meta-llama/Llama-4-Scout-17B-16E-Instruct'),
-  MISTRAL_API_KEY: Joi.string().allow('').default(''),
-  MISTRAL_MODEL: Joi.string().default('mistral-small-latest'),
-  HF_TOKEN: Joi.string().allow('').default(''),
-  HF_MODEL: Joi.string().default('meta-llama/Llama-4-Scout-17B-16E-Instruct'),
-  TOGETHER_API_KEY: Joi.string().allow('').default(''),
-  TOGETHER_MODEL: Joi.string().default('meta-llama/Llama-3.3-70B-Instruct-Turbo-Free'),
-  COHERE_API_KEY: Joi.string().allow('').default(''),
-  COHERE_MODEL: Joi.string().default('command-r7b'),
+  SAMBANOVA_API_KEY: Joi.string().allow("").default(""),
+  SAMBANOVA_MODEL: Joi.string().default("Meta-Llama-3.3-70B-Instruct"),
+  GITHUB_TOKEN: Joi.string().allow("").default(""),
+  GITHUB_MODEL: Joi.string().default("meta-llama/Llama-4-Scout-17B-16E-Instruct"),
+  MISTRAL_API_KEY: Joi.string().allow("").default(""),
+  MISTRAL_MODEL: Joi.string().default("mistral-small-latest"),
+  HF_TOKEN: Joi.string().allow("").default(""),
+  HF_MODEL: Joi.string().default("meta-llama/Llama-4-Scout-17B-16E-Instruct"),
+  TOGETHER_API_KEY: Joi.string().allow("").default(""),
+  TOGETHER_MODEL: Joi.string().default("meta-llama/Llama-3.3-70B-Instruct-Turbo-Free"),
+  COHERE_API_KEY: Joi.string().allow("").default(""),
+  COHERE_MODEL: Joi.string().default("command-r7b"),
 
   // ── Orchestrator ban detection ──
   // H9: 5 consecutive FAILED posts within this window → ban detected → WAIT.
@@ -155,8 +161,8 @@ const envSchema = Joi.object({
 
   // ── Database ──
   DATABASE_URL: Joi.string()
-    .uri({ scheme: ['postgres', 'postgresql'] })
-    .default('postgresql://spa:spa@localhost:5433/social_poster'),
+    .uri({ scheme: ["postgres", "postgresql"] })
+    .default("postgresql://spa:spa@localhost:5433/social_poster"),
   // Prisma client connection pool / transaction tuning (see prisma.service.ts)
   PRISMA_CONNECTION_LIMIT: Joi.number().integer().min(1).default(20),
   PRISMA_POOL_TIMEOUT_MS: Joi.number().integer().min(0).default(30000),
@@ -164,86 +170,109 @@ const envSchema = Joi.object({
 
   // ── Redis ──
   REDIS_URL: Joi.string()
-    .uri({ scheme: ['redis', 'rediss'] })
-    .default('redis://localhost:6381'),
+    .uri({ scheme: ["redis", "rediss"] })
+    .default("redis://localhost:6381"),
 
   // ── Server ──
   // SPA_API_PORT is the actual port used by main.ts (default 3100).
   // PORT is kept for compatibility but is not used by the application.
   SPA_API_PORT: Joi.number().port().default(3100),
   SPA_UI_PORT: Joi.number().port().default(3101),
-  SPA_API_PREFIX: Joi.string().default('/api/v1'),
-  SPA_SWAGGER_PATH: Joi.string().default('docs'),
-  NODE_ENV: Joi.string().valid('development', 'production', 'test').default('development'),
+  SPA_API_PREFIX: Joi.string().default("/api/v1"),
+  SPA_SWAGGER_PATH: Joi.string().default("docs"),
+  NODE_ENV: Joi.string().valid("development", "production", "test").default("development"),
 
   // ── Browser / Camoufox ──
-  CAMOUFOX_HEADLESS: Joi.string().valid('true', 'false').default('true'),
-  CAMOUFOX_HUMANIZE: Joi.string().valid('true', 'false').default('true'),
-  CAMOUFOX_GEOIP: Joi.string().valid('true', 'false').default('true'),
-  CAMOUFOX_LOCALE: Joi.string().default('en-US'),
-  CAMOUFOX_OS: Joi.string().valid('windows', 'macos', 'linux').default('windows'),
-  CAMOUFOX_PROXY_URL: Joi.string().uri().allow('').default(''),
-  CAMOUFOX_PROFILE_DIR: Joi.string().default('/tmp/spa-profiles'),
-  CAMOUFOX_MEMORY_PREFS: Joi.string().valid('true', 'false').default('true'),
+  CAMOUFOX_HEADLESS: Joi.string().valid("true", "false", "virtual").default("true"),
+  CAMOUFOX_HUMANIZE: Joi.string().valid("true", "false").default("true"),
+  CAMOUFOX_GEOIP: Joi.string().valid("true", "false").default("true"),
+  CAMOUFOX_LOCALE: Joi.string().default("en-US"),
+  CAMOUFOX_OS: Joi.string().valid("windows", "macos", "linux").default("windows"),
+  CAMOUFOX_PROXY_URL: Joi.string().uri().allow("").default(""),
+  CAMOUFOX_PROFILE_DIR: Joi.string().default("/tmp/spa-profiles"),
+  CAMOUFOX_INSTALL_DIR: Joi.string().allow("").default(""),
+  CAMOUFOX_MEMORY_PREFS: Joi.string().valid("true", "false").default("true"),
   CAMOUFOX_IMAGE_DECODE_CHUNK: Joi.number().integer().min(1024).default(8192),
-  CAMOUFOX_BLOCK_IMAGES_READONLY: Joi.string().valid('true', 'false').default('true'),
+  CAMOUFOX_BLOCK_IMAGES_READONLY: Joi.string().valid("true", "false").default("true"),
+  CAMOUFOX_BLOCK_WEBRTC: Joi.string().valid("true", "false").default("false"),
+  CAMOUFOX_BLOCK_WEBGL: Joi.string().valid("true", "false").default("false"),
+  CAMOUFOX_DISABLE_COOP: Joi.string().valid("true", "false").default("false"),
+  CAMOUFOX_MAIN_WORLD_EVAL: Joi.string().valid("true", "false").default("false"),
+  CAMOUFOX_DEBUG: Joi.string().valid("true", "false").default("false"),
+  CAMOUFOX_FF_VERSION: Joi.number().integer().min(135).optional(),
+  CAMOUFOX_WINDOW: Joi.string().optional(),
+  CAMOUFOX_SCREEN: Joi.string().optional(),
+  CAMOUFOX_FINGERPRINT_FILE: Joi.string().optional(),
+  CAMOUFOX_ADDONS: Joi.string().optional(),
+  CAMOUFOX_EXCLUDE_ADDONS: Joi.string().optional(),
+  CAMOUFOX_VIRTUAL_DISPLAY: Joi.string().optional(),
   BROWSER_POOL_SIZE: Joi.number().integer().min(1).default(1),
   BROWSER_POOL_ACQUIRE_TIMEOUT_MS: Joi.number().integer().min(1000).default(60000),
-  BROWSER_CONTEXT_IDLE_TTL_MS: Joi.number().integer().min(60000).default(3 * 60 * 1000),
+  BROWSER_CONTEXT_IDLE_TTL_MS: Joi.number()
+    .integer()
+    .min(60000)
+    .default(3 * 60 * 1000),
   BROWSER_ORPHAN_GRACE_MS: Joi.number().integer().min(60000).optional(),
-  BROWSER_MAX_LIFETIME_MS: Joi.number().integer().min(60000).default(15 * 60 * 1000),
+  BROWSER_MAX_LIFETIME_MS: Joi.number()
+    .integer()
+    .min(60000)
+    .default(15 * 60 * 1000),
   F1_BROWSING_SESSION_MINUTES: Joi.number().integer().min(1).default(15),
-  PERSISTENT_CONTEXT_IDLE_TTL_MS: Joi.number().integer().min(60000).default(15 * 60 * 1000),
-  SPA_SCREENSHOT_DIR: Joi.string().default('/tmp/spa-screenshots'),
-  SPA_SCREENSHOTS: Joi.string().valid('true', 'false').default('false'),
-  SPA_SCREENSHOT_FULLPAGE: Joi.string().valid('true', 'false').default('false'),
-  SPA_DEBUG_SELECTORS: Joi.string().valid('true', 'false').default('false'),
+  PERSISTENT_CONTEXT_IDLE_TTL_MS: Joi.number()
+    .integer()
+    .min(60000)
+    .default(15 * 60 * 1000),
+  SPA_SCREENSHOT_DIR: Joi.string().default("/tmp/spa-screenshots"),
+  SPA_SCREENSHOTS: Joi.string().valid("true", "false").default("false"),
+  SPA_SCREENSHOT_FULLPAGE: Joi.string().valid("true", "false").default("false"),
+  SPA_DEBUG_SELECTORS: Joi.string().valid("true", "false").default("false"),
+  SPA_DEBUG_DIR: Joi.string().default("/tmp/spa-debug"),
   // SE1: deferred login + out-of-band re-login schedule
-  SESSION_DEFERRED_LOGIN: Joi.string().valid('true', 'false').default('false'),
-  SESSION_RELOGIN_CRON: Joi.string().default('*/15 * * * *'),
+  SESSION_DEFERRED_LOGIN: Joi.string().valid("true", "false").default("false"),
+  SESSION_RELOGIN_CRON: Joi.string().default("*/15 * * * *"),
   FORM_LOGIN_COOLDOWN_MS: Joi.number().integer().min(0).default(1800000),
   // Global dry-run: posting/interactions are intercepted (no real side effects)
-  SPA_DRY_RUN: Joi.string().valid('true', 'false').default('false'),
+  SPA_DRY_RUN: Joi.string().valid("true", "false").default("false"),
 
   // ── Feature flags ──
-  ENGAGEMENT_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  ENGAGEMENT_ENABLED: Joi.string().valid("true", "false").default("false"),
   // Engagement scheduler config
-  ENGAGEMENT_SCHEDULER_ENABLED: Joi.string().valid('true', 'false').default('false'),
-  ENGAGEMENT_SCHEDULE_CRON: Joi.string().default('0 0 * * *'),
+  ENGAGEMENT_SCHEDULER_ENABLED: Joi.string().valid("true", "false").default("false"),
+  ENGAGEMENT_SCHEDULE_CRON: Joi.string().default("0 0 * * *"),
   ENGAGEMENT_SESSIONS_PER_DAY: Joi.number().integer().min(1).default(3),
-  ENGAGEMENT_SESSION_WINDOWS: Joi.string().default('09:00,13:00,18:00'),
+  ENGAGEMENT_SESSION_WINDOWS: Joi.string().default("09:00,13:00,18:00"),
   ENGAGEMENT_JITTER_MINUTES: Joi.number().integer().min(0).default(30),
-  ENGAGEMENT_NETWORKS: Joi.string().default('X,THREADS'),
+  ENGAGEMENT_NETWORKS: Joi.string().default("X,THREADS"),
   // Engagement decision LLM temperature (default 0.8)
   ENGAGEMENT_COMMENT_TEMPERATURE: Joi.number().min(0).max(2).default(0.8),
   ENGAGEMENT_QUOTE_TEMPERATURE: Joi.number().min(0).max(2).default(0.8),
   // P0: comment-judge threshold (0-1). Below this the comment is rejected before publishing.
   COMMENT_JUDGE_MIN_SCORE: Joi.number().min(0).max(1).default(0.6),
   // Auto-approve: when true, drafts are auto-approved and enqueued without human review
-  AUTO_APPROVE_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  AUTO_APPROVE_ENABLED: Joi.string().valid("true", "false").default("false"),
   // ADR-006: Autonomous agent config
-  AUTONOMOUS_RUNNER_ENABLED: Joi.string().valid('true', 'false').default('false'),
-  AUTONOMOUS_RUNNER_SCHEDULE: Joi.string().default('0 */4 * * *'),
+  AUTONOMOUS_RUNNER_ENABLED: Joi.string().valid("true", "false").default("false"),
+  AUTONOMOUS_RUNNER_SCHEDULE: Joi.string().default("0 */4 * * *"),
   AUTONOMOUS_POSTS_PER_RUN: Joi.number().integer().min(1).max(20).default(3),
-  AUTONOMOUS_TARGET_NETWORKS: Joi.string().default('X,THREADS'),
-  ENABLED_NETWORKS: Joi.string().default('X,THREADS'),
+  AUTONOMOUS_TARGET_NETWORKS: Joi.string().default("X,THREADS"),
+  ENABLED_NETWORKS: Joi.string().default("X,THREADS"),
   // F13: content recycling cron
-  RECYCLING_CRON_ENABLED: Joi.string().valid('true', 'false').default('false'),
-  RECYCLING_CRON_SCHEDULE: Joi.string().default('0 8 * * 1'),
+  RECYCLING_CRON_ENABLED: Joi.string().valid("true", "false").default("false"),
+  RECYCLING_CRON_SCHEDULE: Joi.string().default("0 8 * * 1"),
   DEDUP_SINCE_DAYS: Joi.number().integer().min(1).max(90).default(14),
   AUTONOMOUS_POSTING_DELAY_MIN_MS: Joi.number().integer().min(0).default(600000),
   AUTONOMOUS_POSTING_DELAY_MAX_MS: Joi.number().integer().min(1000).default(3600000),
   // F2: delay between thread continuation posts (position × delayMs)
   THREAD_CONTINUATION_DELAY_MS: Joi.number().integer().min(0).default(1800000),
   // F22: optional programmatic Google Trends proxy (fallback to public RSS)
-  TRENDING_GOOGLE_API_URL: Joi.string().uri().allow('').default(''),
-  TRENDING_GOOGLE_API_KEY: Joi.string().allow('').default(''),
+  TRENDING_GOOGLE_API_URL: Joi.string().uri().allow("").default(""),
+  TRENDING_GOOGLE_API_KEY: Joi.string().allow("").default(""),
   AUTO_APPROVE_MIN_SCORE: Joi.number().integer().min(1).max(10).default(7),
   AUTO_APPROVE_REVIEW_SCORE: Joi.number().integer().min(1).max(10).default(4),
   AUTO_APPROVE_REJECT_STREAK_ALERT: Joi.number().integer().min(1).default(3),
-  AUTO_APPROVE_MISSING_SCORE_FAIL_OPEN: Joi.string().valid('true', 'false').default('false'),
+  AUTO_APPROVE_MISSING_SCORE_FAIL_OPEN: Joi.string().valid("true", "false").default("false"),
   // P1: LLM-as-a-Judge gate for auto-approve
-  AUTO_APPROVE_USE_JUDGE_SCORES: Joi.string().valid('true', 'false').default('true'),
+  AUTO_APPROVE_USE_JUDGE_SCORES: Joi.string().valid("true", "false").default("true"),
   AUTO_APPROVE_MIN_JUDGE_ANTI_AI: Joi.number().min(0).max(1).default(0.7),
   AUTO_APPROVE_MIN_JUDGE_FACTUAL: Joi.number().min(0).max(1).default(0.6),
   AUTO_APPROVE_MIN_JUDGE_HOOK: Joi.number().min(0).max(1).default(0.6),
@@ -256,28 +285,29 @@ const envSchema = Joi.object({
   // A leftover value in the env is harmless (schema allows unknown keys).
 
   // ── Orchestrator (LangGraph agent loop — replaces all crons) ──
-  ORCHESTRATOR_ENABLED: Joi.string().valid('true', 'false').default('false'),
-  ORCHESTRATOR_LLM_ENABLED: Joi.string().valid('true', 'false').default('true'),
+  ORCHESTRATOR_ENABLED: Joi.string().valid("true", "false").default("false"),
+  ORCHESTRATOR_LLM_ENABLED: Joi.string().valid("true", "false").default("true"),
   ORCHESTRATOR_MAX_ACTIONS_PER_HOUR: Joi.number().integer().min(1).default(60),
   ORCHESTRATOR_HEARTBEAT_TTL_MS: Joi.number().integer().min(10000).default(600000),
-  ORCHESTRATOR_CHECKPOINT_KEY: Joi.string().default('spa:orchestrator:checkpoint'),
-  ORCHESTRATOR_HEARTBEAT_KEY: Joi.string().default('spa:orchestrator:heartbeat'),
-  ORCHESTRATOR_HISTORY_KEY: Joi.string().default('spa:orchestrator:history'),
-  ORCHESTRATOR_LEADER_KEY: Joi.string().default('spa:orchestrator:leader'),
+  ORCHESTRATOR_HEARTBEAT_KEY: Joi.string().default("spa:orchestrator:heartbeat"),
+  ORCHESTRATOR_HISTORY_KEY: Joi.string().default("spa:orchestrator:history"),
+  ORCHESTRATOR_LEADER_KEY: Joi.string().default("spa:orchestrator:leader"),
   ORCHESTRATOR_LEADER_TTL_MS: Joi.number().integer().min(5000).default(30000),
   ORCHESTRATOR_LEADER_RENEW_INTERVAL_MS: Joi.number().integer().min(1000).default(10000),
+  ORCHESTRATOR_WATCHDOG_LOCK_KEY: Joi.string().default("spa:orchestrator:watchdog-lock"),
+  ORCHESTRATOR_WATCHDOG_LOCK_TTL_MS: Joi.number().integer().min(5000).default(60000),
   ORCHESTRATOR_RESTART_DELAY_MS: Joi.number().integer().min(0).default(3000),
   ORCHESTRATOR_WATCHDOG_RESTART_DELAY_MS: Joi.number().integer().min(0).default(5000),
   ORCHESTRATOR_GENERATE_TIMEOUT_MS: Joi.number().integer().min(60000).default(1200000),
 
   // ── Redis checkpointing (LangGraph persistence) ──
-  CHECKPOINT_PREFIX: Joi.string().default('spa:checkpoint'),
+  CHECKPOINT_PREFIX: Joi.string().default("spa:checkpoint"),
   CHECKPOINT_TTL_SECONDS: Joi.number().integer().min(1).default(3600),
-  CHECKPOINT_REDIS_URL: Joi.string().uri().allow('').default(''),
+  CHECKPOINT_REDIS_URL: Joi.string().uri().allow("").default(""),
 
   // ── Rate limits (posting + engagement) ──
-  RATE_LIMIT_PREFIX: Joi.string().default('spa:ratelimit'),
-  RATE_LIMIT_FAIL_CLOSED: Joi.string().valid('true', 'false').default('false'),
+  RATE_LIMIT_PREFIX: Joi.string().default("spa:ratelimit"),
+  RATE_LIMIT_FAIL_CLOSED: Joi.string().valid("true", "false").default("false"),
   RATE_LIMIT_MIN_DELAY_MS: Joi.number().integer().min(0).default(300000),
   RATE_LIMIT_INTERACTION_MIN_DELAY_MS: Joi.number().integer().min(0).default(0),
   // Posting limits per network
@@ -288,7 +318,10 @@ const envSchema = Joi.object({
   RATE_LIMIT_FACEBOOK_MAX_PER_DAY: Joi.number().integer().min(0).default(1),
   // Login endpoint brute-force protection
   RATE_LIMIT_LOGIN_MAX_ATTEMPTS: Joi.number().integer().min(1).default(5),
-  RATE_LIMIT_LOGIN_WINDOW_MS: Joi.number().integer().min(1000).default(60 * 1000),
+  RATE_LIMIT_LOGIN_WINDOW_MS: Joi.number()
+    .integer()
+    .min(1000)
+    .default(60 * 1000),
   RATE_LIMIT_FACEBOOK_MAX_PER_WEEK: Joi.number().integer().min(0).default(5),
   // Interaction limits per action (daily / weekly)
   RATE_LIMIT_INTERACTION_LIKE_MAX_PER_DAY: Joi.number().integer().min(0).default(60),
@@ -308,179 +341,195 @@ const envSchema = Joi.object({
   POSTING_WINDOW_MIN_SAMPLES: Joi.number().integer().min(1).default(10),
   POSTING_WINDOW_TOP_HOURS: Joi.number().integer().min(1).max(24).default(3),
   POSTING_WINDOW_DECAY_DAYS: Joi.number().integer().min(1).default(30),
-  POSTING_WINDOW_FALLBACK_HOURS: Joi.string().default('9,12,18,21'),
+  POSTING_WINDOW_FALLBACK_HOURS: Joi.string().default("9,12,18,21"),
 
   // ── Monitoring ──
-  SENTRY_DSN: Joi.string().allow('').default(''),
+  SENTRY_DSN: Joi.string().allow("").default(""),
 
   // ── Health check ──
   HEALTH_CHECK_TIMEOUT_MS: Joi.number().integer().min(500).max(30000).default(2000),
 
   // ── Notifications ──
-  DISCORD_WEBHOOK_URL: Joi.string().uri().allow('').default(''),
-  DISCORD_ALERTS_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  DISCORD_WEBHOOK_URL: Joi.string().uri().allow("").default(""),
+  DISCORD_ALERTS_ENABLED: Joi.string().valid("true", "false").default("false"),
 
   // ── Server-Sent Events (SSE) ──
-  SSE_CHANNEL: Joi.string().default('spa:sse'),
+  SSE_CHANNEL: Joi.string().default("spa:sse"),
   SSE_MAX_CONNECTIONS_PER_IP: Joi.number().integer().min(1).default(10),
-  SSE_IDLE_TIMEOUT_MS: Joi.number().integer().min(1000).default(5 * 60 * 1000),
+  SSE_IDLE_TIMEOUT_MS: Joi.number()
+    .integer()
+    .min(1000)
+    .default(5 * 60 * 1000),
 
   // ── Langfuse (LLM observability — tracing, prompt management, evaluation) ──
   // Auto-enable: tracing activates when LANGFUSE_PUBLIC_KEY is set.
   // When absent/empty, Langfuse is a no-op (zero overhead, no network calls).
   // Get keys from Langfuse UI → Settings → API Keys.
-  LANGFUSE_PUBLIC_KEY: Joi.string().allow('').default(''),
-  LANGFUSE_SECRET_KEY: Joi.string().allow('').default(''),
+  LANGFUSE_PUBLIC_KEY: Joi.string().allow("").default(""),
+  LANGFUSE_SECRET_KEY: Joi.string().allow("").default(""),
   // Base URL: 🇪🇺 EU: https://cloud.langfuse.com | 🇺🇸 US: https://us.cloud.langfuse.com | self-hosted URL
-  LANGFUSE_BASE_URL: Joi.string().uri().allow('').default(''),
+  LANGFUSE_BASE_URL: Joi.string().uri().allow("").default(""),
   // Prompt version label for Langfuse Prompt Management. Defaults to 'latest'.
   // Set to a specific version (e.g. 'production') to pin all prompts to that label.
   // Override per prompt with PROMPT_VERSION_<NAME> env vars (handled by PromptRegistry).
-  PROMPT_VERSION: Joi.string().default('latest'),
+  PROMPT_VERSION: Joi.string().default("latest"),
   // P0: compiled prompt cache TTL in milliseconds (default 5 minutes)
   PROMPT_CACHE_TTL_MS: Joi.number().integer().min(0).default(300000),
 
   // ── Security ──
   // P0-H3: AES-256-GCM key for encrypting storageState at rest (64 hex chars = 32 bytes)
   // Generate with: openssl rand -hex 32
-  SESSION_ENCRYPTION_KEY: Joi.string().allow('').default(''),
+  SESSION_ENCRYPTION_KEY: Joi.string().allow("").default(""),
 
   // ── UI Auth (JWT cookie) ──
   // AUTH_ENABLED=false (default) → pass-through (dev / VPN-only / tests).
   // AUTH_ENABLED=true → all routes require a valid JWT except /auth/login and /health.
-  AUTH_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  AUTH_ENABLED: Joi.string().valid("true", "false").default("false"),
   // JWT secret for signing/verifying tokens — required when AUTH_ENABLED=true.
   // Generate with: openssl rand -hex 32
-  JWT_SECRET: Joi.string().allow('').default(''),
+  JWT_SECRET: Joi.string().allow("").default(""),
   // Admin account bootstrapped from env on startup (created if missing, password
   // updated if env password changes). If ADMIN_PASSWORD is empty, bootstrap is skipped.
-  ADMIN_USERNAME: Joi.string().allow('').default('admin'),
-  ADMIN_PASSWORD: Joi.string().allow('').default(''),
+  ADMIN_USERNAME: Joi.string().allow("").default("admin"),
+  ADMIN_PASSWORD: Joi.string().allow("").default(""),
   // Comma-separated list of additional CORS origins (e.g. Vercel UI deployment URL)
-  CORS_ORIGIN: Joi.string().allow('').default(''),
+  CORS_ORIGIN: Joi.string().allow("").default(""),
   // Comma-separated list of trusted reverse proxy IPs (e.g. nginx). Empty → XFF ignored.
-  TRUSTED_PROXY_IPS: Joi.string().allow('').default(''),
+  TRUSTED_PROXY_IPS: Joi.string().allow("").default(""),
 
   // ── Content paths ──
-  BLOG_DIR: Joi.string().allow('').default(''),
-  BRIEF_DIR: Joi.string().allow('').default(''),
-  TOPICS_DIR: Joi.string().allow('').default(''),
-  CREATE_RUNS_DIR: Joi.string().allow('').default(''),
-  CONTENT_AGENT_PLATFORM_PATH: Joi.string().allow('').default(''),
-  SITE_BLOG_PATH: Joi.string().allow('').default(''),
+  BLOG_DIR: Joi.string().allow("").default(""),
+  BRIEF_DIR: Joi.string().allow("").default(""),
+  TOPICS_DIR: Joi.string().allow("").default(""),
+  CREATE_RUNS_DIR: Joi.string().allow("").default(""),
+  CONTENT_AGENT_PLATFORM_PATH: Joi.string().allow("").default(""),
+  SITE_BLOG_PATH: Joi.string().allow("").default(""),
   // Content Adapters Beyond CAP: JSON array of content sources (rss, api, cap_file, db)
-  CONTENT_SOURCES: Joi.string().allow('').default(''),
+  CONTENT_SOURCES: Joi.string().allow("").default(""),
 
   // ── Topic generation (DB-backed content source) ──
-  TOPIC_GENERATION_ENABLED: Joi.string().valid('true', 'false').default('true'),
-  TOPIC_GENERATION_CRON: Joi.string().default('0 */2 * * *'),
+  TOPIC_GENERATION_ENABLED: Joi.string().valid("true", "false").default("true"),
+  TOPIC_GENERATION_CRON: Joi.string().default("0 */2 * * *"),
   TOPIC_POOL_MIN: Joi.number().integer().min(1).default(30),
   TOPIC_BATCH_SIZE: Joi.number().integer().min(1).default(20),
 
   // ── Sprint O: New Features ──
   // Captcha solver (2Captcha)
-  CAPTCHA_SOLVER_ENABLED: Joi.string().valid('true', 'false').default('false'),
-  TWO_CAPTCHA_API_KEY: Joi.string().allow('').default(''),
+  CAPTCHA_SOLVER_ENABLED: Joi.string().valid("true", "false").default("false"),
+  TWO_CAPTCHA_API_KEY: Joi.string().allow("").default(""),
   CAPTCHA_POLL_INTERVAL_MS: Joi.number().integer().min(1000).default(5000),
   CAPTCHA_MAX_POLL_ATTEMPTS: Joi.number().integer().min(1).default(24),
 
   // Proxy rotation
-  PROXY_ROTATION_ENABLED: Joi.string().valid('true', 'false').default('false'),
-  PROXY_LIST: Joi.string().allow('').default(''),
-  PROXY_GATEWAY_URL: Joi.string().allow('').default(''),
+  PROXY_ROTATION_ENABLED: Joi.string().valid("true", "false").default("false"),
+  PROXY_LIST: Joi.string().allow("").default(""),
+  PROXY_GATEWAY_URL: Joi.string().allow("").default(""),
   PROXY_STICKY_MINUTES: Joi.number().integer().min(1).default(10),
 
   // A/B testing (P7)
-  AB_VARIANTS_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  AB_VARIANTS_ENABLED: Joi.string().valid("true", "false").default("false"),
   AB_TEST_LOOKBACK_DAYS: Joi.number().integer().min(1).default(30),
   AB_TEST_MIN_SAMPLE_SIZE: Joi.number().integer().min(1).default(3),
   AB_TEST_EXPLOITATION_WEIGHT: Joi.number().min(0).max(1).default(0.8),
 
   // Quote cards (F19)
-  QUOTE_CARDS_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  QUOTE_CARDS_ENABLED: Joi.string().valid("true", "false").default("false"),
   // Default to a writable path inside the app dir — the /data content mount is read-only in prod.
-  QUOTE_CARDS_DIR: Joi.string().default('/app/quote-cards'),
+  QUOTE_CARDS_DIR: Joi.string().default("/app/quote-cards"),
   QUOTE_CARD_WIDTH: Joi.number().integer().default(1200),
   QUOTE_CARD_HEIGHT: Joi.number().integer().default(675),
 
   // Adaptive replies (F4)
-  REPLIES_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  REPLIES_ENABLED: Joi.string().valid("true", "false").default("false"),
   REPLIES_MAX_PER_POST: Joi.number().integer().min(0).default(5),
   REPLIES_MAX_CONVERSATION_DEPTH: Joi.number().integer().min(1).max(10).default(3),
   REPLIES_QUESTION_TEMPERATURE: Joi.number().min(0).max(2).default(0.3),
   REPLIES_DELAY_MIN_MS: Joi.number().integer().min(0).default(300000),
-  REPLIES_AUTO_DELAY_MIN_MS: Joi.number().integer().min(0).default(300000),  // 5 min
+  REPLIES_AUTO_DELAY_MIN_MS: Joi.number().integer().min(0).default(300000), // 5 min
   REPLIES_AUTO_DELAY_MAX_MS: Joi.number().integer().min(1000).default(1800000), // 30 min
-  REPLIES_CRON_SCHEDULE: Joi.string().default('0 */4 * * *'),
-  REPLIES_AUTO_REPLY_COMPLEXITY: Joi.string().valid('low', 'medium', 'high').default('medium'),
+  REPLIES_CRON_SCHEDULE: Joi.string().default("0 */4 * * *"),
+  REPLIES_AUTO_REPLY_COMPLEXITY: Joi.string().valid("low", "medium", "high").default("medium"),
   REPLIES_TEMPERATURE: Joi.number().min(0).max(2).default(0.6),
   REPLIES_SAFETY_TEMPERATURE: Joi.number().min(0).max(2).default(0.2),
   REPLIES_MAX_PER_DAY: Joi.number().integer().min(0).default(10),
   // Hook performance bank aggregation cron
-  HOOK_BANK_AGGREGATE_SCHEDULE: Joi.string().default('0 7 * * *'),
+  HOOK_BANK_AGGREGATE_SCHEDULE: Joi.string().default("0 7 * * *"),
 
   // ── Multi-instance distribution ──
-  INSTANCE_ID: Joi.string().allow('').default(''),
+  INSTANCE_ID: Joi.string().allow("").default(""),
   INSTANCE_HEARTBEAT_TTL_MS: Joi.number().integer().min(5000).default(30000),
   INSTANCE_HEARTBEAT_INTERVAL_MS: Joi.number().integer().min(1000).default(10000),
-  ENGAGEMENT_LOCK_KEY: Joi.string().default('spa:lock:engagement'),
+  ENGAGEMENT_LOCK_KEY: Joi.string().default("spa:lock:engagement"),
   ENGAGEMENT_LOCK_TTL_BUFFER_MS: Joi.number().integer().min(0).default(300000),
   ENGAGEMENT_LOCK_ACQUIRE_RETRY_MS: Joi.number().integer().min(100).default(1000),
 
   // ── Brand / domain context (open-source) ──
-  BRAND_NAME: Joi.string().allow('').default(''),
-  BRAND_DESCRIPTION: Joi.string().allow('').default(''),
-  DOMAIN: Joi.string().allow('').default(''),
-  BRAND_VOICE_PATH: Joi.string().allow('').default('../brand-voice.md'),
-  DOMAIN_PROMPT_DIR: Joi.string().allow('').default('config/prompts'),
-  TOPIC_CATEGORIES: Joi.string().allow('').default(''),
-  CONTENT_PILLARS_PATH: Joi.string().allow('').default(''),
-  CONTENT_STYLES_PATH: Joi.string().allow('').default(''),
-  HUMOR_MECHANICS_PATH: Joi.string().allow('').default(''),
-  SLOP_LEXICON_PATH: Joi.string().allow('').default(''),
-  TRENDING_NICHES_PATH: Joi.string().allow('').default(''),
-  TRENDING_EVENTS_PATH: Joi.string().allow('').default(''),
-  TRENDING_KEYWORD_OVERRIDES_PATH: Joi.string().allow('').default(''),
-  VISUAL_STYLES_PATH: Joi.string().allow('').default(''),
+  BRAND_NAME: Joi.string().allow("").default(""),
+  BRAND_DESCRIPTION: Joi.string().allow("").default(""),
+  DOMAIN: Joi.string().allow("").default(""),
+  BRAND_VOICE_PATH: Joi.string().allow("").default("../brand-voice.md"),
+  PERSONA_PROFILES_PATH: Joi.string().allow("").default(""),
+  DOMAIN_PROMPT_DIR: Joi.string().allow("").default("config/prompts"),
+  TOPIC_CATEGORIES: Joi.string().allow("").default(""),
+  CONTENT_PILLARS_PATH: Joi.string().allow("").default(""),
+  CONTENT_STYLES_PATH: Joi.string().allow("").default(""),
+  HUMOR_MECHANICS_PATH: Joi.string().allow("").default(""),
+  SLOP_LEXICON_PATH: Joi.string().allow("").default(""),
+  TRENDING_NICHES_PATH: Joi.string().allow("").default(""),
+  TRENDING_EVENTS_PATH: Joi.string().allow("").default(""),
+  TRENDING_KEYWORD_OVERRIDES_PATH: Joi.string().allow("").default(""),
+  VISUAL_STYLES_PATH: Joi.string().allow("").default(""),
 
   // ── Syndication (Phase 0+ — cross-platform content syndication) ──
   // Feature flag — when false, SyndicationModule + ParticipationModule are not registered
-  SYNDICATION_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  SYNDICATION_ENABLED: Joi.string().valid("true", "false").default("false"),
   // Blog base URL for canonical URLs (POSSE — Publish Own Site, Syndicate Elsewhere)
-  BLOG_BASE_URL: Joi.string().uri().allow('').default(''),
+  BLOG_BASE_URL: Joi.string().uri().allow("").default(""),
   // Article generation cron schedule (default: weekly Monday 9am)
-  CRON_ARTICLE_GENERATION_SCHEDULE: Joi.string().default('0 9 * * 1'),
-  // Participation cron schedule (default: daily 10am)
-  CRON_PARTICIPATION_SCHEDULE: Joi.string().default('0 10 * * *'),
+  CRON_ARTICLE_GENERATION_SCHEDULE: Joi.string().default("0 9 * * 1"),
 
   // Telegram (only API-based platform — Bot API is free, no approval)
-  TELEGRAM_BOT_TOKEN: Joi.string().allow('').default(''),
-  TELEGRAM_CHANNEL_ID: Joi.string().allow('').default(''),
+  TELEGRAM_BOT_TOKEN: Joi.string().allow("").default(""),
+  TELEGRAM_CHANNEL_ID: Joi.string().allow("").default(""),
+  // TGBOT-101: operator control bot (separate token; chat allowlist)
+  TELEGRAM_CONTROL_BOT_TOKEN: Joi.string().allow("").default(""),
+  TELEGRAM_CONTROL_CHAT_IDS: Joi.string().allow("").default(""),
+  CONTROL_BOT_ENABLED: Joi.boolean().default(false),
 
   // Account credentials for Camoufox login (email/password)
   // Stored as credentials_ref in DB (env var name, not the secret itself)
-  DEVTO_EMAIL: Joi.string().allow('').default(''),
-  DEVTO_PASSWORD: Joi.string().allow('').default(''),
-  HASHNODE_EMAIL: Joi.string().allow('').default(''),
-  HASHNODE_PASSWORD: Joi.string().allow('').default(''),
-  LINKEDIN_EMAIL: Joi.string().allow('').default(''),
-  LINKEDIN_PASSWORD: Joi.string().allow('').default(''),
-  BLUESKY_HANDLE: Joi.string().allow('').default(''),
-  BLUESKY_APP_PASSWORD: Joi.string().allow('').default(''),
-  MASTODON_INSTANCE: Joi.string().default('mastodon.social'),
-  MASTODON_EMAIL: Joi.string().allow('').default(''),
-  MASTODON_PASSWORD: Joi.string().allow('').default(''),
-  MEDIUM_EMAIL: Joi.string().allow('').default(''),
-  MEDIUM_PASSWORD: Joi.string().allow('').default(''),
-  SUBSTACK_PUBLICATION: Joi.string().allow('').default(''),
-  SUBSTACK_EMAIL: Joi.string().allow('').default(''),
-  SUBSTACK_PASSWORD: Joi.string().allow('').default(''),
-  REDDIT_USERNAME: Joi.string().allow('').default(''),
-  REDDIT_PASSWORD: Joi.string().allow('').default(''),
-  QUORA_EMAIL: Joi.string().allow('').default(''),
-  QUORA_PASSWORD: Joi.string().allow('').default(''),
-  PINTEREST_EMAIL: Joi.string().allow('').default(''),
-  PINTEREST_PASSWORD: Joi.string().allow('').default(''),
+  DEVTO_EMAIL: Joi.string().allow("").default(""),
+  DEVTO_PASSWORD: Joi.string().allow("").default(""),
+  HASHNODE_EMAIL: Joi.string().allow("").default(""),
+  HASHNODE_PASSWORD: Joi.string().allow("").default(""),
+  LINKEDIN_EMAIL: Joi.string().allow("").default(""),
+  LINKEDIN_PASSWORD: Joi.string().allow("").default(""),
+  BLUESKY_HANDLE: Joi.string().allow("").default(""),
+  BLUESKY_APP_PASSWORD: Joi.string().allow("").default(""),
+  BLUESKY_TRANSPORT: Joi.string().valid("api", "browser").default("api"),
+  BLUESKY_SERVICE_URL: Joi.string().uri().default("https://bsky.social"),
+  BLUESKY_PUBLIC_API_URL: Joi.string().uri().default("https://public.api.bsky.app"),
+  MASTODON_INSTANCE: Joi.string().default("mastodon.social"),
+  MASTODON_BASE_URL: Joi.string().uri().allow("").default(""),
+  MASTODON_TRANSPORT: Joi.string().valid("api", "browser").default("api"),
+  MASTODON_ACCESS_TOKEN: Joi.string().allow("").default(""),
+  MASTODON_USERNAME: Joi.string().allow("").default(""),
+  MASTODON_VISIBILITY: Joi.string()
+    .valid("public", "unlisted", "private", "direct")
+    .default("public"),
+  MASTODON_EMAIL: Joi.string().allow("").default(""),
+  MASTODON_PASSWORD: Joi.string().allow("").default(""),
+  MEDIUM_EMAIL: Joi.string().allow("").default(""),
+  MEDIUM_PASSWORD: Joi.string().allow("").default(""),
+  SUBSTACK_PUBLICATION: Joi.string().allow("").default(""),
+  SUBSTACK_EMAIL: Joi.string().allow("").default(""),
+  SUBSTACK_PASSWORD: Joi.string().allow("").default(""),
+  REDDIT_USERNAME: Joi.string().allow("").default(""),
+  REDDIT_PASSWORD: Joi.string().allow("").default(""),
+  QUORA_EMAIL: Joi.string().allow("").default(""),
+  QUORA_PASSWORD: Joi.string().allow("").default(""),
+  PINTEREST_EMAIL: Joi.string().allow("").default(""),
+  PINTEREST_PASSWORD: Joi.string().allow("").default(""),
 
   // Per-platform auto-approve thresholds (fallback to AUTO_APPROVE_MIN_SCORE)
   AUTO_APPROVE_MIN_SCORE_DEVTO: Joi.number().integer().min(1).max(10).default(7),
@@ -510,22 +559,42 @@ const envSchema = Joi.object({
 
   // P2-04: Social promo trigger — generate platform-native promo posts when an
   // article or social post is published and verified.
-  SOCIAL_PROMO_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  SOCIAL_PROMO_ENABLED: Joi.string().valid("true", "false").default("false"),
 
   // P1-07: IndexNow — submit canonical URLs to Bing/Yandex after publish
-  INDEXNOW_ENABLED: Joi.string().valid('true', 'false').default('false'),
-  INDEXNOW_KEY: Joi.string().allow('').default(''),
-  INDEXNOW_HOST: Joi.string().allow('').default(''),
+  INDEXNOW_ENABLED: Joi.string().valid("true", "false").default("false"),
+  INDEXNOW_KEY: Joi.string().allow("").default(""),
+  INDEXNOW_HOST: Joi.string().allow("").default(""),
 
   // ── BrowserAgentService (LLM-in-the-loop engine #47) ──
   // Max iterations for act() loop (screenshot → LLM → execute → check)
   BROWSER_AGENT_MAX_ITERATIONS: Joi.number().integer().min(1).max(50).default(10),
   // Screenshot cache TTL in ms (identical screenshots skip LLM call)
   BROWSER_AGENT_CACHE_TTL_MS: Joi.number().integer().min(0).default(300000), // 5 min
-}).pattern(
-  /^SOCIAL_(X|THREADS|FACEBOOK)_(USERNAME|EMAIL|PASSWORD|COOKIES|PAGE_SLUG|WARMUP|ACTIVE|PROXY_URL|DISPLAY_NAME|PRIORITY|FINGERPRINT_SEED)_\d+$/,
-  Joi.string().allow(''),
-).unknown(true); // allow extra env vars (PATH, HOME, etc.)
+
+  // ── Link attribution (ROADMAP_V2 Z4 — my_zodiac_ai/back attribution-links client) ──
+  // When ZODIAC_API_URL is empty, the link port is a no-op and posts fall back
+  // to buildDirectUtmUrl() (plain UTM-tagged destination URL).
+  ZODIAC_API_URL: Joi.string()
+    .uri({ scheme: ["http", "https"] })
+    .allow("")
+    .default(""),
+  // Shared secret for the /internal/attribution-links endpoint (MAIN_BACKEND_INTERNAL_TOKEN on zodiac-back)
+  ZODIAC_INTERNAL_TOKEN: Joi.string().allow("").default(""),
+  // Default redirect target for attribution links (quiz funnel = primary lead surface)
+  ZODIAC_DEFAULT_DESTINATION_URL: Joi.string()
+    .uri({ scheme: ["http", "https"] })
+    .default("https://quiz.my-zodiac-ai.com"),
+  ZODIAC_TIMEOUT_MS: Joi.number().integer().min(500).default(5000),
+  // R7/M1.4: timeout for fetching a syndicated article while verifying its
+  // <link rel="canonical"> tag (CanonicalUrlService.verifyCanonical)
+  CANONICAL_VERIFY_TIMEOUT_MS: Joi.number().integer().min(500).default(8000),
+})
+  .pattern(
+    /^SOCIAL_(X|THREADS|FACEBOOK)_(USERNAME|EMAIL|PASSWORD|COOKIES|PAGE_SLUG|WARMUP|ACTIVE|PROXY_URL|DISPLAY_NAME|PRIORITY|FINGERPRINT_SEED)_\d+$/,
+    Joi.string().allow(""),
+  )
+  .unknown(true); // allow extra env vars (PATH, HOME, etc.)
 
 /**
  * Validate env vars at startup. Call this from a module's onModuleInit.
@@ -539,30 +608,30 @@ export function validateEnv(): void {
 
   if (error) {
     throw new Error(
-      `Environment variable validation failed:\n${error.details.map((d) => `  - ${d.message}`).join('\n')}`,
+      `Environment variable validation failed:\n${error.details.map((d) => `  - ${d.message}`).join("\n")}`,
     );
   }
 
   // P0-H3: In production, SESSION_ENCRYPTION_KEY must be a valid 64-char hex string.
   // An empty or invalid key means storageState (cookies, localStorage) is stored
   // in plaintext — a critical security risk for production.
-  if (process.env.NODE_ENV === 'production') {
-    const key = process.env.SESSION_ENCRYPTION_KEY ?? '';
+  if (process.env.NODE_ENV === "production") {
+    const key = process.env.SESSION_ENCRYPTION_KEY ?? "";
     if (!key || !KEY_HEX_REGEX.test(key)) {
       throw new Error(
-        'SESSION_ENCRYPTION_KEY must be a 64-character hex string in production. ' +
-          'Generate with: openssl rand -hex 32',
+        "SESSION_ENCRYPTION_KEY must be a 64-character hex string in production. " +
+          "Generate with: openssl rand -hex 32",
       );
     }
   }
 
   // UI Auth: in production with AUTH_ENABLED=true, JWT_SECRET must be set (min 32 chars).
-  if (process.env.NODE_ENV === 'production' && process.env.AUTH_ENABLED === 'true') {
-    const jwtSecret = process.env.JWT_SECRET ?? '';
+  if (process.env.NODE_ENV === "production" && process.env.AUTH_ENABLED === "true") {
+    const jwtSecret = process.env.JWT_SECRET ?? "";
     if (!jwtSecret || jwtSecret.length < 32) {
       throw new Error(
-        'JWT_SECRET must be at least 32 characters in production when AUTH_ENABLED=true. ' +
-          'Generate with: openssl rand -hex 32',
+        "JWT_SECRET must be at least 32 characters in production when AUTH_ENABLED=true. " +
+          "Generate with: openssl rand -hex 32",
       );
     }
   }

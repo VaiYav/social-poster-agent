@@ -10,26 +10,26 @@
  * skipped page.close() entirely while the context was still returned to the
  * pool via `finally`, leaking one open Page per failed session.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SocialNetwork } from '@prisma/client';
-import { BrowsingSessionService } from '../../../src/modules/engagement/browsing-session.service';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { SocialNetwork } from "../../../src/generated/prisma/client.js";
+import { BrowsingSessionService } from "../../../src/modules/engagement/browsing-session.service.js";
 import {
   createMockPrismaService,
   createMockSseService,
   createMockDistributedLockService,
   fixtureSession,
-} from '../../mocks/index.js';
+} from "../../mocks/index.js";
 
 const mockInvoke = vi.fn();
 
-vi.mock('../../../src/modules/engagement/engagement.graph.js', () => ({
+vi.mock("../../../src/modules/engagement/engagement.graph.js", () => ({
   buildEngagementGraph: vi.fn(() => ({
     compile: () => ({ invoke: mockInvoke }),
   })),
   createEngagementInitialState: vi.fn((opts: Record<string, unknown>) => opts),
 }));
 
-describe('BrowsingSessionService — page lifecycle', () => {
+describe("BrowsingSessionService — page lifecycle", () => {
   let service: BrowsingSessionService;
   let prisma: ReturnType<typeof createMockPrismaService>;
   let sseService: ReturnType<typeof createMockSseService>;
@@ -67,8 +67,8 @@ describe('BrowsingSessionService — page lifecycle', () => {
       updateStorageState: vi.fn().mockResolvedValue(undefined),
     };
     prisma = createMockPrismaService();
-    prisma.browsingSession.create.mockResolvedValue({ id: 'bs-1' });
-    prisma.browsingSession.update.mockResolvedValue({ id: 'bs-1' });
+    prisma.browsingSession.create.mockResolvedValue({ id: "bs-1" });
+    prisma.browsingSession.update.mockResolvedValue({ id: "bs-1" });
     sseService = createMockSseService();
     lockService = createMockDistributedLockService();
 
@@ -97,7 +97,7 @@ describe('BrowsingSessionService — page lifecycle', () => {
     );
   });
 
-  it('BSS-001: closes the page on a successful session', async () => {
+  it("BSS-001: closes the page on a successful session", async () => {
     mockInvoke.mockResolvedValue({ postsProcessed: 3, results: [] });
 
     await service.runBrowsingSession(SocialNetwork.X, 60);
@@ -106,38 +106,38 @@ describe('BrowsingSessionService — page lifecycle', () => {
     expect(browser.releaseContext).toHaveBeenCalledWith(SocialNetwork.X, mockContext, undefined);
   });
 
-  it('BSS-002: still closes the page when the engagement graph throws (regression: page leak on failure)', async () => {
-    mockInvoke.mockRejectedValue(new Error('selector drift'));
+  it("BSS-002: still closes the page when the engagement graph throws (regression: page leak on failure)", async () => {
+    mockInvoke.mockRejectedValue(new Error("selector drift"));
 
-    await expect(service.runBrowsingSession(SocialNetwork.X, 60)).rejects.toThrow('selector drift');
+    await expect(service.runBrowsingSession(SocialNetwork.X, 60)).rejects.toThrow("selector drift");
 
     expect(mockPage.close).toHaveBeenCalledTimes(1);
     expect(browser.releaseContext).toHaveBeenCalledWith(SocialNetwork.X, mockContext, undefined);
   });
 
-  it('BSS-003: a page.close() failure does not prevent the context from being released', async () => {
+  it("BSS-003: a page.close() failure does not prevent the context from being released", async () => {
     mockInvoke.mockResolvedValue({ postsProcessed: 0, results: [] });
-    mockPage.close.mockRejectedValue(new Error('already closed'));
+    mockPage.close.mockRejectedValue(new Error("already closed"));
 
     await service.runBrowsingSession(SocialNetwork.X, 60);
 
     expect(browser.releaseContext).toHaveBeenCalledWith(SocialNetwork.X, mockContext, undefined);
   });
 
-  it('BSS-004: acquires a per-network distributed lock', async () => {
+  it("BSS-004: acquires a per-network distributed lock", async () => {
     mockInvoke.mockResolvedValue({ postsProcessed: 0, results: [] });
 
     await service.runBrowsingSession(SocialNetwork.X, 60);
     await service.runBrowsingSession(SocialNetwork.THREADS, 60);
 
     expect(lockService.acquire).toHaveBeenCalledWith(
-      expect.stringContaining('X'),
+      expect.stringContaining("X"),
       expect.any(Number),
       expect.any(Number),
       expect.any(Number),
     );
     expect(lockService.acquire).toHaveBeenCalledWith(
-      expect.stringContaining('THREADS'),
+      expect.stringContaining("THREADS"),
       expect.any(Number),
       expect.any(Number),
       expect.any(Number),

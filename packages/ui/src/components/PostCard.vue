@@ -1,18 +1,22 @@
 <script setup lang="ts">
-import type { Post } from '@spa/shared';
-import { Check, X, Pencil, ExternalLink, Layers } from '@lucide/vue';
-import { Card, Button } from './ui';
-import StatusBadge from './StatusBadge.vue';
-import NetworkIcon from './NetworkIcon.vue';
+import { computed, ref } from "vue";
+import type { Post } from "@spa/shared";
+import { Check, X, Pencil, ExternalLink, Layers } from "@lucide/vue";
+import { Card, Button } from "./ui";
+import StatusBadge from "./StatusBadge.vue";
+import NetworkIcon from "./NetworkIcon.vue";
 
-const props = withDefaults(defineProps<{
-  post: Post;
-  showActions?: boolean;
-  truncate?: number;
-}>(), {
-  showActions: false,
-  truncate: 0,
-});
+const props = withDefaults(
+  defineProps<{
+    post: Post;
+    showActions?: boolean;
+    truncate?: number;
+  }>(),
+  {
+    showActions: false,
+    truncate: 0,
+  },
+);
 
 const emit = defineEmits<{
   approve: [id: string];
@@ -20,18 +24,24 @@ const emit = defineEmits<{
   edit: [post: Post];
 }>();
 
-const displayContent = props.truncate > 0
-  ? props.post.content.length > props.truncate
-    ? props.post.content.slice(0, props.truncate) + '…'
-    : props.post.content
-  : props.post.content;
+const displayContent =
+  props.truncate > 0
+    ? props.post.content.length > props.truncate
+      ? props.post.content.slice(0, props.truncate) + "…"
+      : props.post.content
+    : props.post.content;
 
 const isMultiStage = props.post.llmMetadata?.multiStage === true;
 const threadLabel = isMultiStage
-  ? `Multi-stage · ${(props.post.threadPosition ?? 0) + 1}/${props.post.llmMetadata?.threadDepth ?? '?'}`
+  ? `Multi-stage · ${(props.post.threadPosition ?? 0) + 1}/${props.post.llmMetadata?.threadDepth ?? "?"}`
   : props.post.threadId
-    ? 'Thread'
+    ? "Thread"
     : null;
+const mediaLoadError = ref(false);
+const mediaUrl = computed(() => props.post.media?.url ?? null);
+const mediaAlt = computed(
+  () => props.post.media?.altText ?? `Generated visual for ${props.post.network} post`,
+);
 </script>
 
 <template>
@@ -39,9 +49,7 @@ const threadLabel = isMultiStage
     <div class="flex items-start justify-between gap-4">
       <div class="flex items-center gap-3">
         <NetworkIcon :network="post.network" />
-        <span class="text-xs text-text-muted">
-          {{ post.id.slice(0, 8) }}…
-        </span>
+        <span class="text-xs text-text-muted"> {{ post.id.slice(0, 8) }}… </span>
       </div>
       <div class="flex items-center gap-2">
         <span
@@ -58,6 +66,23 @@ const threadLabel = isMultiStage
 
     <p class="mt-4 text-sm leading-relaxed text-text-primary">
       {{ displayContent }}
+    </p>
+
+    <div
+      v-if="mediaUrl && !mediaLoadError"
+      class="mt-4 overflow-hidden rounded-lg border border-border bg-surface-elevated"
+    >
+      <img
+        :src="mediaUrl"
+        :alt="mediaAlt"
+        loading="lazy"
+        decoding="async"
+        class="max-h-72 w-full object-cover"
+        @error="mediaLoadError = true"
+      />
+    </div>
+    <p v-else-if="mediaUrl && mediaLoadError" class="mt-3 text-xs text-text-muted">
+      Visual preview unavailable; text post remains available.
     </p>
 
     <div v-if="post.postUrl" class="mt-3">

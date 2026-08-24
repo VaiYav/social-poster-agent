@@ -1,6 +1,6 @@
-import { Injectable, Inject } from '@nestjs/common';
-import type { ContentTopic } from '@spa/shared';
-import { IContentPort } from '../../domain/ports/content.port.js';
+import { Injectable, Inject } from "@nestjs/common";
+import type { ContentTopic } from "@spa/shared";
+import { IContentPort } from "../../domain/ports/content.port.js";
 
 /**
  * Content source service — facade over IContentPort.

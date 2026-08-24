@@ -1,20 +1,27 @@
 # SPA Backend — NestJS API + BullMQ worker
 # Multi-stage build: build TypeScript → slim production image
 
-FROM node:26-slim AS builder
+FROM node:24-slim AS builder
 
 WORKDIR /app
 
-# Node 26 slim no longer ships Corepack.
+# Node 24 slim no longer ships Corepack.
 RUN npm install --global pnpm@11.21.0
 
 # Copy workspace config
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/backend/package.json ./packages/backend/
+# REFACTOR-100: schema must exist BEFORE install — backend postinstall runs
+# `prisma generate`, which fails without it (alignment with root Dockerfile).
+COPY packages/backend/prisma ./packages/backend/prisma
 
 # Install dependencies
 RUN pnpm install --frozen-lockfile
+
+# Pre-fetch Camoufox browser binary so production does not download it at runtime.
+ENV CAMOUFOX_INSTALL_DIR=/app/.cache/camoufox
+RUN npx camoufox-js fetch
 
 # Copy source
 COPY packages/shared/ ./packages/shared/
@@ -28,13 +35,20 @@ RUN node packages/backend/scripts/patch-playwright.js
 RUN pnpm --filter @spa/shared build
 
 # Build backend
-RUN pnpm --filter backend build
+# REFACTOR-100: filter must match the package NAME (@spa/backend); the previous
+# bare `backend` selector matches no project.
+RUN pnpm --filter @spa/backend build
 
 # Generate Prisma client
 RUN cd packages/backend && npx prisma generate
 
+# Copy generated .prisma (client code + engine) to a known location for the
+# production stage — same technique as the root Dockerfile.
+RUN PRISMA_DIR=$(find /app/node_modules/.pnpm -maxdepth 4 -name '.prisma' -type d | head -1) && \
+    cp -r "$PRISMA_DIR" /tmp/.prisma
+
 # ── Production stage ──
-FROM node:26-slim AS production
+FROM node:24-slim AS production
 
 WORKDIR /app
 
@@ -54,7 +68,10 @@ COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/backend/package.json ./packages/backend/
 
-RUN pnpm install --frozen-lockfile --prod
+# REFACTOR-100: --ignore-scripts, same as the root Dockerfile — the backend
+# postinstall (prisma generate + playwright patch) needs devDependencies that a
+# --prod install does not contain. Both steps are done explicitly below.
+RUN pnpm install --frozen-lockfile --prod --ignore-scripts
 
 # Copy the Playwright patch script (needed before patching coreBundle.js)
 COPY packages/backend/scripts/patch-playwright.js ./packages/backend/scripts/patch-playwright.js
@@ -62,19 +79,24 @@ COPY packages/backend/scripts/patch-playwright.js ./packages/backend/scripts/pat
 # Patch Playwright coreBundle.js — Camoufox/Juggler uncaughtError crash (camoufox#635).
 RUN node packages/backend/scripts/patch-playwright.js
 
+# Copy pre-fetched Camoufox browser binary and make it writable for the spa user.
+ENV CAMOUFOX_INSTALL_DIR=/app/.cache/camoufox
+COPY --from=builder /app/.cache/camoufox /app/.cache/camoufox
+
 # Copy built artifacts
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/packages/backend/dist ./packages/backend/dist
 COPY --from=builder /app/packages/backend/prisma ./packages/backend/prisma
 
 # Copy generated Prisma client from builder to the correct pnpm store path.
-# The glob COPY extracts the contents to /tmp; we then find the actual
-# @prisma/client directory in the production pnpm store and overwrite it.
-# This must run before USER spa (needs root to write to node_modules).
+# REFACTOR-100: aligned with the root Dockerfile — copy the generated `.prisma`
+# output (client code + query engine) from a known /tmp location prepared in the
+# builder. This must run before USER spa (needs root to write to node_modules).
 COPY --from=builder /app/node_modules/.pnpm/@prisma+client*/node_modules/@prisma/client /tmp/prisma-generated
-RUN CLIENT_DIR=$(find /app/node_modules/.pnpm -path '*/@prisma/client' -type d | head -1) && \
-    cp -r /tmp/prisma-generated/* "$CLIENT_DIR/" && \
-    rm -rf /tmp/prisma-generated
+RUN CLIENT_NM_DIR=$(find /app/node_modules/.pnpm -maxdepth 4 -path '*/@prisma+client*/node_modules' -type d | head -1) && \
+    cp -r /tmp/prisma-generated/* "$CLIENT_NM_DIR/" && \
+    cp -r /tmp/.prisma "$CLIENT_NM_DIR/" && \
+    rm -rf /tmp/prisma-generated /tmp/.prisma
 
 # Copy brand voice
 COPY brand-voice.md ./

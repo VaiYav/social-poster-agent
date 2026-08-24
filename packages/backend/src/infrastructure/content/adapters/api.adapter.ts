@@ -1,11 +1,11 @@
-import type { ContentTopic } from '@spa/shared';
-import { ContentSourceConfig } from '@spa/shared';
-import type { IContentAdapter } from './content-adapter.interface.js';
+import type { ContentTopic } from "@spa/shared";
+import { ContentSourceConfig } from "@spa/shared";
+import type { IContentAdapter } from "./content-adapter.interface.js";
 
 function getAtPath(obj: unknown, path: string): unknown {
   if (!path) return obj;
-  return path.split('.').reduce((acc: unknown, key) => {
-    if (acc && typeof acc === 'object' && key in acc) {
+  return path.split(".").reduce((acc: unknown, key) => {
+    if (acc && typeof acc === "object" && key in acc) {
       return (acc as Record<string, unknown>)[key];
     }
     return undefined;
@@ -20,7 +20,11 @@ function toArray(value: unknown): unknown[] {
 
 function toStringArray(value: unknown): string[] {
   if (Array.isArray(value)) return value.map(String).filter(Boolean);
-  if (typeof value === 'string') return value.split(',').map((s) => s.trim()).filter(Boolean);
+  if (typeof value === "string")
+    return value
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
   return [];
 }
 
@@ -28,9 +32,9 @@ function toFacts(value: unknown): string[] {
   const arr = toArray(value);
   const result: string[] = [];
   for (const item of arr) {
-    if (typeof item === 'string') {
+    if (typeof item === "string") {
       result.push(item);
-    } else if (item && typeof item === 'object') {
+    } else if (item && typeof item === "object") {
       result.push(JSON.stringify(item));
     }
   }
@@ -39,7 +43,7 @@ function toFacts(value: unknown): string[] {
 
 export interface ApiAdapterConfig {
   url: string;
-  method?: 'GET' | 'POST';
+  method?: "GET" | "POST";
   headers?: Record<string, string>;
   body?: string;
   itemsPath?: string;
@@ -50,12 +54,12 @@ export interface ApiAdapterConfig {
   publishedAtPath?: string;
   linkPath?: string;
   language?: string;
-  topicType?: 'brief' | 'article' | 'topic' | 'create_run';
+  topicType?: "brief" | "article" | "topic" | "create_run";
 }
 
 interface ResolvedApiAdapterConfig {
   url: string;
-  method: 'GET' | 'POST';
+  method: "GET" | "POST";
   headers: Record<string, string>;
   body?: string;
   itemsPath: string;
@@ -66,7 +70,7 @@ interface ResolvedApiAdapterConfig {
   publishedAtPath: string;
   linkPath: string;
   language: string;
-  topicType: 'brief' | 'article' | 'topic' | 'create_run';
+  topicType: "brief" | "article" | "topic" | "create_run";
 }
 
 /**
@@ -77,7 +81,7 @@ interface ResolvedApiAdapterConfig {
  * source that can be flattened into topics.
  */
 export class ApiAdapter implements IContentAdapter {
-  readonly sourceType = 'api';
+  readonly sourceType = "api";
   lastError: string | null = null;
 
   constructor(private readonly source: ContentSourceConfig) {
@@ -110,7 +114,7 @@ export class ApiAdapter implements IContentAdapter {
     const cfg = this.parseConfig();
     try {
       const res = await fetch(cfg.url, {
-        method: cfg.method ?? 'GET',
+        method: cfg.method ?? "GET",
         headers: cfg.headers ?? {},
         body: cfg.body,
       });
@@ -131,26 +135,29 @@ export class ApiAdapter implements IContentAdapter {
 
   private parseConfig(): ResolvedApiAdapterConfig {
     const cfg = this.source.config as unknown as ApiAdapterConfig;
-    if (!cfg.url || typeof cfg.url !== 'string') {
-      throw new Error('ApiAdapter requires a config.url string');
+    if (!cfg.url || typeof cfg.url !== "string") {
+      throw new Error("ApiAdapter requires a config.url string");
     }
-    const topicType: ResolvedApiAdapterConfig['topicType'] =
-      cfg.topicType === 'brief' || cfg.topicType === 'article' || cfg.topicType === 'topic' || cfg.topicType === 'create_run'
+    const topicType: ResolvedApiAdapterConfig["topicType"] =
+      cfg.topicType === "brief" ||
+      cfg.topicType === "article" ||
+      cfg.topicType === "topic" ||
+      cfg.topicType === "create_run"
         ? cfg.topicType
-        : 'topic';
+        : "topic";
     return {
       url: cfg.url,
-      method: cfg.method ?? 'GET',
+      method: cfg.method ?? "GET",
       headers: cfg.headers ?? {},
       body: cfg.body,
-      itemsPath: cfg.itemsPath ?? '',
-      topicPath: cfg.topicPath ?? 'title',
-      factsPath: cfg.factsPath ?? 'summary',
-      keywordsPath: cfg.keywordsPath ?? 'keywords',
-      categoryPath: cfg.categoryPath ?? 'category',
-      publishedAtPath: cfg.publishedAtPath ?? 'publishedAt',
-      linkPath: cfg.linkPath ?? 'link',
-      language: cfg.language ?? 'en',
+      itemsPath: cfg.itemsPath ?? "",
+      topicPath: cfg.topicPath ?? "title",
+      factsPath: cfg.factsPath ?? "summary",
+      keywordsPath: cfg.keywordsPath ?? "keywords",
+      categoryPath: cfg.categoryPath ?? "category",
+      publishedAtPath: cfg.publishedAtPath ?? "publishedAt",
+      linkPath: cfg.linkPath ?? "link",
+      language: cfg.language ?? "en",
       topicType,
     };
   }
@@ -166,10 +173,10 @@ export class ApiAdapter implements IContentAdapter {
         this.lastError = `HTTP ${res.status} from ${cfg.url}`;
         return [];
       }
-      const data = await res.json() as unknown;
+      const data = (await res.json()) as unknown;
       const items = getAtPath(data, cfg.itemsPath);
       if (Array.isArray(items)) return items;
-      if (items && typeof items === 'object') return [items];
+      if (items && typeof items === "object") return [items];
       return [];
     } catch (err) {
       this.lastError = (err as Error).message;
@@ -201,7 +208,7 @@ export class ApiAdapter implements IContentAdapter {
 
   private extractString(item: unknown, path: string): string | undefined {
     const value = getAtPath(item, path);
-    if (typeof value === 'string') return value;
+    if (typeof value === "string") return value;
     return undefined;
   }
 

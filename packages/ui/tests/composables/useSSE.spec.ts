@@ -9,10 +9,10 @@
  *   - Clear timeout on disconnect to prevent zombie reconnects
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mount } from '@vue/test-utils';
-import { defineComponent, h } from 'vue';
-import { useSSE, type SSEOptions } from '@/composables/useSSE';
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mount } from "@vue/test-utils";
+import { defineComponent, h } from "vue";
+import { useSSE, type SSEOptions } from "@/composables/useSSE";
 
 // Mock EventSource
 class MockEventSource {
@@ -39,16 +39,16 @@ class MockEventSource {
   // Test helpers
   simulateOpen(): void {
     this.readyState = MockEventSource.OPEN;
-    this.onopen?.(new Event('open'));
+    this.onopen?.(new Event("open"));
   }
 
   simulateError(): void {
     this.readyState = MockEventSource.CLOSED;
-    this.onerror?.(new Event('error'));
+    this.onerror?.(new Event("error"));
   }
 
   simulateMessage(data: unknown): void {
-    const event = new MessageEvent('message', { data: JSON.stringify(data) });
+    const event = new MessageEvent("message", { data: JSON.stringify(data) });
     this.onmessage?.(event);
   }
 }
@@ -59,14 +59,14 @@ function createTestComponent(url: string, options?: SSEOptions) {
   const TestComponent = defineComponent({
     setup() {
       sseResult = useSSE(url, options);
-      return () => h('div');
+      return () => h("div");
     },
   });
   const wrapper = mount(TestComponent);
   return { wrapper, sseResult: () => sseResult! };
 }
 
-describe('useSSE — P0-H4 Exponential Backoff Reconnection', () => {
+describe("useSSE — P0-H4 Exponential Backoff Reconnection", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     MockEventSource.instances = [];
@@ -80,16 +80,19 @@ describe('useSSE — P0-H4 Exponential Backoff Reconnection', () => {
   });
 
   // ── UTC-SSE-001: Initial connection ──
-  it('UTC-SSE-001: connects to the given URL on mount', () => {
-    const { sseResult } = createTestComponent('/api/v1/events/sse');
+  it("UTC-SSE-001: connects to the given URL on mount", () => {
+    const { sseResult } = createTestComponent("/api/v1/events/sse");
     expect(MockEventSource.instances).toHaveLength(1);
-    expect(MockEventSource.instances[0].url).toBe('/api/v1/events/sse');
+    expect(MockEventSource.instances[0].url).toBe("/api/v1/events/sse");
     expect(sseResult().isConnected.value).toBe(false);
   });
 
   // ── UTC-SSE-002: onopen sets isConnected and resets retryCount ──
-  it('UTC-SSE-002: onopen sets isConnected=true and resets retryCount to 0', () => {
-    const { sseResult } = createTestComponent('/api/v1/events/sse', { jitter: false, baseDelayMs: 1000 });
+  it("UTC-SSE-002: onopen sets isConnected=true and resets retryCount to 0", () => {
+    const { sseResult } = createTestComponent("/api/v1/events/sse", {
+      jitter: false,
+      baseDelayMs: 1000,
+    });
     const es = MockEventSource.instances[0];
 
     // Simulate error first to increment retryCount
@@ -107,18 +110,18 @@ describe('useSSE — P0-H4 Exponential Backoff Reconnection', () => {
   });
 
   // ── UTC-SSE-003: Exponential backoff delay calculation ──
-  it('UTC-SSE-003: uses exponential backoff (1s, 2s, 4s, 8s, 16s, 30s cap)', () => {
+  it("UTC-SSE-003: uses exponential backoff (1s, 2s, 4s, 8s, 16s, 30s cap)", () => {
     const delays: number[] = [];
     const originalSetTimeout = global.setTimeout;
 
-    const { sseResult } = createTestComponent('/api/v1/events/sse', {
+    const { sseResult } = createTestComponent("/api/v1/events/sse", {
       jitter: false,
       baseDelayMs: 1000,
       maxDelayMs: 30000,
     });
 
     // Intercept setTimeout to capture delays
-    vi.spyOn(global, 'setTimeout').mockImplementation((cb: () => void, delay?: number) => {
+    vi.spyOn(global, "setTimeout").mockImplementation((cb: () => void, delay?: number) => {
       if (delay && delay > 0) delays.push(delay);
       cb();
       return {} as ReturnType<typeof setTimeout>;
@@ -140,8 +143,8 @@ describe('useSSE — P0-H4 Exponential Backoff Reconnection', () => {
   });
 
   // ── UTC-SSE-004: Max retries stops reconnection ──
-  it('UTC-SSE-004: stops reconnecting after maxRetries and shows error', () => {
-    const { sseResult } = createTestComponent('/api/v1/events/sse', {
+  it("UTC-SSE-004: stops reconnecting after maxRetries and shows error", () => {
+    const { sseResult } = createTestComponent("/api/v1/events/sse", {
       maxRetries: 3,
       jitter: false,
       baseDelayMs: 100,
@@ -158,24 +161,24 @@ describe('useSSE — P0-H4 Exponential Backoff Reconnection', () => {
     const es = MockEventSource.instances[MockEventSource.instances.length - 1];
     es.simulateError();
 
-    expect(sseResult().error.value).toContain('connection lost');
-    expect(sseResult().error.value).toContain('3');
+    expect(sseResult().error.value).toContain("connection lost");
+    expect(sseResult().error.value).toContain("3");
     expect(sseResult().isConnected.value).toBe(false);
   });
 
   // ── UTC-SSE-005: Jitter adds random delay ──
-  it('UTC-SSE-005: jitter adds 0-1000ms random delay to base backoff', () => {
-    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+  it("UTC-SSE-005: jitter adds 0-1000ms random delay to base backoff", () => {
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.5);
 
     const delays: number[] = [];
 
-    const { sseResult } = createTestComponent('/api/v1/events/sse', {
+    const { sseResult } = createTestComponent("/api/v1/events/sse", {
       jitter: true,
       baseDelayMs: 1000,
       maxDelayMs: 30000,
     });
 
-    vi.spyOn(global, 'setTimeout').mockImplementation((cb: () => void, delay?: number) => {
+    vi.spyOn(global, "setTimeout").mockImplementation((cb: () => void, delay?: number) => {
       if (delay && delay > 0) delays.push(delay);
       cb();
       return {} as ReturnType<typeof setTimeout>;
@@ -191,8 +194,8 @@ describe('useSSE — P0-H4 Exponential Backoff Reconnection', () => {
   });
 
   // ── UTC-SSE-006: disconnect clears pending reconnect timeout ──
-  it('UTC-SSE-006: disconnect clears pending reconnect and prevents zombie reconnects', () => {
-    const { sseResult } = createTestComponent('/api/v1/events/sse', {
+  it("UTC-SSE-006: disconnect clears pending reconnect and prevents zombie reconnects", () => {
+    const { sseResult } = createTestComponent("/api/v1/events/sse", {
       jitter: false,
       baseDelayMs: 5000,
     });
@@ -215,8 +218,8 @@ describe('useSSE — P0-H4 Exponential Backoff Reconnection', () => {
   });
 
   // ── UTC-SSE-007: manual reconnect resets retry count ──
-  it('UTC-SSE-007: manual reconnect() resets retryCount and creates new connection', () => {
-    const { sseResult } = createTestComponent('/api/v1/events/sse', {
+  it("UTC-SSE-007: manual reconnect() resets retryCount and creates new connection", () => {
+    const { sseResult } = createTestComponent("/api/v1/events/sse", {
       jitter: false,
       baseDelayMs: 100,
     });
@@ -239,34 +242,39 @@ describe('useSSE — P0-H4 Exponential Backoff Reconnection', () => {
   });
 
   // ── UTC-SSE-008: onmessage parses JSON and updates data ──
-  it('UTC-SSE-008: onmessage parses JSON data and updates data ref', () => {
-    const { sseResult } = createTestComponent('/api/v1/events/sse');
+  it("UTC-SSE-008: onmessage parses JSON data and updates data ref", () => {
+    const { sseResult } = createTestComponent("/api/v1/events/sse");
     const es = MockEventSource.instances[0];
 
     es.simulateOpen();
-    es.simulateMessage({ type: 'post_status', postId: 'p1', status: 'POSTED', network: 'X' });
+    es.simulateMessage({ type: "post_status", postId: "p1", status: "POSTED", network: "X" });
 
-    expect(sseResult().data.value).toEqual({ type: 'post_status', postId: 'p1', status: 'POSTED', network: 'X' });
+    expect(sseResult().data.value).toEqual({
+      type: "post_status",
+      postId: "p1",
+      status: "POSTED",
+      network: "X",
+    });
   });
 
   // ── UTC-SSE-009: onmessage handles non-JSON data gracefully ──
-  it('UTC-SSE-009: onmessage handles non-JSON data by clearing data and setting error', () => {
-    const { sseResult } = createTestComponent('/api/v1/events/sse');
+  it("UTC-SSE-009: onmessage handles non-JSON data by clearing data and setting error", () => {
+    const { sseResult } = createTestComponent("/api/v1/events/sse");
     const es = MockEventSource.instances[0];
 
     es.simulateOpen();
 
     // Simulate non-JSON message
-    const event = new MessageEvent('message', { data: 'plain text' });
+    const event = new MessageEvent("message", { data: "plain text" });
     es.onmessage?.(event);
 
     expect(sseResult().data.value).toBeNull();
-    expect(sseResult().error.value).toContain('SSE payload parse error');
+    expect(sseResult().error.value).toContain("SSE payload parse error");
   });
 
   // ── UTC-SSE-010: retryCount increments on each error ──
-  it('UTC-SSE-010: retryCount increments on each consecutive error', () => {
-    const { sseResult } = createTestComponent('/api/v1/events/sse', {
+  it("UTC-SSE-010: retryCount increments on each consecutive error", () => {
+    const { sseResult } = createTestComponent("/api/v1/events/sse", {
       jitter: false,
       baseDelayMs: 100,
     });
@@ -274,18 +282,18 @@ describe('useSSE — P0-H4 Exponential Backoff Reconnection', () => {
     const es = MockEventSource.instances[0];
     es.simulateError();
     expect(sseResult().retryCount.value).toBe(1);
-    expect(sseResult().error.value).toContain('Reconnecting (1/');
+    expect(sseResult().error.value).toContain("Reconnecting (1/");
 
     vi.advanceTimersByTime(1000);
     const es2 = MockEventSource.instances[1];
     es2.simulateError();
     expect(sseResult().retryCount.value).toBe(2);
-    expect(sseResult().error.value).toContain('Reconnecting (2/');
+    expect(sseResult().error.value).toContain("Reconnecting (2/");
   });
 
   // ── UTC-SSE-011: onUnmounted disconnects and cleans up ──
-  it('UTC-SSE-011: onUnmounted calls disconnect and closes EventSource', () => {
-    const { wrapper, sseResult } = createTestComponent('/api/v1/events/sse');
+  it("UTC-SSE-011: onUnmounted calls disconnect and closes EventSource", () => {
+    const { wrapper, sseResult } = createTestComponent("/api/v1/events/sse");
     const es = MockEventSource.instances[0];
 
     es.simulateOpen();

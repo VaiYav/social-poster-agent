@@ -1,6 +1,6 @@
-import { ref, readonly } from 'vue';
+import { ref, readonly } from "vue";
 
-export type ToastType = 'success' | 'error' | 'info' | 'warning';
+export type ToastType = "success" | "error" | "info" | "warning";
 
 export interface Toast {
   id: number;
@@ -18,7 +18,7 @@ let nextId = 0;
  * Used by ToastContainer.vue and any component that needs notifications.
  */
 export function useToast() {
-  function show(message: string, type: ToastType = 'info', duration = 4000) {
+  function show(message: string, type: ToastType = "info", duration = 4000) {
     const id = ++nextId;
     toasts.value.push({ id, type, message, duration });
     if (duration > 0) {
@@ -28,19 +28,19 @@ export function useToast() {
   }
 
   function success(message: string, duration?: number) {
-    return show(message, 'success', duration);
+    return show(message, "success", duration);
   }
 
   function error(message: string, duration?: number) {
-    return show(message, 'error', duration ?? 6000);
+    return show(message, "error", duration ?? 6000);
   }
 
   function info(message: string, duration?: number) {
-    return show(message, 'info', duration);
+    return show(message, "info", duration);
   }
 
   function warning(message: string, duration?: number) {
-    return show(message, 'warning', duration);
+    return show(message, "warning", duration);
   }
 
   function dismiss(id: number) {
@@ -53,7 +53,12 @@ export function useToast() {
 
   return {
     toasts: readonly(toasts),
-    show, success, error, info, warning,
-    dismiss, clear,
+    show,
+    success,
+    error,
+    info,
+    warning,
+    dismiss,
+    clear,
   };
 }

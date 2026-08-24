@@ -39,13 +39,13 @@ const DEFAULT_OPTIONS: Required<ExtractFactsOptions> = {
  */
 export function normalizeFact(raw: string, minLength = 20, maxLength = 240): string | null {
   let s = raw
-    .replace(/\r\n/g, '\n')
-    .replace(/\s+/g, ' ')
-    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1') // ![alt](url) -> alt first
-    .replace(/(?<!!)\[([^\]]+)\]\([^)]+\)/g, '$1') // [text](url) -> text, not after !
-    .replace(/~~([^~]+)~~/g, '$1') // strikethrough
-    .replace(/[*_`#]/g, '') // bold/italic/code/heading markers (keep ~ for "approx")
-    .replace(/\n+/g, ' ')
+    .replace(/\r\n/g, "\n")
+    .replace(/\s+/g, " ")
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1") // ![alt](url) -> alt first
+    .replace(/(?<!!)\[([^\]]+)\]\([^)]+\)/g, "$1") // [text](url) -> text, not after !
+    .replace(/~~([^~]+)~~/g, "$1") // strikethrough
+    .replace(/[*_`#]/g, "") // bold/italic/code/heading markers (keep ~ for "approx")
+    .replace(/\n+/g, " ")
     .trim();
 
   if (s.length < minLength) return null;
@@ -53,9 +53,9 @@ export function normalizeFact(raw: string, minLength = 20, maxLength = 240): str
     // Try to cut at the last sentence boundary before maxLength.
     const truncated = s.slice(0, maxLength + 1);
     const lastBoundary = Math.max(
-      truncated.lastIndexOf('. '),
-      truncated.lastIndexOf('! '),
-      truncated.lastIndexOf('? '),
+      truncated.lastIndexOf(". "),
+      truncated.lastIndexOf("! "),
+      truncated.lastIndexOf("? "),
     );
     if (lastBoundary > minLength) {
       s = s.slice(0, lastBoundary + 1).trim();
@@ -86,7 +86,7 @@ function buildFrontmatterFacts(
   if (facts.length === 0 && frontmatter.description) {
     facts.push(frontmatter.description);
   }
-  return facts.filter((f) => typeof f === 'string' && f.trim().length > 0);
+  return facts.filter((f) => typeof f === "string" && f.trim().length > 0);
 }
 
 /**
@@ -125,13 +125,13 @@ export function extractFactsFromMarkdown(
   for (const f of buildFrontmatterFacts(frontmatter)) add(f, 8);
 
   // Strip frontmatter if the caller passed full raw markdown.
-  const body = markdown.replace(/^---\n[\s\S]*?\n---\n?/, '').trim();
+  const body = markdown.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
 
   // If we have nothing yet, the title itself is better than nothing.
   if (facts.length === 0 && title) add(title, 8);
 
   // Remove the H1 title from the body to avoid duplicating it.
-  const bodyWithoutH1 = body.replace(/^#\s+.+$/m, '').trim();
+  const bodyWithoutH1 = body.replace(/^#\s+.+$/m, "").trim();
 
   // 1. Bullet / numbered list items are usually the most fact-dense.
   if (opts.includeLists) {
@@ -163,10 +163,10 @@ export function extractFactsFromMarkdown(
   // 4. First sentence of each non-empty, non-structural paragraph.
   // A paragraph is a consecutive run of plain lines (not headings/lists/frontmatter).
   if (opts.includeParagraphs) {
-    const lines = bodyWithoutH1.split('\n');
+    const lines = bodyWithoutH1.split("\n");
     const flush = (buffer: string[]) => {
       if (buffer.length === 0) return;
-      const text = buffer.join(' ').trim();
+      const text = buffer.join(" ").trim();
       if (text.length === 0) return;
       const firstSentence = text.split(/(?<=[.!?])\s+/)[0] ?? text;
       add(firstSentence);
@@ -181,7 +181,7 @@ export function extractFactsFromMarkdown(
         continue;
       }
       if (
-        line.startsWith('#') ||
+        line.startsWith("#") ||
         line.match(/^[ \t]*(?:[-*+]|\d+[.)])/) ||
         line.match(/^(title|date|tags|category|description|answerCapsule|seo)[ \t]*:/i)
       ) {

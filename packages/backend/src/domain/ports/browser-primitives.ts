@@ -14,4 +14,4 @@
  * For now these are structural pass-throughs of the Playwright types, so there
  * is zero behavioural change; the value is the centralised seam.
  */
-export type { Browser, BrowserContext, Locator, Page } from 'playwright-core';
+export type { Browser, BrowserContext, Locator, Page } from "playwright-core";

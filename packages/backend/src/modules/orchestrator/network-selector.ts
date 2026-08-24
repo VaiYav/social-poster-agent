@@ -1,7 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { SocialNetwork } from '@prisma/client';
-import { getEnabledNetworks } from '../../domain/enabled-networks.js';
-import type { SessionState, WorldState } from './types.js';
+import { Injectable, Logger } from "@nestjs/common";
+import { SocialNetwork } from "../../generated/prisma/client.js";
+import { getEnabledNetworks } from "../../domain/enabled-networks.js";
+import type { SessionState, WorldState } from "./types.js";
 
 /**
  * NetworkSelector — centralized network-selection logic.
@@ -31,8 +31,8 @@ export interface NetworkReadinessOptions {
 export class NetworkSelector {
   private readonly logger = new Logger(NetworkSelector.name);
 
-  isCircuitBreakerRisky(circuitBreaker: SessionState['circuitBreaker'] | undefined): boolean {
-    return circuitBreaker === 'open' || circuitBreaker === 'half_open';
+  isCircuitBreakerRisky(circuitBreaker: SessionState["circuitBreaker"] | undefined): boolean {
+    return circuitBreaker === "open" || circuitBreaker === "half_open";
   }
 
   /**
@@ -50,11 +50,16 @@ export class NetworkSelector {
   /**
    * Low-level readiness predicate.
    */
-  isReady(network: SocialNetwork, world: WorldState, options: NetworkReadinessOptions = {}): boolean {
+  isReady(
+    network: SocialNetwork,
+    world: WorldState,
+    options: NetworkReadinessOptions = {},
+  ): boolean {
     const session = world.sessions[network];
 
-    if (options.requireActive && session?.status !== 'ACTIVE') return false;
-    if (options.requireNoCircuitRisk && this.isCircuitBreakerRisky(session?.circuitBreaker)) return false;
+    if (options.requireActive && session?.status !== "ACTIVE") return false;
+    if (options.requireNoCircuitRisk && this.isCircuitBreakerRisky(session?.circuitBreaker))
+      return false;
 
     if (options.requireRateLimit && !this.hasRateLimitCapacity(network, world)) return false;
 
@@ -64,7 +69,8 @@ export class NetworkSelector {
     }
 
     if (options.requireInPostingWindow && !world.inPostingWindow[network]) return false;
-    if (options.requireApprovedByNetwork && (world.drafts.approvedByNetwork[network] ?? 0) <= 0) return false;
+    if (options.requireApprovedByNetwork && (world.drafts.approvedByNetwork[network] ?? 0) <= 0)
+      return false;
 
     return true;
   }
@@ -81,7 +87,11 @@ export class NetworkSelector {
   }
 
   /** Is the network ready to post (approved drafts, in window, rate limits, etc)? */
-  isReadyForPost(network: SocialNetwork, world: WorldState, requireApprovedByNetwork = true): boolean {
+  isReadyForPost(
+    network: SocialNetwork,
+    world: WorldState,
+    requireApprovedByNetwork = true,
+  ): boolean {
     return this.isReady(network, world, {
       requireActive: true,
       requireNoCircuitRisk: true,
@@ -107,13 +117,21 @@ export class NetworkSelector {
    */
   selectBestGenerationNetwork(world: WorldState): SocialNetwork | undefined {
     if (world.flowControl.pauseGeneration) return undefined;
-    return this.selectBestByScore(world, (net) => this.isReadyForGeneration(net, world), (net) => world.rateLimits[net]?.lastPostMs ?? 0, 'min');
+    return this.selectBestByScore(
+      world,
+      (net) => this.isReadyForGeneration(net, world),
+      (net) => world.rateLimits[net]?.lastPostMs ?? 0,
+      "min",
+    );
   }
 
   /**
    * Select the best ready-to-post network.
    */
-  selectBestReadyNetwork(world: WorldState, requireApprovedByNetwork = true): SocialNetwork | undefined {
+  selectBestReadyNetwork(
+    world: WorldState,
+    requireApprovedByNetwork = true,
+  ): SocialNetwork | undefined {
     if (world.flowControl.pausePosting) return undefined;
 
     const networks = getEnabledNetworks();
@@ -133,7 +151,7 @@ export class NetworkSelector {
       world,
       (net) => this.isReadyForPost(net, world, requireApprovedByNetwork),
       (net) => world.rateLimits[net]?.lastPostMs ?? 0,
-      'min',
+      "min",
     );
   }
 
@@ -141,17 +159,24 @@ export class NetworkSelector {
    * Select the best engagement network: active, no circuit risk, oldest lastBrowseMs.
    * Optionally only consider networks whose lastBrowseMs is before `maxLastBrowseMs`.
    */
-  selectBestEngagementNetwork(world: WorldState, maxLastBrowseMs?: number): SocialNetwork | undefined {
+  selectBestEngagementNetwork(
+    world: WorldState,
+    maxLastBrowseMs?: number,
+  ): SocialNetwork | undefined {
     if (world.flowControl.pauseEngagement) return undefined;
     return this.selectBestByScore(
       world,
       (net) => {
         if (!this.isReadyForEngagement(net, world)) return false;
-        if (maxLastBrowseMs !== undefined && (world.engagement.lastBrowseMs[net] ?? 0) >= maxLastBrowseMs) return false;
+        if (
+          maxLastBrowseMs !== undefined &&
+          (world.engagement.lastBrowseMs[net] ?? 0) >= maxLastBrowseMs
+        )
+          return false;
         return true;
       },
       (net) => world.engagement.lastBrowseMs[net] ?? 0,
-      'min',
+      "min",
     );
   }
 
@@ -159,16 +184,16 @@ export class NetworkSelector {
     world: WorldState,
     predicate: (network: SocialNetwork) => boolean,
     score: (network: SocialNetwork) => number,
-    order: 'min' | 'max',
+    order: "min" | "max",
   ): SocialNetwork | undefined {
     const networks = getEnabledNetworks();
     let chosen: SocialNetwork | undefined;
-    let chosenScore = order === 'min' ? Infinity : -Infinity;
+    let chosenScore = order === "min" ? Infinity : -Infinity;
 
     for (const net of networks) {
       if (!predicate(net)) continue;
       const s = score(net);
-      const better = order === 'min' ? s < chosenScore : s > chosenScore;
+      const better = order === "min" ? s < chosenScore : s > chosenScore;
       if (better) {
         chosen = net;
         chosenScore = s;

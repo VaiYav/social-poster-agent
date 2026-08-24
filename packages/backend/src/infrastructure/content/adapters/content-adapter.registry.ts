@@ -1,8 +1,8 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import type { ContentTopic } from '@spa/shared';
-import { IContentPort } from '../../../domain/ports/content.port.js';
-import { IContentAdapter, CONTENT_ADAPTERS } from './content-adapter.interface.js';
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import type { ContentTopic } from "@spa/shared";
+import { IContentPort } from "../../../domain/ports/content.port.js";
+import { IContentAdapter, CONTENT_ADAPTERS } from "./content-adapter.interface.js";
 
 const sourcePriority: Record<string, number> = {
   brief: 0,
@@ -21,7 +21,7 @@ function byPriorityThenDate(a: ContentTopic, b: ContentTopic): number {
 }
 
 function adapterName(adapter: IContentAdapter): string {
-  return (adapter as { sourceType?: string }).sourceType ?? 'unknown';
+  return (adapter as { sourceType?: string }).sourceType ?? "unknown";
 }
 
 /**
@@ -45,7 +45,7 @@ export class ContentAdapterRegistry implements IContentPort {
     @Optional()
     private readonly adapters: IContentAdapter[] = [],
   ) {
-    this.cacheTtlMs = this.configService.get<number>('CONTENT_CACHE_TTL_MS', 120_000);
+    this.cacheTtlMs = this.configService.get<number>("CONTENT_CACHE_TTL_MS", 120_000);
   }
 
   async getTopics(limit = 5): Promise<ContentTopic[]> {
@@ -75,28 +75,29 @@ export class ContentAdapterRegistry implements IContentPort {
   }
 
   async readBriefs(limit = 10): Promise<ContentTopic[]> {
-    const all = await this.fetchByType('brief', limit);
+    const all = await this.fetchByType("brief", limit);
     return all.sort(byPriorityThenDate).slice(0, limit);
   }
 
   async readArticles(limit = 10): Promise<ContentTopic[]> {
-    const all = await this.fetchByType('article', limit);
+    const all = await this.fetchByType("article", limit);
     return all.sort(byPriorityThenDate).slice(0, limit);
   }
 
   async markUsed(topic: ContentTopic): Promise<void> {
     for (const adapter of this.adapters) {
-      const canHandle = typeof adapter.canHandle === 'function'
-        ? adapter.canHandle(topic.sourceType)
-        : true;
+      const canHandle =
+        typeof adapter.canHandle === "function" ? adapter.canHandle(topic.sourceType) : true;
       if (!canHandle) continue;
 
-      if (typeof adapter.markUsed !== 'function') continue;
+      if (typeof adapter.markUsed !== "function") continue;
       try {
         await adapter.markUsed(topic);
       } catch (err) {
         (adapter as { lastError?: string | null }).lastError = (err as Error).message;
-        this.logger.debug(`markUsed failed for adapter ${adapterName(adapter)}: ${(err as Error).message}`);
+        this.logger.debug(
+          `markUsed failed for adapter ${adapterName(adapter)}: ${(err as Error).message}`,
+        );
       }
     }
   }
@@ -104,7 +105,7 @@ export class ContentAdapterRegistry implements IContentPort {
   async getSources(): Promise<{ sourceType: string; ok: boolean; error?: string }[]> {
     return Promise.all(
       this.adapters.map(async (adapter) => {
-        if (typeof adapter.healthCheck !== 'function') {
+        if (typeof adapter.healthCheck !== "function") {
           return { sourceType: adapterName(adapter), ok: true };
         }
         const res = await adapter.healthCheck();
@@ -123,18 +124,18 @@ export class ContentAdapterRegistry implements IContentPort {
     this.topicsCache = null;
     for (const adapter of this.adapters) {
       const withCache = adapter as IContentAdapter & { invalidateCache?: () => void };
-      if (typeof withCache.invalidateCache === 'function') {
+      if (typeof withCache.invalidateCache === "function") {
         withCache.invalidateCache();
       }
     }
   }
 
   private async fetchTopicsFrom(adapter: IContentAdapter, limit: number): Promise<ContentTopic[]> {
-    if (typeof adapter.fetchTopics === 'function') {
+    if (typeof adapter.fetchTopics === "function") {
       return adapter.fetchTopics(limit);
     }
     const legacy = adapter as unknown as { getTopics?: (limit: number) => Promise<ContentTopic[]> };
-    if (typeof legacy.getTopics === 'function') {
+    if (typeof legacy.getTopics === "function") {
       return legacy.getTopics(limit);
     }
     return [];
@@ -146,9 +147,9 @@ export class ContentAdapterRegistry implements IContentPort {
     for (const adapter of this.adapters) {
       try {
         let batch: ContentTopic[] = [];
-        if (type === 'brief' && typeof adapter.readBriefs === 'function') {
+        if (type === "brief" && typeof adapter.readBriefs === "function") {
           batch = await adapter.readBriefs(needed);
-        } else if (type === 'article' && typeof adapter.readArticles === 'function') {
+        } else if (type === "article" && typeof adapter.readArticles === "function") {
           batch = await adapter.readArticles(needed);
         } else {
           batch = await this.fetchTopicsFrom(adapter, needed);
@@ -156,7 +157,9 @@ export class ContentAdapterRegistry implements IContentPort {
         all.push(...batch.filter((t) => t.sourceType === type));
       } catch (err) {
         (adapter as { lastError?: string | null }).lastError = (err as Error).message;
-        this.logger.warn(`Adapter ${adapterName(adapter)} failed for ${type}: ${(err as Error).message}`);
+        this.logger.warn(
+          `Adapter ${adapterName(adapter)} failed for ${type}: ${(err as Error).message}`,
+        );
       }
     }
     return all;

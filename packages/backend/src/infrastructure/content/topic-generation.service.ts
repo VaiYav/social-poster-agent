@@ -1,14 +1,14 @@
-import { Injectable, Logger, Inject, Optional, type OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { SchedulerRegistry } from '@nestjs/schedule';
-import { CronJob } from 'cron';
-import { PrismaService } from '../prisma/prisma.service';
-import { ILlmPort } from '../../domain/ports/llm.port.js';
-import { IPromptPort, type CompiledChatPrompt } from '../../domain/ports/prompt.port.js';
-import { parseBool } from '../config/parse-bool.js';
-import { isOrchestratorEnabled } from '../../domain/feature-flags.js';
-import { interpolate } from '../../domain/prompt-interpolation.js';
-import { TOPIC_GENERATION_PROMPT } from './prompts/topic-generation-prompt.js';
+import { Injectable, Logger, Inject, Optional, type OnModuleInit } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { SchedulerRegistry } from "@nestjs/schedule";
+import { CronJob } from "cron";
+import { PrismaService } from "../prisma/prisma.service.js";
+import { ILlmPort } from "../../domain/ports/llm.port.js";
+import { IPromptPort, type CompiledChatPrompt } from "../../domain/ports/prompt.port.js";
+import { parseBool } from "../config/parse-bool.js";
+import { isOrchestratorEnabled } from "../../domain/feature-flags.js";
+import { interpolate } from "../../domain/prompt-interpolation.js";
+import { TOPIC_GENERATION_PROMPT } from "./prompts/topic-generation-prompt.js";
 
 interface LlmTopic {
   topic: string;
@@ -18,7 +18,7 @@ interface LlmTopic {
 }
 
 function extractTopLevelJsonArray(text: string): string | null {
-  const start = text.indexOf('[');
+  const start = text.indexOf("[");
   if (start === -1) return null;
 
   let depth = 0;
@@ -29,7 +29,7 @@ function extractTopLevelJsonArray(text: string): string | null {
     if (inString) {
       if (escaped) {
         escaped = false;
-      } else if (ch === '\\') {
+      } else if (ch === "\\") {
         escaped = true;
       } else if (ch === '"') {
         inString = false;
@@ -38,9 +38,9 @@ function extractTopLevelJsonArray(text: string): string | null {
     }
     if (ch === '"') {
       inString = true;
-    } else if (ch === '[') {
+    } else if (ch === "[") {
       depth++;
-    } else if (ch === ']') {
+    } else if (ch === "]") {
       depth--;
       if (depth === 0) {
         return text.slice(start, i + 1);
@@ -81,22 +81,24 @@ export class TopicGenerationService implements OnModuleInit {
     @Inject(ILlmPort) private readonly llmService: ILlmPort,
     @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
   ) {
-    this.enabled = parseBool(this.configService.get<string>('TOPIC_GENERATION_ENABLED', 'true'));
-    this.cronSchedule = this.configService.get<string>('TOPIC_GENERATION_CRON', '0 */2 * * *');
-    this.poolMin = Number(this.configService.get<string>('TOPIC_POOL_MIN', '30')) || 30;
-    this.batchSize = Number(this.configService.get<string>('TOPIC_BATCH_SIZE', '20')) || 20;
+    this.enabled = parseBool(this.configService.get<string>("TOPIC_GENERATION_ENABLED", "true"));
+    this.cronSchedule = this.configService.get<string>("TOPIC_GENERATION_CRON", "0 */2 * * *");
+    this.poolMin = Number(this.configService.get<string>("TOPIC_POOL_MIN", "30")) || 30;
+    this.batchSize = Number(this.configService.get<string>("TOPIC_BATCH_SIZE", "20")) || 20;
   }
 
   onModuleInit(): void {
     if (!this.enabled) {
-      this.logger.log('Topic generation disabled (TOPIC_GENERATION_ENABLED=false)');
+      this.logger.log("Topic generation disabled (TOPIC_GENERATION_ENABLED=false)");
       return;
     }
 
     // Orchestrator mode: GENERATE_TOPICS is handled by the orchestrator decision loop.
     // Still do initial pool warm-up so the first cycle has data.
     if (isOrchestratorEnabled()) {
-      this.logger.log('Orchestrator is enabled — topic generation cron NOT registered (initial warm-up still runs)');
+      this.logger.log(
+        "Orchestrator is enabled — topic generation cron NOT registered (initial warm-up still runs)",
+      );
       this.generateIfNeeded().catch((err) => {
         this.logger.warn(`Startup topic generation failed: ${(err as Error).message}`);
       });
@@ -113,11 +115,11 @@ export class TopicGenerationService implements OnModuleInit {
     });
 
     try {
-      this.schedulerRegistry.addCronJob('topic-generation', job);
+      this.schedulerRegistry.addCronJob("topic-generation", job);
       job.start();
       this.logger.log(`Topic generation cron registered: ${this.cronSchedule}`);
     } catch {
-      this.logger.warn('SchedulerRegistry not available — topic generation cron will not run');
+      this.logger.warn("SchedulerRegistry not available — topic generation cron will not run");
     }
   }
 
@@ -125,11 +127,11 @@ export class TopicGenerationService implements OnModuleInit {
    * Check active topic pool and generate if below threshold.
    */
   async generateIfNeeded(): Promise<void> {
-    const activeCount = await this.prisma.topic.count({ where: { status: 'active' } });
+    const activeCount = await this.prisma.topic.count({ where: { status: "active" } });
     this.logger.log(`Topic pool: ${activeCount} active (threshold: ${this.poolMin})`);
 
     if (activeCount >= this.poolMin) {
-      this.logger.debug('Topic pool sufficient — skipping generation');
+      this.logger.debug("Topic pool sufficient — skipping generation");
       return;
     }
 
@@ -144,25 +146,31 @@ export class TopicGenerationService implements OnModuleInit {
    */
   async generateBatch(count: number): Promise<number> {
     const compiled = await this.getCompiledChat(
-      'topic-generation',
+      "topic-generation",
       { count: String(count) },
       TOPIC_GENERATION_PROMPT,
     );
 
     try {
-      const response = await this.llmService.generateChat(compiled.systemPrompt, compiled.userPrompt, {
-        temperature: 0.8,
-        maxTokens: 4000,
-      });
+      const response = await this.llmService.generateChat(
+        compiled.systemPrompt,
+        compiled.userPrompt,
+        {
+          temperature: 0.8,
+          maxTokens: 4000,
+        },
+      );
 
       // Log raw response for debugging if it's short enough
       const raw = response.content.trim();
-      this.logger.debug(`Topic generation LLM response (${raw.length} chars): ${raw.slice(0, 200)}...`);
+      this.logger.debug(
+        `Topic generation LLM response (${raw.length} chars): ${raw.slice(0, 200)}...`,
+      );
 
       // Strip markdown code blocks if present
       let cleaned = raw;
-      if (cleaned.startsWith('```')) {
-        cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+      if (cleaned.startsWith("```")) {
+        cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
       }
 
       // Parse JSON array from response — try multiple strategies
@@ -196,15 +204,15 @@ export class TopicGenerationService implements OnModuleInit {
 
       // Strategy 3: if JSON is truncated (no closing ]), try to repair it
       if (!topics) {
-        const startIdx = cleaned.indexOf('[');
+        const startIdx = cleaned.indexOf("[");
         if (startIdx !== -1) {
           let partial = cleaned.slice(startIdx);
           // If no closing bracket, try to close the last object and array
-          if (!partial.includes(']')) {
+          if (!partial.includes("]")) {
             // Find last complete object (ends with })
-            const lastObj = partial.lastIndexOf('}');
+            const lastObj = partial.lastIndexOf("}");
             if (lastObj !== -1) {
-              partial = partial.slice(0, lastObj + 1) + ']';
+              partial = partial.slice(0, lastObj + 1) + "]";
               try {
                 topics = JSON.parse(partial);
               } catch {
@@ -216,12 +224,14 @@ export class TopicGenerationService implements OnModuleInit {
       }
 
       if (!topics) {
-        this.logger.warn(`Topic generation: JSON parse failed. Raw response (first 300 chars): ${raw.slice(0, 300)}`);
+        this.logger.warn(
+          `Topic generation: JSON parse failed. Raw response (first 300 chars): ${raw.slice(0, 300)}`,
+        );
         return 0;
       }
 
       if (!Array.isArray(topics) || topics.length === 0) {
-        this.logger.warn('Topic generation: empty or invalid array');
+        this.logger.warn("Topic generation: empty or invalid array");
         return 0;
       }
 
@@ -229,16 +239,16 @@ export class TopicGenerationService implements OnModuleInit {
       // plus createMany skipDuplicates handles race conditions and existing topics.
       const seen = new Set<string>();
       const data = topics
-        .filter((t) => t.topic && typeof t.topic === 'string')
+        .filter((t) => t.topic && typeof t.topic === "string")
         .map((t) => {
           const topic = t.topic.trim();
           return {
             topic,
             keywords: Array.isArray(t.keywords) ? t.keywords.slice(0, 5) : [],
             facts: Array.isArray(t.facts) ? t.facts.slice(0, 3) : [],
-            category: t.category || 'general',
-            sourceType: 'llm' as const,
-            status: 'active' as const,
+            category: t.category || "general",
+            sourceType: "llm" as const,
+            status: "active" as const,
           };
         })
         .filter((row) => {
@@ -258,7 +268,9 @@ export class TopicGenerationService implements OnModuleInit {
         skipDuplicates: true,
       });
 
-      this.logger.log(`Generated ${result.count} new topics (requested ${count}, parsed ${topics.length})`);
+      this.logger.log(
+        `Generated ${result.count} new topics (requested ${count}, parsed ${topics.length})`,
+      );
       return result.count;
     } catch (err) {
       this.logger.warn(`Topic generation failed: ${(err as Error).message}`);

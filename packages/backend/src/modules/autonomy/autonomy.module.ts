@@ -8,15 +8,15 @@
  *
  * Depends on: FlowControlModule, PrismaModule, SseModule, GenerationModule (lazy).
  */
-import { Module } from '@nestjs/common';
-import { AutoCheckService } from './auto-check.service';
-import { AutoApproveService } from './auto-approve.service';
-import { AutonomousRunnerService } from './autonomous-runner.service';
-import { AutoApproveListener } from './auto-approve.listener';
-import { FlowControlModule } from '../flow-control/flow-control.module';
-import { PrismaModule } from '../../infrastructure/prisma/prisma.module';
-import { SseModule } from '../../infrastructure/sse/sse.module';
-import { QueueModule as QueueInfraModule } from '../../infrastructure/queue/queue.module';
+import { Module } from "@nestjs/common";
+import { AutoCheckService } from "./auto-check.service.js";
+import { AutoApproveService } from "./auto-approve.service.js";
+import { AutonomousRunnerService } from "./autonomous-runner.service.js";
+import { AutoApproveListener } from "./auto-approve.listener.js";
+import { FlowControlModule } from "../flow-control/flow-control.module.js";
+import { PrismaModule } from "../../infrastructure/prisma/prisma.module.js";
+import { SseModule } from "../../infrastructure/sse/sse.module.js";
+import { QueueInfraModule } from "../../infrastructure/queue/queue.module.js";
 
 @Module({
   imports: [FlowControlModule, PrismaModule, SseModule, QueueInfraModule], // A5: IPostingQueuePort

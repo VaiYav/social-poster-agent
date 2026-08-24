@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { RouterLink, useRoute } from 'vue-router';
+import { RouterLink, useRoute } from "vue-router";
 import {
   LayoutDashboard,
   ListChecks,
@@ -15,11 +15,19 @@ import {
   Recycle,
   Calendar,
   MessageSquare,
+  ClipboardCheck,
+  Lightbulb,
+  BookOpenCheck,
+  Fingerprint,
+  ShieldAlert,
+  ShieldCheck,
   Bot,
+  Settings2,
+  Users,
   X,
   type LucideIcon,
-} from '@lucide/vue';
-import { cn } from '../../lib/utils';
+} from "@lucide/vue";
+import { cn } from "../../lib/utils";
 
 interface NavItem {
   label: string;
@@ -30,21 +38,29 @@ interface NavItem {
 const route = useRoute();
 
 const navItems: NavItem[] = [
-  { label: 'Dashboard', to: '/', icon: LayoutDashboard },
-  { label: 'Monitor', to: '/monitor', icon: Activity },
-  { label: 'Queue', to: '/queue', icon: ListChecks },
-  { label: 'History', to: '/history', icon: History },
-  { label: 'Generate', to: '/generate', icon: Sparkles },
-  { label: 'Analytics', to: '/analytics', icon: BarChart3 },
-  { label: 'Trending', to: '/trending', icon: TrendingUp },
-  { label: 'Quote Cards', to: '/quote-cards', icon: ImageIcon },
-  { label: 'Recycling', to: '/recycling', icon: Recycle },
-  { label: 'Calendar', to: '/calendar', icon: Calendar },
-  { label: 'Sessions', to: '/sessions', icon: Globe },
-  { label: 'Flow Control', to: '/flow-control', icon: AlertTriangle },
-  { label: 'Reports', to: '/reports', icon: FileBarChart },
-  { label: 'Replies', to: '/replies', icon: MessageSquare },
-  { label: 'Autonomous Agent', to: '/autonomous-agent', icon: Bot },
+  { label: "Dashboard", to: "/", icon: LayoutDashboard },
+  { label: "Monitor", to: "/monitor", icon: Activity },
+  { label: "Queue", to: "/queue", icon: ListChecks },
+  { label: "History", to: "/history", icon: History },
+  { label: "Generate", to: "/generate", icon: Sparkles },
+  { label: "Analytics", to: "/analytics", icon: BarChart3 },
+  { label: "Trending", to: "/trending", icon: TrendingUp },
+  { label: "Quote Cards", to: "/quote-cards", icon: ImageIcon },
+  { label: "Recycling", to: "/recycling", icon: Recycle },
+  { label: "Calendar", to: "/calendar", icon: Calendar },
+  { label: "Sessions", to: "/sessions", icon: Globe },
+  { label: "Accounts", to: "/accounts", icon: Settings2 },
+  { label: "Creators", to: "/creators", icon: Users },
+  { label: "Flow Control", to: "/flow-control", icon: AlertTriangle },
+  { label: "Reports", to: "/reports", icon: FileBarChart },
+  { label: "Replies", to: "/replies", icon: MessageSquare },
+  { label: "Suggestions", to: "/suggestions", icon: ClipboardCheck },
+  { label: "Demand Radar", to: "/demand", icon: Lightbulb },
+  { label: "Grounding", to: "/grounding", icon: BookOpenCheck },
+  { label: "Personas", to: "/personas", icon: Fingerprint },
+  { label: "Reputation", to: "/reputation", icon: ShieldAlert },
+  { label: "Policy Registry", to: "/policy-registry", icon: ShieldCheck },
+  { label: "Autonomous Agent", to: "/autonomous-agent", icon: Bot },
 ];
 
 const props = defineProps<{
@@ -53,16 +69,16 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  'update:mobileOpen': [value: boolean];
+  "update:mobileOpen": [value: boolean];
 }>();
 
 function closeMobile() {
-  emit('update:mobileOpen', false);
+  emit("update:mobileOpen", false);
 }
 
 function isActive(path: string): boolean {
-  if (path === '/') {
-    return route.path === '/';
+  if (path === "/") {
+    return route.path === "/";
   }
   return route.path.startsWith(path);
 }
@@ -70,15 +86,19 @@ function isActive(path: string): boolean {
 
 <template>
   <aside
-    :class="cn(
-      'fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border bg-surface transition-transform duration-300 lg:static lg:translate-x-0',
-      props.mobileOpen ? 'translate-x-0' : '-translate-x-full',
-      props.class,
-    )"
+    :class="
+      cn(
+        'fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border bg-surface transition-transform duration-300 lg:static lg:translate-x-0',
+        props.mobileOpen ? 'translate-x-0' : '-translate-x-full',
+        props.class,
+      )
+    "
   >
     <div class="flex items-center justify-between px-6 py-5">
       <div class="flex items-center gap-3">
-        <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-secondary">
+        <div
+          class="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-secondary"
+        >
           <Sparkles class="h-5 w-5 text-white" />
         </div>
         <div>
@@ -99,12 +119,14 @@ function isActive(path: string): boolean {
         v-for="item in navItems"
         :key="item.to"
         :to="item.to"
-        :class="cn(
-          'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200',
-          isActive(item.to)
-            ? 'bg-primary-subtle text-primary'
-            : 'text-text-secondary hover:bg-surface-highlight hover:text-text-primary',
-        )"
+        :class="
+          cn(
+            'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200',
+            isActive(item.to)
+              ? 'bg-primary-subtle text-primary'
+              : 'text-text-secondary hover:bg-surface-highlight hover:text-text-primary',
+          )
+        "
         @click="closeMobile"
       >
         <component :is="item.icon" class="h-4 w-4" />

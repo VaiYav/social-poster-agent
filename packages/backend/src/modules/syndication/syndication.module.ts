@@ -1,12 +1,15 @@
-import { Module, type DynamicModule } from '@nestjs/common';
-import { CanonicalModule } from '../canonical/canonical.module.js';
-import { GenerationModule } from '../generation/generation.module.js';
-import { BrowserAgentModule } from '../browser-agent/browser-agent.module.js';
-import { ArticleGenerationCron } from './article-generation.cron.js';
-import { DevtoPoster } from '../posting/posters/devto.poster.js';
-import { HashnodePoster } from '../posting/posters/hashnode.poster.js';
-import { LinkedinPoster } from '../posting/posters/linkedin.poster.js';
-import { BrowserModule } from '../../infrastructure/browser/browser.module.js';
+import { Module, type DynamicModule } from "@nestjs/common";
+import { CanonicalModule } from "../canonical/canonical.module.js";
+import { GenerationModule } from "../generation/generation.module.js";
+import { BrowserAgentModule } from "../browser-agent/browser-agent.module.js";
+import { ArticleGenerationCron } from "./article-generation.cron.js";
+import { DevtoPoster } from "../posting/posters/devto.poster.js";
+import { HashnodePoster } from "../posting/posters/hashnode.poster.js";
+import { LinkedinPoster } from "../posting/posters/linkedin.poster.js";
+import { BrowserModule } from "../../infrastructure/browser/browser.module.js";
+import { ContentModule } from "../../infrastructure/content/content.module.js";
+import { AccountsModule } from "../accounts/accounts.module.js";
+import { PostsModule } from "../posts/posts.module.js";
 
 /**
  * SyndicationModule — wrapper module for the cross-platform content syndication
@@ -41,6 +44,9 @@ export class SyndicationModule {
       imports: [
         CanonicalModule,
         GenerationModule, // ArticleGenerationCron needs GenerationService
+        ContentModule, // ArticleGenerationCron reads and consumes source topics
+        AccountsModule, // ArticleGenerationCron selects the target account
+        PostsModule, // ArticleGenerationCron persists reviewable article drafts
         BrowserAgentModule, // LLM-in-the-loop browser engine (#47)
         BrowserModule, // Posters need IBrowserPort
       ],
@@ -51,12 +57,7 @@ export class SyndicationModule {
         HashnodePoster,
         LinkedinPoster,
       ],
-      exports: [
-        CanonicalModule,
-        DevtoPoster,
-        HashnodePoster,
-        LinkedinPoster,
-      ],
+      exports: [CanonicalModule, DevtoPoster, HashnodePoster, LinkedinPoster],
     };
   }
 }

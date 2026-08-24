@@ -9,7 +9,7 @@ import type {
   GenerationTrigger,
   ContentSourceType,
   ContentType,
-} from './enums.js';
+} from "./enums.js";
 
 export interface SocialAccount {
   id: string;
@@ -64,6 +64,15 @@ export interface Post {
   errorMessage: string | null;
   retryCount: number;
   llmMetadata: LlmMetadata | null;
+  /** Optional generated-media metadata exposed through the authenticated API. */
+  media?: {
+    readonly url?: string;
+    readonly path?: string;
+    readonly altText?: string;
+    readonly model?: string;
+    readonly costUsd?: number;
+    readonly generated?: boolean;
+  } | null;
   // ── Syndication fields (Phase 0-1) ──
   contentType: ContentType;
   canonicalUrl: string | null;

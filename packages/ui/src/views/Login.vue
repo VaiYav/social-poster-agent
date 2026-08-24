@@ -1,27 +1,27 @@
 <script setup lang="ts">
-import { ref } from 'vue';
-import { useRouter } from 'vue-router';
-import { Sparkles } from '@lucide/vue';
-import { useAuthStore } from '../stores/auth';
-import { Button, Input } from '../components/ui';
+import { ref } from "vue";
+import { useRouter } from "vue-router";
+import { Sparkles } from "@lucide/vue";
+import { useAuthStore } from "../stores/auth";
+import { Button, Input } from "../components/ui";
 
 const router = useRouter();
 const authStore = useAuthStore();
 
-const username = ref('');
-const password = ref('');
+const username = ref("");
+const password = ref("");
 const showPassword = ref(false);
 
 async function handleLogin() {
   if (!username.value || !password.value) return;
   const success = await authStore.login(username.value, password.value);
   if (success) {
-    router.push('/');
+    router.push("/");
   }
 }
 
 function handleKeydown(event: KeyboardEvent) {
-  if (event.key === 'Enter') {
+  if (event.key === "Enter") {
     handleLogin();
   }
 }
@@ -32,7 +32,9 @@ function handleKeydown(event: KeyboardEvent) {
     <div class="w-full max-w-md">
       <!-- Logo / header -->
       <div class="mb-8 text-center">
-        <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-secondary shadow-glow-primary">
+        <div
+          class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-secondary shadow-glow-primary"
+        >
           <Sparkles class="h-7 w-7 text-white" />
         </div>
         <h1 class="text-2xl font-bold text-text-primary">Social Poster Agent</h1>
@@ -76,7 +78,10 @@ function handleKeydown(event: KeyboardEvent) {
           </div>
 
           <!-- Error message -->
-          <p v-if="authStore.error" class="rounded-md border border-error/30 bg-error/10 px-3 py-2 text-xs text-error">
+          <p
+            v-if="authStore.error"
+            class="rounded-md border border-error/30 bg-error/10 px-3 py-2 text-xs text-error"
+          >
             {{ authStore.error }}
           </p>
 

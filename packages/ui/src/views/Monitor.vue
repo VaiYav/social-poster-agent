@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * Sprint Q: Monitor View — real-time agent monitoring dashboard.
+ * REL-102: Monitor View — real-time agent monitoring dashboard.
  *
  * Shows:
  * - Queue health (waiting/active/failed per network) with pause/resume controls
@@ -9,7 +9,7 @@
  * - Pending human-review comments (from replies monitor)
  * - Agent controls (trigger generation, retry failed jobs)
  */
-import { onMounted, onUnmounted, ref, computed } from 'vue';
+import { onMounted, onUnmounted, ref, computed } from "vue";
 import {
   Activity,
   AlertTriangle,
@@ -25,19 +25,20 @@ import {
   X,
   Bot,
   ShieldAlert,
-} from '@lucide/vue';
-import { useMonitoringStore } from '../stores/monitoring';
-import { useAgentsStore } from '../stores/agents';
-import { usePostsStore } from '../stores/posts';
-import { useApi } from '../composables/useApi';
-import { useRouter } from 'vue-router';
-import { Card, Button, SectionHeader, Badge } from '../components/ui';
-import StatCard from '../components/StatCard.vue';
-import LoadingSpinner from '../components/LoadingSpinner.vue';
-import ErrorState from '../components/ErrorState.vue';
-import NetworkIcon from '../components/NetworkIcon.vue';
-import AgentGrid from '../components/agents/AgentGrid.vue';
-import LiveEventFeed from '../components/agents/LiveEventFeed.vue';
+  ShieldCheck,
+} from "@lucide/vue";
+import { useMonitoringStore } from "../stores/monitoring";
+import { useAgentsStore } from "../stores/agents";
+import { usePostsStore } from "../stores/posts";
+import { useApi } from "../composables/useApi";
+import { useRouter } from "vue-router";
+import { Card, Button, SectionHeader, Badge } from "../components/ui";
+import StatCard from "../components/StatCard.vue";
+import LoadingSpinner from "../components/LoadingSpinner.vue";
+import ErrorState from "../components/ErrorState.vue";
+import NetworkIcon from "../components/NetworkIcon.vue";
+import AgentGrid from "../components/agents/AgentGrid.vue";
+import LiveEventFeed from "../components/agents/LiveEventFeed.vue";
 
 const monitor = useMonitoringStore();
 const agentsStore = useAgentsStore();
@@ -57,26 +58,55 @@ interface FlowControlState {
 }
 const flowState = ref<FlowControlState | null>(null);
 
+type DegradationLevel = "HEALTHY" | "DEGRADED" | "RECOVERING" | "CRITICAL" | "DOWN";
+interface DegradationSnapshot {
+  subsystem: string;
+  level: DegradationLevel;
+  since: number;
+  reason?: string;
+  lastProbeMs?: number;
+  consecutiveProbePasses: number;
+  nextProbeAt?: number;
+}
+const degradation = ref<DegradationSnapshot[]>([]);
+const degradationLoading = ref(false);
+const degradationError = ref<string | null>(null);
+
 onMounted(async () => {
   await Promise.all([
     monitor.fetchAll(),
     agentsStore.fetchSnapshot(),
     fetchFlowControl(),
+    fetchDegradation(),
   ]);
   // Auto-refresh every 30 seconds
   refreshInterval.value = setInterval(() => {
     monitor.fetchAll();
     agentsStore.fetchSnapshot();
     fetchFlowControl();
+    fetchDegradation();
   }, 30_000);
 });
 
 async function fetchFlowControl() {
   try {
-    const res = await api.get<FlowControlState>('/flow-control/state');
+    const res = await api.get<FlowControlState>("/flow-control/state");
     flowState.value = res.data;
   } catch {
     // Graceful
+  }
+}
+
+async function fetchDegradation() {
+  degradationLoading.value = true;
+  degradationError.value = null;
+  try {
+    const res = await api.get<{ subsystems: DegradationSnapshot[] }>("/health/degradation");
+    degradation.value = res.data.subsystems;
+  } catch (err) {
+    degradationError.value = (err as Error).message ?? "System health unavailable";
+  } finally {
+    degradationLoading.value = false;
   }
 }
 
@@ -85,10 +115,30 @@ onUnmounted(() => {
 });
 
 const statItems = computed(() => [
-  { label: 'Waiting Jobs', value: monitor.totalWaitingJobs, icon: Clock, color: 'text-status-approved' },
-  { label: 'Failed Jobs', value: monitor.totalFailedJobs, icon: XCircle, color: 'text-status-failed' },
-  { label: 'Critical Alerts', value: monitor.criticalAlerts.length, icon: AlertTriangle, color: 'text-status-failed' },
-  { label: 'Pending Replies', value: monitor.pendingReplies.length, icon: MessageSquare, color: 'text-status-draft' },
+  {
+    label: "Waiting Jobs",
+    value: monitor.totalWaitingJobs,
+    icon: Clock,
+    color: "text-status-approved",
+  },
+  {
+    label: "Failed Jobs",
+    value: monitor.totalFailedJobs,
+    icon: XCircle,
+    color: "text-status-failed",
+  },
+  {
+    label: "Critical Alerts",
+    value: monitor.criticalAlerts.length,
+    icon: AlertTriangle,
+    color: "text-status-failed",
+  },
+  {
+    label: "Pending Replies",
+    value: monitor.pendingReplies.length,
+    icon: MessageSquare,
+    color: "text-status-draft",
+  },
 ]);
 
 function formatTime(ts: number): string {
@@ -98,7 +148,7 @@ function formatTime(ts: number): string {
 function formatRelative(ts: string): string {
   const diff = Date.now() - new Date(ts).getTime();
   const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return 'just now';
+  if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;
@@ -121,7 +171,7 @@ async function handleManualReply(commentId: string) {
   const text = replyText.value[commentId];
   if (!text?.trim()) return;
   await monitor.manualReply(commentId, text.trim());
-  replyText.value[commentId] = '';
+  replyText.value[commentId] = "";
 }
 
 async function handleDismiss(commentId: string) {
@@ -142,8 +192,11 @@ async function handleDismiss(commentId: string) {
         Refresh
       </Button>
       <div class="flex items-center gap-2 text-xs text-text-muted">
-        <Activity class="h-3 w-3" :class="postsStore.sseConnected ? 'text-status-posted' : 'text-status-failed'" />
-        <span>{{ postsStore.sseConnected ? 'SSE connected' : 'SSE disconnected' }}</span>
+        <Activity
+          class="h-3 w-3"
+          :class="postsStore.sseConnected ? 'text-status-posted' : 'text-status-failed'"
+        />
+        <span>{{ postsStore.sseConnected ? "SSE connected" : "SSE disconnected" }}</span>
         <span class="text-text-muted">· auto-refresh 30s</span>
       </div>
     </div>
@@ -162,6 +215,80 @@ async function handleDismiss(commentId: string) {
           :color="item.color"
         />
       </div>
+
+      <!-- REL-102: unified subsystem degradation state -->
+      <Card class="mt-6">
+        <template #header>
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2">
+              <ShieldCheck class="h-5 w-5 text-primary" aria-hidden="true" />
+              <div>
+                <h2 class="text-lg font-semibold text-text-primary">System Resilience</h2>
+                <p class="text-sm text-text-secondary">Subsystem health and recovery probes.</p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              :loading="degradationLoading"
+              @click="fetchDegradation"
+            >
+              <RefreshCw class="h-3.5 w-3.5" aria-hidden="true" />
+              Refresh
+            </Button>
+          </div>
+        </template>
+
+        <div
+          v-if="degradationError"
+          role="alert"
+          class="rounded-md border border-warning/30 bg-warning-subtle p-3 text-sm text-warning"
+        >
+          {{ degradationError }}
+        </div>
+        <LoadingSpinner
+          v-else-if="degradationLoading && degradation.length === 0"
+          message="Loading subsystem health…"
+        />
+        <div v-else-if="degradation.length === 0" class="py-6 text-center text-sm text-text-muted">
+          No subsystem incidents recorded.
+        </div>
+        <ul v-else class="grid gap-3 md:grid-cols-2 xl:grid-cols-3" aria-label="Subsystem health">
+          <li
+            v-for="snapshot in degradation"
+            :key="snapshot.subsystem"
+            class="rounded-lg border border-border bg-surface-elevated p-4"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <span class="truncate text-sm font-medium text-text-primary">{{
+                snapshot.subsystem
+              }}</span>
+              <Badge
+                :variant="
+                  snapshot.level === 'HEALTHY'
+                    ? 'success'
+                    : snapshot.level === 'RECOVERING'
+                      ? 'info'
+                      : snapshot.level === 'DEGRADED'
+                        ? 'warning'
+                        : 'error'
+                "
+              >
+                {{ snapshot.level }}
+              </Badge>
+            </div>
+            <p v-if="snapshot.reason" class="mt-2 line-clamp-2 text-xs text-text-secondary">
+              {{ snapshot.reason }}
+            </p>
+            <p class="mt-2 text-xs text-text-muted">
+              Probe passes: {{ snapshot.consecutiveProbePasses }}
+              <span v-if="snapshot.lastProbeMs">
+                · last {{ formatTime(snapshot.lastProbeMs) }}</span
+              >
+            </p>
+          </li>
+        </ul>
+      </Card>
 
       <div class="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         <!-- Flow Control Panel -->
@@ -197,13 +324,18 @@ async function handleDismiss(commentId: string) {
                 <span class="text-sm font-medium text-text-primary">{{ flow.label }}</span>
               </div>
               <Badge :variant="(flowState as any)[flow.key] ? 'warning' : 'success'">
-                {{ (flowState as any)[flow.key] ? 'PAUSED' : 'RUNNING' }}
+                {{ (flowState as any)[flow.key] ? "PAUSED" : "RUNNING" }}
               </Badge>
             </div>
-            <div v-if="flowState.crisisMode" class="rounded-lg border border-error/30 bg-error/10 p-3">
+            <div
+              v-if="flowState.crisisMode"
+              class="rounded-lg border border-error/30 bg-error/10 p-3"
+            >
               <div class="flex items-center gap-2">
                 <AlertTriangle class="h-4 w-4 text-error" />
-                <span class="text-sm font-medium text-error">Crisis mode active — all flows paused</span>
+                <span class="text-sm font-medium text-error"
+                  >Crisis mode active — all flows paused</span
+                >
               </div>
             </div>
           </div>
@@ -227,7 +359,9 @@ async function handleDismiss(commentId: string) {
             <div class="rounded-lg bg-surface-elevated p-3">
               <div class="flex items-center justify-between">
                 <span class="text-sm text-text-secondary">Pipeline</span>
-                <span class="text-sm font-medium text-text-primary">Generate → Check → Approve → Post</span>
+                <span class="text-sm font-medium text-text-primary"
+                  >Generate → Check → Approve → Post</span
+                >
               </div>
             </div>
             <div class="grid grid-cols-2 gap-3">
@@ -280,12 +414,7 @@ async function handleDismiss(commentId: string) {
                     <Pause class="h-3 w-3" />
                     Pause
                   </Button>
-                  <Button
-                    v-else
-                    variant="outline"
-                    size="sm"
-                    @click="handleResume(q.network)"
-                  >
+                  <Button v-else variant="outline" size="sm" @click="handleResume(q.network)">
                     <Play class="h-3 w-3" />
                     Resume
                   </Button>
@@ -361,7 +490,9 @@ async function handleDismiss(commentId: string) {
       <Card class="mt-6" v-if="monitor.pendingReplies.length > 0">
         <template #header>
           <h2 class="text-lg font-semibold text-text-primary">Comments Needing Review</h2>
-          <p class="text-sm text-text-secondary">Comments flagged for human review by the replies monitor</p>
+          <p class="text-sm text-text-secondary">
+            Comments flagged for human review by the replies monitor
+          </p>
         </template>
 
         <div class="space-y-4">
@@ -376,7 +507,7 @@ async function handleDismiss(commentId: string) {
                 <span class="text-sm font-medium text-text-primary">@{{ item.author }}</span>
                 <span class="text-xs text-text-muted">{{ formatRelative(item.scrapedAt) }}</span>
               </div>
-              <Badge variant="warning">{{ item.humanReviewReason ?? 'Review needed' }}</Badge>
+              <Badge variant="warning">{{ item.humanReviewReason ?? "Review needed" }}</Badge>
             </div>
             <p class="text-sm text-text-secondary mb-3">{{ item.text }}</p>
 
@@ -387,7 +518,11 @@ async function handleDismiss(commentId: string) {
                 class="flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-primary"
                 rows="2"
               />
-              <Button size="sm" @click="handleManualReply(item.id)" :disabled="!replyText[item.id]?.trim()">
+              <Button
+                size="sm"
+                @click="handleManualReply(item.id)"
+                :disabled="!replyText[item.id]?.trim()"
+              >
                 <Send class="h-3 w-3" />
                 Reply
               </Button>
@@ -410,7 +545,12 @@ async function handleDismiss(commentId: string) {
             <h2 class="text-lg font-semibold text-text-primary">Agent Subsystems</h2>
             <p class="text-sm text-text-secondary">Live status and control for all agents</p>
           </div>
-          <Button variant="outline" size="sm" :loading="agentsStore.loading" @click="agentsStore.fetchSnapshot">
+          <Button
+            variant="outline"
+            size="sm"
+            :loading="agentsStore.loading"
+            @click="agentsStore.fetchSnapshot"
+          >
             <RefreshCw class="mr-1 h-3.5 w-3.5" />
             Refresh
           </Button>

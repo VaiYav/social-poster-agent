@@ -13,11 +13,11 @@
  *
  * If webhook URL is not set or alerts disabled, all calls are no-ops (graceful degradation).
  */
-import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { CircuitBreaker, CircuitOpenError } from '../../domain/circuit-breaker.js';
+import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { CircuitBreaker, CircuitOpenError } from "../../domain/circuit-breaker.js";
 
-export type AlertSeverity = 'info' | 'warning' | 'critical';
+export type AlertSeverity = "info" | "warning" | "critical";
 
 export interface DiscordAlert {
   severity: AlertSeverity;
@@ -34,9 +34,9 @@ const SEVERITY_COLORS: Record<AlertSeverity, number> = {
 };
 
 const SEVERITY_EMOJI: Record<AlertSeverity, string> = {
-  info: 'ℹ️',
-  warning: '⚠️',
-  critical: '🚨',
+  info: "ℹ️",
+  warning: "⚠️",
+  critical: "🚨",
 };
 
 const DISCORD_LIMITS = {
@@ -65,26 +65,24 @@ export class DiscordNotificationService implements OnModuleInit {
   private readonly logger = new Logger(DiscordNotificationService.name);
   private readonly webhookUrl: string | null;
   private readonly enabled: boolean;
-  private readonly circuitBreaker = new CircuitBreaker('discord-webhook', {
+  private readonly circuitBreaker = new CircuitBreaker("discord-webhook", {
     failureThreshold: 3,
     resetTimeoutMs: 5 * 60 * 1000, // 5 minutes
   });
 
   constructor(private readonly configService: ConfigService) {
-    const rawUrl = this.configService.get<string>('DISCORD_WEBHOOK_URL');
+    const rawUrl = this.configService.get<string>("DISCORD_WEBHOOK_URL");
     // Treat empty string, whitespace-only, and undefined as "not configured"
     this.webhookUrl = rawUrl && rawUrl.trim().length > 0 ? rawUrl.trim() : null;
-    this.enabled =
-      this.configService.get<string>('DISCORD_ALERTS_ENABLED', 'false') ===
-      'true';
+    this.enabled = this.configService.get<string>("DISCORD_ALERTS_ENABLED", "false") === "true";
   }
 
   onModuleInit(): void {
     if (this.enabled && this.webhookUrl) {
-      this.logger.log('Discord alerts enabled — webhook configured');
+      this.logger.log("Discord alerts enabled — webhook configured");
     } else if (this.enabled && !this.webhookUrl) {
       this.logger.warn(
-        'DISCORD_ALERTS_ENABLED=true but DISCORD_WEBHOOK_URL not set — alerts will be no-ops',
+        "DISCORD_ALERTS_ENABLED=true but DISCORD_WEBHOOK_URL not set — alerts will be no-ops",
       );
     }
   }
@@ -103,7 +101,10 @@ export class DiscordNotificationService implements OnModuleInit {
         const payload = {
           embeds: [
             {
-              title: truncate(`${SEVERITY_EMOJI[alert.severity]} ${alert.title}`, DISCORD_LIMITS.title),
+              title: truncate(
+                `${SEVERITY_EMOJI[alert.severity]} ${alert.title}`,
+                DISCORD_LIMITS.title,
+              ),
               description: truncate(alert.message, DISCORD_LIMITS.description),
               color: SEVERITY_COLORS[alert.severity],
               fields: alert.fields?.map((field) => ({
@@ -111,7 +112,9 @@ export class DiscordNotificationService implements OnModuleInit {
                 value: truncate(field.value, DISCORD_LIMITS.fieldValue),
                 inline: field.inline,
               })),
-              footer: alert.footer ? { text: truncate(alert.footer, DISCORD_LIMITS.footerText) } : undefined,
+              footer: alert.footer
+                ? { text: truncate(alert.footer, DISCORD_LIMITS.footerText) }
+                : undefined,
               timestamp: new Date().toISOString(),
             },
           ],
@@ -124,8 +127,8 @@ export class DiscordNotificationService implements OnModuleInit {
             const timeout = setTimeout(() => controller.abort(), 10000);
 
             const response = await fetch(this.webhookUrl!, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
               body: JSON.stringify(payload),
               signal: controller.signal,
             });
@@ -134,7 +137,7 @@ export class DiscordNotificationService implements OnModuleInit {
 
             if (response.ok) return response;
 
-            const body = await response.text().catch(() => 'unknown');
+            const body = await response.text().catch(() => "unknown");
             lastError = new Error(`Discord webhook returned ${response.status}: ${body}`);
           } catch (err) {
             lastError = err as Error;
@@ -149,7 +152,7 @@ export class DiscordNotificationService implements OnModuleInit {
           }
         }
 
-        throw lastError ?? new Error('Discord webhook failed after all retries');
+        throw lastError ?? new Error("Discord webhook failed after all retries");
       });
     } catch (err) {
       if (err instanceof CircuitOpenError) {
@@ -163,22 +166,34 @@ export class DiscordNotificationService implements OnModuleInit {
   /**
    * Convenience: send a critical alert.
    */
-  async critical(title: string, message: string, fields?: { name: string; value: string; inline?: boolean }[]): Promise<void> {
-    await this.sendAlert({ severity: 'critical', title, message, fields });
+  async critical(
+    title: string,
+    message: string,
+    fields?: { name: string; value: string; inline?: boolean }[],
+  ): Promise<void> {
+    await this.sendAlert({ severity: "critical", title, message, fields });
   }
 
   /**
    * Convenience: send a warning alert.
    */
-  async warning(title: string, message: string, fields?: { name: string; value: string; inline?: boolean }[]): Promise<void> {
-    await this.sendAlert({ severity: 'warning', title, message, fields });
+  async warning(
+    title: string,
+    message: string,
+    fields?: { name: string; value: string; inline?: boolean }[],
+  ): Promise<void> {
+    await this.sendAlert({ severity: "warning", title, message, fields });
   }
 
   /**
    * Convenience: send an info alert.
    */
-  async info(title: string, message: string, fields?: { name: string; value: string; inline?: boolean }[]): Promise<void> {
-    await this.sendAlert({ severity: 'info', title, message, fields });
+  async info(
+    title: string,
+    message: string,
+    fields?: { name: string; value: string; inline?: boolean }[],
+  ): Promise<void> {
+    await this.sendAlert({ severity: "info", title, message, fields });
   }
 
   isEnabled(): boolean {

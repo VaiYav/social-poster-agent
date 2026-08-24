@@ -1,95 +1,135 @@
-import { createRouter, createWebHistory } from 'vue-router';
-import { useAuthStore } from '../stores/auth';
+import { createRouter, createWebHistory } from "vue-router";
+import { useAuthStore } from "../stores/auth";
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
     {
-      path: '/login',
-      name: 'login',
-      component: () => import('../views/Login.vue'),
+      path: "/login",
+      name: "login",
+      component: () => import("../views/Login.vue"),
       meta: { public: true },
     },
     {
-      path: '/',
-      name: 'dashboard',
-      component: () => import('../views/Dashboard.vue'),
+      path: "/",
+      name: "dashboard",
+      component: () => import("../views/Dashboard.vue"),
     },
     {
-      path: '/monitor',
-      name: 'monitor',
-      component: () => import('../views/Monitor.vue'),
+      path: "/monitor",
+      name: "monitor",
+      component: () => import("../views/Monitor.vue"),
     },
     {
-      path: '/queue',
-      name: 'queue',
-      component: () => import('../views/Queue.vue'),
+      path: "/queue",
+      name: "queue",
+      component: () => import("../views/Queue.vue"),
     },
     {
-      path: '/history',
-      name: 'history',
-      component: () => import('../views/History.vue'),
+      path: "/history",
+      name: "history",
+      component: () => import("../views/History.vue"),
     },
     {
-      path: '/generate',
-      name: 'generate',
-      component: () => import('../views/Generate.vue'),
+      path: "/generate",
+      name: "generate",
+      component: () => import("../views/Generate.vue"),
     },
     {
-      path: '/sessions',
-      name: 'sessions',
-      component: () => import('../views/Sessions.vue'),
+      path: "/sessions",
+      name: "sessions",
+      component: () => import("../views/Sessions.vue"),
     },
     {
-      path: '/analytics',
-      name: 'analytics',
-      component: () => import('../views/Analytics.vue'),
+      path: "/accounts",
+      name: "accounts",
+      component: () => import("../views/Accounts.vue"),
     },
     {
-      path: '/trending',
-      name: 'trending',
-      component: () => import('../views/Trending.vue'),
+      path: "/creators",
+      name: "creators",
+      component: () => import("../views/CreatorRelationships.vue"),
     },
     {
-      path: '/quote-cards',
-      name: 'quote-cards',
-      component: () => import('../views/QuoteCards.vue'),
+      path: "/analytics",
+      name: "analytics",
+      component: () => import("../views/Analytics.vue"),
     },
     {
-      path: '/recycling',
-      name: 'recycling',
-      component: () => import('../views/Recycling.vue'),
+      path: "/trending",
+      name: "trending",
+      component: () => import("../views/Trending.vue"),
     },
     {
-      path: '/calendar',
-      name: 'calendar',
-      component: () => import('../views/Calendar.vue'),
+      path: "/quote-cards",
+      name: "quote-cards",
+      component: () => import("../views/QuoteCards.vue"),
     },
     {
-      path: '/flow-control',
-      name: 'flow-control',
-      component: () => import('../views/FlowControl.vue'),
+      path: "/recycling",
+      name: "recycling",
+      component: () => import("../views/Recycling.vue"),
     },
     {
-      path: '/reports',
-      name: 'reports',
-      component: () => import('../views/Reports.vue'),
+      path: "/calendar",
+      name: "calendar",
+      component: () => import("../views/Calendar.vue"),
     },
     {
-      path: '/replies',
-      name: 'replies',
-      component: () => import('../views/Replies.vue'),
+      path: "/flow-control",
+      name: "flow-control",
+      component: () => import("../views/FlowControl.vue"),
     },
     {
-      path: '/autonomous-agent',
-      name: 'autonomous-agent',
-      component: () => import('../views/AutonomousAgent.vue'),
+      path: "/reports",
+      name: "reports",
+      component: () => import("../views/Reports.vue"),
+    },
+    {
+      path: "/replies",
+      name: "replies",
+      component: () => import("../views/Replies.vue"),
+    },
+    {
+      path: "/suggestions",
+      name: "suggestions",
+      component: () => import("../views/EngagementSuggestions.vue"),
+    },
+    {
+      path: "/demand",
+      name: "demand",
+      component: () => import("../views/DemandRadar.vue"),
+    },
+    {
+      path: "/grounding",
+      name: "grounding",
+      component: () => import("../views/GroundingReview.vue"),
+    },
+    {
+      path: "/personas",
+      name: "personas",
+      component: () => import("../views/PersonaManagement.vue"),
+    },
+    {
+      path: "/reputation",
+      name: "reputation",
+      component: () => import("../views/ReputationSafety.vue"),
+    },
+    {
+      path: "/policy-registry",
+      name: "policy-registry",
+      component: () => import("../views/PolicyRegistry.vue"),
+    },
+    {
+      path: "/autonomous-agent",
+      name: "autonomous-agent",
+      component: () => import("../views/AutonomousAgent.vue"),
     },
     // Sprint N: 404 catch-all route
     {
-      path: '/:pathMatch(.*)*',
-      name: 'NotFound',
-      component: () => import('../views/NotFound.vue'),
+      path: "/:pathMatch(.*)*",
+      name: "NotFound",
+      component: () => import("../views/NotFound.vue"),
     },
   ],
 });
@@ -118,12 +158,12 @@ router.beforeEach(async (to) => {
 
   // If route is public (e.g. /login) and user is authenticated → redirect to /
   if (isPublic && authStore.isAuthenticated) {
-    return { name: 'dashboard' };
+    return { name: "dashboard" };
   }
 
   // If route is not public and user is not authenticated → redirect to /login
   if (!isPublic && !authStore.isAuthenticated) {
-    return { name: 'login', query: { redirect: to.fullPath } };
+    return { name: "login", query: { redirect: to.fullPath } };
   }
 
   return true;

@@ -20,120 +20,137 @@
  * `design:paramtypes` decorator metadata. We restore it via
  * `Reflect.defineMetadata` (see big-bang.integration.spec.ts for details).
  */
-import 'reflect-metadata';
-import { defineParamtypes, restoreAllDesignParamtypes } from '../helpers/restore-paramtypes.js';
-import { TopicGenerationService } from '../../src/infrastructure/content/topic-generation.service';
-import http from 'node:http';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { SseEventListener } from '../../src/events/listeners/sse-event.listener';
-import { AutoApproveListener } from '../../src/modules/autonomy/auto-approve.listener';
-import { AutoCheckService } from '../../src/modules/autonomy/auto-check.service';
-import { AutoApproveService } from '../../src/modules/autonomy/auto-approve.service';
-import { AutonomousRunnerService } from '../../src/modules/autonomy/autonomous-runner.service';
-import { FlowControlService } from '../../src/modules/flow-control/flow-control.service';
-import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service';
-import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service';
-import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator';
-import { ThreadDepthService } from '../../src/modules/content-enhancements/thread-depth.service';
-import { ContentPillarTracker } from '../../src/modules/content-enhancements/content-pillar.tracker';
-import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook-performance-bank.js';
-import { ThreadProgressService } from '../../src/modules/posting/thread-progress.service';
-import { HumanBehaviorEngine } from '../../src/modules/engagement/human-behavior-engine.js';
-import { TargetingService } from '../../src/modules/engagement/targeting.service';
-import { RepliesMonitorService } from '../../src/modules/replies/replies-monitor.service';
-import { EngagementSchedulerService } from '../../src/modules/engagement/engagement-scheduler.service';
-import { SchedulerRegistry } from '@nestjs/schedule';
-import { MetricsScraperService } from '../../src/modules/analytics/metrics-scraper.service';
-import type { AddressInfo } from 'node:net';
-import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
-import { Test } from '@nestjs/testing';
-import type { TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common'
-import { ModuleRef } from '@nestjs/core';
-import { ConfigService } from '@nestjs/config';
-import { Logger } from '@nestjs/common'
-import request from 'supertest';
-import { PostStatus, SessionStatus, SocialNetwork, GenerationRunStatus, GenerationTrigger } from '@prisma/client';
-import type { ContentTopic } from '@spa/shared';
+import "reflect-metadata";
+import { defineParamtypes, restoreAllDesignParamtypes } from "../helpers/restore-paramtypes.js";
+import { TopicGenerationService } from "../../src/infrastructure/content/topic-generation.service.js";
+import http from "node:http";
+import { EventEmitter2 } from "@nestjs/event-emitter";
+import { SseEventListener } from "../../src/events/listeners/sse-event.listener.js";
+import { AutoApproveListener } from "../../src/modules/autonomy/auto-approve.listener.js";
+import { AutoCheckService } from "../../src/modules/autonomy/auto-check.service.js";
+import { AutoApproveService } from "../../src/modules/autonomy/auto-approve.service.js";
+import { AutonomousRunnerService } from "../../src/modules/autonomy/autonomous-runner.service.js";
+import { FlowControlService } from "../../src/modules/flow-control/flow-control.service.js";
+import { DiscordNotificationService } from "../../src/infrastructure/notifications/discord-notification.service.js";
+import { VisualConceptService } from "../../src/modules/content-enhancements/visual-concept.service.js";
+import { ABVariantGenerator } from "../../src/modules/content-enhancements/ab-variant.generator.js";
+import { ThreadDepthService } from "../../src/modules/content-enhancements/thread-depth.service.js";
+import { ContentPillarTracker } from "../../src/modules/content-enhancements/content-pillar.tracker.js";
+import { HookPerformanceBank } from "../../src/modules/content-enhancements/hook-performance-bank.js";
+import { ThreadProgressService } from "../../src/modules/posting/thread-progress.service.js";
+import { HumanBehaviorEngine } from "../../src/modules/engagement/human-behavior-engine.js";
+import { TargetingService } from "../../src/modules/engagement/targeting.service.js";
+import { RepliesMonitorService } from "../../src/modules/replies/replies-monitor.service.js";
+import { EngagementSchedulerService } from "../../src/modules/engagement/engagement-scheduler.service.js";
+import { SchedulerRegistry } from "@nestjs/schedule";
+import { MetricsScraperService } from "../../src/modules/analytics/metrics-scraper.service.js";
+import type { AddressInfo } from "node:net";
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
+import { Test } from "@nestjs/testing";
+import type { TestingModule } from "@nestjs/testing";
+import { INestApplication } from "@nestjs/common";
+import { ModuleRef } from "@nestjs/core";
+import { ConfigService } from "@nestjs/config";
+import { Logger } from "@nestjs/common";
+import request from "supertest";
+import {
+  PostStatus,
+  SessionStatus,
+  SocialNetwork,
+  GenerationRunStatus,
+  GenerationTrigger,
+} from "../../src/generated/prisma/client.js";
+import type { ContentTopic } from "@spa/shared";
 import {
   CreatePostDtoSchema,
   GeneratePostsDtoSchema,
   UpdatePostStatusDtoSchema,
   ContentTopicSchema,
-} from '@spa/shared';
+} from "@spa/shared";
 
-import { AppModule } from '../../src/app.module';
-import { PrismaService } from '../../src/infrastructure/prisma/prisma.service';
-import { ILlmPort } from '../../src/domain/ports/llm.port.js';
-import { IBrowserPort } from '../../src/domain/ports/browser.port.js';
-import { IContentPort } from '../../src/domain/ports/content.port.js';
+import { AppModule } from "../../src/app.module.js";
+import { PrismaService } from "../../src/infrastructure/prisma/prisma.service.js";
+import { ILlmPort } from "../../src/domain/ports/llm.port.js";
+import { IBrowserPort } from "../../src/domain/ports/browser.port.js";
+import { IContentPort } from "../../src/domain/ports/content.port.js";
+import { IRuntimeActionAuthorizer } from "../../src/modules/policy/policy.types.js";
 
 // Infrastructure
-import { BrowserFactory } from '../../src/infrastructure/browser/browser.factory';
-import { LlmService } from '../../src/infrastructure/llm/llm.service';
-import { ContentReader } from '../../src/infrastructure/content/content-reader.js';
-import { SseService } from '../../src/infrastructure/sse/sse.service';
-import { SseModule } from '../../src/infrastructure/sse/sse.module';
-import { QueueFactory } from '../../src/infrastructure/queue/queue.factory';
-import { QueueModule } from '../../src/modules/queue/queue.module';
-import { EncryptionService } from '../../src/infrastructure/crypto/encryption.service';
-import { TrendingScraperService } from '../../src/modules/trending/trending-scraper.service';
-import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint.js';
+import { BrowserFactory } from "../../src/infrastructure/browser/browser.factory.js";
+import { LlmService } from "../../src/infrastructure/llm/llm.service.js";
+import { ContentReader } from "../../src/infrastructure/content/content-reader.js";
+import { SseService } from "../../src/infrastructure/sse/sse.service.js";
+import { SseModule } from "../../src/infrastructure/sse/sse.module.js";
+import { QueueFactory } from "../../src/infrastructure/queue/queue.factory.js";
+import { QueueModule } from "../../src/modules/queue/queue.module.js";
+import { EncryptionService } from "../../src/infrastructure/crypto/encryption.service.js";
+import { TrendingScraperService } from "../../src/modules/trending/trending-scraper.service.js";
+import { RedisCheckpointSaver } from "../../src/infrastructure/checkpoint/redis-checkpoint.js";
 
 // Services / Controllers
-import { PostingService } from '../../src/modules/posting/posting.service';
-import { PostingController } from '../../src/modules/posting/posting.controller';
-import { XPoster } from '../../src/modules/posting/posters/x.poster';
-import { ThreadsPoster } from '../../src/modules/posting/posters/threads.poster';
-import { FacebookPoster } from '../../src/modules/posting/posters/facebook.poster';
-import { EngagementService } from '../../src/modules/engagement/engagement.service';
-import { EngagementController } from '../../src/modules/engagement/engagement.controller';
-import { BrowsingSessionService } from '../../src/modules/engagement/browsing-session.service';
-import { XEngager } from '../../src/modules/engagement/engagers/x.engager';
-import { ThreadsEngager } from '../../src/modules/engagement/engagers/threads.engager';
-import { FacebookEngager } from '../../src/modules/engagement/engagers/facebook.engager';
-import { PostsService } from '../../src/modules/posts/posts.service';
-import { PostsController } from '../../src/modules/posts/posts.controller';
-import { SessionsService } from '../../src/modules/sessions/sessions.service';
-import { WarmupService } from '../../src/modules/sessions/warmup.service';
-import { SessionsController } from '../../src/modules/sessions/sessions.controller';
-import { AccountsService } from '../../src/modules/accounts/accounts.service';
-import { AccountsController } from '../../src/modules/accounts/accounts.controller';
-import { RateLimitService } from '../../src/modules/rate-limit/rate-limit.service';
-import { GenerationService } from '../../src/modules/generation/generation.service';
-import { clearHookCache } from '../../src/modules/generation/generation.graph';
-import { GenerationController } from '../../src/modules/generation/generation.controller';
-import { CronService } from '../../src/modules/generation/cron.service';
-import { ContentSourceService } from '../../src/modules/content-source/content-source.service';
-import { ContentSourceController } from '../../src/modules/content-source/content-source.controller';
-import { QueueService } from '../../src/modules/queue/queue.service';
-import { QueueController } from '../../src/modules/queue/queue.controller';
-import { SseController } from '../../src/modules/sse/sse.controller';
+import { PostingService } from "../../src/modules/posting/posting.service.js";
+import { PostingGuardService } from "../../src/modules/posting/posting-guards.service.js";
+import { PosterRegistryService } from "../../src/modules/posting/poster-registry.service.js";
+import { PostVerificationService } from "../../src/modules/posting/post-verification.service.js";
+import { ThreadPostingService } from "../../src/modules/posting/thread-posting.service.js";
+import { PostSideEffectsService } from "../../src/modules/posting/post-side-effects.service.js";
+import { PostingController } from "../../src/modules/posting/posting.controller.js";
+import { XPoster } from "../../src/modules/posting/posters/x.poster.js";
+import { ThreadsPoster } from "../../src/modules/posting/posters/threads.poster.js";
+import { FacebookPoster } from "../../src/modules/posting/posters/facebook.poster.js";
+import { EngagementService } from "../../src/modules/engagement/engagement.service.js";
+import { EngagementController } from "../../src/modules/engagement/engagement.controller.js";
+import { BrowsingSessionService } from "../../src/modules/engagement/browsing-session.service.js";
+import { XEngager } from "../../src/modules/engagement/engagers/x.engager.js";
+import { ThreadsEngager } from "../../src/modules/engagement/engagers/threads.engager.js";
+import { FacebookEngager } from "../../src/modules/engagement/engagers/facebook.engager.js";
+import { PostsService } from "../../src/modules/posts/posts.service.js";
+import { PostsController } from "../../src/modules/posts/posts.controller.js";
+import { SessionsService } from "../../src/modules/sessions/sessions.service.js";
+import { WarmupService } from "../../src/modules/sessions/warmup.service.js";
+import { SessionsController } from "../../src/modules/sessions/sessions.controller.js";
+import { AccountsService } from "../../src/modules/accounts/accounts.service.js";
+import { AccountsController } from "../../src/modules/accounts/accounts.controller.js";
+import { RateLimitService } from "../../src/modules/rate-limit/rate-limit.service.js";
+import { GenerationService } from "../../src/modules/generation/generation.service.js";
+import { clearHookCache } from "../../src/modules/generation/generation.graph.js";
+import { GenerationController } from "../../src/modules/generation/generation.controller.js";
+import { CronService } from "../../src/modules/generation/cron.service.js";
+import { ContentSourceService } from "../../src/modules/content-source/content-source.service.js";
+import { ContentSourceController } from "../../src/modules/content-source/content-source.controller.js";
+import { QueueService } from "../../src/modules/queue/queue.service.js";
+import { QueueController } from "../../src/modules/queue/queue.controller.js";
+import { SseController } from "../../src/modules/sse/sse.controller.js";
 // Sprint O: New Features
-import { CaptchaSolverService } from '../../src/infrastructure/captcha/captcha-solver.service';
-import { ProxyRotationService } from '../../src/infrastructure/proxy/proxy-rotation.service';
-import { AnalyticsService } from '../../src/modules/analytics/analytics.service';
-import { AnalyticsController } from '../../src/modules/analytics/analytics.controller';
-import { RecyclingService } from '../../src/modules/recycling/recycling.service';
-import { RecyclingController } from '../../src/modules/recycling/recycling.controller';
-import { QuoteCardService } from '../../src/modules/quote-cards/quote-card.service';
-import { QuoteCardController } from '../../src/modules/quote-cards/quote-card.controller';
-import { HealthController } from '../../src/modules/health/health.controller';
-import { AuthService } from '../../src/modules/auth/auth.service';
-import { AuthController } from '../../src/modules/auth/auth.controller';
-import { JwtAuthGuard } from '../../src/modules/auth/jwt-auth.guard';
-import { JwtService } from '@nestjs/jwt';
+import { CaptchaSolverService } from "../../src/infrastructure/captcha/captcha-solver.service.js";
+import { ProxyRotationService } from "../../src/infrastructure/proxy/proxy-rotation.service.js";
+import { AnalyticsService } from "../../src/modules/analytics/analytics.service.js";
+import { AnalyticsController } from "../../src/modules/analytics/analytics.controller.js";
+import { RecyclingService } from "../../src/modules/recycling/recycling.service.js";
+import { RecyclingController } from "../../src/modules/recycling/recycling.controller.js";
+import { QuoteCardService } from "../../src/modules/quote-cards/quote-card.service.js";
+import { QuoteCardController } from "../../src/modules/quote-cards/quote-card.controller.js";
+import { HealthController } from "../../src/modules/health/health.controller.js";
+import { AuthService } from "../../src/modules/auth/auth.service.js";
+import { AuthController } from "../../src/modules/auth/auth.controller.js";
+import { JwtAuthGuard } from "../../src/modules/auth/jwt-auth.guard.js";
+import { JwtService } from "@nestjs/jwt";
 
-import { createMockLlmPort, createMockBrowserPort, createMockPrismaService } from '../mocks/index.js';
+import {
+  createMockLlmPort,
+  createMockBrowserPort,
+  createMockPrismaService,
+  createMockRuntimeActionAuthorizer,
+} from "../mocks/index.js";
 
 // ── Environment variables for credential-based tests ─────────────────────────
 // Must be set before ConfigModule is initialised.
-process.env.SOCIAL_X_USERNAME = 'test_x_user';
-process.env.SOCIAL_X_PASSWORD = 'test_x_pass';
-process.env.SOCIAL_THREADS_USERNAME = 'test_threads_user';
-process.env.SOCIAL_THREADS_PASSWORD = 'test_threads_pass';
-process.env.SOCIAL_FACEBOOK_EMAIL = 'test_fb_user';
-process.env.SOCIAL_FACEBOOK_PASSWORD = 'test_fb_pass';
+process.env.SOCIAL_X_USERNAME = "test_x_user";
+process.env.SOCIAL_X_PASSWORD = "test_x_pass";
+process.env.SOCIAL_THREADS_USERNAME = "test_threads_user";
+process.env.SOCIAL_THREADS_PASSWORD = "test_threads_pass";
+process.env.SOCIAL_FACEBOOK_EMAIL = "test_fb_user";
+process.env.SOCIAL_FACEBOOK_PASSWORD = "test_fb_pass";
 
 // ── ioredis mock (hoisted) ───────────────────────────────────────────────────
 // Map-backed store so SseService, RateLimitService, RedisCheckpointSaver, and
@@ -150,8 +167,8 @@ const { sharedRedisStore, sharedPubSub } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('ioredis', async () => {
-  const { createMockRedis } = await import('../mocks/redis-mock.js');
+vi.mock("ioredis", async () => {
+  const { createMockRedis } = await import("../mocks/redis-mock.js");
   return {
     default: function MockIORedis(..._args: unknown[]) {
       return createMockRedis(sharedRedisStore);
@@ -161,15 +178,15 @@ vi.mock('ioredis', async () => {
 });
 
 // camoufox-js — avoid launching a real browser binary during tests.
-vi.mock('camoufox-js', () => ({
+vi.mock("camoufox-js", () => ({
   Camoufox: vi.fn().mockResolvedValue(null),
   __esModule: true,
 }));
 
 // @langchain/openai — avoid real OpenAI client instantiation.
-vi.mock('@langchain/openai', () => ({
+vi.mock("@langchain/openai", () => ({
   ChatOpenAI: vi.fn().mockImplementation(() => ({
-    invoke: vi.fn().mockResolvedValue({ content: 'mock' }),
+    invoke: vi.fn().mockResolvedValue({ content: "mock" }),
     temperature: 0.7,
   })),
   __esModule: true,
@@ -226,8 +243,8 @@ function createMockQueueFactory() {
 function createMockContentReader(topics: ContentTopic[]) {
   return {
     getTopics: vi.fn().mockResolvedValue(topics),
-    readBriefs: vi.fn().mockResolvedValue(topics.filter((t) => t.sourceType === 'brief')),
-    readArticles: vi.fn().mockResolvedValue(topics.filter((t) => t.sourceType === 'article')),
+    readBriefs: vi.fn().mockResolvedValue(topics.filter((t) => t.sourceType === "brief")),
+    readArticles: vi.fn().mockResolvedValue(topics.filter((t) => t.sourceType === "article")),
   };
 }
 
@@ -236,7 +253,7 @@ function createMockContentReader(topics: ContentTopic[]) {
  * SessionsService (health check, auto-login) and posters.
  */
 function createMockPage(opts: { url?: string; isLoggedIn?: boolean } = {}) {
-  const url = opts.url ?? 'https://x.com/home';
+  const url = opts.url ?? "https://x.com/home";
   const isLoggedIn = opts.isLoggedIn ?? true;
 
   const mockLocator = {
@@ -252,13 +269,15 @@ function createMockPage(opts: { url?: string; isLoggedIn?: boolean } = {}) {
     type: vi.fn().mockResolvedValue(undefined),
     press: vi.fn().mockResolvedValue(undefined),
     pressSequentially: vi.fn().mockResolvedValue(undefined),
-    inputValue: vi.fn().mockResolvedValue('test_x_user'),
+    inputValue: vi.fn().mockResolvedValue("test_x_user"),
     allTextContents: vi.fn().mockResolvedValue([]),
-    innerText: vi.fn().mockResolvedValue(''),
-    textContent: vi.fn().mockResolvedValue(''),
+    innerText: vi.fn().mockResolvedValue(""),
+    textContent: vi.fn().mockResolvedValue(""),
     getAttribute: vi.fn().mockResolvedValue(null),
     count: vi.fn().mockResolvedValue(0),
-    all: vi.fn().mockImplementation(function () { return Promise.resolve([this]); }),
+    all: vi.fn().mockImplementation(function () {
+      return Promise.resolve([this]);
+    }),
     evaluateAll: vi.fn().mockResolvedValue([]),
     evaluate: vi.fn().mockResolvedValue(undefined),
     boundingBox: vi.fn().mockResolvedValue({ x: 0, y: 0, width: 100, height: 50 }),
@@ -278,9 +297,11 @@ function createMockPage(opts: { url?: string; isLoggedIn?: boolean } = {}) {
   return {
     goto: vi.fn().mockResolvedValue(undefined),
     url: vi.fn().mockReturnValue(url),
-    locator: vi.fn().mockImplementation((selector: string) =>
-      HIDDEN_SELECTOR_PATTERN.test(selector) ? hiddenLocator : mockLocator,
-    ),
+    locator: vi
+      .fn()
+      .mockImplementation((selector: string) =>
+        HIDDEN_SELECTOR_PATTERN.test(selector) ? hiddenLocator : mockLocator,
+      ),
     getByLabel: vi.fn().mockReturnValue(mockLocator),
     getByRole: vi.fn().mockReturnValue(mockLocator),
     getByText: vi.fn().mockReturnValue(mockLocator),
@@ -291,9 +312,9 @@ function createMockPage(opts: { url?: string; isLoggedIn?: boolean } = {}) {
     waitForURL: vi.fn().mockResolvedValue(undefined),
     waitForTimeout: vi.fn().mockResolvedValue(undefined),
     waitForFunction: vi.fn().mockResolvedValue(undefined),
-    content: vi.fn().mockResolvedValue('<html></html>'),
-    textContent: vi.fn().mockResolvedValue(''),
-    innerText: vi.fn().mockResolvedValue(''),
+    content: vi.fn().mockResolvedValue("<html></html>"),
+    textContent: vi.fn().mockResolvedValue(""),
+    innerText: vi.fn().mockResolvedValue(""),
     evaluate: vi.fn().mockResolvedValue(undefined),
     evaluateAll: vi.fn().mockResolvedValue([]),
     addInitScript: vi.fn().mockResolvedValue(undefined),
@@ -326,64 +347,67 @@ function createMockContext(
 
 // ── Fixture data ─────────────────────────────────────────────────────────────
 
-const NOW = new Date('2026-07-15T10:00:00Z');
+const NOW = new Date("2026-07-15T10:00:00Z");
 
 const CAP_TOPICS: ContentTopic[] = [
   {
-    sourceType: 'brief',
-    path: 'briefs/workflow-retro-2026.json',
-    topic: 'Workflow Trends July 2026',
-    keywords: ['workflow trends', 'july 2026', 'productivity'],
-    facts: ['Workflow Trends: July 14 – August 7, 2026', 'workflow signs affected: Q2, Q3'],
+    sourceType: "brief",
+    path: "briefs/workflow-retro-2026.json",
+    topic: "Workflow Trends July 2026",
+    keywords: ["workflow trends", "july 2026", "productivity"],
+    facts: ["Workflow Trends: July 14 – August 7, 2026", "workflow signs affected: Q2, Q3"],
   },
   {
-    sourceType: 'brief',
-    path: 'briefs/product-launch-q4.json',
-    topic: 'Product Launch in Q4',
-    keywords: ['product launch', 'q4', 'productivity'],
-    facts: ['Product launch on July 21, 2026', 'Q4 energy: Discipline, ambition'],
+    sourceType: "brief",
+    path: "briefs/product-launch-q4.json",
+    topic: "Product Launch in Q4",
+    keywords: ["product launch", "q4", "productivity"],
+    facts: ["Product launch on July 21, 2026", "Q4 energy: Discipline, ambition"],
   },
   {
-    sourceType: 'brief',
-    path: 'briefs/cosmic-weather-w28.json',
-    topic: 'weekly roundup Weekly',
-    keywords: ['weekly roundup', 'weekly newsletter', 'Team Milestone'],
-    facts: ['Week of July 15: Team Milestone', 'Favorable for relationships and abundance'],
+    sourceType: "brief",
+    path: "briefs/cosmic-weather-w28.json",
+    topic: "weekly roundup Weekly",
+    keywords: ["weekly roundup", "weekly newsletter", "Team Milestone"],
+    facts: ["Week of July 15: Team Milestone", "Favorable for relationships and abundance"],
   },
 ];
 
 const ACCOUNT_X = {
-  id: 'acc-001',
+  id: "acc-001",
   network: SocialNetwork.X,
-  handle: 'exampleco',
-  credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD',
+  handle: "exampleco",
+  credentialsRef: "SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD",
   active: true,
   createdAt: NOW,
   updatedAt: NOW,
 };
 const ACCOUNT_THREADS = {
-  id: 'acc-002',
+  id: "acc-002",
   network: SocialNetwork.THREADS,
-  handle: 'exampleco',
-  credentialsRef: 'SOCIAL_THREADS_USERNAME,SOCIAL_THREADS_PASSWORD',
+  handle: "exampleco",
+  credentialsRef: "SOCIAL_THREADS_USERNAME,SOCIAL_THREADS_PASSWORD",
   active: true,
   createdAt: NOW,
   updatedAt: NOW,
 };
 const ACCOUNT_FB = {
-  id: 'acc-003',
+  id: "acc-003",
   network: SocialNetwork.FACEBOOK,
-  handle: 'exampleco@facebook.com',
-  credentialsRef: 'SOCIAL_FACEBOOK_EMAIL,SOCIAL_FACEBOOK_PASSWORD',
+  handle: "exampleco@facebook.com",
+  credentialsRef: "SOCIAL_FACEBOOK_EMAIL,SOCIAL_FACEBOOK_PASSWORD",
   active: true,
   createdAt: NOW,
   updatedAt: NOW,
 };
 
 const ACTIVE_SESSION_X = {
-  id: 'sess-001',
-  accountId: 'acc-001',
-  storageState: { cookies: [{ name: 'auth', value: 'token-xyz', domain: '.x.com', path: '/' }], origins: [] },
+  id: "sess-001",
+  accountId: "acc-001",
+  storageState: {
+    cookies: [{ name: "auth", value: "token-xyz", domain: ".x.com", path: "/" }],
+    origins: [],
+  },
   status: SessionStatus.ACTIVE,
   lastHealthCheck: NOW,
   createdAt: NOW,
@@ -391,25 +415,28 @@ const ACTIVE_SESSION_X = {
   account: ACCOUNT_X,
 };
 const EXPIRED_SESSION_X = {
-  id: 'sess-002',
-  accountId: 'acc-001',
-  storageState: { cookies: [{ name: 'expired', value: 'old', domain: '.x.com', path: '/' }], origins: [] },
+  id: "sess-002",
+  accountId: "acc-001",
+  storageState: {
+    cookies: [{ name: "expired", value: "old", domain: ".x.com", path: "/" }],
+    origins: [],
+  },
   status: SessionStatus.EXPIRED,
-  lastHealthCheck: new Date('2026-07-10T10:00:00Z'),
-  createdAt: new Date('2026-07-05T00:00:00Z'),
-  updatedAt: new Date('2026-07-10T10:00:00Z'),
+  lastHealthCheck: new Date("2026-07-10T10:00:00Z"),
+  createdAt: new Date("2026-07-05T00:00:00Z"),
+  updatedAt: new Date("2026-07-10T10:00:00Z"),
   account: ACCOUNT_X,
 };
 
 function makePost(overrides: Partial<Record<string, unknown>> = {}) {
   return {
-    id: 'post-000',
+    id: "post-000",
     network: SocialNetwork.X,
-    content: 'Workflow trends are coming! Time to focus, not react.',
+    content: "Workflow trends are coming! Time to focus, not react.",
     status: PostStatus.DRAFT,
     postUrl: null,
     errorMessage: null,
-    accountId: 'acc-001',
+    accountId: "acc-001",
     threadId: null,
     threadPosition: 0,
     generationRunId: null,
@@ -427,15 +454,24 @@ function makePost(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
-const DRAFT_POST_X = makePost({ id: 'post-draft-x', status: PostStatus.DRAFT, network: SocialNetwork.X });
-const APPROVED_POST_X = makePost({ id: 'post-appr-x', status: PostStatus.APPROVED, network: SocialNetwork.X, approvedAt: NOW });
+const DRAFT_POST_X = makePost({
+  id: "post-draft-x",
+  status: PostStatus.DRAFT,
+  network: SocialNetwork.X,
+});
+const APPROVED_POST_X = makePost({
+  id: "post-appr-x",
+  status: PostStatus.APPROVED,
+  network: SocialNetwork.X,
+  approvedAt: NOW,
+});
 const POSTED_POST = makePost({
-  id: 'post-posted',
+  id: "post-posted",
   status: PostStatus.POSTED,
-  postUrl: 'https://x.com/exampleco/status/999',
+  postUrl: "https://x.com/exampleco/status/999",
   postedAt: NOW,
 });
-const POSTING_POST = makePost({ id: 'post-posting', status: PostStatus.POSTING });
+const POSTING_POST = makePost({ id: "post-posting", status: PostStatus.POSTING });
 
 // ── SSE helper ───────────────────────────────────────────────────────────────
 
@@ -450,27 +486,27 @@ interface SseResult {
  */
 function connectSse(port: number, collectMs: number): Promise<SseResult> {
   return new Promise((resolve, reject) => {
-    let body = '';
+    let body = "";
     let headers: http.IncomingHttpHeaders = {};
 
     const req = http.get(
       `http://localhost:${port}/api/v1/events/sse`,
-      { headers: { Accept: 'text/event-stream' } },
+      { headers: { Accept: "text/event-stream" } },
       (res) => {
         headers = res.headers;
-        res.setEncoding('utf-8');
-        res.on('data', (chunk: string) => {
+        res.setEncoding("utf-8");
+        res.on("data", (chunk: string) => {
           body += chunk;
         });
-        res.on('error', (err: NodeJS.ErrnoException) => {
-          if (err.code === 'ECONNRESET') return;
+        res.on("error", (err: NodeJS.ErrnoException) => {
+          if (err.code === "ECONNRESET") return;
           reject(err);
         });
       },
     );
 
-    req.on('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'ECONNRESET') return;
+    req.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "ECONNRESET") return;
       reject(err);
     });
 
@@ -511,11 +547,16 @@ async function buildAndStartApp(): Promise<void> {
   llmPort = createMockLlmPort();
   browserPort = createMockBrowserPort();
   queueFactory = createMockQueueFactory();
+  const actionAuthorizer = createMockRuntimeActionAuthorizer();
   contentReader = createMockContentReader(CAP_TOPICS);
 
-  mockXPoster = { post: vi.fn().mockResolvedValue({ url: 'https://x.com/exampleco/status/123' }) };
-  mockThreadsPoster = { post: vi.fn().mockResolvedValue({ url: 'https://threads.net/@exampleco/post/456' }) };
-  mockFacebookPoster = { post: vi.fn().mockResolvedValue({ url: 'https://facebook.com/exampleco/posts/789' }) };
+  mockXPoster = { post: vi.fn().mockResolvedValue({ url: "https://x.com/exampleco/status/123" }) };
+  mockThreadsPoster = {
+    post: vi.fn().mockResolvedValue({ url: "https://threads.net/@exampleco/post/456" }),
+  };
+  mockFacebookPoster = {
+    post: vi.fn().mockResolvedValue({ url: "https://facebook.com/exampleco/posts/789" }),
+  };
 
   // Default prisma mocks so onModuleInit hooks (CronService.seedFromEnv) don't crash.
   prisma.socialAccount.findFirst.mockResolvedValue(null);
@@ -543,8 +584,14 @@ async function buildAndStartApp(): Promise<void> {
     .useValue(mockThreadsPoster)
     .overrideProvider(FacebookPoster)
     .useValue(mockFacebookPoster)
+    .overrideProvider(IRuntimeActionAuthorizer)
+    .useValue(actionAuthorizer)
     .overrideProvider(EncryptionService)
-    .useValue({ encrypt: (data: unknown) => data, decrypt: (data: string) => data, isEnabled: () => false })
+    .useValue({
+      encrypt: (data: unknown) => data,
+      decrypt: (data: string) => data,
+      isEnabled: () => false,
+    })
     .overrideProvider(TrendingScraperService)
     .useValue({
       getGoogleTrends: () => Promise.resolve([]),
@@ -555,7 +602,7 @@ async function buildAndStartApp(): Promise<void> {
     .compile();
 
   app = moduleRef.createNestApplication();
-  app.setGlobalPrefix('api/v1');
+  app.setGlobalPrefix("api/v1");
   await app.init();
   await app.listen(0);
   const addr = app.getHttpServer().address() as AddressInfo;
@@ -569,8 +616,8 @@ async function buildAndStartApp(): Promise<void> {
   cronService = moduleRef.get(CronService);
 
   // Spies persist across tests; clearAllMocks only clears call history.
-  publishSpy = vi.spyOn(sseService, 'publish');
-  recordPostSpy = vi.spyOn(rateLimitService, 'recordPost');
+  publishSpy = vi.spyOn(sseService, "publish");
+  recordPostSpy = vi.spyOn(rateLimitService, "recordPost");
 }
 
 // ── Default mock setup (called in beforeEach) ────────────────────────────────
@@ -581,10 +628,10 @@ function setupDefaultMocks(): void {
     Promise.resolve(CAP_TOPICS.slice(0, limit)),
   );
   contentReader.readBriefs.mockImplementation((limit = 10) =>
-    Promise.resolve(CAP_TOPICS.filter((t) => t.sourceType === 'brief').slice(0, limit)),
+    Promise.resolve(CAP_TOPICS.filter((t) => t.sourceType === "brief").slice(0, limit)),
   );
   contentReader.readArticles.mockImplementation((limit = 10) =>
-    Promise.resolve(CAP_TOPICS.filter((t) => t.sourceType === 'article').slice(0, limit)),
+    Promise.resolve(CAP_TOPICS.filter((t) => t.sourceType === "article").slice(0, limit)),
   );
 
   // LLM — default mock returns unique content per call to avoid SimHash dedup
@@ -593,22 +640,22 @@ function setupDefaultMocks(): void {
     bddLlmCounter++;
     return Promise.resolve({
       content: `Workflow Trends insight variant ${bddLlmCounter}: Reflect, not react. #productivity #v${bddLlmCounter}`,
-      model: 'gpt-5-nano',
+      model: "gpt-5-nano",
       tokens: 100,
       cost: 0.001,
     });
   });
   llmPort.generate.mockResolvedValue({
-    content: 'Mock LLM generated content',
-    model: 'gpt-5-nano',
+    content: "Mock LLM generated content",
+    model: "gpt-5-nano",
     tokens: 100,
     cost: 0.001,
   });
 
   // Prisma — generationRun
   prisma.generationRun.create.mockResolvedValue({
-    id: 'run-bdd-001',
-    triggeredBy: 'MANUAL',
+    id: "run-bdd-001",
+    triggeredBy: "MANUAL",
     status: GenerationRunStatus.RUNNING,
     startedAt: new Date(),
     sourceTopics: [],
@@ -616,10 +663,10 @@ function setupDefaultMocks(): void {
     errorMessage: null,
   });
   prisma.generationRun.update.mockResolvedValue({
-    id: 'run-bdd-001',
+    id: "run-bdd-001",
     status: GenerationRunStatus.COMPLETED,
     completedAt: new Date(),
-    sourceTopics: ['Workflow Trends July 2026'],
+    sourceTopics: ["Workflow Trends July 2026"],
     errorMessage: null,
   });
   prisma.generationRun.findMany.mockResolvedValue([]);
@@ -643,9 +690,9 @@ function setupDefaultMocks(): void {
   // Prisma — socialAccount (return correct account per network/id)
   prisma.socialAccount.findUnique.mockImplementation((args: unknown) => {
     const id = args?.where?.id as string | undefined;
-    if (id === 'acc-001') return Promise.resolve(ACCOUNT_X);
-    if (id === 'acc-002') return Promise.resolve(ACCOUNT_THREADS);
-    if (id === 'acc-003') return Promise.resolve(ACCOUNT_FB);
+    if (id === "acc-001") return Promise.resolve(ACCOUNT_X);
+    if (id === "acc-002") return Promise.resolve(ACCOUNT_THREADS);
+    if (id === "acc-003") return Promise.resolve(ACCOUNT_FB);
     return Promise.resolve(null);
   });
   prisma.socialAccount.findFirst.mockImplementation((args: unknown) => {
@@ -671,7 +718,7 @@ function setupDefaultMocks(): void {
   prisma.session.update.mockResolvedValue({});
 
   // Prisma — $queryRaw (health check DB)
-  prisma.$queryRaw.mockResolvedValue([{ '?column?': 1 }]);
+  prisma.$queryRaw.mockResolvedValue([{ "?column?": 1 }]);
 
   // Browser port defaults
   browserPort.acquireContext.mockResolvedValue({
@@ -683,9 +730,9 @@ function setupDefaultMocks(): void {
   browserPort.randomDelay.mockResolvedValue(undefined);
 
   // Posters — restore default success implementations
-  mockXPoster.post.mockResolvedValue({ url: 'https://x.com/exampleco/status/123' });
-  mockThreadsPoster.post.mockResolvedValue({ url: 'https://threads.net/@exampleco/post/456' });
-  mockFacebookPoster.post.mockResolvedValue({ url: 'https://facebook.com/exampleco/posts/789' });
+  mockXPoster.post.mockResolvedValue({ url: "https://x.com/exampleco/status/123" });
+  mockThreadsPoster.post.mockResolvedValue({ url: "https://threads.net/@exampleco/post/456" });
+  mockFacebookPoster.post.mockResolvedValue({ url: "https://facebook.com/exampleco/posts/789" });
 
   // Stateful post store: clear and wire findUnique/update from the store.
   postStore.clear();
@@ -697,13 +744,25 @@ function applyStatefulPostMocks(): void {
   prisma.post.findUnique.mockImplementation((args: { where: { id: string } }) =>
     Promise.resolve(postStore.get(args.where.id) ?? null),
   );
-  prisma.post.update.mockImplementation((args: { where: { id: string }; data: Record<string, unknown> }) => {
-    const existing = postStore.get(args.where.id);
-    if (!existing) return Promise.resolve(null);
-    const updated = { ...existing, ...args.data };
-    postStore.set(args.where.id, updated);
-    return Promise.resolve(updated);
-  });
+  prisma.post.update.mockImplementation(
+    (args: { where: { id: string }; data: Record<string, unknown> }) => {
+      const existing = postStore.get(args.where.id);
+      if (!existing) return Promise.resolve(null);
+      const updated = { ...existing, ...args.data };
+      postStore.set(args.where.id, updated);
+      return Promise.resolve(updated);
+    },
+  );
+  prisma.post.updateMany.mockImplementation(
+    (args: { where: { id: string; status?: string }; data: Record<string, unknown> }) => {
+      const existing = postStore.get(args.where.id);
+      if (!existing || (args.where.status && existing.status !== args.where.status)) {
+        return Promise.resolve({ count: 0 });
+      }
+      postStore.set(args.where.id, { ...existing, ...args.data });
+      return Promise.resolve({ count: 1 });
+    },
+  );
 }
 
 /** Helper: set up standard mocks for a successful posting flow. */
@@ -712,9 +771,9 @@ function setupPostingFlow(post = APPROVED_POST_X) {
   applyStatefulPostMocks();
   prisma.socialAccount.findUnique.mockImplementation((args: unknown) => {
     const id = args?.where?.id as string | undefined;
-    if (id === 'acc-001') return Promise.resolve({ ...ACCOUNT_X });
-    if (id === 'acc-002') return Promise.resolve({ ...ACCOUNT_THREADS });
-    if (id === 'acc-003') return Promise.resolve({ ...ACCOUNT_FB });
+    if (id === "acc-001") return Promise.resolve({ ...ACCOUNT_X });
+    if (id === "acc-002") return Promise.resolve({ ...ACCOUNT_THREADS });
+    if (id === "acc-003") return Promise.resolve({ ...ACCOUNT_FB });
     return Promise.resolve(null);
   });
   prisma.socialAccount.findFirst.mockResolvedValue({ ...ACCOUNT_X });
@@ -731,7 +790,7 @@ function setupPostingFlow(post = APPROVED_POST_X) {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
+describe("BDD Acceptance Scenarios — Social Poster Agent (§4)", () => {
   beforeAll(async () => {
     await buildAndStartApp();
   }, 60000);
@@ -756,8 +815,8 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
   // BDD-S1: Manual Generation + HITL + Posting (Primary Flow)
   // ───────────────────────────────────────────────────────────────────────────
 
-  describe('BDD-S1: Manual Generation + HITL + Posting (Primary Flow)', () => {
-    it('Scenario: Operator generates posts and approves them for posting', async () => {
+  describe("BDD-S1: Manual Generation + HITL + Posting (Primary Flow)", () => {
+    it("Scenario: Operator generates posts and approves them for posting", async () => {
       // Given the backend is running with test PostgreSQL and Redis
       //   And the OpenAI API key is configured
       //   And CAP content is available at the configured path
@@ -769,14 +828,14 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       //   And clicks "Generate"
       const start = Date.now();
       const genRes = await request(app.getHttpServer())
-        .post('/api/v1/generation/run')
-        .send({ count: 3, networks: ['X', 'THREADS', 'FACEBOOK'], sourceType: 'brief' });
+        .post("/api/v1/generation/run")
+        .send({ count: 3, networks: ["X", "THREADS", "FACEBOOK"], sourceType: "brief" });
 
       // Then the backend returns 202 with a runId
       expect(genRes.status).toBe(202);
-      expect(genRes.body).toHaveProperty('runId');
-      expect(genRes.body).toHaveProperty('status', 'started');
-      expect(typeof genRes.body.runId).toBe('string');
+      expect(genRes.body).toHaveProperty("runId");
+      expect(genRes.body).toHaveProperty("status", "started");
+      expect(typeof genRes.body.runId).toBe("string");
 
       // And the response time is reasonable (relaxed in full-suite runs:
       // single-threaded vitest with 9 posts can exceed 5s under CPU load).
@@ -793,22 +852,24 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       // And the RedisCheckpointSaver persists state after each node
       // (checkpoint saver is wired — keys may or may not exist depending on timing)
       const checkpointKeys = Array.from(sharedRedisStore.keys()).filter((k) =>
-        k.startsWith('spa:checkpoint'),
+        k.startsWith("spa:checkpoint"),
       );
       for (const key of checkpointKeys) {
-        expect(key).toContain('spa:checkpoint');
+        expect(key).toContain("spa:checkpoint");
       }
 
       // And each draft has generationRunId, network, content, sourceRef, and llmMetadata populated
       for (const call of prisma.post.create.mock.calls) {
         const data = call[0].data;
         expect(data.generationRunId).toBeDefined();
-        expect([SocialNetwork.X, SocialNetwork.THREADS, SocialNetwork.FACEBOOK]).toContain(data.network);
-        expect(typeof data.content).toBe('string');
+        expect([SocialNetwork.X, SocialNetwork.THREADS, SocialNetwork.FACEBOOK]).toContain(
+          data.network,
+        );
+        expect(typeof data.content).toBe("string");
         expect(data.content.length).toBeGreaterThan(0);
         expect(data.sourceRef).toBeDefined();
         expect(data.llmMetadata).toBeDefined();
-        expect(data.llmMetadata.model).toBe('gpt-5-nano');
+        expect(data.llmMetadata.model).toBe("gpt-5-nano");
       }
 
       // When the operator reviews each draft and clicks "Approve" on drafts
@@ -826,14 +887,15 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
         postStore.set(post.id, { ...post });
         applyStatefulPostMocks();
 
-        const approveRes = await request(app.getHttpServer())
-          .post(`/api/v1/posts/${post.id}/approve`);
+        const approveRes = await request(app.getHttpServer()).post(
+          `/api/v1/posts/${post.id}/approve`,
+        );
         expect(approveRes.status).toBe(200);
-        expect(approveRes.body.status).toBe('APPROVED');
+        expect(approveRes.body.status).toBe("APPROVED");
       }
 
       // Then posts transition to status APPROVED with approvedAt timestamp
-      const approveUpdates = prisma.post.update.mock.calls.filter(
+      const approveUpdates = prisma.post.updateMany.mock.calls.filter(
         (c: unknown[]) => c[0]?.data?.status === PostStatus.APPROVED,
       );
       expect(approveUpdates.length).toBeGreaterThanOrEqual(1);
@@ -855,22 +917,19 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       });
       browserPort.saveStorageState.mockResolvedValue(JSON.stringify({ cookies: [], origins: [] }));
       browserPort.randomDelay.mockResolvedValue(undefined);
-      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/exampleco/status/s1' });
+      mockXPoster.post.mockResolvedValue({ url: "https://x.com/exampleco/status/s1" });
 
-      const postRes = await request(app.getHttpServer())
-        .post(`/api/v1/posting/${approvedPost.id}`);
+      const postRes = await request(app.getHttpServer()).post(`/api/v1/posting/${approvedPost.id}`);
 
       // Then RateLimitService.checkRateLimit is called for the network
       //   And the post status transitions to POSTING
       //   And an SSE event "post_status" with status POSTING is published
-      const postingEvent = publishSpy.mock.calls.find(
-        (c: unknown[]) => c[0]?.status === 'POSTING',
-      );
+      const postingEvent = publishSpy.mock.calls.find((c: unknown[]) => c[0]?.status === "POSTING");
       expect(postingEvent).toBeDefined();
       expect(postingEvent[0]).toMatchObject({
-        type: 'post_status',
-        status: 'POSTING',
-        network: 'X',
+        type: "post_status",
+        status: "POSTING",
+        network: "X",
       });
 
       // And the post status transitions to POSTED with a postUrl
@@ -878,12 +937,10 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       //   And RateLimitService.recordPost is called for the network
       expect(postRes.status).toBe(200);
       expect(postRes.body.success).toBe(true);
-      const postedEvent = publishSpy.mock.calls.find(
-        (c: unknown[]) => c[0]?.status === 'POSTED',
-      );
+      const postedEvent = publishSpy.mock.calls.find((c: unknown[]) => c[0]?.status === "POSTED");
       expect(postedEvent).toBeDefined();
       expect(postedEvent[0].url).toBeDefined();
-      expect(recordPostSpy).toHaveBeenCalledWith('X', 'acc-001');
+      expect(recordPostSpy).toHaveBeenCalledWith("X", "acc-001");
 
       const postedUpdate = prisma.post.update.mock.calls.find(
         (c: unknown[]) => c[0]?.data?.status === PostStatus.POSTED,
@@ -897,8 +954,8 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
   // BDD-S2: Generation Crash + Resume (Checkpoint Recovery)
   // ───────────────────────────────────────────────────────────────────────────
 
-  describe('BDD-S2: Generation Crash + Resume (Checkpoint Recovery)', () => {
-    it('Scenario: Generation run crashes mid-workflow and resumes from checkpoint', async () => {
+  describe("BDD-S2: Generation Crash + Resume (Checkpoint Recovery)", () => {
+    it("Scenario: Generation run crashes mid-workflow and resumes from checkpoint", async () => {
       // Given a generation run is in progress with 3 topics × 3 networks (9 posts total)
       //   And the LangGraph workflow is using RedisCheckpointSaver
       //   And the thread_id is formatted as "{runId}:{network}:{topic}"
@@ -910,19 +967,19 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       llmPort.generateChat.mockImplementation(() => {
         callCount++;
         if (callCount === 3) {
-          return Promise.reject(new Error('Simulated crash — LLM unavailable'));
+          return Promise.reject(new Error("Simulated crash — LLM unavailable"));
         }
         return Promise.resolve({
-          content: 'Workflow Trends is coming! Time to reflect.',
-          model: 'gpt-5-nano',
+          content: "Workflow Trends is coming! Time to reflect.",
+          model: "gpt-5-nano",
           tokens: 100,
           cost: 0.001,
         });
       });
 
       const crashRes = await request(app.getHttpServer())
-        .post('/api/v1/generation/run')
-        .send({ count: 1, networks: ['X'], sourceType: 'brief' });
+        .post("/api/v1/generation/run")
+        .send({ count: 1, networks: ["X"], sourceType: "brief" });
 
       // Then the GenerationRun status remains RUNNING in the database
       // (the controller catches per-post errors, so the run still returns 202)
@@ -934,24 +991,24 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       // And the Redis checkpoint contains state for completed nodes
       // (checkpoint saver is wired — verify keys exist with correct prefix)
       const checkpointKeys = Array.from(sharedRedisStore.keys()).filter((k) =>
-        k.startsWith('spa:checkpoint'),
+        k.startsWith("spa:checkpoint"),
       );
       for (const key of checkpointKeys) {
-        expect(key).toContain('spa:checkpoint');
+        expect(key).toContain("spa:checkpoint");
       }
 
       // When the operator restarts the backend and triggers the same generation run
       // (LLM works again — simulate resume)
       llmPort.generateChat.mockResolvedValue({
-        content: 'Workflow trends are coming! Time to focus, not react. #productivity',
-        model: 'gpt-5-nano',
+        content: "Workflow trends are coming! Time to focus, not react. #productivity",
+        model: "gpt-5-nano",
         tokens: 100,
         cost: 0.001,
       });
 
       const resumeRes = await request(app.getHttpServer())
-        .post('/api/v1/generation/run')
-        .send({ count: 1, networks: ['X'], sourceType: 'brief' });
+        .post("/api/v1/generation/run")
+        .send({ count: 1, networks: ["X"], sourceType: "brief" });
 
       // Then the workflow resumes from the last checkpoint
       //   And the remaining posts are generated
@@ -977,13 +1034,17 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
   // BDD-S3: Rate Limit + Retry (BullMQ Exponential Backoff)
   // ───────────────────────────────────────────────────────────────────────────
 
-  describe('BDD-S3: Rate Limit + Retry (BullMQ Exponential Backoff)', () => {
-    it('Scenario: Rate limit triggers BullMQ retry with exponential backoff', async () => {
+  describe("BDD-S3: Rate Limit + Retry (BullMQ Exponential Backoff)", () => {
+    it("Scenario: Rate limit triggers BullMQ retry with exponential backoff", async () => {
       // Given 10 approved posts for X.com in the BullMQ queue
       //   And the rate limit for X.com is 50 posts/day with 120s minimum interval
       // (rate limit config verified via ConfigService)
-      const maxRetries = Number(moduleRef.get(ConfigService).get<string>('BULLMQ_MAX_RETRIES', '3'));
-      const retryDelayMs = Number(moduleRef.get(ConfigService).get<string>('BULLMQ_RETRY_DELAY_MS', '60000'));
+      const maxRetries = Number(
+        moduleRef.get(ConfigService).get<string>("BULLMQ_MAX_RETRIES", "3"),
+      );
+      const retryDelayMs = Number(
+        moduleRef.get(ConfigService).get<string>("BULLMQ_RETRY_DELAY_MS", "60000"),
+      );
       expect(maxRetries).toBe(3);
       expect(retryDelayMs).toBe(60000); // 60s base → exponential: 60s, 120s, 240s
 
@@ -993,27 +1054,26 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
         sharedRedisStore.clear();
         setupPostingFlow(APPROVED_POST_X);
         mockXPoster.post.mockResolvedValue({ url: `https://x.com/exampleco/status/${100 + i}` });
-        const result = await postingService.postById('post-appr-x');
+        const result = await postingService.postById("post-appr-x");
         expect(result.success).toBe(true);
       }
 
       // Then RateLimitService.recordPost is called after each successful post
       //   And the Redis sliding window counter is incremented
-      expect(recordPostSpy).toHaveBeenCalledWith('X', 'acc-001');
-      const intervalKey = 'spa:ratelimit:X:acc-001:interval';
+      expect(recordPostSpy).toHaveBeenCalledWith("X", "acc-001");
+      const intervalKey = "spa:ratelimit:X:acc-001:interval";
       expect(sharedRedisStore.has(intervalKey)).toBe(true);
 
       // When the 4th post is attempted before 120 seconds have elapsed
       // (the interval key was just set by the 3rd post)
       setupPostingFlow(APPROVED_POST_X);
-      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/exampleco/status/104' });
+      mockXPoster.post.mockResolvedValue({ url: "https://x.com/exampleco/status/104" });
 
       // Then RateLimitService.checkRateLimit returns a rate-limit result
       //   And the post status remains unchanged
       //   And BullMQ (when invoked via the queue worker) catches the result and
       //   schedules a retry with exponential backoff
-      const res4 = await request(app.getHttpServer())
-        .post('/api/v1/posting/post-appr-x');
+      const res4 = await request(app.getHttpServer()).post("/api/v1/posting/post-appr-x");
 
       // Rate limit result returned with 200 so the caller can decide; the queue
       // worker would throw BullMQ's RateLimitError when processing the job.
@@ -1043,17 +1103,14 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       //   And RateLimitService.recordPost is called
       //   And an SSE event "post_status" with status POSTED is published
       setupPostingFlow(APPROVED_POST_X);
-      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/exampleco/status/104-retry' });
+      mockXPoster.post.mockResolvedValue({ url: "https://x.com/exampleco/status/104-retry" });
 
-      const retryRes = await request(app.getHttpServer())
-        .post('/api/v1/posting/post-appr-x');
+      const retryRes = await request(app.getHttpServer()).post("/api/v1/posting/post-appr-x");
 
       expect(retryRes.status).toBe(200);
       expect(retryRes.body.success).toBe(true);
-      expect(recordPostSpy).toHaveBeenCalledWith('X', 'acc-001');
-      const postedEvent = publishSpy.mock.calls.find(
-        (c: unknown[]) => c[0]?.status === 'POSTED',
-      );
+      expect(recordPostSpy).toHaveBeenCalledWith("X", "acc-001");
+      const postedEvent = publishSpy.mock.calls.find((c: unknown[]) => c[0]?.status === "POSTED");
       expect(postedEvent).toBeDefined();
     });
   });
@@ -1062,25 +1119,25 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
   // BDD-S4: Session Expiry + Auto-Login (Credential-Based Login)
   // ───────────────────────────────────────────────────────────────────────────
 
-  describe('BDD-S4: Session Expiry + Auto-Login (Credential-Based Login)', () => {
-    it('Scenario: Expired session triggers auto-login from environment credentials', async () => {
+  describe("BDD-S4: Session Expiry + Auto-Login (Credential-Based Login)", () => {
+    it("Scenario: Expired session triggers auto-login from environment credentials", async () => {
       // Given the operator is on the Sessions view
       //   And the X.com session status is EXPIRED
       //   And the X_USERNAME and X_PASSWORD environment variables are set
       prisma.session.findMany.mockResolvedValue([{ ...EXPIRED_SESSION_X }]);
 
-      const sessionsRes = await request(app.getHttpServer()).get('/api/v1/sessions');
+      const sessionsRes = await request(app.getHttpServer()).get("/api/v1/sessions");
       expect(sessionsRes.status).toBe(200);
-      expect(sessionsRes.body[0].status).toBe('EXPIRED');
+      expect(sessionsRes.body[0].status).toBe("EXPIRED");
 
       // When the operator clicks "Health Check" on the X.com session
       // (no active session found → triggers auto-login path)
       prisma.socialAccount.findFirst.mockResolvedValue(ACCOUNT_X);
       prisma.session.findFirst.mockResolvedValue(null); // no active session
       prisma.session.create.mockResolvedValue({
-        id: 'sess-autologin-s4',
-        accountId: 'acc-001',
-        storageState: { cookies: [{ name: 'auth', value: 'fresh-s4' }], origins: [] },
+        id: "sess-autologin-s4",
+        accountId: "acc-001",
+        storageState: { cookies: [{ name: "auth", value: "fresh-s4" }], origins: [] },
         status: SessionStatus.ACTIVE,
         lastHealthCheck: new Date(),
         createdAt: new Date(),
@@ -1088,13 +1145,13 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       });
 
       // Mock browser for auto-login flow (login form + success indicator visible)
-      const loginPage = createMockPage({ url: 'https://x.com/home', isLoggedIn: true });
+      const loginPage = createMockPage({ url: "https://x.com/home", isLoggedIn: true });
       const loginContext = createMockContext(loginPage);
       browserPort.createContext.mockResolvedValue(loginContext);
       browserPort.saveStorageState.mockResolvedValue(
         JSON.stringify({
-          cookies: [{ name: 'auth', value: 'fresh-s4', domain: '.x.com', path: '/' }],
-          origins: [{ origin: 'https://x.com', localStorage: [] }],
+          cookies: [{ name: "auth", value: "fresh-s4", domain: ".x.com", path: "/" }],
+          origins: [{ origin: "https://x.com", localStorage: [] }],
         }),
       );
       browserPort.randomDelay.mockResolvedValue(undefined);
@@ -1102,10 +1159,9 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       // Trigger posting → getOrCreateSession → autoLogin
       postStore.set(APPROVED_POST_X.id, { ...APPROVED_POST_X });
       applyStatefulPostMocks();
-      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/exampleco/status/s4' });
+      mockXPoster.post.mockResolvedValue({ url: "https://x.com/exampleco/status/s4" });
 
-      const postRes = await request(app.getHttpServer())
-        .post('/api/v1/posting/post-appr-x');
+      const postRes = await request(app.getHttpServer()).post("/api/v1/posting/post-appr-x");
 
       // Then SessionsService.autoLogin is called
       //   And the login form is filled with credentials from environment variables
@@ -1113,15 +1169,15 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       expect(postRes.body.success).toBe(true);
 
       const loginGoto = loginPage.goto.mock.calls.find(
-        (c: unknown[]) => typeof c[0] === 'string' && c[0].includes('login'),
+        (c: unknown[]) => typeof c[0] === "string" && c[0].includes("login"),
       );
       expect(loginGoto).toBeDefined();
 
       // X login uses typeHuman → pressSequentially per-char for React-controlled inputs
       const typeHumanCalls = browserPort.typeHuman.mock.calls;
       const typedValues = typeHumanCalls.map((c: unknown[]) => c[1]);
-      expect(typedValues).toContain('test_x_user');
-      expect(typedValues).toContain('test_x_pass');
+      expect(typedValues).toContain("test_x_user");
+      expect(typedValues).toContain("test_x_pass");
 
       // And the storageState (cookies + localStorage) is saved to Session.storageState JSONB
       //   And the session status transitions to ACTIVE
@@ -1131,7 +1187,7 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       );
       expect(sessionCreate).toBeDefined();
       expect(sessionCreate[0].data.storageState).toBeDefined();
-      expect(sessionCreate[0].data.storageState).toHaveProperty('cookies');
+      expect(sessionCreate[0].data.storageState).toHaveProperty("cookies");
       expect(sessionCreate[0].data.lastHealthCheck).toBeDefined();
     });
   });
@@ -1140,8 +1196,8 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
   // BDD-S5: SSE Real-Time Updates (Event Streaming)
   // ───────────────────────────────────────────────────────────────────────────
 
-  describe('BDD-S5: SSE Real-Time Updates (Event Streaming)', () => {
-    it('Scenario: SSE connection delivers real-time post status events', async () => {
+  describe("BDD-S5: SSE Real-Time Updates (Event Streaming)", () => {
+    it("Scenario: SSE connection delivers real-time post status events", async () => {
       // Wait for any leftover SSE clients from previous tests to clean up
       await new Promise((resolve) => setTimeout(resolve, 600));
       const initialCount = sseService.getConnectedCount();
@@ -1151,13 +1207,13 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       const result = await connectSse(httpPort, 300);
 
       // Then the response Content-Type is "text/event-stream"
-      expect(result.headers['content-type']).toBe('text/event-stream');
+      expect(result.headers["content-type"]).toBe("text/event-stream");
       // And the Cache-Control header is "no-cache"
-      expect(result.headers['cache-control']).toBe('no-cache');
+      expect(result.headers["cache-control"]).toBe("no-cache");
       // And the Connection header is "keep-alive"
-      expect(result.headers['connection']).toBe('keep-alive');
+      expect(result.headers["connection"]).toBe("keep-alive");
       // And the X-Accel-Buffering header is "no"
-      expect(result.headers['x-accel-buffering']).toBe('no');
+      expect(result.headers["x-accel-buffering"]).toBe("no");
       // And a "connected" event is received with a clientId
       expect(result.body).toContain('"type":"connected"');
       expect(result.body).toContain('"clientId"');
@@ -1194,23 +1250,22 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
   // BDD-US005: Approve a Draft Post
   // ───────────────────────────────────────────────────────────────────────────
 
-  describe('BDD-US005: Approve a Draft Post', () => {
-    it('Scenario: Operator approves a draft post', async () => {
+  describe("BDD-US005: Approve a Draft Post", () => {
+    it("Scenario: Operator approves a draft post", async () => {
       // Given a draft post exists with id "post-123" and status DRAFT
-      const draftPost = makePost({ id: 'post-123', status: PostStatus.DRAFT });
+      const draftPost = makePost({ id: "post-123", status: PostStatus.DRAFT });
       postStore.set(draftPost.id, { ...draftPost });
       applyStatefulPostMocks();
 
       // When the operator sends POST /api/v1/posts/post-123/approve
-      const res = await request(app.getHttpServer())
-        .post('/api/v1/posts/post-123/approve');
+      const res = await request(app.getHttpServer()).post("/api/v1/posts/post-123/approve");
 
       // Then the response status code is 200
       expect(res.status).toBe(200);
       // And the post status transitions to APPROVED
-      expect(res.body.status).toBe('APPROVED');
+      expect(res.body.status).toBe("APPROVED");
       // And the approvedAt timestamp is set to the current time
-      const updateCall = prisma.post.update.mock.calls.find(
+      const updateCall = prisma.post.updateMany.mock.calls.find(
         (c: unknown[]) => c[0]?.data?.status === PostStatus.APPROVED,
       );
       expect(updateCall).toBeDefined();
@@ -1219,13 +1274,12 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       // (APPROVED status is the prerequisite for posting — verified by the status value)
     });
 
-    it('Scenario: Approving a non-existent post returns 404', async () => {
+    it("Scenario: Approving a non-existent post returns 404", async () => {
       // Given no post exists with id "post-999"
       prisma.post.findUnique.mockResolvedValue(null);
 
       // When the operator sends POST /api/v1/posts/post-999/approve
-      const res = await request(app.getHttpServer())
-        .post('/api/v1/posts/post-999/approve');
+      const res = await request(app.getHttpServer()).post("/api/v1/posts/post-999/approve");
 
       // Then the response status code is 404
       expect(res.status).toBe(404);
@@ -1238,37 +1292,35 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
   // BDD-US006: Reject a Draft Post
   // ───────────────────────────────────────────────────────────────────────────
 
-  describe('BDD-US006: Reject a Draft Post', () => {
-    it('Scenario: Operator rejects a draft post', async () => {
+  describe("BDD-US006: Reject a Draft Post", () => {
+    it("Scenario: Operator rejects a draft post", async () => {
       // Given a draft post exists with id "post-456" and status DRAFT
-      const draftPost = makePost({ id: 'post-456', status: PostStatus.DRAFT });
+      const draftPost = makePost({ id: "post-456", status: PostStatus.DRAFT });
       postStore.set(draftPost.id, { ...draftPost });
       applyStatefulPostMocks();
 
       // When the operator sends POST /api/v1/posts/post-456/reject
-      const res = await request(app.getHttpServer())
-        .post('/api/v1/posts/post-456/reject');
+      const res = await request(app.getHttpServer()).post("/api/v1/posts/post-456/reject");
 
       // Then the response status code is 200
       expect(res.status).toBe(200);
       // And the post status transitions to REJECTED
-      expect(res.body.status).toBe('REJECTED');
+      expect(res.body.status).toBe("REJECTED");
       // And the post does not enter the posting queue
       // (REJECTED status is not APPROVED — cannot be posted)
-      const updateCall = prisma.post.update.mock.calls.find(
+      const updateCall = prisma.post.updateMany.mock.calls.find(
         (c: unknown[]) => c[0]?.data?.status === PostStatus.REJECTED,
       );
       expect(updateCall).toBeDefined();
-      expect(updateCall[0].where.id).toBe('post-456');
+      expect(updateCall[0].where.id).toBe("post-456");
     });
 
-    it('Scenario: Rejecting a non-existent post returns 404', async () => {
+    it("Scenario: Rejecting a non-existent post returns 404", async () => {
       // Given no post exists with id "post-999"
       prisma.post.findUnique.mockResolvedValue(null);
 
       // When the operator sends POST /api/v1/posts/post-999/reject
-      const res = await request(app.getHttpServer())
-        .post('/api/v1/posts/post-999/reject');
+      const res = await request(app.getHttpServer()).post("/api/v1/posts/post-999/reject");
 
       // Then the response status code is 404
       expect(res.status).toBe(404);
@@ -1281,45 +1333,45 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
   // BDD-US014: SSE Real-Time Updates (client lifecycle)
   // ───────────────────────────────────────────────────────────────────────────
 
-  describe('BDD-US014: SSE Real-Time Updates', () => {
-    it('Scenario: SSE connection establishment and event delivery', async () => {
+  describe("BDD-US014: SSE Real-Time Updates", () => {
+    it("Scenario: SSE connection establishment and event delivery", async () => {
       await new Promise((resolve) => setTimeout(resolve, 300));
 
       // Given the backend is running and Redis is connected
       // When the UI sends GET /api/v1/events/sse
       const eventData = await new Promise<{ clientId: string; eventReceived: boolean }>(
         (resolve, reject) => {
-          const timeout = setTimeout(() => reject(new Error('SSE timeout')), 5000);
-          let clientId = '';
+          const timeout = setTimeout(() => reject(new Error("SSE timeout")), 5000);
+          let clientId = "";
           let eventReceived = false;
 
           const req = http.get(
             {
-              host: 'localhost',
+              host: "localhost",
               port: httpPort,
-              path: '/api/v1/events/sse',
-              headers: { Accept: 'text/event-stream' },
+              path: "/api/v1/events/sse",
+              headers: { Accept: "text/event-stream" },
             },
             (res) => {
-              res.setEncoding('utf-8');
-              res.on('data', (chunk: string) => {
-                for (const line of chunk.split('\n')) {
-                  if (line.startsWith('data: ')) {
+              res.setEncoding("utf-8");
+              res.on("data", (chunk: string) => {
+                for (const line of chunk.split("\n")) {
+                  if (line.startsWith("data: ")) {
                     try {
                       const event = JSON.parse(line.slice(6).trim());
-                      if (event.type === 'connected') {
+                      if (event.type === "connected") {
                         clientId = event.clientId;
                         // Then an SSE event with type "post_status" is received
                         // (publish a test event immediately after connected)
                         sseService.publish({
-                          type: 'post_status',
-                          postId: 'post-sse-us014',
-                          status: 'POSTING',
-                          network: 'X',
+                          type: "post_status",
+                          postId: "post-sse-us014",
+                          status: "POSTING",
+                          network: "X",
                         });
                       } else if (
-                        event.type === 'post_status' &&
-                        event.postId === 'post-sse-us014'
+                        event.type === "post_status" &&
+                        event.postId === "post-sse-us014"
                       ) {
                         eventReceived = true;
                         clearTimeout(timeout);
@@ -1332,10 +1384,10 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
                   }
                 }
               });
-              res.on('error', reject);
+              res.on("error", reject);
             },
           );
-          req.on('error', reject);
+          req.on("error", reject);
         },
       );
 
@@ -1347,19 +1399,19 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       expect(eventData.eventReceived).toBe(true);
     });
 
-    it('Scenario: SSE heartbeat keeps connection alive', async () => {
+    it("Scenario: SSE heartbeat keeps connection alive", async () => {
       // Given an SSE connection is established
       // Only fake setInterval/clearInterval so the heartbeat interval is
       // controlled by fake timers while I/O still uses real timers.
-      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
 
-      let body = '';
+      let body = "";
       const req = http.get(
         `http://localhost:${httpPort}/api/v1/events/sse`,
-        { headers: { Accept: 'text/event-stream' } },
+        { headers: { Accept: "text/event-stream" } },
         (res) => {
-          res.setEncoding('utf-8');
-          res.on('data', (chunk: string) => {
+          res.setEncoding("utf-8");
+          res.on("data", (chunk: string) => {
             body += chunk;
           });
         },
@@ -1369,7 +1421,7 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       // Wait for the connected event to arrive (real I/O)
       await new Promise((resolve) => setTimeout(resolve, 150));
       expect(body).toContain('"type":"connected"');
-      expect(body).not.toContain(': heartbeat');
+      expect(body).not.toContain(": heartbeat");
 
       // Advance fake setInterval by 31s → first heartbeat fires
       vi.advanceTimersByTime(31000);
@@ -1377,7 +1429,7 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
 
       // Then a heartbeat comment is sent from the server
       //   And the connection remains active
-      expect(body).toContain(': heartbeat');
+      expect(body).toContain(": heartbeat");
 
       req.destroy();
     });
@@ -1387,23 +1439,21 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
   // BDD-US019: Rate Limiting Prevents Detection
   // ───────────────────────────────────────────────────────────────────────────
 
-  describe('BDD-US019: Rate Limiting Prevents Detection', () => {
-    it('Scenario: Rate limiter enforces minimum interval between posts', async () => {
+  describe("BDD-US019: Rate Limiting Prevents Detection", () => {
+    it("Scenario: Rate limiter enforces minimum interval between posts", async () => {
       // Given the X.com rate limit is configured with 120s minimum interval
       //   And a post to X.com was just completed successfully
       setupPostingFlow(APPROVED_POST_X);
-      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/exampleco/status/us019-1' });
-      const successRes = await request(app.getHttpServer())
-        .post('/api/v1/posting/post-appr-x');
+      mockXPoster.post.mockResolvedValue({ url: "https://x.com/exampleco/status/us019-1" });
+      const successRes = await request(app.getHttpServer()).post("/api/v1/posting/post-appr-x");
       expect(successRes.status).toBe(200);
       expect(successRes.body.success).toBe(true);
 
       // When another post to X.com is attempted immediately
       // (interval key was just set by the successful post)
       setupPostingFlow(APPROVED_POST_X);
-      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/exampleco/status/us019-2' });
-      const res = await request(app.getHttpServer())
-        .post('/api/v1/posting/post-appr-x');
+      mockXPoster.post.mockResolvedValue({ url: "https://x.com/exampleco/status/us019-2" });
+      const res = await request(app.getHttpServer()).post("/api/v1/posting/post-appr-x");
 
       // Then RateLimitService.checkRateLimit("X") returns not allowed
       //   And the posting attempt returns a rate-limit result
@@ -1418,18 +1468,17 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       expect(mockXPoster.post).toHaveBeenCalledTimes(1);
     });
 
-    it('Scenario: Rate limiter enforces daily post count limit', async () => {
+    it("Scenario: Rate limiter enforces daily post count limit", async () => {
       // Given 50 posts have been made to X.com today
       //   And the X.com daily limit is 50 posts
       const today = new Date().toISOString().slice(0, 10);
       const dailyKey = `spa:ratelimit:X:acc-001:daily:${today}`;
-      sharedRedisStore.set(dailyKey, '50');
+      sharedRedisStore.set(dailyKey, "50");
 
       // When another post to X.com is attempted
       setupPostingFlow(APPROVED_POST_X);
-      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/exampleco/status/us019-daily' });
-      const res = await request(app.getHttpServer())
-        .post('/api/v1/posting/post-appr-x');
+      mockXPoster.post.mockResolvedValue({ url: "https://x.com/exampleco/status/us019-daily" });
+      const res = await request(app.getHttpServer()).post("/api/v1/posting/post-appr-x");
 
       // Then RateLimitService.checkRateLimit("X") returns not allowed
       //   And the post is not published
@@ -1452,16 +1501,15 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
   // BDD-HITL: HITL Gate Enforcement
   // ───────────────────────────────────────────────────────────────────────────
 
-  describe('BDD-HITL: HITL Gate Enforcement (REQ-CN-003)', () => {
-    it('Scenario: Draft post cannot be posted directly', async () => {
+  describe("BDD-HITL: HITL Gate Enforcement (REQ-CN-003)", () => {
+    it("Scenario: Draft post cannot be posted directly", async () => {
       // Given a post exists with id "post-draft" and status DRAFT
       postStore.set(DRAFT_POST_X.id, { ...DRAFT_POST_X });
       applyStatefulPostMocks();
       browserPort.acquireContext.mockResolvedValue({ close: vi.fn().mockResolvedValue(undefined) });
 
       // When the operator sends POST /api/v1/posting/post-draft
-      const res = await request(app.getHttpServer())
-        .post('/api/v1/posting/post-draft-x');
+      const res = await request(app.getHttpServer()).post("/api/v1/posting/post-draft-x");
 
       // Then the posting is rejected
       //   And no post is published to the social network
@@ -1471,14 +1519,14 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       expect(browserPort.acquireContext).not.toHaveBeenCalled();
     });
 
-    it('Scenario: Only APPROVED posts enter the BullMQ queue (batch/all-approved)', async () => {
+    it("Scenario: Only APPROVED posts enter the BullMQ queue (batch/all-approved)", async () => {
       // Given 5 posts exist with statuses DRAFT, APPROVED, REJECTED, POSTED, FAILED
       const posts = [
-        makePost({ id: 'post-draft-1', status: PostStatus.DRAFT }),
-        makePost({ id: 'post-appr-1', status: PostStatus.APPROVED, approvedAt: NOW }),
-        makePost({ id: 'post-rej-1', status: PostStatus.REJECTED }),
-        makePost({ id: 'post-posted-1', status: PostStatus.POSTED, postUrl: 'https://x.com/1' }),
-        makePost({ id: 'post-failed-1', status: PostStatus.FAILED }),
+        makePost({ id: "post-draft-1", status: PostStatus.DRAFT }),
+        makePost({ id: "post-appr-1", status: PostStatus.APPROVED, approvedAt: NOW }),
+        makePost({ id: "post-rej-1", status: PostStatus.REJECTED }),
+        makePost({ id: "post-posted-1", status: PostStatus.POSTED, postUrl: "https://x.com/1" }),
+        makePost({ id: "post-failed-1", status: PostStatus.FAILED }),
       ];
 
       // postAllApproved queries findMany with where status APPROVED
@@ -1498,11 +1546,10 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       });
       browserPort.saveStorageState.mockResolvedValue(JSON.stringify({ cookies: [], origins: [] }));
       browserPort.randomDelay.mockResolvedValue(undefined);
-      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/exampleco/status/hitl' });
+      mockXPoster.post.mockResolvedValue({ url: "https://x.com/exampleco/status/hitl" });
 
       // When the operator sends POST /api/v1/posting/batch/all-approved
-      const res = await request(app.getHttpServer())
-        .post('/api/v1/posting/batch/all-approved');
+      const res = await request(app.getHttpServer()).post("/api/v1/posting/batch/all-approved");
 
       // Then only the APPROVED post is processed
       //   And no DRAFT, REJECTED, POSTED, or FAILED post is published
@@ -1515,7 +1562,7 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       expect(findManyCall.where.status).toBe(PostStatus.APPROVED);
     });
 
-    it('Scenario: No autonomous posting path exists (cron generates DRAFTs only)', async () => {
+    it("Scenario: No autonomous posting path exists (cron generates DRAFTs only)", async () => {
       // Given the system is running with cron enabled
       // When cron triggers a generation run
       await cronService.handleCronGeneration();
@@ -1541,8 +1588,8 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
   // BDD-CRED: Credential Isolation
   // ───────────────────────────────────────────────────────────────────────────
 
-  describe('BDD-CRED: Credential Isolation (REQ-NF-004)', () => {
-    it('Scenario: Credentials read from environment variables', async () => {
+  describe("BDD-CRED: Credential Isolation (REQ-NF-004)", () => {
+    it("Scenario: Credentials read from environment variables", async () => {
       // Given the X_USERNAME and X_PASSWORD environment variables are set
       // (set at top of file)
 
@@ -1550,29 +1597,28 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       prisma.socialAccount.findFirst.mockResolvedValue(ACCOUNT_X);
       prisma.session.findFirst.mockResolvedValue(null); // no active session → autoLogin
       prisma.session.create.mockResolvedValue({
-        id: 'sess-cred-001',
-        accountId: 'acc-001',
-        storageState: { cookies: [{ name: 'auth', value: 'cred-token' }], origins: [] },
+        id: "sess-cred-001",
+        accountId: "acc-001",
+        storageState: { cookies: [{ name: "auth", value: "cred-token" }], origins: [] },
         status: SessionStatus.ACTIVE,
         lastHealthCheck: new Date(),
         createdAt: new Date(),
         updatedAt: new Date(),
       });
 
-      const loginPage = createMockPage({ url: 'https://x.com/home', isLoggedIn: true });
+      const loginPage = createMockPage({ url: "https://x.com/home", isLoggedIn: true });
       const loginContext = createMockContext(loginPage);
       browserPort.createContext.mockResolvedValue(loginContext);
       browserPort.saveStorageState.mockResolvedValue(
-        JSON.stringify({ cookies: [{ name: 'auth', value: 'cred-token' }], origins: [] }),
+        JSON.stringify({ cookies: [{ name: "auth", value: "cred-token" }], origins: [] }),
       );
       browserPort.randomDelay.mockResolvedValue(undefined);
 
       postStore.set(APPROVED_POST_X.id, { ...APPROVED_POST_X });
       applyStatefulPostMocks();
-      mockXPoster.post.mockResolvedValue({ url: 'https://x.com/exampleco/status/cred' });
+      mockXPoster.post.mockResolvedValue({ url: "https://x.com/exampleco/status/cred" });
 
-      const res = await request(app.getHttpServer())
-        .post('/api/v1/posting/post-appr-x');
+      const res = await request(app.getHttpServer()).post("/api/v1/posting/post-appr-x");
 
       // Then the credentials are read from ConfigService
       //   And no credential values are written to the database
@@ -1583,37 +1629,43 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       // X login uses typeHuman → pressSequentially per-char for React-controlled inputs
       const typeHumanCalls = browserPort.typeHuman.mock.calls;
       const typedValues = typeHumanCalls.map((c: unknown[]) => c[1]);
-      expect(typedValues).toContain('test_x_user');
-      expect(typedValues).toContain('test_x_pass');
+      expect(typedValues).toContain("test_x_user");
+      expect(typedValues).toContain("test_x_pass");
 
       // Verify no credential VALUES in prisma.create/update calls
-      const allCreateData = prisma.session.create.mock.calls.map((c: unknown[]) => JSON.stringify(c[0]?.data));
-      const allUpdateData = prisma.session.update.mock.calls.map((c: unknown[]) => JSON.stringify(c[0]?.data));
-      const allPostCreateData = prisma.post.create.mock.calls.map((c: unknown[]) => JSON.stringify(c[0]?.data));
+      const allCreateData = prisma.session.create.mock.calls.map((c: unknown[]) =>
+        JSON.stringify(c[0]?.data),
+      );
+      const allUpdateData = prisma.session.update.mock.calls.map((c: unknown[]) =>
+        JSON.stringify(c[0]?.data),
+      );
+      const allPostCreateData = prisma.post.create.mock.calls.map((c: unknown[]) =>
+        JSON.stringify(c[0]?.data),
+      );
       const allDbWrites = [...allCreateData, ...allUpdateData, ...allPostCreateData];
 
       for (const dbWrite of allDbWrites) {
-        expect(dbWrite).not.toContain('test_x_pass');
-        expect(dbWrite).not.toContain('test_x_user');
-        expect(dbWrite).not.toContain('test_threads_pass');
-        expect(dbWrite).not.toContain('test_fb_pass');
+        expect(dbWrite).not.toContain("test_x_pass");
+        expect(dbWrite).not.toContain("test_x_user");
+        expect(dbWrite).not.toContain("test_threads_pass");
+        expect(dbWrite).not.toContain("test_fb_pass");
       }
 
       // And the SocialAccount.credentialsRef references the env var name, not the value
-      expect(ACCOUNT_X.credentialsRef).toBe('SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD');
-      expect(ACCOUNT_X.credentialsRef).not.toContain('test_x_pass');
+      expect(ACCOUNT_X.credentialsRef).toBe("SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD");
+      expect(ACCOUNT_X.credentialsRef).not.toContain("test_x_pass");
     });
 
-    it('Scenario: No credential columns in database', async () => {
+    it("Scenario: No credential columns in database", async () => {
       // Given the database schema is inspected
       // Then no table contains password, secret, or apiKey columns
       //   And the Session table contains only storageState (browser cookies), not credentials
       const storageState = ACTIVE_SESSION_X.storageState as unknown;
-      expect(storageState).toHaveProperty('cookies');
+      expect(storageState).toHaveProperty("cookies");
       expect(Array.isArray(storageState.cookies)).toBe(true);
       const storageJson = JSON.stringify(storageState);
-      expect(storageJson).not.toContain('password');
-      expect(storageJson).not.toContain('test_x_pass');
+      expect(storageJson).not.toContain("password");
+      expect(storageJson).not.toContain("test_x_pass");
 
       // Verify no OpenAI API key pattern in DB fields
       const allDbText = JSON.stringify([ACCOUNT_X, ACCOUNT_THREADS, ACCOUNT_FB, ACTIVE_SESSION_X]);
@@ -1625,27 +1677,27 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
   // BDD-REDACT: Log Redaction
   // ───────────────────────────────────────────────────────────────────────────
 
-  describe('BDD-REDACT: Log Redaction (REQ-NF-005)', () => {
-    it('Scenario: RedactInterceptor masks sensitive fields in logs', async () => {
+  describe("BDD-REDACT: Log Redaction (REQ-NF-005)", () => {
+    it("Scenario: RedactInterceptor masks sensitive fields in logs", async () => {
       // Given the RedactInterceptor is registered as a global interceptor
       //   And the sensitive fields are: password, token, authorization,
       //       storageState, credentialsRef, cookie, secret, apiKey
-      const logSpy = vi.spyOn(Logger.prototype, 'log');
-      const errorSpy = vi.spyOn(Logger.prototype, 'error');
+      const logSpy = vi.spyOn(Logger.prototype, "log");
+      const errorSpy = vi.spyOn(Logger.prototype, "error");
 
       // When auto-login is triggered with credentials in the request context
       prisma.socialAccount.findFirst.mockResolvedValue(ACCOUNT_X);
       prisma.session.findFirst.mockResolvedValue({ ...ACTIVE_SESSION_X });
       prisma.session.update.mockResolvedValue({});
 
-      const validPage = createMockPage({ url: 'https://x.com/home', isLoggedIn: true });
+      const validPage = createMockPage({ url: "https://x.com/home", isLoggedIn: true });
       const validContext = createMockContext(validPage);
       browserPort.acquireContext.mockResolvedValue(validContext);
       browserPort.randomDelay.mockResolvedValue(undefined);
 
       const res = await request(app.getHttpServer())
-        .post('/api/v1/sessions/health-check')
-        .query({ network: 'X' });
+        .post("/api/v1/sessions/health-check")
+        .query({ network: "X" });
 
       expect(res.status).toBe(200);
 
@@ -1658,11 +1710,11 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       ];
 
       const sensitiveValues = [
-        'test_x_pass',
-        'test_threads_pass',
-        'test_fb_pass',
-        'test-key-not-real',
-        'token-xyz', // from session storageState
+        "test_x_pass",
+        "test_threads_pass",
+        "test_fb_pass",
+        "test-key-not-real",
+        "token-xyz", // from session storageState
       ];
 
       for (const logLine of allLogCalls) {
@@ -1673,26 +1725,25 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
 
       // Verify RedactInterceptor redacts storageState in HTTP response
       prisma.session.findMany.mockResolvedValue([{ ...ACTIVE_SESSION_X }]);
-      const sessionsRes = await request(app.getHttpServer()).get('/api/v1/sessions');
+      const sessionsRes = await request(app.getHttpServer()).get("/api/v1/sessions");
       expect(sessionsRes.status).toBe(200);
-      expect(sessionsRes.body[0].storageState).toBe('[REDACTED]');
+      expect(sessionsRes.body[0].storageState).toBe("[REDACTED]");
       if (sessionsRes.body[0].account) {
-        expect(sessionsRes.body[0].account.credentialsRef).toBe('[REDACTED]');
+        expect(sessionsRes.body[0].account.credentialsRef).toBe("[REDACTED]");
       }
     });
 
-    it('Scenario: Log redaction covers all log levels', async () => {
+    it("Scenario: Log redaction covers all log levels", async () => {
       // Given a posting operation is in progress
       //   When an error occurs and is logged at error level
-      const logSpy = vi.spyOn(Logger.prototype, 'log');
-      const errorSpy = vi.spyOn(Logger.prototype, 'error');
-      const warnSpy = vi.spyOn(Logger.prototype, 'warn');
+      const logSpy = vi.spyOn(Logger.prototype, "log");
+      const errorSpy = vi.spyOn(Logger.prototype, "error");
+      const warnSpy = vi.spyOn(Logger.prototype, "warn");
 
       setupPostingFlow(APPROVED_POST_X);
-      mockXPoster.post.mockResolvedValue({ error: 'Browser automation failed: timeout' });
+      mockXPoster.post.mockResolvedValue({ error: "Browser automation failed: timeout" });
 
-      const res = await request(app.getHttpServer())
-        .post('/api/v1/posting/post-appr-x');
+      const res = await request(app.getHttpServer()).post("/api/v1/posting/post-appr-x");
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
@@ -1706,11 +1757,11 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       ];
 
       const sensitiveValues = [
-        'test_x_pass',
-        'test_threads_pass',
-        'test_fb_pass',
-        'token-xyz',
-        'test-key-not-real',
+        "test_x_pass",
+        "test_threads_pass",
+        "test_fb_pass",
+        "token-xyz",
+        "test-key-not-real",
       ];
 
       for (const logLine of allLogCalls) {
@@ -1725,13 +1776,13 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
   // BDD-ZOD: Zod Validation at API Boundary
   // ───────────────────────────────────────────────────────────────────────────
 
-  describe('BDD-ZOD: Zod Validation at API Boundary (REQ-NF-007)', () => {
-    it('Scenario: Invalid generation request is rejected with 400', async () => {
+  describe("BDD-ZOD: Zod Validation at API Boundary (REQ-NF-007)", () => {
+    it("Scenario: Invalid generation request is rejected with 400", async () => {
       // Given the backend is running
       // When the operator sends POST /api/v1/generation/run with count: -1
       const res = await request(app.getHttpServer())
-        .post('/api/v1/generation/run')
-        .send({ count: -1, networks: [], sourceType: 'invalid' });
+        .post("/api/v1/generation/run")
+        .send({ count: -1, networks: [], sourceType: "invalid" });
 
       // Then the response status code is 400
       // NOTE: The controller calls ZodSchema.parse() directly without a global
@@ -1745,13 +1796,13 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       expect(res.body).toBeDefined();
     });
 
-    it('Scenario: Invalid post creation is rejected with 400', async () => {
+    it("Scenario: Invalid post creation is rejected with 400", async () => {
       // Given the backend is running
       // When the operator sends POST /api/v1/posts with network: "LINKEDIN"
       const res = await request(app.getHttpServer())
-        .post('/api/v1/posts')
-        .send({ network: 'LINKEDIN', content: '' })
-        .set('Content-Type', 'application/json');
+        .post("/api/v1/posts")
+        .send({ network: "LINKEDIN", content: "" })
+        .set("Content-Type", "application/json");
 
       // Then the response status code is 400
       // NOTE: Same known gap — ZodError → 500 (no global filter). Test accepts >= 400.
@@ -1765,45 +1816,45 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
   // BDD-HEALTH: Health Endpoint
   // ───────────────────────────────────────────────────────────────────────────
 
-  describe('BDD-HEALTH: Health Endpoint (REQ-036)', () => {
-    it('Scenario: Health check returns ok when all services connected', async () => {
+  describe("BDD-HEALTH: Health Endpoint (REQ-036)", () => {
+    it("Scenario: Health check returns ok when all services connected", async () => {
       // Given PostgreSQL and Redis are both running
       // (default mocks: $queryRaw resolves, ioredis PONG)
       // When the operator sends GET /api/v1/health
-      const res = await request(app.getHttpServer()).get('/api/v1/health/ready');
+      const res = await request(app.getHttpServer()).get("/api/v1/health/ready");
 
       // Then the response status code is 200
       expect(res.status).toBe(200);
       // And the response body status is "ok"
-      expect(res.body.status).toBe('ok');
+      expect(res.body.status).toBe("ok");
       // And the database field is "connected"
-      expect(res.body.database).toBe('connected');
+      expect(res.body.database).toBe("connected");
       // And the redis field is "connected"
-      expect(res.body.redis).toBe('connected');
+      expect(res.body.redis).toBe("connected");
       // And the timestamp is a valid ISO-8601 string
-      expect(typeof res.body.timestamp).toBe('string');
-      expect(new Date(res.body.timestamp).toString()).not.toBe('Invalid Date');
+      expect(typeof res.body.timestamp).toBe("string");
+      expect(new Date(res.body.timestamp).toString()).not.toBe("Invalid Date");
     });
 
-    it('Scenario: Health check returns degraded when Redis is down', async () => {
+    it("Scenario: Health check returns degraded when Redis is down", async () => {
       // Given PostgreSQL is running but Redis is stopped
       // (ioredis is globally mocked to return PONG; the HealthController caches
       // its Redis instance. We verify the structure supports degraded state by
       // making $queryRaw still work and checking the response shape. The Redis
       // mock always returns 'connected' since it's globally mocked.)
       // When the operator sends GET /api/v1/health
-      const res = await request(app.getHttpServer()).get('/api/v1/health/ready');
+      const res = await request(app.getHttpServer()).get("/api/v1/health/ready");
 
       // Then the response status code is 200
       expect(res.status).toBe(200);
       // And the response body has status, database, redis, timestamp fields
-      expect(res.body).toHaveProperty('status');
-      expect(res.body).toHaveProperty('database');
-      expect(res.body).toHaveProperty('redis');
-      expect(res.body).toHaveProperty('timestamp');
+      expect(res.body).toHaveProperty("status");
+      expect(res.body).toHaveProperty("database");
+      expect(res.body).toHaveProperty("redis");
+      expect(res.body).toHaveProperty("timestamp");
       // (With the global ioredis mock, Redis always reports 'connected'.
       //  The degraded path would require a real Redis instance to stop.)
-      expect(['ok', 'degraded']).toContain(res.body.status);
+      expect(["ok", "degraded"]).toContain(res.body.status);
     });
   });
 
@@ -1811,8 +1862,8 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
   // BDD-IDEMP: Idempotency / Double-Posting Prevention
   // ───────────────────────────────────────────────────────────────────────────
 
-  describe('BDD-IDEMP: Idempotency / Double-Posting Prevention (HAZ-005)', () => {
-    it('Scenario: Already-posted post is not re-posted', async () => {
+  describe("BDD-IDEMP: Idempotency / Double-Posting Prevention (HAZ-005)", () => {
+    it("Scenario: Already-posted post is not re-posted", async () => {
       // Given a post with id "post-789" has status POSTED and a postUrl
       postStore.set(POSTED_POST.id, { ...POSTED_POST });
       applyStatefulPostMocks();
@@ -1820,13 +1871,12 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       browserPort.acquireContext.mockResolvedValue({ close: vi.fn().mockResolvedValue(undefined) });
 
       // When the operator sends POST /api/v1/posting/post-789
-      const res = await request(app.getHttpServer())
-        .post('/api/v1/posting/post-posted');
+      const res = await request(app.getHttpServer()).post("/api/v1/posting/post-posted");
 
       // Then the response indicates the post is already posted
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.url).toBe('https://x.com/exampleco/status/999');
+      expect(res.body.url).toBe("https://x.com/exampleco/status/999");
       // And no duplicate post is published to the social network
       expect(browserPort.acquireContext).not.toHaveBeenCalled();
       expect(mockXPoster.post).not.toHaveBeenCalled();
@@ -1834,15 +1884,14 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       // (no status update to POSTING or POSTED — idempotent return)
     });
 
-    it('Scenario: Post in POSTING state is not re-posted', async () => {
+    it("Scenario: Post in POSTING state is not re-posted", async () => {
       // Given a post with id "post-999" has status POSTING
       postStore.set(POSTING_POST.id, { ...POSTING_POST });
       applyStatefulPostMocks();
       browserPort.acquireContext.mockResolvedValue({ close: vi.fn().mockResolvedValue(undefined) });
 
       // When a BullMQ retry attempts to post post-999
-      const res = await request(app.getHttpServer())
-        .post('/api/v1/posting/post-posting');
+      const res = await request(app.getHttpServer()).post("/api/v1/posting/post-posting");
 
       // Then the posting is skipped
       expect(res.status).toBe(200);
@@ -1858,12 +1907,12 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
   // BDD-TONE: Per-Network Tone Variations
   // ───────────────────────────────────────────────────────────────────────────
 
-  describe('BDD-TONE: Per-Network Tone Variations (REQ-004)', () => {
-    it('Scenario: Generated posts have network-appropriate tone and length', async () => {
+  describe("BDD-TONE: Per-Network Tone Variations (REQ-004)", () => {
+    it("Scenario: Generated posts have network-appropriate tone and length", async () => {
       // Given a generation run produces posts for X, THREADS, and FACEBOOK
       const res = await request(app.getHttpServer())
-        .post('/api/v1/generation/run')
-        .send({ count: 1, networks: ['X', 'THREADS', 'FACEBOOK'], sourceType: 'brief' });
+        .post("/api/v1/generation/run")
+        .send({ count: 1, networks: ["X", "THREADS", "FACEBOOK"], sourceType: "brief" });
 
       expect(res.status).toBe(202);
 
@@ -1881,7 +1930,7 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
         status: PostStatus.DRAFT,
       }));
       prisma.post.findMany.mockResolvedValue(draftPosts);
-      const draftsRes = await request(app.getHttpServer()).get('/api/v1/posts/drafts');
+      const draftsRes = await request(app.getHttpServer()).get("/api/v1/posts/drafts");
       expect(draftsRes.status).toBe(200);
 
       // Then X.com posts are punchy and at most 280 characters
@@ -1906,44 +1955,44 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
   // BDD-SHARED: Shared Zod Schemas Contract
   // ───────────────────────────────────────────────────────────────────────────
 
-  describe('BDD-SHARED: Shared Zod Schemas Contract (REQ-NF-008)', () => {
-    it('Scenario: Both backend and UI import schemas from @spa/shared', async () => {
+  describe("BDD-SHARED: Shared Zod Schemas Contract (REQ-NF-008)", () => {
+    it("Scenario: Both backend and UI import schemas from @spa/shared", async () => {
       // Given the @spa/shared package exports Zod schemas
       // When the backend validates a CreatePostDto
       // Then the schema is imported from @spa/shared
       expect(CreatePostDtoSchema).toBeDefined();
-      expect(typeof CreatePostDtoSchema.parse).toBe('function');
+      expect(typeof CreatePostDtoSchema.parse).toBe("function");
 
       // And when the UI validates a form input
       // Then the same schema is imported from @spa/shared
       // (verified by the same import — both packages import from '@spa/shared')
       expect(GeneratePostsDtoSchema).toBeDefined();
-      expect(typeof GeneratePostsDtoSchema.parse).toBe('function');
+      expect(typeof GeneratePostsDtoSchema.parse).toBe("function");
 
       expect(UpdatePostStatusDtoSchema).toBeDefined();
-      expect(typeof UpdatePostStatusDtoSchema.parse).toBe('function');
+      expect(typeof UpdatePostStatusDtoSchema.parse).toBe("function");
 
       expect(ContentTopicSchema).toBeDefined();
-      expect(typeof ContentTopicSchema.parse).toBe('function');
+      expect(typeof ContentTopicSchema.parse).toBe("function");
 
       // And no schema is duplicated between packages
       // (verified by the single import source — '@spa/shared')
 
       // Verify the schemas actually validate correctly (contract consistency)
       const validPost = {
-        accountId: '11111111-1111-1111-1111-111111111111',
-        network: 'X',
-        content: 'Test post #spa',
+        accountId: "11111111-1111-1111-1111-111111111111",
+        network: "X",
+        content: "Test post #spa",
       };
       expect(() => CreatePostDtoSchema.parse(validPost)).not.toThrow();
 
-      const invalidPost = { accountId: 'not-a-uuid', network: 'LINKEDIN', content: '' };
+      const invalidPost = { accountId: "not-a-uuid", network: "LINKEDIN", content: "" };
       expect(() => CreatePostDtoSchema.parse(invalidPost)).toThrow();
 
-      const validGen = { count: 3, networks: ['X', 'THREADS', 'FACEBOOK'], sourceType: 'brief' };
+      const validGen = { count: 3, networks: ["X", "THREADS", "FACEBOOK"], sourceType: "brief" };
       expect(() => GeneratePostsDtoSchema.parse(validGen)).not.toThrow();
 
-      const invalidGen = { count: -1, networks: [], sourceType: 'invalid' };
+      const invalidGen = { count: -1, networks: [], sourceType: "invalid" };
       expect(() => GeneratePostsDtoSchema.parse(invalidGen)).toThrow();
     });
   });
@@ -1952,8 +2001,8 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
   // BDD-SSE-CLEANUP: SSE Client Cleanup on Disconnect
   // ───────────────────────────────────────────────────────────────────────────
 
-  describe('BDD-SSE-CLEANUP: SSE Client Cleanup on Disconnect (REQ-035)', () => {
-    it('Scenario: Client disconnect triggers cleanup', async () => {
+  describe("BDD-SSE-CLEANUP: SSE Client Cleanup on Disconnect (REQ-035)", () => {
+    it("Scenario: Client disconnect triggers cleanup", async () => {
       // Wait for any leftover SSE clients from previous tests to clean up
       await new Promise((resolve) => setTimeout(resolve, 500));
       const initialCount = sseService.getConnectedCount();
@@ -1987,10 +2036,10 @@ describe('BDD Acceptance Scenarios — Social Poster Agent (§4)', () => {
       // Verify no errors when broadcasting after disconnect
       await expect(
         sseService.publish({
-          type: 'post_status',
-          postId: 'test-cleanup',
-          status: 'POSTED',
-          network: 'X',
+          type: "post_status",
+          postId: "test-cleanup",
+          status: "POSTED",
+          network: "X",
         }),
       ).resolves.toBeUndefined();
     });

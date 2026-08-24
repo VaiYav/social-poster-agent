@@ -1,26 +1,26 @@
 /**
- * Sprint Q+: Question classifier for incoming comments.
+ * ENGAGE-101: Question classifier for incoming comments.
  *
  * Determines whether a comment is a genuine question and what kind.
  * Used by DialogueGraph to decide whether to answer or skip.
  */
-import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { ILlmPort } from '../../domain/ports/llm.port.js';
-import { IPromptPort } from '../../domain/ports/prompt.port.js';
-import { interpolate } from '../../domain/prompt-interpolation.js';
-import { QUESTION_CLASSIFIER_PROMPT } from './prompts/question-classifier.prompt.js';
-import { sanitizeUntrustedInput } from '../../infrastructure/llm/sanitize-untrusted-input.js';
-import { extractFirstJsonObject } from '../../infrastructure/util/extract-json.js';
+import { Injectable, Logger, Optional, Inject } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { ILlmPort } from "../../domain/ports/llm.port.js";
+import { IPromptPort } from "../../domain/ports/prompt.port.js";
+import { interpolate } from "../../domain/prompt-interpolation.js";
+import { QUESTION_CLASSIFIER_PROMPT } from "./prompts/question-classifier.prompt.js";
+import { sanitizeUntrustedInput } from "../../infrastructure/llm/sanitize-untrusted-input.js";
+import { extractFirstJsonObject } from "../../infrastructure/util/extract-json.js";
 
 export interface QuestionClassification {
   isQuestion: boolean;
   confidence: number;
-  questionType: 'factual' | 'opinion' | 'personal' | 'offtopic' | null;
+  questionType: "factual" | "opinion" | "personal" | "offtopic" | null;
   reason: string;
 }
 
-const VALID_TYPES = new Set(['factual', 'opinion', 'personal', 'offtopic']);
+const VALID_TYPES = new Set(["factual", "opinion", "personal", "offtopic"]);
 
 @Injectable()
 export class QuestionClassifierService {
@@ -32,7 +32,7 @@ export class QuestionClassifierService {
     private readonly configService: ConfigService,
     @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
   ) {
-    const rawTemp = Number(this.configService.get<string>('REPLIES_QUESTION_TEMPERATURE', '0.3'));
+    const rawTemp = Number(this.configService.get<string>("REPLIES_QUESTION_TEMPERATURE", "0.3"));
     this.temperature = Number.isFinite(rawTemp) && rawTemp >= 0 && rawTemp <= 2 ? rawTemp : 0.3;
   }
 
@@ -42,7 +42,7 @@ export class QuestionClassifierService {
    */
   async classify(text: string, detectedLanguage: string): Promise<QuestionClassification> {
     const systemPrompt = await this.getCompiledText(
-      'question-classifier',
+      "question-classifier",
       { detectedLanguage },
       QUESTION_CLASSIFIER_PROMPT,
     );
@@ -56,21 +56,24 @@ Return JSON only.`;
     try {
       const response = await this.llm.generateChat(systemPrompt, userPrompt, {
         temperature: this.temperature,
-        role: 'utility',
+        role: "utility",
       });
 
       const parsed = extractFirstJsonObject<Record<string, unknown>>(response.content);
       if (!parsed) {
-        this.logger.warn('Question classifier: no valid JSON found in response');
-        return this.fallback(text, 'no JSON');
+        this.logger.warn("Question classifier: no valid JSON found in response");
+        return this.fallback(text, "no JSON");
       }
 
       const isQuestion = parsed.isQuestion === true;
-      const rawConfidence = typeof parsed.confidence === 'number' ? parsed.confidence : 0;
+      const rawConfidence = typeof parsed.confidence === "number" ? parsed.confidence : 0;
       const confidence = Math.min(1, Math.max(0, rawConfidence));
-      const rawType = typeof parsed.questionType === 'string' ? parsed.questionType : null;
-      const questionType = rawType && VALID_TYPES.has(rawType) ? (rawType as QuestionClassification['questionType']) : null;
-      const reason = typeof parsed.reason === 'string' ? parsed.reason : 'unknown';
+      const rawType = typeof parsed.questionType === "string" ? parsed.questionType : null;
+      const questionType =
+        rawType && VALID_TYPES.has(rawType)
+          ? (rawType as QuestionClassification["questionType"])
+          : null;
+      const reason = typeof parsed.reason === "string" ? parsed.reason : "unknown";
 
       return { isQuestion, confidence, questionType, reason };
     } catch (err) {
@@ -84,8 +87,9 @@ Return JSON only.`;
    * Uses a simple heuristic: presence of '?' and question-like words.
    */
   private fallback(text: string, reason: string): QuestionClassification {
-    const hasQuestionMark = text.includes('?');
-    const questionWords = /\b(what|why|how|when|where|who|which|can|could|would|will|do|does|did|is|are|was|were|am|have|has|had|should|may|might|mean|means)\b/gi;
+    const hasQuestionMark = text.includes("?");
+    const questionWords =
+      /\b(what|why|how|when|where|who|which|can|could|would|will|do|does|did|is|are|was|were|am|have|has|had|should|may|might|mean|means)\b/gi;
     const matches = text.match(questionWords);
     const isQuestion = hasQuestionMark || (matches ? matches.length >= 2 : false);
     return {
@@ -96,7 +100,11 @@ Return JSON only.`;
     };
   }
 
-  private async getCompiledText(name: string, variables: Record<string, string>, fallback: string): Promise<string> {
+  private async getCompiledText(
+    name: string,
+    variables: Record<string, string>,
+    fallback: string,
+  ): Promise<string> {
     if (this.promptPort) {
       return this.promptPort.getCompiledText(name, variables, fallback);
     }

@@ -1,18 +1,27 @@
-import { Controller, Get, Inject, NotFoundException, Optional, Res, UseGuards } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
-import type { Response } from 'express';
-import { AdminGuard } from '../auth/admin.guard';
-import { Public } from '../auth/public.decorator';
-import * as Sentry from '@sentry/nestjs';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import IORedis from 'ioredis';
-import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
-import { withTimeout } from '../../infrastructure/util/with-timeout.js';
-import { QueueFactory } from '../../infrastructure/queue/queue.factory.js';
+import {
+  Controller,
+  Get,
+  Inject,
+  NotFoundException,
+  Optional,
+  Res,
+  UseGuards,
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { ApiTags, ApiOperation, ApiResponse } from "@nestjs/swagger";
+import type { Response } from "express";
+import { AdminGuard } from "../auth/admin.guard.js";
+import { Public } from "../auth/public.decorator.js";
+import * as Sentry from "@sentry/nestjs";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import IORedis from "ioredis";
+import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
+import { withTimeout } from "../../infrastructure/util/with-timeout.js";
+import { QueueFactory } from "../../infrastructure/queue/queue.factory.js";
+import { IResiliencePort, type HealthSnapshot } from "../../domain/ports/resilience.port.js";
 
-@ApiTags('health')
-@Controller('health')
+@ApiTags("health")
+@Controller("health")
 export class HealthController {
   private readonly timeoutMs: number;
 
@@ -21,10 +30,12 @@ export class HealthController {
     @Inject(SHARED_REDIS) private readonly redis: IORedis,
     private readonly configService: ConfigService,
     @Optional() private readonly queueFactory?: QueueFactory,
+    @Optional() @Inject(IResiliencePort) private readonly resilience?: IResiliencePort,
   ) {
     // BUG-8: bound each dependency probe so a hung Redis/DB connection can never
     // hang the whole /health endpoint (which would trip the k8s liveness probe).
-    this.timeoutMs = Number(this.configService.get<string>('HEALTH_CHECK_TIMEOUT_MS', '2000')) || 2000;
+    this.timeoutMs =
+      Number(this.configService.get<string>("HEALTH_CHECK_TIMEOUT_MS", "2000")) || 2000;
   }
 
   /**
@@ -32,13 +43,24 @@ export class HealthController {
    * merely waiting for dependencies to come up.
    */
   @Get()
-  @Get('live')
   @Public()
-  @ApiOperation({ summary: 'Liveness probe — always 200' })
-  @ApiResponse({ status: 200, description: 'Liveness status' })
+  @ApiOperation({ summary: "Liveness probe — always 200" })
+  @ApiResponse({ status: 200, description: "Liveness status" })
   live(@Res() res: Response): void {
+    this.writeLiveness(res);
+  }
+
+  @Get("live")
+  @Public()
+  @ApiOperation({ summary: "Liveness probe — always 200" })
+  @ApiResponse({ status: 200, description: "Liveness status" })
+  liveNamed(@Res() res: Response): void {
+    this.writeLiveness(res);
+  }
+
+  private writeLiveness(res: Response): void {
     res.status(200).json({
-      status: 'ok',
+      status: "ok",
       timestamp: new Date().toISOString(),
     });
   }
@@ -47,48 +69,70 @@ export class HealthController {
    * Readiness probe — returns 503 when a dependency is unavailable so traffic
    * is routed away until the service recovers.
    */
-  @Get('ready')
+  @Get("ready")
   @Public()
-  @ApiOperation({ summary: 'Readiness probe — 503 when dependencies are down' })
-  @ApiResponse({ status: 200, description: 'All dependencies healthy' })
-  @ApiResponse({ status: 503, description: 'One or more dependencies unavailable' })
+  @ApiOperation({ summary: "Readiness probe — 503 when dependencies are down" })
+  @ApiResponse({ status: 200, description: "All dependencies healthy" })
+  @ApiResponse({ status: 503, description: "One or more dependencies unavailable" })
   async ready(@Res() res: Response): Promise<void> {
     // Check PostgreSQL (BUG-8: bounded so a hung connection can't hang /health)
-    let dbStatus = 'connected';
+    let dbStatus = "connected";
     try {
-      await withTimeout(this.prisma.$queryRaw`SELECT 1`, this.timeoutMs, 'db health');
+      await withTimeout(this.prisma.$queryRaw`SELECT 1`, this.timeoutMs, "db health");
     } catch {
-      dbStatus = 'disconnected';
+      dbStatus = "disconnected";
     }
 
     // Check Redis (Sprint L: uses shared connection; BUG-8: bounded ping)
-    let redisStatus = 'connected';
+    let redisStatus = "connected";
     try {
-      await withTimeout(this.redis.ping(), this.timeoutMs, 'redis health');
+      await withTimeout(this.redis.ping(), this.timeoutMs, "redis health");
     } catch {
-      redisStatus = 'disconnected';
+      redisStatus = "disconnected";
     }
 
     // Check BullMQ queue connectivity (BUG-8: bounded; optional for tests)
-    let queueStatus = 'connected';
+    let queueStatus = "connected";
     if (this.queueFactory) {
       try {
         await withTimeout(
-          this.queueFactory.getJobCounts('x', 'posting'),
+          this.queueFactory.getJobCounts("x", "posting"),
           this.timeoutMs,
-          'queue health',
+          "queue health",
         );
       } catch {
-        queueStatus = 'disconnected';
+        queueStatus = "disconnected";
       }
     }
 
     const allOk =
-      dbStatus === 'connected' &&
-      redisStatus === 'connected' &&
-      queueStatus === 'connected';
-    const status = allOk ? 'ok' : 'degraded';
+      dbStatus === "connected" && redisStatus === "connected" && queueStatus === "connected";
+    const status = allOk ? "ok" : "degraded";
     const statusCode = allOk ? 200 : 503;
+
+    await Promise.all([
+      this.resilience
+        ?.reportHealth(
+          "postgres",
+          dbStatus === "connected" ? "HEALTHY" : "DOWN",
+          dbStatus === "connected" ? undefined : "database readiness probe failed",
+        )
+        .catch(() => void 0),
+      this.resilience
+        ?.reportHealth(
+          "redis",
+          redisStatus === "connected" ? "HEALTHY" : "DOWN",
+          redisStatus === "connected" ? undefined : "redis readiness probe failed",
+        )
+        .catch(() => void 0),
+      this.resilience
+        ?.reportHealth(
+          "queues",
+          queueStatus === "connected" ? "HEALTHY" : "CRITICAL",
+          queueStatus === "connected" ? undefined : "queue readiness probe failed",
+        )
+        .catch(() => void 0),
+    ]);
 
     res.status(statusCode).json({
       status,
@@ -99,17 +143,26 @@ export class HealthController {
     });
   }
 
-  @Get('debug-sentry')
+  @Get("degradation")
   @UseGuards(AdminGuard)
-  @ApiOperation({ summary: 'Sentry test — throws an intentional error' })
-  @ApiResponse({ status: 500, description: 'Intentional error for Sentry verification' })
+  @ApiOperation({ summary: "Current subsystem degradation and recovery state" })
+  @ApiResponse({ status: 200, description: "Health snapshots for all known subsystems" })
+  async degradation(): Promise<{ subsystems: HealthSnapshot[]; timestamp: string }> {
+    const subsystems = (await this.resilience?.getAllHealth()) ?? [];
+    return { subsystems, timestamp: new Date().toISOString() };
+  }
+
+  @Get("debug-sentry")
+  @UseGuards(AdminGuard)
+  @ApiOperation({ summary: "Sentry test — throws an intentional error" })
+  @ApiResponse({ status: 500, description: "Intentional error for Sentry verification" })
   getError(): never {
-    if (this.configService.get<string>('NODE_ENV', 'development') === 'production') {
-      throw new NotFoundException('debug-sentry endpoint is not available in production');
+    if (this.configService.get<string>("NODE_ENV", "development") === "production") {
+      throw new NotFoundException("debug-sentry endpoint is not available in production");
     }
-    Sentry.logger.info('User triggered test error', {
-      action: 'test_error_endpoint',
+    Sentry.logger.info("User triggered test error", {
+      action: "test_error_endpoint",
     });
-    throw new Error('My first Sentry error!');
+    throw new Error("My first Sentry error!");
   }
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue';
-import { useAgentsStore } from '../../stores/agents';
-import AgentCard from './AgentCard.vue';
+import { ref } from "vue";
+import { useAgentsStore } from "../../stores/agents";
+import AgentCard from "./AgentCard.vue";
 
 const agentsStore = useAgentsStore();
 const loadingAction = ref<string | null>(null);

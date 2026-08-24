@@ -1,4 +1,4 @@
-import type { SocialNetwork } from '@prisma/client';
+import type { SocialNetwork } from "../../../generated/prisma/client.js";
 
 /**
  * AN1: a per-network source of post-performance metrics for the tool's OWN posts.

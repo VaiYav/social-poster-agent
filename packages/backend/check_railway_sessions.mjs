@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from './src/generated/prisma/client';
 
 const prisma = new PrismaClient({
   datasources: { db: { url: 'postgresql://postgres:kFZMQFFtNTMYjVZItkWIeZjttqlLUGze@postgres.railway.internal:5432/railway' } },

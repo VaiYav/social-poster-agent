@@ -1,5 +1,6 @@
-import { readFileSync } from 'fs';
-import { Injectable, Logger } from '@nestjs/common';
+import { readFileSync } from "fs";
+import { Injectable, Logger, Optional } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 
 /**
  * F22: Trending Topic Detection — event calendar.
@@ -17,20 +18,16 @@ interface CalendarEvent {
   date: string; // ISO date
   windowDays: number; // how many days before/after the event is "trending"
   topic: string; // suggested generation topic
-  networks: ('X' | 'THREADS' | 'FACEBOOK')[]; // recommended networks
+  networks: ("X" | "THREADS" | "FACEBOOK")[]; // recommended networks
 }
 
 // Default trending window — how many days before/after an event it is considered "trending".
 const DEFAULT_WINDOW_DAYS = 30;
 
-// Configured events list. Empty by default; load from TRENDING_EVENTS_PATH if set.
-const EVENTS: CalendarEvent[] = loadEvents();
-
-function loadEvents(): CalendarEvent[] {
-  const path = process.env.TRENDING_EVENTS_PATH;
+function loadEvents(path: string): CalendarEvent[] {
   if (!path) return [];
   try {
-    const raw = readFileSync(path, 'utf8');
+    const raw = readFileSync(path, "utf8");
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
     return parsed as CalendarEvent[];
@@ -51,6 +48,13 @@ export interface TrendingTopic {
 @Injectable()
 export class TrendingService {
   private readonly logger = new Logger(TrendingService.name);
+  private readonly events: CalendarEvent[];
+
+  constructor(@Optional() configService?: ConfigService) {
+    // Resolve the path after Nest config/bootstrap so runtime configuration is
+    // validated and unit tests can provide it without mutating process.env.
+    this.events = loadEvents(configService?.get<string>("TRENDING_EVENTS_PATH", "") ?? "");
+  }
 
   /**
    * Get all known events with trending status.
@@ -59,24 +63,22 @@ export class TrendingService {
    */
   getTrendingTopics(): TrendingTopic[] {
     const now = new Date();
-    return EVENTS
-      .map((event) => {
-        const eventDate = new Date(event.date);
-        const diffMs = eventDate.getTime() - now.getTime();
-        const daysUntil = Math.round(diffMs / (1000 * 60 * 60 * 24));
-        const windowDays = event.windowDays ?? DEFAULT_WINDOW_DAYS;
-        const trending = Math.abs(daysUntil) <= windowDays;
+    return this.events.map((event) => {
+      const eventDate = new Date(event.date);
+      const diffMs = eventDate.getTime() - now.getTime();
+      const daysUntil = Math.round(diffMs / (1000 * 60 * 60 * 24));
+      const windowDays = event.windowDays ?? DEFAULT_WINDOW_DAYS;
+      const trending = Math.abs(daysUntil) <= windowDays;
 
-        return {
-          event: event.name,
-          topic: event.topic,
-          daysUntil,
-          trending,
-          networks: event.networks,
-          windowDays,
-        };
-      })
-      .filter((t) => t.daysUntil >= -t.windowDays); // drop fully-past events
+      return {
+        event: event.name,
+        topic: event.topic,
+        daysUntil,
+        trending,
+        networks: event.networks,
+        windowDays,
+      };
+    }).filter((t) => t.daysUntil >= -t.windowDays); // drop fully-past events
   }
 
   /**

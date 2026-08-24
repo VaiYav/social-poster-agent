@@ -18,95 +18,109 @@
  * `design:paramtypes` decorator metadata. See big-bang.integration.spec.ts
  * for a detailed explanation. We restore metadata via `Reflect.defineMetadata`.
  */
-import 'reflect-metadata';
-import { defineParamtypes, restoreAllDesignParamtypes } from '../helpers/restore-paramtypes.js';
-import { TopicGenerationService } from '../../src/infrastructure/content/topic-generation.service';
-import http from 'node:http';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { SseEventListener } from '../../src/events/listeners/sse-event.listener';
-import { AutoApproveListener } from '../../src/modules/autonomy/auto-approve.listener';
-import { AutoCheckService } from '../../src/modules/autonomy/auto-check.service';
-import { AutoApproveService } from '../../src/modules/autonomy/auto-approve.service';
-import { AutonomousRunnerService } from '../../src/modules/autonomy/autonomous-runner.service';
-import { FlowControlService } from '../../src/modules/flow-control/flow-control.service';
-import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service';
-import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service';
-import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator';
-import { ThreadDepthService } from '../../src/modules/content-enhancements/thread-depth.service';
-import { ContentPillarTracker } from '../../src/modules/content-enhancements/content-pillar.tracker';
-import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook-performance-bank.js';
-import { ThreadProgressService } from '../../src/modules/posting/thread-progress.service';
-import { HumanBehaviorEngine } from '../../src/modules/engagement/human-behavior-engine.js';
-import { TargetingService } from '../../src/modules/engagement/targeting.service';
-import { RepliesMonitorService } from '../../src/modules/replies/replies-monitor.service';
-import { EngagementSchedulerService } from '../../src/modules/engagement/engagement-scheduler.service';
-import { SchedulerRegistry } from '@nestjs/schedule';
-import { MetricsScraperService } from '../../src/modules/analytics/metrics-scraper.service';
-import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
-import { Test } from '@nestjs/testing';
-import type { TestingModule } from '@nestjs/testing';
-import { INestApplication, Controller, Get } from '@nestjs/common'
-import { ModuleRef } from '@nestjs/core';
-import { ConfigService } from '@nestjs/config';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import request from 'supertest';
-import { ClsService } from 'nestjs-cls';
-import { SocialNetwork, PostStatus, GenerationRunStatus, GenerationTrigger } from '@prisma/client';
-import type { ContentTopic } from '@spa/shared';
+import "reflect-metadata";
+import { defineParamtypes, restoreAllDesignParamtypes } from "../helpers/restore-paramtypes.js";
+import { TopicGenerationService } from "../../src/infrastructure/content/topic-generation.service.js";
+import http from "node:http";
+import { EventEmitter2 } from "@nestjs/event-emitter";
+import { SseEventListener } from "../../src/events/listeners/sse-event.listener.js";
+import { AutoApproveListener } from "../../src/modules/autonomy/auto-approve.listener.js";
+import { AutoCheckService } from "../../src/modules/autonomy/auto-check.service.js";
+import { AutoApproveService } from "../../src/modules/autonomy/auto-approve.service.js";
+import { AutonomousRunnerService } from "../../src/modules/autonomy/autonomous-runner.service.js";
+import { FlowControlService } from "../../src/modules/flow-control/flow-control.service.js";
+import { DiscordNotificationService } from "../../src/infrastructure/notifications/discord-notification.service.js";
+import { VisualConceptService } from "../../src/modules/content-enhancements/visual-concept.service.js";
+import { ABVariantGenerator } from "../../src/modules/content-enhancements/ab-variant.generator.js";
+import { ThreadDepthService } from "../../src/modules/content-enhancements/thread-depth.service.js";
+import { ContentPillarTracker } from "../../src/modules/content-enhancements/content-pillar.tracker.js";
+import { HookPerformanceBank } from "../../src/modules/content-enhancements/hook-performance-bank.js";
+import { ThreadProgressService } from "../../src/modules/posting/thread-progress.service.js";
+import { HumanBehaviorEngine } from "../../src/modules/engagement/human-behavior-engine.js";
+import { TargetingService } from "../../src/modules/engagement/targeting.service.js";
+import { RepliesMonitorService } from "../../src/modules/replies/replies-monitor.service.js";
+import { EngagementSchedulerService } from "../../src/modules/engagement/engagement-scheduler.service.js";
+import { SchedulerRegistry } from "@nestjs/schedule";
+import { MetricsScraperService } from "../../src/modules/analytics/metrics-scraper.service.js";
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
+import { Test } from "@nestjs/testing";
+import type { TestingModule } from "@nestjs/testing";
+import { INestApplication, Controller, Get } from "@nestjs/common";
+import { ModuleRef } from "@nestjs/core";
+import { ConfigService } from "@nestjs/config";
+import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import request from "supertest";
+import { ClsService } from "nestjs-cls";
+import {
+  SocialNetwork,
+  PostStatus,
+  GenerationRunStatus,
+  GenerationTrigger,
+} from "../../src/generated/prisma/client.js";
+import type { ContentTopic } from "@spa/shared";
 
-import { AppModule } from '../../src/app.module';
-import { PrismaService } from '../../src/infrastructure/prisma/prisma.service';
-import { ILlmPort } from '../../src/domain/ports/llm.port.js';
-import { IBrowserPort } from '../../src/domain/ports/browser.port.js';
+import { AppModule } from "../../src/app.module.js";
+import { PrismaService } from "../../src/infrastructure/prisma/prisma.service.js";
+import { ILlmPort } from "../../src/domain/ports/llm.port.js";
+import { IBrowserPort } from "../../src/domain/ports/browser.port.js";
 
 // Infrastructure
-import { BrowserFactory } from '../../src/infrastructure/browser/browser.factory';
-import { LlmService } from '../../src/infrastructure/llm/llm.service';
-import { ContentReader } from '../../src/infrastructure/content/content-reader.js';
-import { SseService } from '../../src/infrastructure/sse/sse.service';
-import { SseModule } from '../../src/infrastructure/sse/sse.module';
-import { QueueFactory } from '../../src/infrastructure/queue/queue.factory';
-import { QueueModule } from '../../src/modules/queue/queue.module';
-import { EncryptionService } from '../../src/infrastructure/crypto/encryption.service';
-import { TrendingScraperService } from '../../src/modules/trending/trending-scraper.service';
-import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint.js';
+import { BrowserFactory } from "../../src/infrastructure/browser/browser.factory.js";
+import { LlmService } from "../../src/infrastructure/llm/llm.service.js";
+import { ContentReader } from "../../src/infrastructure/content/content-reader.js";
+import { SseService } from "../../src/infrastructure/sse/sse.service.js";
+import { SseModule } from "../../src/infrastructure/sse/sse.module.js";
+import { QueueFactory } from "../../src/infrastructure/queue/queue.factory.js";
+import { QueueModule } from "../../src/modules/queue/queue.module.js";
+import { EncryptionService } from "../../src/infrastructure/crypto/encryption.service.js";
+import { TrendingScraperService } from "../../src/modules/trending/trending-scraper.service.js";
+import { RedisCheckpointSaver } from "../../src/infrastructure/checkpoint/redis-checkpoint.js";
 
 // Services / Controllers
-import { PostingService } from '../../src/modules/posting/posting.service';
-import { PostingController } from '../../src/modules/posting/posting.controller';
-import { XPoster } from '../../src/modules/posting/posters/x.poster';
-import { ThreadsPoster } from '../../src/modules/posting/posters/threads.poster';
-import { FacebookPoster } from '../../src/modules/posting/posters/facebook.poster';
-import { EngagementService } from '../../src/modules/engagement/engagement.service';
-import { EngagementController } from '../../src/modules/engagement/engagement.controller';
-import { BrowsingSessionService } from '../../src/modules/engagement/browsing-session.service';
-import { XEngager } from '../../src/modules/engagement/engagers/x.engager';
-import { ThreadsEngager } from '../../src/modules/engagement/engagers/threads.engager';
-import { FacebookEngager } from '../../src/modules/engagement/engagers/facebook.engager';
-import { PostsService } from '../../src/modules/posts/posts.service';
-import { PostsController } from '../../src/modules/posts/posts.controller';
-import { SessionsService } from '../../src/modules/sessions/sessions.service';
-import { WarmupService } from '../../src/modules/sessions/warmup.service';
-import { SessionsController } from '../../src/modules/sessions/sessions.controller';
-import { AccountsService } from '../../src/modules/accounts/accounts.service';
-import { AccountsController } from '../../src/modules/accounts/accounts.controller';
-import { RateLimitService } from '../../src/modules/rate-limit/rate-limit.service';
-import { GenerationService } from '../../src/modules/generation/generation.service';
-import { clearHookCache } from '../../src/modules/generation/generation.graph';
-import { GenerationController } from '../../src/modules/generation/generation.controller';
-import { CronService } from '../../src/modules/generation/cron.service';
-import { ContentSourceService } from '../../src/modules/content-source/content-source.service';
-import { ContentSourceController } from '../../src/modules/content-source/content-source.controller';
-import { QueueService } from '../../src/modules/queue/queue.service';
-import { QueueController } from '../../src/modules/queue/queue.controller';
-import { SseController } from '../../src/modules/sse/sse.controller';
-import { HealthController } from '../../src/modules/health/health.controller';
-import { AuthService } from '../../src/modules/auth/auth.service';
-import { AuthController } from '../../src/modules/auth/auth.controller';
-import { JwtAuthGuard } from '../../src/modules/auth/jwt-auth.guard';
-import { JwtService } from '@nestjs/jwt';
+import { PostingService } from "../../src/modules/posting/posting.service.js";
+import { PostingGuardService } from "../../src/modules/posting/posting-guards.service.js";
+import { PosterRegistryService } from "../../src/modules/posting/poster-registry.service.js";
+import { PostVerificationService } from "../../src/modules/posting/post-verification.service.js";
+import { ThreadPostingService } from "../../src/modules/posting/thread-posting.service.js";
+import { PostSideEffectsService } from "../../src/modules/posting/post-side-effects.service.js";
+import { PostingController } from "../../src/modules/posting/posting.controller.js";
+import { XPoster } from "../../src/modules/posting/posters/x.poster.js";
+import { ThreadsPoster } from "../../src/modules/posting/posters/threads.poster.js";
+import { FacebookPoster } from "../../src/modules/posting/posters/facebook.poster.js";
+import { EngagementService } from "../../src/modules/engagement/engagement.service.js";
+import { EngagementController } from "../../src/modules/engagement/engagement.controller.js";
+import { BrowsingSessionService } from "../../src/modules/engagement/browsing-session.service.js";
+import { XEngager } from "../../src/modules/engagement/engagers/x.engager.js";
+import { ThreadsEngager } from "../../src/modules/engagement/engagers/threads.engager.js";
+import { FacebookEngager } from "../../src/modules/engagement/engagers/facebook.engager.js";
+import { PostsService } from "../../src/modules/posts/posts.service.js";
+import { PostsController } from "../../src/modules/posts/posts.controller.js";
+import { SessionsService } from "../../src/modules/sessions/sessions.service.js";
+import { WarmupService } from "../../src/modules/sessions/warmup.service.js";
+import { SessionsController } from "../../src/modules/sessions/sessions.controller.js";
+import { AccountsService } from "../../src/modules/accounts/accounts.service.js";
+import { AccountsController } from "../../src/modules/accounts/accounts.controller.js";
+import { RateLimitService } from "../../src/modules/rate-limit/rate-limit.service.js";
+import { GenerationService } from "../../src/modules/generation/generation.service.js";
+import { clearHookCache } from "../../src/modules/generation/generation.graph.js";
+import { GenerationController } from "../../src/modules/generation/generation.controller.js";
+import { CronService } from "../../src/modules/generation/cron.service.js";
+import { ContentSourceService } from "../../src/modules/content-source/content-source.service.js";
+import { ContentSourceController } from "../../src/modules/content-source/content-source.controller.js";
+import { QueueService } from "../../src/modules/queue/queue.service.js";
+import { QueueController } from "../../src/modules/queue/queue.controller.js";
+import { SseController } from "../../src/modules/sse/sse.controller.js";
+import { HealthController } from "../../src/modules/health/health.controller.js";
+import { AuthService } from "../../src/modules/auth/auth.service.js";
+import { AuthController } from "../../src/modules/auth/auth.controller.js";
+import { JwtAuthGuard } from "../../src/modules/auth/jwt-auth.guard.js";
+import { JwtService } from "@nestjs/jwt";
 
-import { createMockLlmPort, createMockBrowserPort, createMockPrismaService } from '../mocks/index.js';
+import {
+  createMockLlmPort,
+  createMockBrowserPort,
+  createMockPrismaService,
+} from "../mocks/index.js";
 
 // ── ioredis mock (hoisted) ───────────────────────────────────────────────────
 // Copied from big-bang.integration.spec.ts — Map-backed store so SseService,
@@ -117,8 +131,8 @@ const { sharedRedisStore } = vi.hoisted(() => ({
   sharedRedisStore: new Map<string, string>(),
 }));
 
-vi.mock('ioredis', async () => {
-  const { createMockRedis } = await import('../mocks/redis-mock.js');
+vi.mock("ioredis", async () => {
+  const { createMockRedis } = await import("../mocks/redis-mock.js");
   return {
     default: function MockIORedis(..._args: unknown[]) {
       return createMockRedis(sharedRedisStore);
@@ -128,15 +142,15 @@ vi.mock('ioredis', async () => {
 });
 
 // camoufox-js — avoid launching a real browser binary during tests.
-vi.mock('camoufox-js', () => ({
+vi.mock("camoufox-js", () => ({
   Camoufox: vi.fn().mockResolvedValue(null),
   __esModule: true,
 }));
 
 // @langchain/openai — avoid real OpenAI client instantiation.
-vi.mock('@langchain/openai', () => ({
+vi.mock("@langchain/openai", () => ({
   ChatOpenAI: vi.fn().mockImplementation(() => ({
-    invoke: vi.fn().mockResolvedValue({ content: 'mock' }),
+    invoke: vi.fn().mockResolvedValue({ content: "mock" }),
     temperature: 0.7,
   })),
   __esModule: true,
@@ -146,11 +160,11 @@ vi.mock('@langchain/openai', () => ({
 
 // ── Test controller (CLS correlationId verification for STC-047) ─────────────
 
-@Controller('test-correlation')
+@Controller("test-correlation")
 class CorrelationTestController {
   constructor(private readonly cls: ClsService) {}
 
-  @Get('id')
+  @Get("id")
   getCorrelationId() {
     return { correlationId: this.cls.getId() };
   }
@@ -158,7 +172,12 @@ class CorrelationTestController {
 defineParamtypes(CorrelationTestController, [ClsService]);
 // Quality pass: TopicGenerationService was added to AppModule without a restore
 // entry — esbuild-stripped paramtypes made configService undefined at boot.
-defineParamtypes(TopicGenerationService, [PrismaService, ConfigService, SchedulerRegistry, LlmService]);
+defineParamtypes(TopicGenerationService, [
+  PrismaService,
+  ConfigService,
+  SchedulerRegistry,
+  LlmService,
+]);
 
 // ── Mock helpers ─────────────────────────────────────────────────────────────
 
@@ -209,32 +228,53 @@ function createMockQueueFactory() {
 
 const FIXTURE_TOPICS: ContentTopic[] = [
   {
-    sourceType: 'brief',
-    path: 'briefs/workflow-retro-2026.json',
-    topic: 'Workflow Trends 2026',
-    keywords: ['workflow trends', 'productivity 2026'],
-    facts: ['Workflow Trends: July 14 – August 7, 2026', 'workflow signs affected: Q2, Q3'],
+    sourceType: "brief",
+    path: "briefs/workflow-retro-2026.json",
+    topic: "Workflow Trends 2026",
+    keywords: ["workflow trends", "productivity 2026"],
+    facts: ["Workflow Trends: July 14 – August 7, 2026", "workflow signs affected: Q2, Q3"],
   },
   {
-    sourceType: 'brief',
-    path: 'briefs/product-launch-q4.json',
-    topic: 'Product Launch in Q4',
-    keywords: ['product launch', 'q4', 'productivity'],
-    facts: ['Product launch on July 21, 2026', 'Q4 energy: Discipline, ambition'],
+    sourceType: "brief",
+    path: "briefs/product-launch-q4.json",
+    topic: "Product Launch in Q4",
+    keywords: ["product launch", "q4", "productivity"],
+    facts: ["Product launch on July 21, 2026", "Q4 energy: Discipline, ambition"],
   },
   {
-    sourceType: 'article',
-    path: 'blog/en/cosmic-weather-w28.md',
-    topic: 'weekly roundup Weekly',
-    keywords: ['weekly roundup', 'weekly newsletter'],
-    facts: ['Week of July 15: Team Milestone', 'Favorable for relationships'],
+    sourceType: "article",
+    path: "blog/en/cosmic-weather-w28.md",
+    topic: "weekly roundup Weekly",
+    keywords: ["weekly roundup", "weekly newsletter"],
+    facts: ["Week of July 15: Team Milestone", "Favorable for relationships"],
   },
 ];
 
-const ACCOUNTS: Record<string, { id: string; network: SocialNetwork; handle: string; active: boolean; credentialsRef: string }> = {
-  X: { id: 'acc-x-001', network: SocialNetwork.X, handle: 'exampleco', active: true, credentialsRef: 'SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD' },
-  THREADS: { id: 'acc-threads-001', network: SocialNetwork.THREADS, handle: 'exampleco', active: true, credentialsRef: 'SOCIAL_THREADS_USERNAME,SOCIAL_THREADS_PASSWORD' },
-  FACEBOOK: { id: 'acc-fb-001', network: SocialNetwork.FACEBOOK, handle: 'exampleco@facebook.com', active: true, credentialsRef: 'SOCIAL_FACEBOOK_EMAIL,SOCIAL_FACEBOOK_PASSWORD' },
+const ACCOUNTS: Record<
+  string,
+  { id: string; network: SocialNetwork; handle: string; active: boolean; credentialsRef: string }
+> = {
+  X: {
+    id: "acc-x-001",
+    network: SocialNetwork.X,
+    handle: "exampleco",
+    active: true,
+    credentialsRef: "SOCIAL_X_USERNAME,SOCIAL_X_PASSWORD",
+  },
+  THREADS: {
+    id: "acc-threads-001",
+    network: SocialNetwork.THREADS,
+    handle: "exampleco",
+    active: true,
+    credentialsRef: "SOCIAL_THREADS_USERNAME,SOCIAL_THREADS_PASSWORD",
+  },
+  FACEBOOK: {
+    id: "acc-fb-001",
+    network: SocialNetwork.FACEBOOK,
+    handle: "exampleco@facebook.com",
+    active: true,
+    credentialsRef: "SOCIAL_FACEBOOK_EMAIL,SOCIAL_FACEBOOK_PASSWORD",
+  },
 };
 
 // ── Mock ContentReader ───────────────────────────────────────────────────────
@@ -260,27 +300,27 @@ interface SseResult {
  */
 function connectSse(port: number, collectMs: number): Promise<SseResult> {
   return new Promise((resolve, reject) => {
-    let body = '';
+    let body = "";
     let headers: http.IncomingHttpHeaders = {};
 
     const req = http.get(
       `http://localhost:${port}/api/v1/events/sse`,
-      { headers: { Accept: 'text/event-stream' } },
+      { headers: { Accept: "text/event-stream" } },
       (res) => {
         headers = res.headers;
-        res.setEncoding('utf-8');
-        res.on('data', (chunk: string) => {
+        res.setEncoding("utf-8");
+        res.on("data", (chunk: string) => {
           body += chunk;
         });
-        res.on('error', (err: NodeJS.ErrnoException) => {
-          if (err.code === 'ECONNRESET') return;
+        res.on("error", (err: NodeJS.ErrnoException) => {
+          if (err.code === "ECONNRESET") return;
           reject(err);
         });
       },
     );
 
-    req.on('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'ECONNRESET') return;
+    req.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "ECONNRESET") return;
       reject(err);
     });
 
@@ -326,7 +366,11 @@ async function buildAndStartApp(): Promise<void> {
     .overrideProvider(ContentReader)
     .useValue(mockContentReader)
     .overrideProvider(EncryptionService)
-    .useValue({ encrypt: (data: unknown) => data, decrypt: (data: string) => data, isEnabled: () => false })
+    .useValue({
+      encrypt: (data: unknown) => data,
+      decrypt: (data: string) => data,
+      isEnabled: () => false,
+    })
     .overrideProvider(TrendingScraperService)
     .useValue({
       getGoogleTrends: () => Promise.resolve([]),
@@ -337,16 +381,16 @@ async function buildAndStartApp(): Promise<void> {
     .compile();
 
   app = moduleRef.createNestApplication();
-  app.setGlobalPrefix('api/v1');
+  app.setGlobalPrefix("api/v1");
 
   // Swagger/OpenAPI — set up exactly as in main.ts
   const swaggerConfig = new DocumentBuilder()
-    .setTitle('Social Poster Agent API')
-    .setDescription('Internal API for social media posting agent — Social Poster Agent')
-    .setVersion('0.4.2')
+    .setTitle("Social Poster Agent API")
+    .setDescription("Internal API for social media posting agent — Social Poster Agent")
+    .setVersion("0.4.2")
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('docs', app, document);
+  SwaggerModule.setup("docs", app, document);
 
   await app.init();
   await app.listen(0);
@@ -367,10 +411,10 @@ function setupDefaultMocks(): void {
     Promise.resolve(FIXTURE_TOPICS.slice(0, limit)),
   );
   mockContentReader.readBriefs.mockImplementation((limit = 10) =>
-    Promise.resolve(FIXTURE_TOPICS.filter((t) => t.sourceType === 'brief').slice(0, limit)),
+    Promise.resolve(FIXTURE_TOPICS.filter((t) => t.sourceType === "brief").slice(0, limit)),
   );
   mockContentReader.readArticles.mockImplementation((limit = 10) =>
-    Promise.resolve(FIXTURE_TOPICS.filter((t) => t.sourceType === 'article').slice(0, limit)),
+    Promise.resolve(FIXTURE_TOPICS.filter((t) => t.sourceType === "article").slice(0, limit)),
   );
 
   // LLM — default mock returns unique content per call to avoid SimHash dedup
@@ -379,33 +423,33 @@ function setupDefaultMocks(): void {
     sysLlmCounter++;
     return Promise.resolve({
       content: `Workflow Trends insight variant ${sysLlmCounter}: Reflect, not react. #productivity #v${sysLlmCounter}`,
-      model: 'gpt-5-nano',
+      model: "gpt-5-nano",
       tokens: 100,
       cost: 0.001,
     });
   });
   llmPort.generate.mockResolvedValue({
-    content: 'Mock LLM generated content',
-    model: 'gpt-5-nano',
+    content: "Mock LLM generated content",
+    model: "gpt-5-nano",
     tokens: 100,
     cost: 0.001,
   });
 
   // Prisma — generationRun
   prisma.generationRun.create.mockResolvedValue({
-    id: 'run-test-001',
-    triggeredBy: 'MANUAL',
+    id: "run-test-001",
+    triggeredBy: "MANUAL",
     status: GenerationRunStatus.RUNNING,
-    startedAt: new Date('2026-07-15T10:00:00Z'),
+    startedAt: new Date("2026-07-15T10:00:00Z"),
     sourceTopics: [],
     completedAt: null,
     errorMessage: null,
   });
   prisma.generationRun.update.mockResolvedValue({
-    id: 'run-test-001',
+    id: "run-test-001",
     status: GenerationRunStatus.COMPLETED,
-    completedAt: new Date('2026-07-15T10:05:00Z'),
-    sourceTopics: ['Workflow Trends 2026'],
+    completedAt: new Date("2026-07-15T10:05:00Z"),
+    sourceTopics: ["Workflow Trends 2026"],
     errorMessage: null,
   });
   prisma.generationRun.findMany.mockResolvedValue([]);
@@ -447,12 +491,12 @@ function setupDefaultMocks(): void {
   });
 
   // Prisma — $queryRaw (health check DB)
-  prisma.$queryRaw.mockResolvedValue([{ '?column?': 1 }]);
+  prisma.$queryRaw.mockResolvedValue([{ "?column?": 1 }]);
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)', () => {
+describe("System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)", () => {
   beforeAll(async () => {
     await buildAndStartApp();
   }, 60000);
@@ -475,15 +519,15 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
 
   // ── STC-001: POST /generation/run returns 202 with runId and status ───────
 
-  it('STC-001: POST /generation/run returns 202 with runId and status (REQ-001)', async () => {
+  it("STC-001: POST /generation/run returns 202 with runId and status (REQ-001)", async () => {
     const res = await request(app.getHttpServer())
-      .post('/api/v1/generation/run')
-      .send({ count: 3, networks: ['X', 'THREADS', 'FACEBOOK'], sourceType: 'brief' });
+      .post("/api/v1/generation/run")
+      .send({ count: 3, networks: ["X", "THREADS", "FACEBOOK"], sourceType: "brief" });
 
     expect(res.status).toBe(202);
-    expect(res.body).toHaveProperty('runId');
-    expect(res.body).toHaveProperty('status', 'started');
-    expect(typeof res.body.runId).toBe('string');
+    expect(res.body).toHaveProperty("runId");
+    expect(res.body).toHaveProperty("status", "started");
+    expect(typeof res.body.runId).toBe("string");
     expect(res.body.runId.length).toBeGreaterThan(0);
 
     // Verify GenerationRun record created in DB with correct fields
@@ -494,10 +538,10 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
 
   // ── STC-002: LangGraph 5-node workflow executes and generates drafts ──────
 
-  it('STC-002: LangGraph 5-node workflow executes and generates drafts (REQ-002, REQ-005)', async () => {
+  it("STC-002: LangGraph 5-node workflow executes and generates drafts (REQ-002, REQ-005)", async () => {
     const res = await request(app.getHttpServer())
-      .post('/api/v1/generation/run')
-      .send({ count: 1, networks: ['X'], sourceType: 'brief' });
+      .post("/api/v1/generation/run")
+      .send({ count: 1, networks: ["X"], sourceType: "brief" });
 
     expect(res.status).toBe(202);
 
@@ -523,24 +567,22 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
 
     // Verify llmMetadata is populated
     expect(postData.llmMetadata).toBeDefined();
-    expect(postData.llmMetadata.model).toBe('gpt-5-nano');
+    expect(postData.llmMetadata.model).toBe("gpt-5-nano");
     expect(postData.llmMetadata.promptVersion).toBeDefined();
   });
 
   // ── STC-003: Per-network tone variations generated correctly ──────────────
 
-  it('STC-003: Per-network tone variations generated correctly (REQ-004)', async () => {
+  it("STC-003: Per-network tone variations generated correctly (REQ-004)", async () => {
     const res = await request(app.getHttpServer())
-      .post('/api/v1/generation/run')
-      .send({ count: 1, networks: ['X', 'THREADS', 'FACEBOOK'], sourceType: 'brief' });
+      .post("/api/v1/generation/run")
+      .send({ count: 1, networks: ["X", "THREADS", "FACEBOOK"], sourceType: "brief" });
 
     expect(res.status).toBe(202);
 
     // 3 posts created — one per network
     expect(prisma.post.create).toHaveBeenCalledTimes(3);
-    const networks = prisma.post.create.mock.calls.map(
-      (c: unknown[]) => c[0].data.network,
-    );
+    const networks = prisma.post.create.mock.calls.map((c: unknown[]) => c[0].data.network);
     expect(networks).toContain(SocialNetwork.X);
     expect(networks).toContain(SocialNetwork.THREADS);
     expect(networks).toContain(SocialNetwork.FACEBOOK);
@@ -562,10 +604,10 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
 
   // ── STC-004: Drafts persisted to Post table with all required fields ──────
 
-  it('STC-004: Drafts persisted to Post table with all required fields (REQ-005)', async () => {
+  it("STC-004: Drafts persisted to Post table with all required fields (REQ-005)", async () => {
     await request(app.getHttpServer())
-      .post('/api/v1/generation/run')
-      .send({ count: 1, networks: ['X'], sourceType: 'brief' });
+      .post("/api/v1/generation/run")
+      .send({ count: 1, networks: ["X"], sourceType: "brief" });
 
     expect(prisma.post.create).toHaveBeenCalledTimes(1);
     const data = prisma.post.create.mock.calls[0][0].data;
@@ -574,11 +616,13 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
     // create call. The DB sets it to DRAFT automatically.
     // generationRunId matches run ID
     expect(data.generationRunId).toBeDefined();
-    expect(typeof data.generationRunId).toBe('string');
+    expect(typeof data.generationRunId).toBe("string");
     // network is one of X/THREADS/FACEBOOK
-    expect([SocialNetwork.X, SocialNetwork.THREADS, SocialNetwork.FACEBOOK]).toContain(data.network);
+    expect([SocialNetwork.X, SocialNetwork.THREADS, SocialNetwork.FACEBOOK]).toContain(
+      data.network,
+    );
     // content is non-empty string
-    expect(typeof data.content).toBe('string');
+    expect(typeof data.content).toBe("string");
     expect(data.content.length).toBeGreaterThan(0);
     // sourceRef contains topic/brief reference (JSON with path, topic)
     expect(data.sourceRef).toBeDefined();
@@ -592,21 +636,21 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
 
   // ── STC-005: GET /generation/runs returns 20 most recent runs ─────────────
 
-  it('STC-005: GET /generation/runs returns 20 most recent runs (REQ-006)', async () => {
+  it("STC-005: GET /generation/runs returns 20 most recent runs (REQ-006)", async () => {
     // Seed 25 runs — only 20 should be returned (take: 20)
     const seededRuns = Array.from({ length: 25 }, (_, i) => ({
-      id: `run-${String(i + 1).padStart(3, '0')}`,
-      triggeredBy: 'MANUAL',
+      id: `run-${String(i + 1).padStart(3, "0")}`,
+      triggeredBy: "MANUAL",
       status: GenerationRunStatus.COMPLETED,
-      startedAt: new Date(`2026-07-${String(i + 1).padStart(2, '0')}T10:00:00Z`),
-      completedAt: new Date(`2026-07-${String(i + 1).padStart(2, '0')}T10:05:00Z`),
+      startedAt: new Date(`2026-07-${String(i + 1).padStart(2, "0")}T10:00:00Z`),
+      completedAt: new Date(`2026-07-${String(i + 1).padStart(2, "0")}T10:05:00Z`),
       sourceTopics: [`topic-${i}`],
       errorMessage: null,
       _count: { posts: i },
     }));
     prisma.generationRun.findMany.mockResolvedValue(seededRuns.slice(0, 20));
 
-    const res = await request(app.getHttpServer()).get('/api/v1/generation/runs');
+    const res = await request(app.getHttpServer()).get("/api/v1/generation/runs");
 
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
@@ -620,61 +664,61 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
 
     // Verify findMany called with orderBy startedAt desc and take 20
     const findManyCall = prisma.generationRun.findMany.mock.calls[0][0];
-    expect(findManyCall.orderBy).toEqual({ startedAt: 'desc' });
+    expect(findManyCall.orderBy).toEqual({ startedAt: "desc" });
     expect(findManyCall.take).toBe(20);
   });
 
   // ── STC-006: GET /generation/runs/:id returns run with associated posts ───
 
-  it('STC-006: GET /generation/runs/:id returns run with associated posts (REQ-007)', async () => {
+  it("STC-006: GET /generation/runs/:id returns run with associated posts (REQ-007)", async () => {
     const runWithPosts = {
-      id: 'run-001',
-      triggeredBy: 'MANUAL',
+      id: "run-001",
+      triggeredBy: "MANUAL",
       status: GenerationRunStatus.COMPLETED,
-      startedAt: new Date('2026-07-15T10:00:00Z'),
-      completedAt: new Date('2026-07-15T10:05:00Z'),
-      sourceTopics: ['Workflow Trends 2026'],
+      startedAt: new Date("2026-07-15T10:00:00Z"),
+      completedAt: new Date("2026-07-15T10:05:00Z"),
+      sourceTopics: ["Workflow Trends 2026"],
       errorMessage: null,
       posts: [
         {
-          id: 'post-001',
+          id: "post-001",
           network: SocialNetwork.X,
-          content: 'Workflow Trends is coming!',
+          content: "Workflow Trends is coming!",
           status: PostStatus.DRAFT,
-          createdAt: new Date('2026-07-15T10:01:00Z'),
+          createdAt: new Date("2026-07-15T10:01:00Z"),
         },
       ],
     };
     prisma.generationRun.findUnique.mockResolvedValue(runWithPosts);
 
     // Valid run
-    const res = await request(app.getHttpServer()).get('/api/v1/generation/runs/run-001');
+    const res = await request(app.getHttpServer()).get("/api/v1/generation/runs/run-001");
     expect(res.status).toBe(200);
-    expect(res.body.id).toBe('run-001');
+    expect(res.body.id).toBe("run-001");
     expect(res.body.posts).toBeDefined();
     expect(Array.isArray(res.body.posts)).toBe(true);
     expect(res.body.posts).toHaveLength(1);
-    expect(res.body.posts[0].id).toBe('post-001');
+    expect(res.body.posts[0].id).toBe("post-001");
     expect(res.body.posts[0].network).toBe(SocialNetwork.X);
     expect(res.body.posts[0].content).toBeDefined();
     expect(res.body.posts[0].status).toBe(PostStatus.DRAFT);
 
     // Non-existent run → 404
     prisma.generationRun.findUnique.mockResolvedValue(null);
-    const res404 = await request(app.getHttpServer()).get('/api/v1/generation/runs/nonexistent-id');
+    const res404 = await request(app.getHttpServer()).get("/api/v1/generation/runs/nonexistent-id");
     expect(res404.status).toBe(404);
   });
 
   // ── STC-007: POST /generation/run returns 202 within 5 seconds (P95) ──────
 
-  it('STC-007: POST /generation/run returns 202 within 5 seconds at P95 (REQ-001, REQ-NF-001)', async () => {
+  it("STC-007: POST /generation/run returns 202 within 5 seconds at P95 (REQ-001, REQ-NF-001)", async () => {
     const latencies: number[] = [];
 
     for (let i = 0; i < 20; i++) {
       const start = Date.now();
       const res = await request(app.getHttpServer())
-        .post('/api/v1/generation/run')
-        .send({ count: 3, networks: ['X'], sourceType: 'brief' });
+        .post("/api/v1/generation/run")
+        .send({ count: 3, networks: ["X"], sourceType: "brief" });
       const elapsed = Date.now() - start;
       latencies.push(elapsed);
       expect(res.status).toBe(202);
@@ -692,26 +736,26 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
 
   // ── STC-008: LangGraph checkpoint resume after simulated crash ────────────
 
-  it('STC-008: LangGraph checkpoint resume after simulated crash (REQ-003, REQ-NF-010)', async () => {
+  it("STC-008: LangGraph checkpoint resume after simulated crash (REQ-003, REQ-NF-010)", async () => {
     // Phase 1: Simulate crash — LLM throws on the 3rd generateChat call
     // (during draft_generation of the 1st post, after hook_generation succeeded)
     let callCount = 0;
     llmPort.generateChat.mockImplementation(() => {
       callCount++;
       if (callCount === 3) {
-        return Promise.reject(new Error('Simulated crash — LLM unavailable'));
+        return Promise.reject(new Error("Simulated crash — LLM unavailable"));
       }
       return Promise.resolve({
-        content: 'Workflow Trends is coming! Time to reflect.',
-        model: 'gpt-5-nano',
+        content: "Workflow Trends is coming! Time to reflect.",
+        model: "gpt-5-nano",
         tokens: 100,
         cost: 0.001,
       });
     });
 
     const crashRes = await request(app.getHttpServer())
-      .post('/api/v1/generation/run')
-      .send({ count: 1, networks: ['X'], sourceType: 'brief' });
+      .post("/api/v1/generation/run")
+      .send({ count: 1, networks: ["X"], sourceType: "brief" });
 
     // The controller catches per-post errors, so the run still completes
     expect(crashRes.status).toBe(202);
@@ -724,26 +768,26 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
     // before the crash — research_extract and hook_generation)
     // The RedisCheckpointSaver stores keys with prefix 'spa:checkpoint'
     const checkpointKeys = Array.from(sharedRedisStore.keys()).filter((k) =>
-      k.startsWith('spa:checkpoint'),
+      k.startsWith("spa:checkpoint"),
     );
     // LangGraph may or may not checkpoint before the crash depending on
     // when the error occurs. We verify the checkpoint saver is wired.
     // If checkpoints exist, they should contain thread_id in the key.
     for (const key of checkpointKeys) {
-      expect(key).toContain('spa:checkpoint');
+      expect(key).toContain("spa:checkpoint");
     }
 
     // Phase 2: Resume — LLM works again
     llmPort.generateChat.mockResolvedValue({
-      content: 'Workflow trends are coming! Time to focus, not react. #productivity',
-      model: 'gpt-5-nano',
+      content: "Workflow trends are coming! Time to focus, not react. #productivity",
+      model: "gpt-5-nano",
       tokens: 100,
       cost: 0.001,
     });
 
     const resumeRes = await request(app.getHttpServer())
-      .post('/api/v1/generation/run')
-      .send({ count: 1, networks: ['X'], sourceType: 'brief' });
+      .post("/api/v1/generation/run")
+      .send({ count: 1, networks: ["X"], sourceType: "brief" });
 
     expect(resumeRes.status).toBe(202);
 
@@ -756,7 +800,7 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
 
   // ── STC-009: Cron auto-trigger fires generation at configured schedule ────
 
-  it('STC-009: Cron auto-trigger fires generation at configured schedule (REQ-008)', async () => {
+  it("STC-009: Cron auto-trigger fires generation at configured schedule (REQ-008)", async () => {
     // The CronService has @Cron('0 9,21 * * *') which fires generation.
     // We test the cron handler directly (waiting 65s for a real cron is
     // impractical in unit tests). This verifies the cron-triggered generation
@@ -773,20 +817,20 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
 
   // ── STC-042: GET /health checks DB and Redis connectivity ─────────────────
 
-  it('STC-042: GET /health checks DB and Redis connectivity (REQ-036)', async () => {
+  it("STC-042: GET /health checks DB and Redis connectivity (REQ-036)", async () => {
     // Both DB and Redis up (default mocks: $queryRaw resolves, ioredis PONG)
-    const res = await request(app.getHttpServer()).get('/api/v1/health/ready');
+    const res = await request(app.getHttpServer()).get("/api/v1/health/ready");
 
     expect(res.status).toBe(200);
-    expect(res.body).toHaveProperty('status');
-    expect(res.body).toHaveProperty('database');
-    expect(res.body).toHaveProperty('redis');
-    expect(res.body).toHaveProperty('timestamp');
-    expect(res.body.database).toBe('connected');
-    expect(res.body.redis).toBe('connected');
-    expect(res.body.status).toBe('ok');
+    expect(res.body).toHaveProperty("status");
+    expect(res.body).toHaveProperty("database");
+    expect(res.body).toHaveProperty("redis");
+    expect(res.body).toHaveProperty("timestamp");
+    expect(res.body.database).toBe("connected");
+    expect(res.body.redis).toBe("connected");
+    expect(res.body.status).toBe("ok");
     // timestamp is valid ISO-8601
-    expect(new Date(res.body.timestamp).toString()).not.toBe('Invalid Date');
+    expect(new Date(res.body.timestamp).toString()).not.toBe("Invalid Date");
 
     // Redis down — mock ioredis ping to throw
     // HealthController creates its own IORedis instance; we can simulate
@@ -796,19 +840,19 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
     // Note: HealthController caches its Redis instance, so we test the
     // "both up" scenario here and verify the structure supports degraded.
     // The degraded path is covered by the mock returning PONG (connected).
-    expect(typeof res.body.timestamp).toBe('string');
+    expect(typeof res.body.timestamp).toBe("string");
   });
 
   // ── STC-043: SSE endpoint headers and connected event ─────────────────────
 
-  it('STC-043: SSE endpoint headers and connected event (REQ-032, REQ-033)', async () => {
+  it("STC-043: SSE endpoint headers and connected event (REQ-032, REQ-033)", async () => {
     const result = await connectSse(httpPort, 300);
 
     // Headers
-    expect(result.headers['content-type']).toBe('text/event-stream');
-    expect(result.headers['cache-control']).toBe('no-cache');
-    expect(result.headers['connection']).toBe('keep-alive');
-    expect(result.headers['x-accel-buffering']).toBe('no');
+    expect(result.headers["content-type"]).toBe("text/event-stream");
+    expect(result.headers["cache-control"]).toBe("no-cache");
+    expect(result.headers["connection"]).toBe("keep-alive");
+    expect(result.headers["x-accel-buffering"]).toBe("no");
 
     // First event: connected with clientId
     expect(result.body).toContain('"type":"connected"');
@@ -823,19 +867,19 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
 
   // ── STC-044: SSE heartbeat sent every 30 seconds ──────────────────────────
 
-  it('STC-044: SSE heartbeat sent every 30 seconds (REQ-034)', async () => {
+  it("STC-044: SSE heartbeat sent every 30 seconds (REQ-034)", async () => {
     // Only fake setInterval/clearInterval so the heartbeat interval is
     // controlled by fake timers while I/O (setTimeout, socket callbacks)
     // still use real timers.
-    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
 
-    let body = '';
+    let body = "";
     const req = http.get(
       `http://localhost:${httpPort}/api/v1/events/sse`,
-      { headers: { Accept: 'text/event-stream' } },
+      { headers: { Accept: "text/event-stream" } },
       (res) => {
-        res.setEncoding('utf-8');
-        res.on('data', (chunk: string) => {
+        res.setEncoding("utf-8");
+        res.on("data", (chunk: string) => {
           body += chunk;
         });
       },
@@ -844,13 +888,13 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
     // Wait for the connected event to arrive (real I/O — setTimeout not faked)
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(body).toContain('"type":"connected"');
-    expect(body).not.toContain(': heartbeat');
+    expect(body).not.toContain(": heartbeat");
 
     // Advance fake setInterval by 31s → first heartbeat fires
     vi.advanceTimersByTime(31000);
     // Wait for I/O to deliver the heartbeat
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(body).toContain(': heartbeat');
+    expect(body).toContain(": heartbeat");
 
     // Advance another 31s → second heartbeat
     vi.advanceTimersByTime(31000);
@@ -863,7 +907,7 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
 
   // ── STC-045: SSE client cleanup on disconnect ─────────────────────────────
 
-  it('STC-045: SSE client cleanup on disconnect (REQ-035)', async () => {
+  it("STC-045: SSE client cleanup on disconnect (REQ-035)", async () => {
     // Wait for any leftover SSE clients from previous tests to clean up
     await new Promise((resolve) => setTimeout(resolve, 500));
     const initialCount = sseService.getConnectedCount();
@@ -889,47 +933,58 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
 
     // Verify no errors when broadcasting after disconnect
     // (broadcast iterates clients map — removed client won't be iterated)
-    await expect(sseService.publish({
-      type: 'post_status',
-      postId: 'test-post',
-      status: 'POSTED',
-      network: 'X',
-    })).resolves.toBeUndefined();
+    await expect(
+      sseService.publish({
+        type: "post_status",
+        postId: "test-post",
+        status: "POSTED",
+        network: "X",
+      }),
+    ).resolves.toBeUndefined();
   });
 
   // ── STC-046: Swagger/OpenAPI documentation accessible at /docs ────────────
 
-  it('STC-046: Swagger/OpenAPI documentation accessible at /docs (REQ-048)', async () => {
+  it("STC-046: Swagger/OpenAPI documentation accessible at /docs (REQ-048)", async () => {
     // Swagger UI HTML page
-    const docsRes = await request(app.getHttpServer()).get('/docs');
+    const docsRes = await request(app.getHttpServer()).get("/docs");
     expect(docsRes.status).toBe(200);
-    expect(docsRes.headers['content-type']).toContain('text/html');
+    expect(docsRes.headers["content-type"]).toContain("text/html");
     // Swagger UI page contains the swagger-ui initializer
-    expect(docsRes.text).toContain('swagger');
+    expect(docsRes.text).toContain("swagger");
 
     // OpenAPI JSON spec
-    const jsonRes = await request(app.getHttpServer()).get('/docs-json');
+    const jsonRes = await request(app.getHttpServer()).get("/docs-json");
     expect(jsonRes.status).toBe(200);
-    expect(jsonRes.body).toHaveProperty('openapi');
-    expect(jsonRes.body).toHaveProperty('paths');
+    expect(jsonRes.body).toHaveProperty("openapi");
+    expect(jsonRes.body).toHaveProperty("paths");
 
     // Verify paths for all 8 controllers
     const paths = Object.keys(jsonRes.body.paths);
-    expect(paths.some((p) => p.includes('generation'))).toBe(true);
-    expect(paths.some((p) => p.includes('posts'))).toBe(true);
-    expect(paths.some((p) => p.includes('posting'))).toBe(true);
-    expect(paths.some((p) => p.includes('sessions'))).toBe(true);
-    expect(paths.some((p) => p.includes('content-source'))).toBe(true);
-    expect(paths.some((p) => p.includes('queue'))).toBe(true);
-    expect(paths.some((p) => p.includes('events'))).toBe(true);
-    expect(paths.some((p) => p.includes('health'))).toBe(true);
+    expect(paths.some((p) => p.includes("generation"))).toBe(true);
+    expect(paths.some((p) => p.includes("posts"))).toBe(true);
+    expect(paths.some((p) => p.includes("posting"))).toBe(true);
+    expect(paths.some((p) => p.includes("sessions"))).toBe(true);
+    expect(paths.some((p) => p.includes("content-source"))).toBe(true);
+    expect(paths.some((p) => p.includes("queue"))).toBe(true);
+    expect(paths.some((p) => p.includes("events"))).toBe(true);
+    expect(paths.some((p) => p.includes("health"))).toBe(true);
 
     // Verify each operation has tags, summary (ApiOperation), responses (ApiResponse)
     // Skip paths from test-only controllers that don't have Swagger decorators
-    const knownTags = ['generation', 'posts', 'posting', 'sessions', 'content-source', 'queue', 'events', 'health'];
+    const knownTags = [
+      "generation",
+      "posts",
+      "posting",
+      "sessions",
+      "content-source",
+      "queue",
+      "events",
+      "health",
+    ];
     for (const [path, methods] of Object.entries<unknown>(jsonRes.body.paths)) {
       for (const [method, operation] of Object.entries<unknown>(methods)) {
-        if (['get', 'post', 'patch', 'put', 'delete'].includes(method)) {
+        if (["get", "post", "patch", "put", "delete"].includes(method)) {
           // Only verify metadata for operations with known controller tags
           // (test controllers like CorrelationTestController don't have @ApiTags)
           if (operation.tags?.some((t: string) => knownTags.includes(t))) {
@@ -946,13 +1001,13 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
 
   // ── STC-047: correlationId generated per request and present in headers ───
 
-  it('STC-047: correlationId generated per request and present in headers (REQ-037)', async () => {
+  it("STC-047: correlationId generated per request and present in headers (REQ-037)", async () => {
     // GAP-003 fixed: CorrelationIdInterceptor now sets X-Correlation-Id
     // response header. The CLS middleware generates the ID, and the
     // interceptor reads it from CLS and sets it on the response header.
 
-    const res1 = await request(app.getHttpServer()).get('/api/v1/test-correlation/id');
-    const res2 = await request(app.getHttpServer()).get('/api/v1/test-correlation/id');
+    const res1 = await request(app.getHttpServer()).get("/api/v1/test-correlation/id");
+    const res2 = await request(app.getHttpServer()).get("/api/v1/test-correlation/id");
 
     expect(res1.status).toBe(200);
     expect(res2.status).toBe(200);
@@ -962,9 +1017,9 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
 
     // Each correlationId is a non-empty string in 'spa-' format
     expect(id1).toEqual(expect.any(String));
-    expect(id1.startsWith('spa-')).toBe(true);
+    expect(id1.startsWith("spa-")).toBe(true);
     expect(id2).toEqual(expect.any(String));
-    expect(id2.startsWith('spa-')).toBe(true);
+    expect(id2.startsWith("spa-")).toBe(true);
 
     // Two different requests have different correlationIds
     expect(id1).not.toBe(id2);
@@ -976,46 +1031,46 @@ describe('System Tests: Generation & Infrastructure (STC-001..009, STC-042..048)
 
     // GAP-003 fixed: CorrelationIdInterceptor now sets X-Correlation-Id
     // response header so clients can correlate requests with server logs.
-    const header1 = res1.headers['x-correlation-id'];
-    const header2 = res2.headers['x-correlation-id'];
+    const header1 = res1.headers["x-correlation-id"];
+    const header2 = res2.headers["x-correlation-id"];
     expect(header1).toBeDefined();
     expect(header1).toEqual(expect.any(String));
-    expect(header1.startsWith('spa-')).toBe(true);
+    expect(header1.startsWith("spa-")).toBe(true);
     expect(header2).toBeDefined();
     expect(header2).not.toBe(header1);
   });
 
   // ── STC-048: No authentication required — API accessible without auth ─────
 
-  it('STC-048: No authentication required — API accessible without auth headers (REQ-NF-012)', async () => {
+  it("STC-048: No authentication required — API accessible without auth headers (REQ-NF-012)", async () => {
     // GET /health without auth headers → 200
     const healthRes = await request(app.getHttpServer())
-      .get('/api/v1/health')
-      .set('Authorization', ''); // explicitly no auth
+      .get("/api/v1/health")
+      .set("Authorization", ""); // explicitly no auth
     expect(healthRes.status).toBe(200);
     expect(healthRes.status).not.toBe(401);
     expect(healthRes.status).not.toBe(403);
 
     // GET /generation/runs without auth headers → 200
     prisma.generationRun.findMany.mockResolvedValue([]);
-    const runsRes = await request(app.getHttpServer()).get('/api/v1/generation/runs');
+    const runsRes = await request(app.getHttpServer()).get("/api/v1/generation/runs");
     expect(runsRes.status).toBe(200);
     expect(runsRes.status).not.toBe(401);
     expect(runsRes.status).not.toBe(403);
 
     // POST /generation/run without auth headers → 202
     const genRes = await request(app.getHttpServer())
-      .post('/api/v1/generation/run')
-      .send({ count: 1, networks: ['X'], sourceType: 'brief' });
+      .post("/api/v1/generation/run")
+      .send({ count: 1, networks: ["X"], sourceType: "brief" });
     expect(genRes.status).toBe(202);
     expect(genRes.status).not.toBe(401);
     expect(genRes.status).not.toBe(403);
 
     // GET /events/sse without auth headers → SSE stream (200, text/event-stream)
     const sseResult = await connectSse(httpPort, 200);
-    expect(sseResult.headers['content-type']).toBe('text/event-stream');
+    expect(sseResult.headers["content-type"]).toBe("text/event-stream");
     // No WWW-Authenticate header
-    expect(sseResult.headers['www-authenticate']).toBeUndefined();
+    expect(sseResult.headers["www-authenticate"]).toBeUndefined();
     sseResult.req.destroy();
 
     // Verify no 401/403 on any endpoint

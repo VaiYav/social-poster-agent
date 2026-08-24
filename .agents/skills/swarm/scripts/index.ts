@@ -120,10 +120,7 @@ function buildDispatchUnits(
  * Single-row units pass through directly. Batch units are unpacked
  * into one result per row — missing rows become failures.
  */
-function unpackDispatchResults(
-  units: DispatchUnit[],
-  results: TaskResult[],
-): TaskResult[] {
+function unpackDispatchResults(units: DispatchUnit[], results: TaskResult[]): TaskResult[] {
   const rowResults: TaskResult[] = [];
 
   for (let idx = 0; idx < units.length; idx++) {
@@ -142,10 +139,7 @@ function unpackDispatchResults(
       continue;
     }
 
-    const { results: unpacked } = unpackBatchResults(
-      result.result ?? "",
-      unit.rowIds,
-    );
+    const { results: unpacked } = unpackBatchResults(result.result ?? "", unit.rowIds);
     for (const rowId of unit.rowIds) {
       const value = unpacked.get(rowId);
       if (value !== undefined) {
@@ -206,21 +200,14 @@ function mergeRowResults(
  * Verify every `{column}` reference in `instruction` resolves on at
  * least one matched row. Throws with a list of unresolved paths.
  */
-function validatePlaceholders(
-  instruction: string,
-  rows: Record<string, unknown>[],
-): void {
+function validatePlaceholders(instruction: string, rows: Record<string, unknown>[]): void {
   const placeholders = extractPlaceholders(instruction);
   if (placeholders.length === 0) {
     return;
   }
-  const unresolved = placeholders.filter(
-    (p) => !rows.some((r) => readColumn(r, p) !== undefined),
-  );
+  const unresolved = placeholders.filter((p) => !rows.some((r) => readColumn(r, p) !== undefined));
   if (unresolved.length > 0) {
-    throw new Error(
-      `instruction references unknown column(s): ${unresolved.join(", ")}`,
-    );
+    throw new Error(`instruction references unknown column(s): ${unresolved.join(", ")}`);
   }
 }
 
@@ -249,26 +236,13 @@ export async function create(source: CreateSource): Promise<SwarmHandle> {
  * @param options - Dispatch configuration (instruction, filter, schema, etc.).
  * @returns A summary with completion counts and deduplicated failure groups.
  */
-export async function run(
-  tableId: string,
-  options: RunOptions,
-): Promise<RunResult> {
+export async function run(tableId: string, options: RunOptions): Promise<RunResult> {
   const allRows = await loadTable(tableId);
-  const {
-    instruction,
-    context,
-    filter,
-    subagentType,
-    responseSchema,
-    batchSize,
-    concurrency,
-  } = options;
+  const { instruction, context, filter, subagentType, responseSchema, batchSize, concurrency } =
+    options;
   const mode = subagentType != null ? "agent" : "invoke";
 
-  const effectiveConcurrency = Math.max(
-    1,
-    Math.min(concurrency ?? MAX_SUBAGENTS, MAX_SUBAGENTS),
-  );
+  const effectiveConcurrency = Math.max(1, Math.min(concurrency ?? MAX_SUBAGENTS, MAX_SUBAGENTS));
 
   // -----------------------------------------------------------------------
   // 1. Partition rows into matched (dispatched) and skipped (filtered out)
@@ -329,10 +303,7 @@ export async function run(
   }
 
   const rowResults = unpackDispatchResults(units, dispatchResults);
-  const { completed, failed: mergeFailed } = mergeRowResults(
-    rowResults,
-    rowById,
-  );
+  const { completed, failed: mergeFailed } = mergeRowResults(rowResults, rowById);
   const failed = mergeFailed + interpolationErrors.length;
   const allRowResults = [...interpolationErrors, ...rowResults];
 

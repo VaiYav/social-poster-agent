@@ -1,6 +1,12 @@
-import { Injectable, Logger, Inject, type OnModuleInit, type OnModuleDestroy } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import IORedis from 'ioredis';
+import {
+  Injectable,
+  Logger,
+  Inject,
+  type OnModuleInit,
+  type OnModuleDestroy,
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import IORedis from "ioredis";
 import {
   BaseCheckpointSaver,
   type Checkpoint,
@@ -10,9 +16,9 @@ import {
   type ChannelVersions,
   type PendingWrite,
   type CheckpointPendingWrite,
-} from '@langchain/langgraph-checkpoint';
-import type { RunnableConfig } from '@langchain/core/runnables';
-import { SHARED_REDIS } from '../redis/redis.module.js';
+} from "@langchain/langgraph-checkpoint";
+import type { RunnableConfig } from "@langchain/core/runnables";
+import { SHARED_REDIS } from "../redis/redis.module.js";
 
 /**
  * Redis checkpoint saver for LangGraph — persists workflow state to Redis.
@@ -48,14 +54,16 @@ export class RedisCheckpointSaver
     @Inject(SHARED_REDIS) private readonly sharedRedis: IORedis,
   ) {
     super(); // BaseCheckpointSaver creates default JsonPlusSerializer
-    this.ttlSeconds = this.configService.get<number>('CHECKPOINT_TTL_SECONDS', 3600); // 1 hour
-    this.prefix = this.configService.get<string>('CHECKPOINT_PREFIX', 'spa:checkpoint');
+    this.ttlSeconds = this.configService.get<number>("CHECKPOINT_TTL_SECONDS", 3600); // 1 hour
+    this.prefix = this.configService.get<string>("CHECKPOINT_PREFIX", "spa:checkpoint");
 
-    const checkpointUrl = this.configService.get<string>('CHECKPOINT_REDIS_URL');
-    if (checkpointUrl && checkpointUrl !== this.configService.get<string>('REDIS_URL')) {
+    const checkpointUrl = this.configService.get<string>("CHECKPOINT_REDIS_URL");
+    if (checkpointUrl && checkpointUrl !== this.configService.get<string>("REDIS_URL")) {
       this.redis = this.createCheckpointRedis(checkpointUrl);
       this.ownsConnection = true;
-      this.logger.log(`Using dedicated checkpoint Redis: ${checkpointUrl.replace(/:\/\/.*@/, '://***@')}`);
+      this.logger.log(
+        `Using dedicated checkpoint Redis: ${checkpointUrl.replace(/:\/\/.*@/, "://***@")}`,
+      );
     } else {
       this.redis = this.sharedRedis;
       this.ownsConnection = false;
@@ -63,7 +71,9 @@ export class RedisCheckpointSaver
   }
 
   onModuleInit(): void {
-    this.logger.log(`Redis checkpoint saver initialized (TTL=${this.ttlSeconds}s, ${this.ownsConnection ? 'dedicated' : 'shared'} connection)`);
+    this.logger.log(
+      `Redis checkpoint saver initialized (TTL=${this.ttlSeconds}s, ${this.ownsConnection ? "dedicated" : "shared"} connection)`,
+    );
   }
 
   onModuleDestroy(): void {
@@ -79,10 +89,12 @@ export class RedisCheckpointSaver
       lazyConnect: true,
       maxRetriesPerRequest: null,
       retryStrategy: (times: number) => Math.min(times * 500, 5000),
-      connectionName: 'checkpoint',
+      connectionName: "checkpoint",
     });
-    client.on('error', (err) => this.logger.error(`Checkpoint Redis error: ${err.message}`));
-    client.on('reconnecting', (delayMs: number) => this.logger.warn(`Checkpoint Redis reconnecting in ${delayMs}ms`));
+    client.on("error", (err) => this.logger.error(`Checkpoint Redis error: ${err.message}`));
+    client.on("reconnecting", (delayMs: number) =>
+      this.logger.warn(`Checkpoint Redis reconnecting in ${delayMs}ms`),
+    );
     return client;
   }
 
@@ -102,12 +114,12 @@ export class RedisCheckpointSaver
    */
   private async scanKeys(pattern: string, count = 100): Promise<string[]> {
     const found: string[] = [];
-    let cursor = '0';
+    let cursor = "0";
     do {
-      const [next, batch] = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', count);
+      const [next, batch] = await this.redis.scan(cursor, "MATCH", pattern, "COUNT", count);
       cursor = next;
       found.push(...batch);
-    } while (cursor !== '0');
+    } while (cursor !== "0");
     return found;
   }
 
@@ -223,9 +235,9 @@ export class RedisCheckpointSaver
     const data = JSON.stringify(tuple);
 
     // Store specific checkpoint
-    await this.redis.set(key, data, 'EX', this.ttlSeconds);
+    await this.redis.set(key, data, "EX", this.ttlSeconds);
     // Update latest pointer
-    await this.redis.set(this.getThreadKey(threadId), data, 'EX', this.ttlSeconds);
+    await this.redis.set(this.getThreadKey(threadId), data, "EX", this.ttlSeconds);
 
     // Shallow-saver cleanup: keep only the latest checkpoint and its writes per thread.
     // This prevents the orchestrator from accumulating one checkpoint per cycle
@@ -236,11 +248,7 @@ export class RedisCheckpointSaver
     return tuple.config;
   }
 
-  async putWrites(
-    config: RunnableConfig,
-    writes: PendingWrite[],
-    taskId: string,
-  ): Promise<void> {
+  async putWrites(config: RunnableConfig, writes: PendingWrite[], taskId: string): Promise<void> {
     if (!this.redis) return;
 
     const threadId = config.configurable?.thread_id as string;
@@ -316,11 +324,11 @@ export class RedisCheckpointSaver
     const keys = await this.scanKeys(pattern);
     // Filter out the pointer keys and writes keys
     const checkpointKeys = keys.filter(
-      (k) => !k.includes(':writes:') && k !== `${this.prefix}:${threadIdPrefix}`,
+      (k) => !k.includes(":writes:") && k !== `${this.prefix}:${threadIdPrefix}`,
     );
     // Extract checkpoint IDs from keys: spa:checkpoint:{threadId}:{checkpointId}
     const checkpointIds = checkpointKeys.map((k) => {
-      const parts = k.split(':');
+      const parts = k.split(":");
       return parts[parts.length - 1] ?? k;
     });
     return checkpointIds.slice(0, limit);
@@ -334,6 +342,28 @@ export class RedisCheckpointSaver
    * Uses UNLINK (non-blocking) and ignores errors — cleanup is best-effort.
    * Do NOT call this for failed or paused runs; the checkpoint may be needed for resume.
    */
+  async deleteThread(threadId: string): Promise<void> {
+    if (!this.redis) return;
+    try {
+      const patterns = [
+        `${this.prefix}:${threadId}`,
+        `${this.prefix}:${threadId}:*`,
+        `${this.prefix}:writes:${threadId}:*`,
+      ];
+      const keys: string[] = [];
+      for (const pattern of patterns) {
+        keys.push(...(await this.scanKeys(pattern)));
+      }
+      if (keys.length === 0) return;
+      await this.redis.unlink(...keys);
+      this.logger.log(`Deleted ${keys.length} checkpoint key(s) for thread ${threadId}`);
+    } catch (err) {
+      this.logger.warn(
+        `Failed to delete checkpoints for thread ${threadId}: ${(err as Error).message}`,
+      );
+    }
+  }
+
   async deleteRunCheckpoints(runId: string): Promise<void> {
     if (!this.redis) return;
     try {

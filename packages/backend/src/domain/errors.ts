@@ -1,7 +1,7 @@
 // Typed errors for social media automation.
 // Each error type has a `retryable` flag — determines if BullMQ should retry.
 
-import type { SocialNetwork } from '@spa/shared';
+import type { SocialNetwork } from "@spa/shared";
 
 /** Base error class for all SPA automation errors. */
 export abstract class SpaError extends Error {
@@ -28,15 +28,11 @@ export abstract class SpaError extends Error {
  * NOT retryable — needs a code fix to update selectors.
  */
 export class SelectorNotFoundError extends SpaError {
-  readonly code = 'SELECTOR_NOT_FOUND';
+  readonly code = "SELECTOR_NOT_FOUND";
   readonly retryable = false;
   readonly selectorContext: string;
 
-  constructor(
-    network: SocialNetwork,
-    selectorContext: string,
-    opts?: { screenshotPath?: string },
-  ) {
+  constructor(network: SocialNetwork, selectorContext: string, opts?: { screenshotPath?: string }) {
     super(
       `Selector not found on ${network}: ${selectorContext} — UI may have changed`,
       network,
@@ -51,13 +47,13 @@ export class SelectorNotFoundError extends SpaError {
  * NOT retryable for wrong credentials / 2FA. Retryable for transient session issues.
  */
 export class LoginFailedError extends SpaError {
-  readonly code = 'LOGIN_FAILED';
+  readonly code = "LOGIN_FAILED";
   readonly retryable: boolean;
-  readonly reason: 'wrong_credentials' | 'captcha' | 'two_factor' | 'session_expired' | 'unknown';
+  readonly reason: "wrong_credentials" | "captcha" | "two_factor" | "session_expired" | "unknown";
 
   constructor(
     network: SocialNetwork,
-    reason: LoginFailedError['reason'],
+    reason: LoginFailedError["reason"],
     message?: string,
     opts?: { screenshotPath?: string; retryable?: boolean },
   ) {
@@ -66,7 +62,7 @@ export class LoginFailedError extends SpaError {
     this.reason = reason;
     // Captcha and 2FA are not retryable (need manual intervention).
     // Wrong credentials are not retryable. Session expired is retryable (will re-login).
-    this.retryable = opts?.retryable ?? reason === 'session_expired';
+    this.retryable = opts?.retryable ?? reason === "session_expired";
   }
 }
 
@@ -75,7 +71,7 @@ export class LoginFailedError extends SpaError {
  * Retryable — BullMQ will retry after backoff (rate window will have passed).
  */
 export class RateLimitError extends SpaError {
-  readonly code = 'RATE_LIMITED';
+  readonly code = "RATE_LIMITED";
   readonly retryable = true;
   readonly retryAfterMs?: number;
 
@@ -90,13 +86,13 @@ export class RateLimitError extends SpaError {
  * NOT retryable — requires manual intervention.
  */
 export class CaptchaError extends SpaError {
-  readonly code = 'CAPTCHA_CHALLENGE';
+  readonly code = "CAPTCHA_CHALLENGE";
   readonly retryable = false;
-  readonly challengeType: 'captcha' | 'two_factor' | 'checkpoint';
+  readonly challengeType: "captcha" | "two_factor" | "checkpoint";
 
   constructor(
     network: SocialNetwork,
-    challengeType: CaptchaError['challengeType'],
+    challengeType: CaptchaError["challengeType"],
     pageUrl: string,
     opts?: { screenshotPath?: string },
   ) {
@@ -114,7 +110,7 @@ export class CaptchaError extends SpaError {
  * Retryable — transient issue.
  */
 export class NetworkError extends SpaError {
-  readonly code = 'NETWORK_ERROR';
+  readonly code = "NETWORK_ERROR";
   readonly retryable = true;
 
   constructor(network: SocialNetwork, message: string, opts?: { cause?: unknown }) {
@@ -127,10 +123,14 @@ export class NetworkError extends SpaError {
  * Used for non-network deferrals (rate limit, warm-up, paused flow, session recovery).
  */
 export class RetryableError extends SpaError {
-  readonly code = 'RETRYABLE';
+  readonly code = "RETRYABLE";
   readonly retryable = true;
 
-  constructor(network: SocialNetwork, message: string, opts?: { screenshotPath?: string; cause?: unknown }) {
+  constructor(
+    network: SocialNetwork,
+    message: string,
+    opts?: { screenshotPath?: string; cause?: unknown },
+  ) {
     super(message, network, opts);
   }
 }
@@ -141,7 +141,7 @@ export class RetryableError extends SpaError {
  * or post was silently rejected). Need to investigate via screenshots.
  */
 export class ValidationError extends SpaError {
-  readonly code = 'POST_VALIDATION_FAILED';
+  readonly code = "POST_VALIDATION_FAILED";
   readonly retryable = false;
   readonly expectedPattern?: string;
   readonly actualUrl?: string;
@@ -166,7 +166,7 @@ export class ValidationError extends SpaError {
  * NOT retryable — UI may have changed or account may be restricted.
  */
 export class ComposeDialogError extends SpaError {
-  readonly code = 'COMPOSE_DIALOG_FAILED';
+  readonly code = "COMPOSE_DIALOG_FAILED";
   readonly retryable = false;
 
   constructor(network: SocialNetwork, message?: string, opts?: { screenshotPath?: string }) {
@@ -179,7 +179,7 @@ export class ComposeDialogError extends SpaError {
  * NOT retryable — need to resolve the account issue.
  */
 export class AccountRestrictedError extends SpaError {
-  readonly code = 'ACCOUNT_RESTRICTED';
+  readonly code = "ACCOUNT_RESTRICTED";
   readonly retryable = false;
 
   constructor(network: SocialNetwork, message?: string) {
@@ -201,8 +201,8 @@ export function classifyPlaywrightError(
 
   // Selector/locator timeout — UI changed
   if (
-    message.includes('Timeout') &&
-    (message.includes('locator') || message.includes('waiting for'))
+    message.includes("Timeout") &&
+    (message.includes("locator") || message.includes("waiting for"))
   ) {
     return new SelectorNotFoundError(network, context, opts);
   }
@@ -210,39 +210,39 @@ export function classifyPlaywrightError(
   // Captcha/challenge URLs
   if (opts?.pageUrl) {
     const url = opts.pageUrl;
-    if (url.includes('challenge') || url.includes('captcha')) {
-      return new CaptchaError(network, 'captcha', url, opts);
+    if (url.includes("challenge") || url.includes("captcha")) {
+      return new CaptchaError(network, "captcha", url, opts);
     }
-    if (url.includes('checkpoint') || url.includes('two_factor') || url.includes('2fa')) {
-      return new CaptchaError(network, 'two_factor', url, opts);
+    if (url.includes("checkpoint") || url.includes("two_factor") || url.includes("2fa")) {
+      return new CaptchaError(network, "two_factor", url, opts);
     }
   }
 
   // Network errors
   if (
-    message.includes('net::ERR') ||
-    message.includes('ECONNREFUSED') ||
-    message.includes('ETIMEDOUT') ||
-    message.includes('ERR_INTERNET_DISCONNECTED')
+    message.includes("net::ERR") ||
+    message.includes("ECONNREFUSED") ||
+    message.includes("ETIMEDOUT") ||
+    message.includes("ERR_INTERNET_DISCONNECTED")
   ) {
     return new NetworkError(network, message, { cause: err });
   }
 
   // Rate limit messages (common patterns)
   if (
-    message.toLowerCase().includes('rate limit') ||
-    message.toLowerCase().includes('too many requests') ||
-    message.toLowerCase().includes('try again later')
+    message.toLowerCase().includes("rate limit") ||
+    message.toLowerCase().includes("too many requests") ||
+    message.toLowerCase().includes("try again later")
   ) {
     return new RateLimitError(network, message);
   }
 
   // Account restricted/suspended
   if (
-    message.toLowerCase().includes('suspended') ||
-    message.toLowerCase().includes('restricted') ||
-    message.toLowerCase().includes('locked') ||
-    message.toLowerCase().includes('temporarily limited')
+    message.toLowerCase().includes("suspended") ||
+    message.toLowerCase().includes("restricted") ||
+    message.toLowerCase().includes("locked") ||
+    message.toLowerCase().includes("temporarily limited")
   ) {
     return new AccountRestrictedError(network, message);
   }

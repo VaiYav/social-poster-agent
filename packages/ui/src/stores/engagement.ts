@@ -5,10 +5,10 @@
  * - REST API (/engagement/scheduler/status, /engagement/stats, /engagement/browsing-sessions)
  * - SSE events (browsing_session_*, interaction_*)
  */
-import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
-import api from '../composables/useApi';
-import type { SSEvent } from '@spa/shared';
+import { defineStore } from "pinia";
+import { ref, computed } from "vue";
+import api from "../composables/useApi";
+import type { SSEvent } from "@spa/shared";
 
 export interface EngagementSchedulerStatus {
   enabled: boolean;
@@ -51,7 +51,7 @@ export interface Interaction {
   errorMessage?: string | null;
 }
 
-export const useEngagementStore = defineStore('engagement', () => {
+export const useEngagementStore = defineStore("engagement", () => {
   const scheduler = ref<EngagementSchedulerStatus | null>(null);
   const stats = ref<EngagementStats | null>(null);
   const browsingSessions = ref<BrowsingSession[]>([]);
@@ -64,7 +64,7 @@ export const useEngagementStore = defineStore('engagement', () => {
 
   async function fetchSchedulerStatus() {
     try {
-      const { data } = await api.get<EngagementSchedulerStatus>('/engagement/scheduler/status');
+      const { data } = await api.get<EngagementSchedulerStatus>("/engagement/scheduler/status");
       scheduler.value = data;
     } catch (err) {
       error.value = (err as Error).message;
@@ -73,7 +73,9 @@ export const useEngagementStore = defineStore('engagement', () => {
 
   async function fetchStats(network?: string) {
     try {
-      const url = network ? `/engagement/stats?network=${encodeURIComponent(network)}` : '/engagement/stats';
+      const url = network
+        ? `/engagement/stats?network=${encodeURIComponent(network)}`
+        : "/engagement/stats";
       const { data } = await api.get<EngagementStats>(url);
       stats.value = data;
     } catch (err) {
@@ -105,7 +107,7 @@ export const useEngagementStore = defineStore('engagement', () => {
 
   async function startBrowsingSession(network: string, durationSec = 900) {
     try {
-      const { data } = await api.post<BrowsingSession>('/engagement/browsing-session', {
+      const { data } = await api.post<BrowsingSession>("/engagement/browsing-session", {
         network,
         durationSec,
       });
@@ -136,15 +138,15 @@ export const useEngagementStore = defineStore('engagement', () => {
    */
   function handleSseEvent(data: SSEvent) {
     if (
-      data.type === 'browsing_session_started' ||
-      data.type === 'browsing_session_completed' ||
-      data.type === 'browsing_session_failed'
+      data.type === "browsing_session_started" ||
+      data.type === "browsing_session_completed" ||
+      data.type === "browsing_session_failed"
     ) {
       void fetchAll(data.network);
     } else if (
-      data.type === 'interaction_started' ||
-      data.type === 'interaction_completed' ||
-      data.type === 'interaction_failed'
+      data.type === "interaction_started" ||
+      data.type === "interaction_completed" ||
+      data.type === "interaction_failed"
     ) {
       void fetchStats(data.network);
       void fetchInteractions(data.network);

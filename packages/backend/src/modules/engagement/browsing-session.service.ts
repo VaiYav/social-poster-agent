@@ -10,14 +10,14 @@
 // This service handles orchestration: session creation, browser context,
 // feed scrolling, and result recording.
 
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service.js';
-import { SessionsService } from '../sessions/sessions.service.js';
-import { AccountsService } from '../accounts/accounts.service.js';
-import { IBrowserPort } from '../../domain/ports/browser.port.js';
-import { SseService } from '../../infrastructure/sse/sse.service.js';
-import { RateLimitService } from '../rate-limit/rate-limit.service.js';
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { SessionsService } from "../sessions/sessions.service.js";
+import { AccountsService } from "../accounts/accounts.service.js";
+import { IBrowserPort } from "../../domain/ports/browser.port.js";
+import { SseService } from "../../infrastructure/sse/sse.service.js";
+import { RateLimitService } from "../rate-limit/rate-limit.service.js";
 import {
   InteractionStatus,
   InteractionType,
@@ -25,24 +25,21 @@ import {
   BrowsingSessionStatus,
   Session,
   type Prisma,
-} from '@prisma/client';
-import type { BaseEngager } from './engagers/base.engager.js';
-import { XEngager } from './engagers/x.engager.js';
-import { ThreadsEngager } from './engagers/threads.engager.js';
-import { FacebookEngager } from './engagers/facebook.engager.js';
-import { HumanBehaviorEngine } from './human-behavior-engine.js';
-import { TargetingService } from './targeting.service.js';
-import { WarmupService } from '../sessions/warmup.service.js';
+} from "../../generated/prisma/client.js";
+import type { BaseEngager } from "./engagers/base.engager.js";
+import { XEngager } from "./engagers/x.engager.js";
+import { ThreadsEngager } from "./engagers/threads.engager.js";
+import { FacebookEngager } from "./engagers/facebook.engager.js";
+import { HumanBehaviorEngine } from "./human-behavior-engine.js";
+import { TargetingService } from "./targeting.service.js";
+import { WarmupService } from "../sessions/warmup.service.js";
 import {
   DISTRIBUTED_LOCK_SERVICE,
   type DistributedLockService,
-} from '../../infrastructure/multi-instance/distributed-lock.service.js';
-import {
-  buildEngagementGraph,
-  createEngagementInitialState,
-} from './engagement.graph.js';
-import { withTimeout } from '../../infrastructure/util/with-timeout.js';
-import { isNetworkEnabled } from '../../domain/enabled-networks.js';
+} from "../../infrastructure/multi-instance/distributed-lock.service.js";
+import { buildEngagementGraph, createEngagementInitialState } from "./engagement.graph.js";
+import { withTimeout } from "../../infrastructure/util/with-timeout.js";
+import { isNetworkEnabled } from "../../domain/enabled-networks.js";
 
 @Injectable()
 export class BrowsingSessionService {
@@ -83,42 +80,41 @@ export class BrowsingSessionService {
     @Optional() private readonly warmupService?: WarmupService,
     @Optional() private readonly accountsService?: AccountsService,
   ) {
-    this.defaultDurationSec = Number(
-      this.configService.get<string>('F1_BROWSING_SESSION_MINUTES', '15'),
-    ) * 60;
-    this.likesMaxPerSession = Number(
-      this.configService.get<string>('F1_LIKES_MAX_PER_DAY', '25'),
-    );
+    this.defaultDurationSec =
+      Number(this.configService.get<string>("F1_BROWSING_SESSION_MINUTES", "15")) * 60;
+    this.likesMaxPerSession = Number(this.configService.get<string>("F1_LIKES_MAX_PER_DAY", "25"));
     this.commentsMaxPerSession = Number(
-      this.configService.get<string>('F1_COMMENTS_MAX_PER_DAY', '10'),
+      this.configService.get<string>("F1_COMMENTS_MAX_PER_DAY", "10"),
     );
     this.repostsMaxPerSession = Number(
-      this.configService.get<string>('F1_REPOSTS_MAX_PER_DAY', '8'),
+      this.configService.get<string>("F1_REPOSTS_MAX_PER_DAY", "8"),
     );
-    this.quotesMaxPerSession = Number(
-      this.configService.get<string>('F1_QUOTES_MAX_PER_DAY', '3'),
-    );
+    this.quotesMaxPerSession = Number(this.configService.get<string>("F1_QUOTES_MAX_PER_DAY", "3"));
     this.discussionsMaxPerSession = Number(
-      this.configService.get<string>('F1_DISCUSSIONS_MAX_PER_DAY', '2'),
+      this.configService.get<string>("F1_DISCUSSIONS_MAX_PER_DAY", "2"),
     );
     this.maxPostsPerSession = Number(
-      this.configService.get<string>('F1_MAX_POSTS_PER_SESSION', '40'),
+      this.configService.get<string>("F1_MAX_POSTS_PER_SESSION", "40"),
     );
     this.likesMaxPerDay = Number(
-      this.configService.get<string>('F1_MAX_LIKES_PER_DAY_GLOBAL', '150'),
+      this.configService.get<string>("F1_MAX_LIKES_PER_DAY_GLOBAL", "150"),
     );
     this.commentsMaxPerDay = Number(
-      this.configService.get<string>('F1_MAX_COMMENTS_PER_DAY_GLOBAL', '50'),
+      this.configService.get<string>("F1_MAX_COMMENTS_PER_DAY_GLOBAL", "50"),
     );
     this.repostsMaxPerDay = Number(
-      this.configService.get<string>('F1_MAX_REPOSTS_PER_DAY_GLOBAL', '40'),
+      this.configService.get<string>("F1_MAX_REPOSTS_PER_DAY_GLOBAL", "40"),
     );
     this.quotesMaxPerDay = Number(
-      this.configService.get<string>('F1_MAX_QUOTES_PER_DAY_GLOBAL', '15'),
+      this.configService.get<string>("F1_MAX_QUOTES_PER_DAY_GLOBAL", "15"),
     );
-    this.lockKey = this.configService.get<string>('ENGAGEMENT_LOCK_KEY', 'spa:lock:engagement');
-    this.lockTtlBufferMs = Number(this.configService.get<string>('ENGAGEMENT_LOCK_TTL_BUFFER_MS', '300000'));
-    this.lockRetryMs = Number(this.configService.get<string>('ENGAGEMENT_LOCK_ACQUIRE_RETRY_MS', '1000'));
+    this.lockKey = this.configService.get<string>("ENGAGEMENT_LOCK_KEY", "spa:lock:engagement");
+    this.lockTtlBufferMs = Number(
+      this.configService.get<string>("ENGAGEMENT_LOCK_TTL_BUFFER_MS", "300000"),
+    );
+    this.lockRetryMs = Number(
+      this.configService.get<string>("ENGAGEMENT_LOCK_ACQUIRE_RETRY_MS", "1000"),
+    );
   }
 
   /**
@@ -141,7 +137,7 @@ export class BrowsingSessionService {
   ): Promise<{ sessionId: string; postsViewed: number; interactionsCount: number }> {
     if (!isNetworkEnabled(network)) {
       this.logger.warn(`Browsing session requested for disabled network ${network} — skipping`);
-      return { sessionId: '', postsViewed: 0, interactionsCount: 0 };
+      return { sessionId: "", postsViewed: 0, interactionsCount: 0 };
     }
     const duration = durationSec ?? this.defaultDurationSec;
     const engager = this.getEngager(network);
@@ -168,8 +164,10 @@ export class BrowsingSessionService {
     let postsViewed = 0;
     let interactionsCount = 0;
     let session: Session | null = null;
-    let context: Awaited<ReturnType<IBrowserPort['acquireContext']>> | null = null;
-    let page: Awaited<ReturnType<Awaited<ReturnType<IBrowserPort['acquireContext']>>['newPage']>> | undefined;
+    let context: Awaited<ReturnType<IBrowserPort["acquireContext"]>> | null = null;
+    let page:
+      | Awaited<ReturnType<Awaited<ReturnType<IBrowserPort["acquireContext"]>>["newPage"]>>
+      | undefined;
 
     try {
       // Pick an account for this network (round-robin if multiple are configured).
@@ -182,7 +180,9 @@ export class BrowsingSessionService {
         accountId = account?.id;
       }
       session = accountId
-        ? await this.sessionsService.getOrCreateSession(accountId, network, { deferFormLogin: true })
+        ? await this.sessionsService.getOrCreateSession(accountId, network, {
+            deferFormLogin: true,
+          })
         : await this.sessionsService.getOrCreateSession(network, { deferFormLogin: true });
       if (!session) {
         throw new Error(`No active session for ${network} — auto-login failed`);
@@ -212,7 +212,9 @@ export class BrowsingSessionService {
             `comments ${commentsBudget}/${this.commentsMaxPerSession} (used ${dailyCounts.comments}/${this.commentsMaxPerDay})`,
         );
       } else {
-        this.logger.warn(`Session ${session.id} has no accountId — using per-session F1 budgets only`);
+        this.logger.warn(
+          `Session ${session.id} has no accountId — using per-session F1 budgets only`,
+        );
       }
 
       // Create browsing session record (feedUrl updated after graph picks source)
@@ -230,7 +232,7 @@ export class BrowsingSessionService {
 
       // SSE event
       await this.sseService.publish({
-        type: 'browsing_session_started',
+        type: "browsing_session_started",
         sessionId: browsingSession.id,
         network: network as string,
         durationSec: duration,
@@ -262,20 +264,21 @@ export class BrowsingSessionService {
       const crashPromise = new Promise<never>((_, reject) => {
         crashReject = reject;
       });
-      const crashError = (event: string) => new Error(`Page ${event} during ${network} browsing session`);
+      const crashError = (event: string) =>
+        new Error(`Page ${event} during ${network} browsing session`);
 
-      if (typeof page.on === 'function') {
-        page.on('crash', () => {
+      if (typeof page.on === "function") {
+        page.on("crash", () => {
           if (!sessionActive) return;
           this.logger.warn(`Page crashed during ${network} browsing session — closing context`);
           void context?.close().catch(() => {});
-          crashReject?.(crashError('crashed'));
+          crashReject?.(crashError("crashed"));
         });
-        page.on('close', () => {
+        page.on("close", () => {
           if (!sessionActive) return;
           this.logger.warn(`Page closed during ${network} browsing session — closing context`);
           void context?.close().catch(() => {});
-          crashReject?.(crashError('closed'));
+          crashReject?.(crashError("closed"));
         });
       }
 
@@ -293,11 +296,11 @@ export class BrowsingSessionService {
         const errMsg = (err as Error).message;
         this.logger.warn(`Pre-session health check failed for ${network}: ${errMsg}`);
         if (
-          errMsg.includes('Target page, context or browser has been closed') ||
-          errMsg.includes('Browser has been closed') ||
-          errMsg.includes('Context has been closed') ||
-          errMsg.includes('Page has been closed') ||
-          errMsg.includes('Connection closed')
+          errMsg.includes("Target page, context or browser has been closed") ||
+          errMsg.includes("Browser has been closed") ||
+          errMsg.includes("Context has been closed") ||
+          errMsg.includes("Page has been closed") ||
+          errMsg.includes("Connection closed")
         ) {
           throw new Error(`Pre-session health check failed: ${errMsg}`);
         }
@@ -307,13 +310,15 @@ export class BrowsingSessionService {
       // P0: conversation-ready targeting — check if this account has unreplied comments
       // on its own posts for this network. If so, the engagement graph will prefer
       // the 'notifications' source over the algorithmic feed.
-      const newRepliesCount = await (this.prisma.incomingComment?.count({
-        where: {
-          network,
-          status: 'NEW',
-          post: { accountId: session.accountId },
-        },
-      }) ?? Promise.resolve(0)).catch(() => 0);
+      const newRepliesCount = await (
+        this.prisma.incomingComment?.count({
+          where: {
+            network,
+            status: "NEW",
+            post: { accountId: session.accountId },
+          },
+        }) ?? Promise.resolve(0)
+      ).catch(() => 0);
       const conversationReady = newRepliesCount > 0;
 
       // Build and invoke the EngagementGraph (LangGraph)
@@ -349,7 +354,7 @@ export class BrowsingSessionService {
                 onAbort();
                 return;
               }
-              signal.addEventListener('abort', onAbort, { once: true });
+              signal.addEventListener("abort", onAbort, { once: true });
             })
           : undefined;
 
@@ -386,7 +391,9 @@ export class BrowsingSessionService {
           );
           await this.sessionsService.updateStorageState(session.id, updatedState);
         } catch (saveErr) {
-          this.logger.warn(`Failed to save storage state for ${network}: ${(saveErr as Error).message}`);
+          this.logger.warn(
+            `Failed to save storage state for ${network}: ${(saveErr as Error).message}`,
+          );
         }
 
         // Update browsing session record
@@ -403,12 +410,12 @@ export class BrowsingSessionService {
 
         this.logger.log(
           `Browsing session completed for ${network}: ${postsViewed} posts, ${interactionsCount} interactions ` +
-            `(source: ${finalState.sourceLabel ?? 'unknown'}, warmup: ${finalState.warmupPhase ?? 'none'})`,
+            `(source: ${finalState.sourceLabel ?? "unknown"}, warmup: ${finalState.warmupPhase ?? "none"})`,
         );
 
         // SSE event
         await this.sseService.publish({
-          type: 'browsing_session_completed',
+          type: "browsing_session_completed",
           sessionId: browsingSession.id,
           network: network as string,
           postsViewed,
@@ -427,37 +434,45 @@ export class BrowsingSessionService {
       // the pool, the next session will reuse it and fail immediately with the same error.
       // Close the context so releaseContext() discards it instead of reusing it.
       if (
-        errorMessage.includes('Target page, context or browser has been closed') ||
-        errorMessage.includes('browserContext.storageState') ||
-        errorMessage.includes('page.goto: Target page, context or browser has been closed') ||
-        errorMessage.includes('page.waitForTimeout: Target page, context or browser has been closed') ||
-        errorMessage.includes('Page was closed during post extraction') ||
-        errorMessage.includes('Page closed during batch processing')
+        errorMessage.includes("Target page, context or browser has been closed") ||
+        errorMessage.includes("browserContext.storageState") ||
+        errorMessage.includes("page.goto: Target page, context or browser has been closed") ||
+        errorMessage.includes(
+          "page.waitForTimeout: Target page, context or browser has been closed",
+        ) ||
+        errorMessage.includes("Page was closed during post extraction") ||
+        errorMessage.includes("Page closed during batch processing")
       ) {
-        this.logger.warn(`Fatal browser error for ${network} — closing context instead of returning to pool`);
+        this.logger.warn(
+          `Fatal browser error for ${network} — closing context instead of returning to pool`,
+        );
         if (context) {
           await withTimeout(context.close(), 10_000, `context.close ${network}`).catch(() => {});
         }
       }
 
       if (browsingSession) {
-        await this.prisma.browsingSession.update({
-          where: { id: browsingSession.id },
-          data: {
-            status: BrowsingSessionStatus.FAILED,
-            endedAt: new Date(),
-            errorMessage: (err as Error).message,
-            postsViewed,
-            interactionsCount,
-          },
-        }).catch(() => {});
+        await this.prisma.browsingSession
+          .update({
+            where: { id: browsingSession.id },
+            data: {
+              status: BrowsingSessionStatus.FAILED,
+              endedAt: new Date(),
+              errorMessage: (err as Error).message,
+              postsViewed,
+              interactionsCount,
+            },
+          })
+          .catch(() => {});
 
-        await this.sseService.publish({
-          type: 'browsing_session_failed',
-          sessionId: browsingSession.id,
-          network: network as string,
-          error: (err as Error).message,
-        }).catch(() => {});
+        await this.sseService
+          .publish({
+            type: "browsing_session_failed",
+            sessionId: browsingSession.id,
+            network: network as string,
+            error: (err as Error).message,
+          })
+          .catch(() => {});
       }
 
       throw err;
@@ -499,9 +514,9 @@ export class BrowsingSessionService {
   private getFeedUrl(network: SocialNetwork): string {
     switch (network) {
       case SocialNetwork.X:
-        return 'https://x.com/home';
+        return "https://x.com/home";
       case SocialNetwork.THREADS:
-        return 'https://www.threads.com/';
+        return "https://www.threads.com/";
       case SocialNetwork.FACEBOOK:
         return this.facebookEngager.getPageUrl();
       default:
@@ -525,7 +540,7 @@ export class BrowsingSessionService {
     endOfDay.setUTCHours(23, 59, 59, 999);
 
     const rows = await this.prisma.interaction.groupBy({
-      by: ['type'],
+      by: ["type"],
       where: {
         accountId,
         createdAt: { gte: startOfDay, lte: endOfDay },
@@ -566,7 +581,7 @@ export class BrowsingSessionService {
     return this.prisma.browsingSession.findMany({
       where,
       include: { interactions: true },
-      orderBy: { startedAt: 'desc' },
+      orderBy: { startedAt: "desc" },
       take: opts?.limit ?? 20,
     });
   }
@@ -590,7 +605,7 @@ export class BrowsingSessionService {
     return this.prisma.interaction.findMany({
       where,
       include: { account: true },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
       take: opts?.limit ?? 50,
     });
   }

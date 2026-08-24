@@ -23,21 +23,21 @@
  *   - vi.mock('ioredis') → in-memory Map store (no real Redis)
  *   - vi.mock('bullmq') → captured Queue/Worker constructors (no real BullMQ)
  *   - vi.mock('node:fs/promises') → controlled filesystem for ContentReader fallback (ITC-027)
- *   - createMockPrismaService() from '../mocks/index' → override PrismaService via a
+ *   - createMockPrismaService() from '../mocks/index.js' → override PrismaService via a
  *     global dynamic module (PrismaModule is not @Global, so we provide it globally)
  *
  * Source: CONSTITUTION.md §14 (Testing) — test case IDs are inline
  */
-import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
-import { restoreAllDesignParamtypes } from '../helpers/restore-paramtypes.js';
-import { TopicGenerationService } from '../../src/infrastructure/content/topic-generation.service';
-import { ScheduleModule } from '@nestjs/schedule';
-import { EventEmitter2, EventEmitterModule } from '@nestjs/event-emitter';
-import { Test, type TestingModule } from '@nestjs/testing';
-import { ModuleRef } from '@nestjs/core';
-import { ConfigModule } from '@nestjs/config';
-import { SocialNetwork } from '@prisma/client';
-import type { ContentTopic } from '@spa/shared';
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
+import { restoreAllDesignParamtypes } from "../helpers/restore-paramtypes.js";
+import { TopicGenerationService } from "../../src/infrastructure/content/topic-generation.service.js";
+import { ScheduleModule } from "@nestjs/schedule";
+import { EventEmitter2, EventEmitterModule } from "@nestjs/event-emitter";
+import { Test, type TestingModule } from "@nestjs/testing";
+import { ModuleRef } from "@nestjs/core";
+import { ConfigModule } from "@nestjs/config";
+import { SocialNetwork } from "../../src/generated/prisma/client.js";
+import type { ContentTopic } from "@spa/shared";
 
 // ── Hoisted mocks: ioredis, bullmq, node:fs/promises ─────────────────────────
 // vi.hoisted() ensures the mock objects exist before vi.mock factories run.
@@ -48,61 +48,69 @@ const ioredisMocks = vi.hoisted(() => ({
 }));
 
 // Each `new IORedis(url, opts)` returns an independent in-memory Redis mock.
-vi.mock('ioredis', () => ({
-  default: ioredisMocks.factory.mockImplementation((_url: string, _opts?: unknown) => {
-    const store = new Map<string, string | string[]>();
-    const inst = {
-      get: vi.fn((k: string) => Promise.resolve(store.get(k) ?? null)),
-      set: vi.fn((k: string, v: string) => {
-        store.set(k, v);
-        return Promise.resolve('OK');
+vi.mock(
+  "ioredis",
+  () =>
+    ({
+      default: ioredisMocks.factory.mockImplementation(function (
+        this: unknown,
+        _url: string,
+        _opts?: unknown,
+      ) {
+        const store = new Map<string, string | string[]>();
+        const inst = {
+          get: vi.fn((k: string) => Promise.resolve(store.get(k) ?? null)),
+          set: vi.fn((k: string, v: string) => {
+            store.set(k, v);
+            return Promise.resolve("OK");
+          }),
+          setex: vi.fn((k: string, _ttl: number, v: string) => {
+            store.set(k, v);
+            return Promise.resolve("OK");
+          }),
+          keys: vi.fn((pat: string) => {
+            const prefix = pat.replace(/\*$/, "");
+            return Promise.resolve([...store.keys()].filter((k) => k.startsWith(prefix)));
+          }),
+          rpush: vi.fn((k: string, v: string) => {
+            const arr = (store.get(k) as string[] | undefined) ?? [];
+            arr.push(v);
+            store.set(k, arr);
+            return Promise.resolve(arr.length);
+          }),
+          lrange: vi.fn((k: string) =>
+            Promise.resolve((store.get(k) as string[] | undefined) ?? []),
+          ),
+          incr: vi.fn((k: string) => {
+            const v = parseInt((store.get(k) as string) ?? "0", 10) + 1;
+            store.set(k, String(v));
+            return Promise.resolve(v);
+          }),
+          expire: vi.fn().mockResolvedValue(1),
+          del: vi.fn((k: string) => {
+            store.delete(k);
+            return Promise.resolve(1);
+          }),
+          exists: vi.fn((k: string) => Promise.resolve(store.has(k) ? 1 : 0)),
+          ping: vi.fn().mockResolvedValue("PONG"),
+          quit: vi.fn().mockResolvedValue("OK"),
+          publish: vi.fn().mockResolvedValue(1),
+          subscribe: vi.fn().mockResolvedValue("OK"),
+          unsubscribe: vi.fn().mockResolvedValue("OK"),
+          on: vi.fn(),
+          off: vi.fn(),
+          disconnect: vi.fn(),
+          duplicate: vi.fn().mockReturnThis(),
+          _store: store,
+        };
+        ioredisMocks.instances.push(inst);
+        return inst;
       }),
-      setex: vi.fn((k: string, _ttl: number, v: string) => {
-        store.set(k, v);
-        return Promise.resolve('OK');
-      }),
-      keys: vi.fn((pat: string) => {
-        const prefix = pat.replace(/\*$/, '');
-        return Promise.resolve(
-          [...store.keys()].filter((k) => k.startsWith(prefix)),
-        );
-      }),
-      rpush: vi.fn((k: string, v: string) => {
-        const arr = (store.get(k) as string[] | undefined) ?? [];
-        arr.push(v);
-        store.set(k, arr);
-        return Promise.resolve(arr.length);
-      }),
-      lrange: vi.fn((k: string) => Promise.resolve((store.get(k) as string[] | undefined) ?? [])),
-      incr: vi.fn((k: string) => {
-        const v = parseInt((store.get(k) as string) ?? '0', 10) + 1;
-        store.set(k, String(v));
-        return Promise.resolve(v);
-      }),
-      expire: vi.fn().mockResolvedValue(1),
-      del: vi.fn((k: string) => {
-        store.delete(k);
-        return Promise.resolve(1);
-      }),
-      exists: vi.fn((k: string) => Promise.resolve(store.has(k) ? 1 : 0)),
-      ping: vi.fn().mockResolvedValue('PONG'),
-      quit: vi.fn().mockResolvedValue('OK'),
-      publish: vi.fn().mockResolvedValue(1),
-      subscribe: vi.fn().mockResolvedValue('OK'),
-      unsubscribe: vi.fn().mockResolvedValue('OK'),
-      on: vi.fn(),
-      off: vi.fn(),
-      disconnect: vi.fn(),
-      duplicate: vi.fn().mockReturnThis(),
-      _store: store,
-    };
-    ioredisMocks.instances.push(inst);
-    return inst;
-  }),
-}));
+    }) as { default: unknown },
+);
 
 const bullmqMocks = vi.hoisted(() => ({
-  queueAdd: vi.fn().mockResolvedValue({ id: 'job-1' }),
+  queueAdd: vi.fn().mockResolvedValue({ id: "job-1" }),
   queueGetFailed: vi.fn().mockResolvedValue([]),
   queueGetJobCounts: vi.fn().mockResolvedValue({
     waiting: 0,
@@ -122,35 +130,46 @@ const bullmqMocks = vi.hoisted(() => ({
   queues: new Map<string, Record<string, unknown>>(),
 }));
 
-vi.mock('bullmq', () => ({
-  Queue: bullmqMocks.QueueCtor.mockImplementation((name: string, _opts?: unknown) => {
-    const q = {
-      name,
-      add: bullmqMocks.queueAdd,
-      getFailed: bullmqMocks.queueGetFailed,
-      getJobCounts: bullmqMocks.queueGetJobCounts,
-      close: bullmqMocks.queueClose,
-    };
-    bullmqMocks.queues.set(name, q);
-    return q;
-  }),
-  Worker: bullmqMocks.WorkerCtor.mockImplementation(
-    (name: string, handler: (job: unknown) => Promise<void>, _opts?: unknown) => {
-      bullmqMocks.workerHandlers.set(name, handler);
-      return { name, close: bullmqMocks.workerClose, on: bullmqMocks.workerOn };
-    },
-  ),
-}));
+vi.mock(
+  "bullmq",
+  () =>
+    ({
+      Queue: bullmqMocks.QueueCtor.mockImplementation(function (
+        this: unknown,
+        name: string,
+        _opts?: unknown,
+      ) {
+        const q = {
+          name,
+          add: bullmqMocks.queueAdd,
+          getFailed: bullmqMocks.queueGetFailed,
+          getJobCounts: bullmqMocks.queueGetJobCounts,
+          close: bullmqMocks.queueClose,
+        };
+        bullmqMocks.queues.set(name, q);
+        return q;
+      }),
+      Worker: bullmqMocks.WorkerCtor.mockImplementation(function (
+        this: unknown,
+        name: string,
+        handler: (job: unknown) => Promise<void>,
+        _opts?: unknown,
+      ) {
+        bullmqMocks.workerHandlers.set(name, handler);
+        return { name, close: bullmqMocks.workerClose, on: bullmqMocks.workerOn };
+      }),
+    }) as { Queue: unknown; Worker: unknown },
+);
 
 // node:fs/promises — used by GenerationService.loadBrandVoice (readFile) and by
 // the real ContentReader (access/readdir/readFile) for ITC-027 fallback.
 const fsMocks = vi.hoisted(() => ({
-  access: vi.fn().mockRejectedValue(new Error('ENOENT')),
+  access: vi.fn().mockRejectedValue(new Error("ENOENT")),
   readdir: vi.fn().mockResolvedValue([]),
-  readFile: vi.fn().mockRejectedValue(new Error('ENOENT')),
+  readFile: vi.fn().mockRejectedValue(new Error("ENOENT")),
 }));
 
-vi.mock('node:fs/promises', () => ({
+vi.mock("node:fs/promises", () => ({
   access: fsMocks.access,
   readdir: fsMocks.readdir,
   readFile: fsMocks.readFile,
@@ -159,61 +178,73 @@ vi.mock('node:fs/promises', () => ({
 // node:fs — ContentModule uses existsSync to choose between filesystem (ContentReader)
 // and DB-backed (DbContentReader) IContentPort implementations. ITC-027 needs the
 // fs path so the real ContentReader runs against the mocked node:fs/promises.
-vi.mock('node:fs', () => ({
+vi.mock("node:fs", () => ({
   existsSync: vi.fn().mockReturnValue(true),
 }));
 
 // ── Real source imports (after vi.mock is hoisted) ───────────────────────────
-import 'reflect-metadata';
-import { PrismaService } from '../../src/infrastructure/prisma/prisma.service';
-import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint.js';
-import { HealthController } from '../../src/modules/health/health.controller';
-import { ContentReader } from '../../src/infrastructure/content/content-reader.js';
-import { ILlmPort, type ILlmPort as ILlmPortType, type LlmResponse } from '../../src/domain/ports/llm.port';
-import { IBrowserPort } from '../../src/domain/ports/browser.port';
-import { GenerationModule } from '../../src/modules/generation/generation.module';
-import { GenerationService } from '../../src/modules/generation/generation.service';
-import { GenerationController } from '../../src/modules/generation/generation.controller';
-import { CronService } from '../../src/modules/generation/cron.service';
-import { buildGenerationGraph, createInitialState, clearHookCache } from '../../src/modules/generation/generation.graph';
-import { PostsService } from '../../src/modules/posts/posts.service';
-import { PostsController } from '../../src/modules/posts/posts.controller';
-import { QueueModule } from '../../src/modules/queue/queue.module';
-import { QueueService } from '../../src/modules/queue/queue.service';
-import { QueueController } from '../../src/modules/queue/queue.controller';
-import { QueueFactory } from '../../src/infrastructure/queue/queue.factory';
-import { PostingService } from '../../src/modules/posting/posting.service';
-import { PostingController } from '../../src/modules/posting/posting.controller';
-import { PostingWindowService } from '../../src/modules/orchestrator/posting-window.service.js';
-import { XPoster } from '../../src/modules/posting/posters/x.poster';
-import { ThreadsPoster } from '../../src/modules/posting/posters/threads.poster';
-import { FacebookPoster } from '../../src/modules/posting/posters/facebook.poster';
-import { ContentSourceService } from '../../src/modules/content-source/content-source.service';
-import { ContentSourceController } from '../../src/modules/content-source/content-source.controller';
-import { AccountsService } from '../../src/modules/accounts/accounts.service';
-import { AccountsController } from '../../src/modules/accounts/accounts.controller';
-import { SessionsService } from '../../src/modules/sessions/sessions.service';
-import { SessionsController } from '../../src/modules/sessions/sessions.controller';
-import { SseService } from '../../src/infrastructure/sse/sse.service';
-import { EncryptionService } from '../../src/infrastructure/crypto/encryption.service.js';
-import { TrendingScraperService } from '../../src/modules/trending/trending-scraper.service';
-import { DiscordNotificationService } from '../../src/infrastructure/notifications/discord-notification.service.js';
-import { NotificationsModule } from '../../src/infrastructure/notifications/notifications.module.js';
-import { VisualConceptService } from '../../src/modules/content-enhancements/visual-concept.service.js';
-import { ABVariantGenerator } from '../../src/modules/content-enhancements/ab-variant.generator.js';
-import { ThreadDepthService } from '../../src/modules/content-enhancements/thread-depth.service.js';
-import { ContentPillarTracker } from '../../src/modules/content-enhancements/content-pillar.tracker.js';
-import { HookPerformanceBank } from '../../src/modules/content-enhancements/hook-performance-bank.js';
-import { SseModule } from '../../src/infrastructure/sse/sse.module';
-import { RateLimitService } from '../../src/modules/rate-limit/rate-limit.service';
-import { BrowserFactory } from '../../src/infrastructure/browser/browser.factory';
-import { LlmService } from '../../src/infrastructure/llm/llm.service';
-import { ConfigService } from '@nestjs/config';
-import { createMockPrismaService, createMockBrowserPort } from '../mocks/index.js';
-import { SHARED_REDIS, SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER, RedisModule } from '../../src/infrastructure/redis/redis.module';
+import "reflect-metadata";
+import { PrismaService } from "../../src/infrastructure/prisma/prisma.service.js";
+import { RedisCheckpointSaver } from "../../src/infrastructure/checkpoint/redis-checkpoint.js";
+import { HealthController } from "../../src/modules/health/health.controller.js";
+import { ContentReader } from "../../src/infrastructure/content/content-reader.js";
+import {
+  ILlmPort,
+  type ILlmPort as ILlmPortType,
+  type LlmResponse,
+} from "../../src/domain/ports/llm.port.js";
+import { IBrowserPort } from "../../src/domain/ports/browser.port.js";
+import { GenerationModule } from "../../src/modules/generation/generation.module.js";
+import { GenerationService } from "../../src/modules/generation/generation.service.js";
+import { GenerationController } from "../../src/modules/generation/generation.controller.js";
+import { CronService } from "../../src/modules/generation/cron.service.js";
+import {
+  buildGenerationGraph,
+  createInitialState,
+  clearHookCache,
+} from "../../src/modules/generation/generation.graph.js";
+import { PostsService } from "../../src/modules/posts/posts.service.js";
+import { PostsController } from "../../src/modules/posts/posts.controller.js";
+import { QueueModule } from "../../src/modules/queue/queue.module.js";
+import { QueueService } from "../../src/modules/queue/queue.service.js";
+import { QueueController } from "../../src/modules/queue/queue.controller.js";
+import { QueueFactory } from "../../src/infrastructure/queue/queue.factory.js";
+import { PostingService } from "../../src/modules/posting/posting.service.js";
+import { PostingController } from "../../src/modules/posting/posting.controller.js";
+import { PostingWindowService } from "../../src/modules/orchestrator/posting-window.service.js";
+import { XPoster } from "../../src/modules/posting/posters/x.poster.js";
+import { ThreadsPoster } from "../../src/modules/posting/posters/threads.poster.js";
+import { FacebookPoster } from "../../src/modules/posting/posters/facebook.poster.js";
+import { ContentSourceService } from "../../src/modules/content-source/content-source.service.js";
+import { ContentSourceController } from "../../src/modules/content-source/content-source.controller.js";
+import { AccountsService } from "../../src/modules/accounts/accounts.service.js";
+import { AccountsController } from "../../src/modules/accounts/accounts.controller.js";
+import { SessionsService } from "../../src/modules/sessions/sessions.service.js";
+import { SessionsController } from "../../src/modules/sessions/sessions.controller.js";
+import { SseService } from "../../src/infrastructure/sse/sse.service.js";
+import { EncryptionService } from "../../src/infrastructure/crypto/encryption.service.js";
+import { TrendingScraperService } from "../../src/modules/trending/trending-scraper.service.js";
+import { DiscordNotificationService } from "../../src/infrastructure/notifications/discord-notification.service.js";
+import { NotificationsModule } from "../../src/infrastructure/notifications/notifications.module.js";
+import { VisualConceptService } from "../../src/modules/content-enhancements/visual-concept.service.js";
+import { ABVariantGenerator } from "../../src/modules/content-enhancements/ab-variant.generator.js";
+import { ThreadDepthService } from "../../src/modules/content-enhancements/thread-depth.service.js";
+import { ContentPillarTracker } from "../../src/modules/content-enhancements/content-pillar.tracker.js";
+import { HookPerformanceBank } from "../../src/modules/content-enhancements/hook-performance-bank.js";
+import { SseModule } from "../../src/infrastructure/sse/sse.module.js";
+import { RateLimitService } from "../../src/modules/rate-limit/rate-limit.service.js";
+import { BrowserFactory } from "../../src/infrastructure/browser/browser.factory.js";
+import { LlmService } from "../../src/infrastructure/llm/llm.service.js";
+import { ConfigService } from "@nestjs/config";
+import { createMockPrismaService, createMockBrowserPort } from "../mocks/index.js";
+import {
+  SHARED_REDIS,
+  SHARED_REDIS_SUBSCRIBER,
+  SHARED_REDIS_PUBLISHER,
+  RedisModule,
+} from "../../src/infrastructure/redis/redis.module.js";
 
 restoreAllDesignParamtypes();
-
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -266,14 +297,14 @@ function createMockPrismaModule(mockPrisma: ReturnType<typeof createTestPrisma>)
  */
 function createIntegrationLlmPort(): ILlmPortType {
   const responses: LlmResponse = {
-    content: 'Workflow Trends is coming! Reflect, not react. #productivity',
-    model: 'gpt-5-nano',
+    content: "Workflow Trends is coming! Reflect, not react. #productivity",
+    model: "gpt-5-nano",
     tokens: 120,
     cost: 0.001,
   };
   const critiqueResponse: LlmResponse = {
-    content: 'The draft is a bit long — consider shortening the hook.',
-    model: 'gpt-5-nano',
+    content: "The draft is a bit long — consider shortening the hook.",
+    model: "gpt-5-nano",
     tokens: 40,
     cost: 0.0005,
   };
@@ -282,34 +313,34 @@ function createIntegrationLlmPort(): ILlmPortType {
     generate: vi.fn().mockResolvedValue(responses),
     generateChat: vi.fn().mockImplementation((sys: string, userPrompt: string) => {
       // self_critique node sends a critique prompt
-      if (userPrompt.startsWith('Critique this')) return Promise.resolve(critiqueResponse);
+      if (userPrompt.startsWith("Critique this")) return Promise.resolve(critiqueResponse);
       // Draft/refine nodes — the system prompt contains "Generate a X post" etc.
       // Return network-specific content so SimHash hashes differ sufficiently
       // (Hamming distance > 3) to avoid B5 dedup removing cross-network posts.
       const prompt = `${sys} ${userPrompt}`;
-      if (prompt.includes('X post')) {
+      if (prompt.includes("X post")) {
         draftCounter++;
         return Promise.resolve({
           content: `Workflow Trends is coming! Reflect, not react. Short punchy take for X. #productivity #X${draftCounter}`,
-          model: 'gpt-5-nano',
+          model: "gpt-5-nano",
           tokens: 120,
           cost: 0.001,
         });
       }
-      if (prompt.includes('THREADS post')) {
+      if (prompt.includes("THREADS post")) {
         draftCounter++;
         return Promise.resolve({
           content: `Workflow Trends is here. Let me tell you a story about cosmic timing and why slowing down matters now. A narrative thread for you. #productivity #THREADS${draftCounter}`,
-          model: 'gpt-5-nano',
+          model: "gpt-5-nano",
           tokens: 120,
           cost: 0.001,
         });
       }
-      if (prompt.includes('FACEBOOK post')) {
+      if (prompt.includes("FACEBOOK post")) {
         draftCounter++;
         return Promise.resolve({
           content: `Workflow Trends is approaching! How are you preparing for this cosmic shift? Share your thoughts below and let us navigate this together as a community. #productivity #FACEBOOK${draftCounter}`,
-          model: 'gpt-5-nano',
+          model: "gpt-5-nano",
           tokens: 120,
           cost: 0.001,
         });
@@ -322,21 +353,21 @@ function createIntegrationLlmPort(): ILlmPortType {
 function makeTopic(
   path: string,
   topic: string,
-  sourceType: ContentTopic['sourceType'] = 'brief',
+  sourceType: ContentTopic["sourceType"] = "brief",
 ): ContentTopic {
   return {
     sourceType,
     path,
     topic,
-    keywords: ['productivity', topic.split(' ')[0]!.toLowerCase()],
-    facts: ['Key fact about ' + topic],
+    keywords: ["productivity", topic.split(" ")[0]!.toLowerCase()],
+    facts: ["Key fact about " + topic],
   };
 }
 
 const ACCOUNTS: Record<string, { id: string; network: SocialNetwork; active: boolean }> = {
-  X: { id: 'acc-x', network: SocialNetwork.X, active: true },
-  THREADS: { id: 'acc-t', network: SocialNetwork.THREADS, active: true },
-  FACEBOOK: { id: 'acc-f', network: SocialNetwork.FACEBOOK, active: true },
+  X: { id: "acc-x", network: SocialNetwork.X, active: true },
+  THREADS: { id: "acc-t", network: SocialNetwork.THREADS, active: true },
+  FACEBOOK: { id: "acc-f", network: SocialNetwork.FACEBOOK, active: true },
 };
 
 /**
@@ -368,7 +399,10 @@ async function buildGenerationModule(opts: {
     .useValue(opts.llm)
     // Sprint I: Mock SseService — GenerationService now publishes progress events
     .overrideProvider(SseService)
-    .useValue({ publish: vi.fn().mockResolvedValue(undefined), init: vi.fn().mockResolvedValue(undefined) })
+    .useValue({
+      publish: vi.fn().mockResolvedValue(undefined),
+      init: vi.fn().mockResolvedValue(undefined),
+    })
     // CronService.onModuleInit calls accountsService.seedFromEnv() which would
     // invoke prisma.socialAccount during bootstrap — override to a no-op so it
     // doesn't pollute per-test prisma mock assertions.
@@ -379,12 +413,15 @@ async function buildGenerationModule(opts: {
       getGoogleTrends: () => Promise.resolve([]),
       getXTrends: () => Promise.resolve([]),
       getMergedTrending: () => Promise.resolve([]),
-      getCacheStatus: () => ({ googleTrends: { cached: false, topics: 0 }, xTrends: { cached: false, topics: 0 } }),
+      getCacheStatus: () => ({
+        googleTrends: { cached: false, topics: 0 },
+        xTrends: { cached: false, topics: 0 },
+      }),
     })
     // TopicGenerationService needs SchedulerRegistry (global ScheduleModule.forRoot()
     // in prod) — irrelevant to these integration cases, so mock it out.
     .overrideProvider(TopicGenerationService)
-    .useValue({})
+    .useValue({});
 
   if (opts.contentReader) {
     builder.overrideProvider(ContentReader).useValue(opts.contentReader);
@@ -427,7 +464,7 @@ async function buildQueueModule(opts: {
       getRecommendation: vi.fn().mockResolvedValue({
         bestHours: [9, 12, 18, 21],
         inWindow: true,
-        confidence: 'low',
+        confidence: "low",
       }),
       getNextWindowAt: vi.fn().mockResolvedValue(Date.now() + 1000),
       getDelayToNextWindow: vi.fn().mockResolvedValue(0),
@@ -435,7 +472,10 @@ async function buildQueueModule(opts: {
     .overrideProvider(IBrowserPort)
     .useValue(createMockBrowserPort())
     .overrideProvider(SseService)
-    .useValue({ publish: vi.fn().mockResolvedValue(undefined), init: vi.fn().mockResolvedValue(undefined) })
+    .useValue({
+      publish: vi.fn().mockResolvedValue(undefined),
+      init: vi.fn().mockResolvedValue(undefined),
+    })
     .compile();
 
   // Trigger OnModuleInit — QueueModule.onModuleInit registers a BullMQ worker
@@ -446,28 +486,28 @@ async function buildQueueModule(opts: {
 
 // ── Test suite ───────────────────────────────────────────────────────────────
 
-describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 026..027, 032..033)', () => {
+describe("Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 026..027, 032..033)", () => {
   let moduleRef: TestingModule | null = null;
 
   beforeAll(() => {
     // Ensure env vars used by ConfigService-dependent services exist.
-    process.env.OPENAI_API_KEY = 'test-key';
-    process.env.REDIS_URL = 'redis://localhost:6382';
-    process.env.SOCIAL_X_USERNAME = 'test_x_user';
-    process.env.SOCIAL_THREADS_USERNAME = 'test_threads_user';
-    process.env.SOCIAL_FACEBOOK_EMAIL = 'test_fb@facebook.com';
+    process.env.OPENAI_API_KEY = "test-key";
+    process.env.REDIS_URL = "redis://localhost:6382";
+    process.env.SOCIAL_X_USERNAME = "test_x_user";
+    process.env.SOCIAL_THREADS_USERNAME = "test_threads_user";
+    process.env.SOCIAL_FACEBOOK_EMAIL = "test_fb@facebook.com";
   });
 
   beforeEach(() => {
     vi.clearAllMocks();
     // Reset fs mocks to defaults: everything "not found" so loadBrandVoice falls back.
-    fsMocks.access.mockRejectedValue(new Error('ENOENT'));
+    fsMocks.access.mockRejectedValue(new Error("ENOENT"));
     fsMocks.readdir.mockResolvedValue([]);
-    fsMocks.readFile.mockRejectedValue(new Error('ENOENT'));
+    fsMocks.readFile.mockRejectedValue(new Error("ENOENT"));
     // Reset captured bullmq handlers/queues between queue tests.
     bullmqMocks.workerHandlers.clear();
     bullmqMocks.queues.clear();
-    bullmqMocks.queueAdd.mockResolvedValue({ id: 'job-1' });
+    bullmqMocks.queueAdd.mockResolvedValue({ id: "job-1" });
     bullmqMocks.queueGetFailed.mockResolvedValue([]);
     bullmqMocks.queueGetJobCounts.mockResolvedValue({
       waiting: 0,
@@ -492,19 +532,24 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
   });
 
   // ── ITC-001: Generation → LLM Port ───────────────────────────────────────
-  it('ITC-001: Generation → LLM Port integration (generateChat called 4× per post)', async () => {
+  it("ITC-001: Generation → LLM Port integration (generateChat called 4× per post)", async () => {
     const llm = createIntegrationLlmPort();
     const prisma = createTestPrisma();
-    prisma.generationRun.create.mockResolvedValue({ id: 'run-001' });
-    prisma.socialAccount.findFirst.mockImplementation(({ where }: { where: { network: SocialNetwork } }) =>
-      Promise.resolve(ACCOUNTS[where.network] ?? null),
+    prisma.generationRun.create.mockResolvedValue({ id: "run-001" });
+    prisma.socialAccount.findFirst.mockImplementation(
+      ({ where }: { where: { network: SocialNetwork } }) =>
+        Promise.resolve(ACCOUNTS[where.network] ?? null),
     );
     prisma.post.findMany.mockResolvedValue([]); // no dedup hits
     let created = 0;
     prisma.post.create.mockImplementation(() => Promise.resolve({ id: `post-${++created}` }));
 
     const contentReader = {
-      getTopics: vi.fn().mockResolvedValue([makeTopic('/blog/customer feedback.md', 'Customer Feedback period 2026')]),
+      getTopics: vi
+        .fn()
+        .mockResolvedValue([
+          makeTopic("/blog/customer feedback.md", "Customer Feedback period 2026"),
+        ]),
       readBriefs: vi.fn().mockResolvedValue([]),
       readArticles: vi.fn().mockResolvedValue([]),
     };
@@ -514,7 +559,7 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
 
     const runId = await gen.generate(1, [SocialNetwork.X]);
 
-    expect(runId).toBe('run-001');
+    expect(runId).toBe("run-001");
     // 1 topic × 1 network = 1 post → 5 LLM calls (hook, draft, critique, refine, judge)
     expect(llm.generateChat).toHaveBeenCalledTimes(5);
     // A DRAFT post was created via the real PostsService → PrismaService
@@ -526,22 +571,23 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     // the mock LLM and sourceRef carries the topic path.
     expect(createArg.data.status).toBeUndefined();
     expect(createArg.data.content).toBeTruthy();
-    expect(createArg.data.sourceRef.path).toBe('/blog/customer feedback.md');
+    expect(createArg.data.sourceRef.path).toBe("/blog/customer feedback.md");
   });
 
   // ── ITC-002: Generation → Content Source ─────────────────────────────────
-  it('ITC-002: Generation → Content Source integration (IContentPort.getTopics called, posts created)', async () => {
+  it("ITC-002: Generation → Content Source integration (IContentPort.getTopics called, posts created)", async () => {
     const llm = createIntegrationLlmPort();
     const prisma = createTestPrisma();
-    prisma.generationRun.create.mockResolvedValue({ id: 'run-002' });
-    prisma.socialAccount.findFirst.mockImplementation(({ where }: { where: { network: SocialNetwork } }) =>
-      Promise.resolve(ACCOUNTS[where.network] ?? null),
+    prisma.generationRun.create.mockResolvedValue({ id: "run-002" });
+    prisma.socialAccount.findFirst.mockImplementation(
+      ({ where }: { where: { network: SocialNetwork } }) =>
+        Promise.resolve(ACCOUNTS[where.network] ?? null),
     );
     prisma.post.findMany.mockResolvedValue([]);
     let created = 0;
     prisma.post.create.mockImplementation(() => Promise.resolve({ id: `post-${++created}` }));
 
-    const topics = [makeTopic('/blog/workflow.md', 'Workflow Trends 2026')];
+    const topics = [makeTopic("/blog/workflow.md", "Workflow Trends 2026")];
     const contentReader = {
       getTopics: vi.fn().mockResolvedValue(topics),
       readBriefs: vi.fn().mockResolvedValue([]),
@@ -559,26 +605,34 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
 
     const runId = await gen.generate(1, [SocialNetwork.X]);
 
-    expect(runId).toBe('run-002');
+    expect(runId).toBe("run-002");
     expect(contentReader.getTopics).toHaveBeenCalledWith(1);
     expect(prisma.post.create).toHaveBeenCalledTimes(1);
-    expect(prisma.post.create.mock.calls[0]![0].data.sourceRef.path).toBe('/blog/workflow.md');
+    expect(prisma.post.create.mock.calls[0]![0].data.sourceRef.path).toBe("/blog/workflow.md");
   });
 
   // ── ITC-003: Generation → Posts (dedup) ──────────────────────────────────
-  it('ITC-003: Generation → Posts dedup integration (findBySourceAndNetwork skips duplicates)', async () => {
+  it("ITC-003: Generation → Posts dedup integration (findBySourceAndNetwork skips duplicates)", async () => {
     const llm = createIntegrationLlmPort();
     const prisma = createTestPrisma();
-    prisma.generationRun.create.mockResolvedValue({ id: 'run-003' });
+    prisma.generationRun.create.mockResolvedValue({ id: "run-003" });
     prisma.socialAccount.findFirst.mockResolvedValue(ACCOUNTS.X);
     // Simulate an existing post for this source+network → dedup hit
     prisma.post.findMany.mockResolvedValue([
-      { id: 'existing-1', network: SocialNetwork.X, sourceRef: { path: '/blog/customer feedback.md' } },
+      {
+        id: "existing-1",
+        network: SocialNetwork.X,
+        sourceRef: { path: "/blog/customer feedback.md" },
+      },
     ]);
-    prisma.post.create.mockResolvedValue({ id: 'should-not-be-called' });
+    prisma.post.create.mockResolvedValue({ id: "should-not-be-called" });
 
     const contentReader = {
-      getTopics: vi.fn().mockResolvedValue([makeTopic('/blog/customer feedback.md', 'Customer Feedback period 2026')]),
+      getTopics: vi
+        .fn()
+        .mockResolvedValue([
+          makeTopic("/blog/customer feedback.md", "Customer Feedback period 2026"),
+        ]),
       readBriefs: vi.fn().mockResolvedValue([]),
       readArticles: vi.fn().mockResolvedValue([]),
     };
@@ -587,27 +641,29 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     const gen = moduleRef.get(GenerationService);
     const posts = moduleRef.get(PostsService);
 
-    const spy = vi.spyOn(posts, 'findBySourceAndNetwork');
+    const spy = vi.spyOn(posts, "findBySourceAndNetwork");
 
     await gen.generate(1, [SocialNetwork.X]);
 
     // Dedup check was invoked through the real PostsService
-    expect(spy).toHaveBeenCalledWith('/blog/customer feedback.md', SocialNetwork.X, 14);
+    expect(spy).toHaveBeenCalledWith("/blog/customer feedback.md", SocialNetwork.X, 14);
     // No new post created because a duplicate already exists for X
     expect(prisma.post.create).not.toHaveBeenCalled();
   });
 
   // ── ITC-004: Generation → Checkpoint ─────────────────────────────────────
-  it('ITC-004: Generation → Checkpoint integration (RedisCheckpointSaver.put called during invoke)', async () => {
+  it("ITC-004: Generation → Checkpoint integration (RedisCheckpointSaver.put called during invoke)", async () => {
     const llm = createIntegrationLlmPort();
     const prisma = createTestPrisma();
-    prisma.generationRun.create.mockResolvedValue({ id: 'run-004' });
+    prisma.generationRun.create.mockResolvedValue({ id: "run-004" });
     prisma.socialAccount.findFirst.mockResolvedValue(ACCOUNTS.X);
     prisma.post.findMany.mockResolvedValue([]);
-    prisma.post.create.mockResolvedValue({ id: 'post-004' });
+    prisma.post.create.mockResolvedValue({ id: "post-004" });
 
     const contentReader = {
-      getTopics: vi.fn().mockResolvedValue([makeTopic('/blog/workflow.md', 'Remote Work in Q1 2026')]),
+      getTopics: vi
+        .fn()
+        .mockResolvedValue([makeTopic("/blog/workflow.md", "Remote Work in Q1 2026")]),
       readBriefs: vi.fn().mockResolvedValue([]),
       readArticles: vi.fn().mockResolvedValue([]),
     };
@@ -617,7 +673,7 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     const saver = moduleRef.get(RedisCheckpointSaver);
 
     // Spy on the real saver's put() — called by LangGraph after each node
-    const putSpy = vi.spyOn(saver, 'put');
+    const putSpy = vi.spyOn(saver, "put");
 
     await gen.generate(1, [SocialNetwork.X]);
 
@@ -629,21 +685,23 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     // Verify the thread_id pattern matches {runId}:{topic}
     const firstCall = putSpy.mock.calls[0]!;
     const config = firstCall[0] as { configurable: { thread_id: string } };
-    expect(config.configurable.thread_id).toContain('run-004');
+    expect(config.configurable.thread_id).toContain("run-004");
   });
 
   // ── ITC-005: Generation → Posts (markRunCompleted) ───────────────────────
-  it('ITC-005: Generation → Posts integration (markRunCompleted updates DB to COMPLETED)', async () => {
+  it("ITC-005: Generation → Posts integration (markRunCompleted updates DB to COMPLETED)", async () => {
     const llm = createIntegrationLlmPort();
     const prisma = createTestPrisma();
-    prisma.generationRun.create.mockResolvedValue({ id: 'run-005' });
+    prisma.generationRun.create.mockResolvedValue({ id: "run-005" });
     prisma.socialAccount.findFirst.mockResolvedValue(ACCOUNTS.X);
     prisma.post.findMany.mockResolvedValue([]);
-    prisma.post.create.mockResolvedValue({ id: 'post-005' });
-    prisma.generationRun.update.mockResolvedValue({ id: 'run-005' });
+    prisma.post.create.mockResolvedValue({ id: "post-005" });
+    prisma.generationRun.update.mockResolvedValue({ id: "run-005" });
 
     const contentReader = {
-      getTopics: vi.fn().mockResolvedValue([makeTopic('/blog/product cycle.md', 'Product cycle 2026')]),
+      getTopics: vi
+        .fn()
+        .mockResolvedValue([makeTopic("/blog/product cycle.md", "Product cycle 2026")]),
       readBriefs: vi.fn().mockResolvedValue([]),
       readArticles: vi.fn().mockResolvedValue([]),
     };
@@ -656,23 +714,25 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     // markRunCompleted → prisma.generationRun.update with COMPLETED status
     expect(prisma.generationRun.update).toHaveBeenCalled();
     const updateCall = prisma.generationRun.update.mock.calls.find(
-      (c) => (c[0] as { data: { status: string } }).data.status === 'COMPLETED',
+      (c) => (c[0] as { data: { status: string } }).data.status === "COMPLETED",
     );
     expect(updateCall).toBeDefined();
     const updateArg = updateCall![0] as {
       where: { id: string };
       data: { status: string; completedAt: Date; sourceTopics: string[]; errorMessage?: string };
     };
-    expect(updateArg.where.id).toBe('run-005');
-    expect(updateArg.data.status).toBe('COMPLETED');
+    expect(updateArg.where.id).toBe("run-005");
+    expect(updateArg.data.status).toBe("COMPLETED");
     expect(updateArg.data.completedAt).toBeInstanceOf(Date);
-    expect(updateArg.data.sourceTopics).toEqual(['Product cycle 2026']);
+    expect(updateArg.data.sourceTopics).toEqual(["Product cycle 2026"]);
     expect(updateArg.data.errorMessage).toBeUndefined();
   });
 
   // ── ITC-015: Queue → QueueInfra ──────────────────────────────────────────
-  it('ITC-015: Queue → QueueInfra integration (QueueFactory creates per-network queues + workers)', async () => {
-    const postingService = { postById: vi.fn().mockResolvedValue({ success: true, url: 'https://x.com/1' }) };
+  it("ITC-015: Queue → QueueInfra integration (QueueFactory creates per-network queues + workers)", async () => {
+    const postingService = {
+      postById: vi.fn().mockResolvedValue({ success: true, url: "https://x.com/1" }),
+    };
     const prisma = createTestPrisma();
 
     moduleRef = await buildQueueModule({ postingService, prisma });
@@ -682,64 +742,69 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     // 3 posting workers (X, THREADS, FACEBOOK) + 3 engagement workers = 6 total
     expect(bullmqMocks.WorkerCtor).toHaveBeenCalledTimes(6);
     const workerQueueNames = bullmqMocks.WorkerCtor.mock.calls.map((c) => c[0] as string);
-    expect(workerQueueNames).toContain('spa-posting-x');
-    expect(workerQueueNames).toContain('spa-posting-threads');
-    expect(workerQueueNames).toContain('spa-posting-facebook');
+    expect(workerQueueNames).toContain("spa-posting-x");
+    expect(workerQueueNames).toContain("spa-posting-threads");
+    expect(workerQueueNames).toContain("spa-posting-facebook");
 
     // QueueFactory.getQueue creates a per-network queue (lazy, cached)
-    const qX = factory.getQueue('X');
-    const qX2 = factory.getQueue('X');
+    const qX = factory.getQueue("X");
+    const qX2 = factory.getQueue("X");
     expect(qX).toBe(qX2); // cached
-    const qT = factory.getQueue('THREADS');
+    const qT = factory.getQueue("THREADS");
     expect(qX).not.toBe(qT); // distinct per network
 
     // The registered worker handler delegates to PostingService.postById
-    const handler = bullmqMocks.workerHandlers.get('spa-posting-x');
+    const handler = bullmqMocks.workerHandlers.get("spa-posting-x");
     expect(handler).toBeDefined();
-    await handler!({ data: { postId: 'p-015' } });
+    await handler!({ data: { postId: "p-015" } });
 
-    expect(postingService.postById).toHaveBeenCalledWith('p-015');
+    expect(postingService.postById).toHaveBeenCalledWith("p-015");
   });
 
   // ── ITC-016: Queue → Posting (enqueuePosting adds job) ───────────────────
-  it('ITC-016: Queue → Posting integration (enqueuePosting adds job with postId)', async () => {
+  it("ITC-016: Queue → Posting integration (enqueuePosting adds job with postId)", async () => {
     const postingService = { postById: vi.fn().mockResolvedValue({ success: true }) };
     const prisma = createTestPrisma();
 
     moduleRef = await buildQueueModule({ postingService, prisma });
     const queueService = moduleRef.get(QueueService);
 
-    await queueService.enqueuePosting('post-016', SocialNetwork.X);
+    await queueService.enqueuePosting("post-016", SocialNetwork.X);
 
     // queue.add called with job name 'post' and data { postId, network }
     expect(bullmqMocks.queueAdd).toHaveBeenCalledTimes(1);
     const addArgs = bullmqMocks.queueAdd.mock.calls[0]!;
-    expect(addArgs[0]).toBe('post');
-    expect(addArgs[1]).toEqual({ postId: 'post-016', network: SocialNetwork.X });
+    expect(addArgs[0]).toBe("post");
+    expect(addArgs[1]).toEqual({ postId: "post-016", network: SocialNetwork.X });
 
     // Job options: jobId = postId (idempotency), attempts = 8 (BULLMQ_POSTING_MAX_RETRIES default), exponential backoff
-    const opts = addArgs[2] as { jobId: string; attempts: number; backoff: { type: string; delay: number } };
-    expect(opts.jobId).toBe('post-016');
+    const opts = addArgs[2] as {
+      jobId: string;
+      attempts: number;
+      backoff: { type: string; delay: number };
+    };
+    expect(opts.jobId).toBe("post-016");
     expect(opts.attempts).toBe(8);
-    expect(opts.backoff.type).toBe('exponential');
+    expect(opts.backoff.type).toBe("exponential");
   });
 
   // ── ITC-026: Generation → Posts (multi-network 3×3=9) ────────────────────
-  it('ITC-026: Generation → Posts multi-network integration (3 topics × 3 networks = 9 posts)', async () => {
+  it("ITC-026: Generation → Posts multi-network integration (3 topics × 3 networks = 9 posts)", async () => {
     const llm = createIntegrationLlmPort();
     const prisma = createTestPrisma();
-    prisma.generationRun.create.mockResolvedValue({ id: 'run-026' });
-    prisma.socialAccount.findFirst.mockImplementation(({ where }: { where: { network: SocialNetwork } }) =>
-      Promise.resolve(ACCOUNTS[where.network] ?? null),
+    prisma.generationRun.create.mockResolvedValue({ id: "run-026" });
+    prisma.socialAccount.findFirst.mockImplementation(
+      ({ where }: { where: { network: SocialNetwork } }) =>
+        Promise.resolve(ACCOUNTS[where.network] ?? null),
     );
     prisma.post.findMany.mockResolvedValue([]); // no dedup
     let created = 0;
     prisma.post.create.mockImplementation(() => Promise.resolve({ id: `post-${++created}` }));
 
     const topics = [
-      makeTopic('/blog/t1.md', 'AI regulation 2026'),
-      makeTopic('/blog/t2.md', 'Remote work trends 2026'),
-      makeTopic('/blog/t3.md', 'Workflow period 2026'),
+      makeTopic("/blog/t1.md", "AI regulation 2026"),
+      makeTopic("/blog/t2.md", "Remote work trends 2026"),
+      makeTopic("/blog/t3.md", "Workflow period 2026"),
     ];
     const contentReader = {
       getTopics: vi.fn().mockResolvedValue(topics),
@@ -750,9 +815,13 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     moduleRef = await buildGenerationModule({ llm, contentReader, prisma });
     const gen = moduleRef.get(GenerationService);
 
-    const runId = await gen.generate(3, [SocialNetwork.X, SocialNetwork.THREADS, SocialNetwork.FACEBOOK]);
+    const runId = await gen.generate(3, [
+      SocialNetwork.X,
+      SocialNetwork.THREADS,
+      SocialNetwork.FACEBOOK,
+    ]);
 
-    expect(runId).toBe('run-026');
+    expect(runId).toBe("run-026");
     // 3 topics × 3 networks = 9 DRAFT posts
     expect(prisma.post.create).toHaveBeenCalledTimes(9);
     // 3 topics × 11 LLM calls = 33 generateChat calls
@@ -769,45 +838,54 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
 
     // Run marked COMPLETED once
     const completedUpdate = prisma.generationRun.update.mock.calls.find(
-      (c) => (c[0] as { data: { status: string } }).data.status === 'COMPLETED',
+      (c) => (c[0] as { data: { status: string } }).data.status === "COMPLETED",
     );
     expect(completedUpdate).toBeDefined();
   });
 
   // ── ITC-027: Generation → Content Source (readBriefs + readArticles fallback) ──
-  it('ITC-027: Generation → Content Source fallback integration (readBriefs empty → readArticles fallback)', async () => {
+  it("ITC-027: Generation → Content Source fallback integration (readBriefs empty → readArticles fallback)", async () => {
     const llm = createIntegrationLlmPort();
     const prisma = createTestPrisma();
-    prisma.generationRun.create.mockResolvedValue({ id: 'run-027' });
+    prisma.generationRun.create.mockResolvedValue({ id: "run-027" });
     prisma.socialAccount.findFirst.mockResolvedValue(ACCOUNTS.X);
     prisma.post.findMany.mockResolvedValue([]);
-    prisma.post.create.mockResolvedValue({ id: 'post-027' });
+    prisma.post.create.mockResolvedValue({ id: "post-027" });
 
     // Use REAL ContentReader with a mocked filesystem:
     //   - CAP runs dir not found → readBriefs returns []
     //   - blog dir has 1 article → readArticles returns 1 topic (fallback)
-    process.env.CONTENT_AGENT_PLATFORM_PATH = '/test/cap';
-    process.env.SITE_BLOG_PATH = '/test/blog';
+    process.env.CONTENT_AGENT_PLATFORM_PATH = "/test/cap";
+    process.env.SITE_BLOG_PATH = "/test/blog";
 
     fsMocks.access.mockImplementation(async (p: string) => {
       // CAP runs dir does not exist → readBriefs returns []
-      if (p === '/test/cap/runs') throw new Error('ENOENT');
+      if (p === "/test/cap/runs") throw new Error("ENOENT");
       // blog dir exists
-      if (p === '/test/blog') return;
-      throw new Error('ENOENT');
+      if (p === "/test/blog") return;
+      throw new Error("ENOENT");
     });
     fsMocks.readdir.mockImplementation(async (p: string) => {
-      if (p === '/test/blog') return [{ name: 'workflow-retro-2026.md', isDirectory: () => false, isFile: () => true }] as never;
+      if (p === "/test/blog")
+        return [
+          { name: "workflow-retro-2026.md", isDirectory: () => false, isFile: () => true },
+        ] as never;
       return [];
     });
     fsMocks.readFile.mockImplementation(async (p: string) => {
-      if (p === '/test/blog/workflow-retro-2026.md') {
+      if (p === "/test/blog/workflow-retro-2026.md") {
         // Minimal frontmatter — the ContentReader YAML parser only handles
         // scalar keys and `- item` arrays, so we omit tags (Zod default []).
-        return ['---', 'title: Workflow Trends July 2026', 'description: Workflow Trends guide', '---', 'Body content.'].join('\n');
+        return [
+          "---",
+          "title: Workflow Trends July 2026",
+          "description: Workflow Trends guide",
+          "---",
+          "Body content.",
+        ].join("\n");
       }
       // brand-voice.md → throw so GenerationService uses its fallback voice
-      throw new Error('ENOENT');
+      throw new Error("ENOENT");
     });
 
     // No contentReader override → real ContentReader is used
@@ -818,27 +896,39 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     // Verify the real fallback path: readBriefs empty → readArticles supplies topics
     const topics = await cs.getTopics(1);
     expect(topics).toHaveLength(1);
-    expect(topics[0]!.sourceType).toBe('article');
-    expect(topics[0]!.topic).toBe('Workflow Trends July 2026');
+    expect(topics[0]!.sourceType).toBe("article");
+    expect(topics[0]!.topic).toBe("Workflow Trends July 2026");
 
     // GenerationService consumes the fallback topic and creates a DRAFT post
     const runId = await gen.generate(1, [SocialNetwork.X]);
-    expect(runId).toBe('run-027');
+    expect(runId).toBe("run-027");
     expect(prisma.post.create).toHaveBeenCalledTimes(1);
     const createArg = prisma.post.create.mock.calls[0]![0];
-    expect(createArg.data.sourceRef.type).toBe('article');
-    expect(createArg.data.sourceRef.topic).toBe('Workflow Trends July 2026');
+    expect(createArg.data.sourceRef.type).toBe("article");
+    expect(createArg.data.sourceRef.topic).toBe("Workflow Trends July 2026");
   });
 
   // ── ITC-032: Queue → Posting (job data + failed-job inspection) ──────────
-  it('ITC-032: Queue → Posting integration (job data contains postId + network; failed jobs inspectable)', async () => {
+  it("ITC-032: Queue → Posting integration (job data contains postId + network; failed jobs inspectable)", async () => {
     const postingService = { postById: vi.fn().mockResolvedValue({ success: true }) };
     const prisma = createTestPrisma();
 
     // Pre-seed BullMQ mock state: 2 failed jobs in the X queue
     const failedJobs = [
-      { id: 'fj-1', data: { postId: 'p-fail-1', network: SocialNetwork.X }, failedReason: 'Navigation timeout', attemptsMade: 3, timestamp: Date.now() },
-      { id: 'fj-2', data: { postId: 'p-fail-2', network: SocialNetwork.X }, failedReason: 'Session expired', attemptsMade: 3, timestamp: Date.now() },
+      {
+        id: "fj-1",
+        data: { postId: "p-fail-1", network: SocialNetwork.X },
+        failedReason: "Navigation timeout",
+        attemptsMade: 3,
+        timestamp: Date.now(),
+      },
+      {
+        id: "fj-2",
+        data: { postId: "p-fail-2", network: SocialNetwork.X },
+        failedReason: "Session expired",
+        attemptsMade: 3,
+        timestamp: Date.now(),
+      },
     ];
     bullmqMocks.queueGetFailed.mockResolvedValue(failedJobs);
     bullmqMocks.queueGetJobCounts.mockResolvedValue({
@@ -856,10 +946,10 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     // NOTE: the current QueueFactory.enqueuePosting stores { postId, network } only
     // (accountId is not part of the job payload — it is resolved by PostingService
     // from the Post record at processing time).
-    await queueService.enqueuePosting('post-032', SocialNetwork.X);
+    await queueService.enqueuePosting("post-032", SocialNetwork.X);
     const addArgs = bullmqMocks.queueAdd.mock.calls[0]!;
     const jobData = addArgs[1] as { postId: string; network: SocialNetwork };
-    expect(jobData.postId).toBe('post-032');
+    expect(jobData.postId).toBe("post-032");
     expect(jobData.network).toBe(SocialNetwork.X);
 
     // getJobCounts delegates through real QueueService → QueueFactory → BullMQ Queue
@@ -870,23 +960,25 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     // getFailedJobs returns failed jobs with id, data, failedReason
     const failed = await queueService.getFailedJobs(SocialNetwork.X);
     expect(failed).toHaveLength(2);
-    expect((failed[0] as { data: { postId: string } }).data.postId).toBe('p-fail-1');
-    expect((failed[1] as { failedReason: string }).failedReason).toBe('Session expired');
+    expect((failed[0] as { data: { postId: string } }).data.postId).toBe("p-fail-1");
+    expect((failed[1] as { failedReason: string }).failedReason).toBe("Session expired");
   });
 
   // ── ITC-033: Generation → Checkpoint (resume after simulated crash) ──────
-  it('ITC-033: Generation → Checkpoint resume integration (resumes from checkpoint, skipping completed nodes)', async () => {
+  it("ITC-033: Generation → Checkpoint resume integration (resumes from checkpoint, skipping completed nodes)", async () => {
     // Clear hook cache — previous tests may have cached hooks for this topic
     clearHookCache();
     const llm = createIntegrationLlmPort();
     const prisma = createTestPrisma();
-    prisma.generationRun.create.mockResolvedValue({ id: 'run-033' });
+    prisma.generationRun.create.mockResolvedValue({ id: "run-033" });
     prisma.socialAccount.findFirst.mockResolvedValue(ACCOUNTS.X);
     prisma.post.findMany.mockResolvedValue([]);
-    prisma.post.create.mockResolvedValue({ id: 'post-033' });
+    prisma.post.create.mockResolvedValue({ id: "post-033" });
 
     const contentReader = {
-      getTopics: vi.fn().mockResolvedValue([makeTopic('/blog/workflow.md', 'Workflow period 2026')]),
+      getTopics: vi
+        .fn()
+        .mockResolvedValue([makeTopic("/blog/workflow.md", "Workflow period 2026")]),
       readBriefs: vi.fn().mockResolvedValue([]),
       readArticles: vi.fn().mockResolvedValue([]),
     };
@@ -895,18 +987,18 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     const saver = moduleRef.get(RedisCheckpointSaver);
 
     // Use the real generation graph builder + real checkpoint saver (from DI).
-    const threadId = 'run-033:X:Workflow period 2026';
+    const threadId = "run-033:X:Workflow period 2026";
     const initialState = createInitialState(
-      makeTopic('/blog/workflow.md', 'Workflow period 2026'),
+      makeTopic("/blog/workflow.md", "Workflow period 2026"),
       SocialNetwork.X,
-      'Mystical-but-grounded, accessible, empowering.',
+      "Mystical-but-grounded, accessible, empowering.",
     );
 
     // Step 1: compile with interruptBefore critique_x → simulates a crash
     // after draft_x completes. Checkpoint is persisted to mock Redis.
     const interruptedGraph = buildGenerationGraph(llm).compile({
       checkpointer: saver,
-      interruptBefore: ['critique_x'],
+      interruptBefore: ["critique_x"],
     });
 
     await interruptedGraph.invoke(initialState, {
@@ -927,7 +1019,10 @@ describe('Top-Down Integration — Social Poster Agent (ITC-001..005, 015..016, 
     const finalState = (await resumeGraph.invoke(null, {
       configurable: { thread_id: threadId },
       recursionLimit: 10,
-    })) as { posts?: Array<{ content?: string }>; results?: Record<string, { refined?: string; critique?: string }> };
+    })) as {
+      posts?: Array<{ content?: string }>;
+      results?: Record<string, { refined?: string; critique?: string }>;
+    };
 
     const callsAfterResume = (llm.generateChat as ReturnType<typeof vi.fn>).mock.calls.length;
     // 3 NEW LLM calls (critique + refine + judge) — completed nodes were skipped

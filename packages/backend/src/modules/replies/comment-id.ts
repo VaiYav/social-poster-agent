@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash } from "node:crypto";
 
 /**
  * RP2: Build a stable, collision-resistant identifier for an incoming comment.
@@ -17,11 +17,11 @@ import { createHash } from 'node:crypto';
 const SEP = String.fromCharCode(0);
 
 export function buildCommentId(author: string, text: string, nativeId?: string | null): string {
-  const native = (nativeId ?? '').trim();
+  const native = (nativeId ?? "").trim();
   if (native.length > 0) {
     return `n:${native}`.slice(0, 120);
   }
-  const normalized = `${(author ?? '').trim()}${SEP}${(text ?? '').trim()}`;
-  const hash = createHash('sha256').update(normalized, 'utf8').digest('hex').slice(0, 32);
+  const normalized = `${(author ?? "").trim()}${SEP}${(text ?? "").trim()}`;
+  const hash = createHash("sha256").update(normalized, "utf8").digest("hex").slice(0, 32);
   return `h:${hash}`;
 }

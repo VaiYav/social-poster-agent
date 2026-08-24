@@ -1,20 +1,20 @@
 <script setup lang="ts">
-import { ref, watch, computed, onMounted } from 'vue';
-import { RouterView, useRoute, useRouter } from 'vue-router';
-import { Menu, LogOut } from '@lucide/vue';
-import { usePostsStore } from './stores/posts';
-import { useMonitoringStore } from './stores/monitoring';
-import { useAgentsStore } from './stores/agents';
-import { useFlowControlStore } from './stores/flowControl';
-import { useRepliesStore } from './stores/replies';
-import { useEngagementStore } from './stores/engagement';
-import { useAuthStore } from './stores/auth';
-import { useToast } from './composables/useToast';
-import { useSSE } from './composables/useSSE';
-import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts';
-import { Sidebar, StatusDot } from './components/ui';
-import type { SSEvent } from '@spa/shared';
-import ToastContainer from './components/ToastContainer.vue';
+import { ref, watch, computed, onMounted } from "vue";
+import { RouterView, useRoute, useRouter } from "vue-router";
+import { Menu, LogOut } from "@lucide/vue";
+import { usePostsStore } from "./stores/posts";
+import { useMonitoringStore } from "./stores/monitoring";
+import { useAgentsStore } from "./stores/agents";
+import { useFlowControlStore } from "./stores/flowControl";
+import { useRepliesStore } from "./stores/replies";
+import { useEngagementStore } from "./stores/engagement";
+import { useAuthStore } from "./stores/auth";
+import { useToast } from "./composables/useToast";
+import { useSSE } from "./composables/useSSE";
+import { useKeyboardShortcuts } from "./composables/useKeyboardShortcuts";
+import { Sidebar, StatusDot } from "./components/ui";
+import type { SSEvent } from "@spa/shared";
+import ToastContainer from "./components/ToastContainer.vue";
 
 /**
  * B6: Global SSE connection — listens for real-time post status updates
@@ -34,17 +34,21 @@ const toast = useToast();
 const route = useRoute();
 const router = useRouter();
 const mobileMenuOpen = ref(false);
-const appTitle = import.meta.env.VITE_APP_TITLE ?? 'Social Poster Agent';
+const appTitle = import.meta.env.VITE_APP_TITLE ?? "Social Poster Agent";
 
 // Auth: hide sidebar + header on login page (standalone layout)
-const isLoginPage = computed(() => route.name === 'login');
+const isLoginPage = computed(() => route.name === "login");
 
 // Global keyboard shortcuts (Ctrl+K=queue, Ctrl+G=generate, etc.)
 useKeyboardShortcuts();
 
-const apiBase = import.meta.env.VITE_API_URL ?? '/api/v1';
+const apiBase = import.meta.env.VITE_API_URL ?? "/api/v1";
 const sseUrl = `${apiBase}/events/sse`;
-const { data: sseData, isConnected: sseConnected, error: sseError } = useSSE(sseUrl, {
+const {
+  data: sseData,
+  isConnected: sseConnected,
+  error: sseError,
+} = useSSE(sseUrl, {
   maxRetries: 50,
   baseDelayMs: 1000,
   maxDelayMs: 30000,
@@ -70,25 +74,29 @@ watch(sseData, (data: SSEvent | null) => {
   repliesStore.handleSseEvent(data);
   engagementStore.handleSseEvent(data);
 
-  if (data.type === 'post_status') {
-    if (data.status === 'POSTED') {
+  if (data.type === "post_status") {
+    if (data.status === "POSTED") {
       toast.success(`Post ${data.postId?.slice(0, 8)}… posted on ${data.network}`);
-    } else if (data.status === 'FAILED') {
-      toast.error(`Post ${data.postId?.slice(0, 8)}… failed on ${data.network}: ${data.error ?? 'unknown error'}`);
+    } else if (data.status === "FAILED") {
+      toast.error(
+        `Post ${data.postId?.slice(0, 8)}… failed on ${data.network}: ${data.error ?? "unknown error"}`,
+      );
     }
-  } else if (data.type === 'health_alert') {
-    toast.warning(`Health alert: ${data.error ?? 'session issue detected'}`);
-  } else if (data.type === 'reply_posted') {
+  } else if (data.type === "health_alert") {
+    toast.warning(`Health alert: ${data.error ?? "session issue detected"}`);
+  } else if (data.type === "reply_posted") {
     toast.success(`Reply posted on ${data.network}`);
-  } else if (data.type === 'replies_monitor') {
-    toast.info(`Replies cycle: ${data.repliesPosted ?? 0} posted, ${data.humanReview ?? 0} need review`);
+  } else if (data.type === "replies_monitor") {
+    toast.info(
+      `Replies cycle: ${data.repliesPosted ?? 0} posted, ${data.humanReview ?? 0} need review`,
+    );
   }
 });
 
 // Auth: logout handler
 async function handleLogout() {
   await authStore.logout();
-  router.push({ name: 'login' });
+  router.push({ name: "login" });
 }
 
 onMounted(() => {
@@ -109,21 +117,24 @@ onMounted(() => {
       <template #footer>
         <div class="space-y-3">
           <!-- SSE connection status -->
-          <div class="flex items-center justify-between rounded-lg border border-border bg-surface-elevated px-3 py-2">
+          <div
+            class="flex items-center justify-between rounded-lg border border-border bg-surface-elevated px-3 py-2"
+          >
             <span class="text-xs text-text-muted">SSE</span>
-            <StatusDot
-              :state="sseConnected ? 'connected' : 'disconnected'"
-              :pulse="sseConnected"
-            />
+            <StatusDot :state="sseConnected ? 'connected' : 'disconnected'" :pulse="sseConnected" />
           </div>
           <!-- Admin user + logout -->
-          <div class="flex items-center justify-between rounded-lg border border-border bg-surface-elevated px-3 py-2">
+          <div
+            class="flex items-center justify-between rounded-lg border border-border bg-surface-elevated px-3 py-2"
+          >
             <div class="flex items-center gap-2 min-w-0">
-              <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/20 text-xs font-bold text-primary">
-                {{ authStore.user?.username?.charAt(0).toUpperCase() ?? '?' }}
+              <div
+                class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/20 text-xs font-bold text-primary"
+              >
+                {{ authStore.user?.username?.charAt(0).toUpperCase() ?? "?" }}
               </div>
               <span class="truncate text-xs font-medium text-text-secondary">
-                {{ authStore.user?.username ?? 'unknown' }}
+                {{ authStore.user?.username ?? "unknown" }}
               </span>
             </div>
             <button

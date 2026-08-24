@@ -10,86 +10,107 @@
  *
  * Covers CONSTITUTION §14 "Posting E2E" for Phase 2 social syndication (#45).
  */
-import 'reflect-metadata';
-import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
-import { Test } from '@nestjs/testing';
-import type { TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
-import request from 'supertest';
+import "reflect-metadata";
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from "vitest";
+import { Test } from "@nestjs/testing";
+import type { TestingModule } from "@nestjs/testing";
+import { INestApplication } from "@nestjs/common";
+import request from "supertest";
 
-import { AppModule } from '../../src/app.module';
-import { PrismaService } from '../../src/infrastructure/prisma/prisma.service';
-import { ILlmPort } from '../../src/domain/ports/llm.port.js';
-import { IBrowserPort } from '../../src/domain/ports/browser.port.js';
-import { QueueFactory } from '../../src/infrastructure/queue/queue.factory';
-import { BrowserFactory } from '../../src/infrastructure/browser/browser.factory';
-import { LlmService } from '../../src/infrastructure/llm/llm.service';
-import { ContentReader } from '../../src/infrastructure/content/content-reader.js';
-import { RedisCheckpointSaver } from '../../src/infrastructure/checkpoint/redis-checkpoint.js';
-import { HealthController } from '../../src/modules/health/health.controller';
-import { EncryptionService } from '../../src/infrastructure/crypto/encryption.service';
-import { TrendingScraperService } from '../../src/modules/trending/trending-scraper.service';
-import { ConfigService } from '@nestjs/config';
-import { GenerationService } from '../../src/modules/generation/generation.service';
-import { SchedulerRegistry } from '@nestjs/schedule';
-import { RateLimitService } from '../../src/modules/rate-limit/rate-limit.service';
-import { CronService } from '../../src/modules/generation/cron.service';
-import { MetricsScraperService } from '../../src/modules/analytics/metrics-scraper.service';
-import { WarmupService } from '../../src/modules/sessions/warmup.service';
-import { HealthMonitorService } from '../../src/modules/health-monitor/health-monitor.service';
+import { AppModule } from "../../src/app.module.js";
+import { PrismaService } from "../../src/infrastructure/prisma/prisma.service.js";
+import { ILlmPort } from "../../src/domain/ports/llm.port.js";
+import { IBrowserPort } from "../../src/domain/ports/browser.port.js";
+import { QueueFactory } from "../../src/infrastructure/queue/queue.factory.js";
+import { BrowserFactory } from "../../src/infrastructure/browser/browser.factory.js";
+import { LlmService } from "../../src/infrastructure/llm/llm.service.js";
+import { ContentReader } from "../../src/infrastructure/content/content-reader.js";
+import { RedisCheckpointSaver } from "../../src/infrastructure/checkpoint/redis-checkpoint.js";
+import { HealthController } from "../../src/modules/health/health.controller.js";
+import { EncryptionService } from "../../src/infrastructure/crypto/encryption.service.js";
+import { TrendingScraperService } from "../../src/modules/trending/trending-scraper.service.js";
+import { ConfigService } from "@nestjs/config";
+import { GenerationService } from "../../src/modules/generation/generation.service.js";
+import { SchedulerRegistry } from "@nestjs/schedule";
+import { RateLimitService } from "../../src/modules/rate-limit/rate-limit.service.js";
+import { CronService } from "../../src/modules/generation/cron.service.js";
+import { MetricsScraperService } from "../../src/modules/analytics/metrics-scraper.service.js";
+import { WarmupService } from "../../src/modules/sessions/warmup.service.js";
+import { HealthMonitorService } from "../../src/modules/health-monitor/health-monitor.service.js";
 
-import { BlueskyPoster } from '../../src/modules/posting/posters/bluesky.poster.js';
-import { MastodonPoster } from '../../src/modules/posting/posters/mastodon.poster.js';
-import { LinkedinSocialPoster } from '../../src/modules/posting/posters/linkedin-social.poster.js';
-import { TelegramAdapter } from '../../src/infrastructure/telegram/telegram.adapter.js';
+import { BlueskyPoster } from "../../src/modules/posting/posters/bluesky.poster.js";
+import { MastodonPoster } from "../../src/modules/posting/posters/mastodon.poster.js";
+import { LinkedinSocialPoster } from "../../src/modules/posting/posters/linkedin-social.poster.js";
+import { TelegramAdapter } from "../../src/infrastructure/telegram/telegram.adapter.js";
 
-import { createMockLlmPort, createMockBrowserPort, createMockPrismaService } from '../mocks/index.js';
-import { restoreAllDesignParamtypes } from '../helpers/restore-paramtypes.js';
-import { SocialNetwork, PostStatus, ContentType } from '@prisma/client';
-import { clearHookCache } from '../../src/modules/generation/generation.graph';
+import {
+  createMockLlmPort,
+  createMockBrowserPort,
+  createMockPrismaService,
+} from "../mocks/index.js";
+import { restoreAllDesignParamtypes } from "../helpers/restore-paramtypes.js";
+import { SocialNetwork, PostStatus, ContentType } from "../../src/generated/prisma/client.js";
+import { clearHookCache } from "../../src/modules/generation/generation.graph.js";
 
 const { sharedRedisStore } = vi.hoisted(() => ({
   sharedRedisStore: new Map<string, string>(),
 }));
 
-vi.mock('ioredis', () => {
+vi.mock("ioredis", () => {
   const createMockRedis = () => {
     const store = sharedRedisStore;
     return {
-      status: 'ready',
+      status: "ready",
       on: vi.fn(),
       removeAllListeners: () => ({}),
       get: (k: string) => Promise.resolve(store.get(k) ?? null),
-      set: (k: string, v: unknown) => { store.set(k, String(v)); return Promise.resolve('OK'); },
-      setex: (k: string, _t: number, v: string) => { store.set(k, v); return Promise.resolve('OK'); },
-      psetex: (k: string, _t: number, v: string) => { store.set(k, v); return Promise.resolve('OK'); },
+      mget: (keys: string[]) => Promise.resolve(keys.map((key) => store.get(key) ?? null)),
+      set: (k: string, v: unknown) => {
+        store.set(k, String(v));
+        return Promise.resolve("OK");
+      },
+      setex: (k: string, _t: number, v: string) => {
+        store.set(k, v);
+        return Promise.resolve("OK");
+      },
+      psetex: (k: string, _t: number, v: string) => {
+        store.set(k, v);
+        return Promise.resolve("OK");
+      },
       incr: (k: string) => {
-        const v = parseInt(store.get(k) ?? '0', 10) + 1;
+        const v = parseInt(store.get(k) ?? "0", 10) + 1;
         store.set(k, String(v));
         return Promise.resolve(v);
       },
       decr: (k: string) => {
-        const v = parseInt(store.get(k) ?? '0', 10) - 1;
+        const v = parseInt(store.get(k) ?? "0", 10) - 1;
         store.set(k, String(v));
         return Promise.resolve(v);
       },
       expire: () => Promise.resolve(1),
       pexpire: () => Promise.resolve(1),
-      del: (k: string) => { store.delete(k); return Promise.resolve(1); },
-      unlink: (k: string) => { store.delete(k); return Promise.resolve(1); },
+      del: (k: string) => {
+        store.delete(k);
+        return Promise.resolve(1);
+      },
+      unlink: (k: string) => {
+        store.delete(k);
+        return Promise.resolve(1);
+      },
       exists: (k: string) => Promise.resolve(store.has(k) ? 1 : 0),
-      ping: () => Promise.resolve('PONG'),
+      ping: () => Promise.resolve("PONG"),
       publish: () => Promise.resolve(1),
-      subscribe: () => Promise.resolve('OK'),
-      unsubscribe: () => Promise.resolve('OK'),
-      psubscribe: () => Promise.resolve('OK'),
+      subscribe: () => Promise.resolve("OK"),
+      unsubscribe: () => Promise.resolve("OK"),
+      psubscribe: () => Promise.resolve("OK"),
       connect: () => Promise.resolve(undefined),
       disconnect: () => undefined,
       close: () => Promise.resolve(undefined),
       quit: () => Promise.resolve(undefined),
       duplicate: () => createMockRedis(),
-      keys: (pat: string) => Promise.resolve([...store.keys()].filter((k) => k.startsWith(pat.replace(/\*$/, '')))),
-      scan: () => Promise.resolve(['0', []]),
+      keys: (pat: string) =>
+        Promise.resolve([...store.keys()].filter((k) => k.startsWith(pat.replace(/\*$/, "")))),
+      scan: () => Promise.resolve(["0", []]),
       hget: () => Promise.resolve(null),
       hset: () => Promise.resolve(1),
       hgetall: () => Promise.resolve({}),
@@ -99,7 +120,7 @@ vi.mock('ioredis', () => {
       zadd: () => Promise.resolve(1),
       zrange: () => Promise.resolve([]),
       zremrangebyscore: () => Promise.resolve(1),
-      type: () => Promise.resolve('none'),
+      type: () => Promise.resolve("none"),
       ttl: () => Promise.resolve(-1),
       pttl: () => Promise.resolve(-1),
       rpush: () => Promise.resolve(1),
@@ -108,44 +129,56 @@ vi.mock('ioredis', () => {
     };
   };
   return {
-    default: function MockIORedis() { return createMockRedis(); },
-    Redis: function MockIORedis2() { return createMockRedis(); },
+    default: function MockIORedis() {
+      return createMockRedis();
+    },
+    Redis: function MockIORedis2() {
+      return createMockRedis();
+    },
   };
 });
 
-vi.mock('camoufox-js', () => ({
+vi.mock("camoufox-js", () => ({
   Camoufox: vi.fn().mockImplementation(() => ({ launch: vi.fn() })),
 }));
 
-vi.mock('@langchain/openai', () => ({
+vi.mock("@langchain/openai", () => ({
   ChatOpenAI: vi.fn().mockImplementation(() => ({
-    invoke: vi.fn().mockResolvedValue({ content: 'Generated post content' }),
+    invoke: vi.fn().mockResolvedValue({ content: "Generated post content" }),
   })),
 }));
 
 const idToNetwork: Record<string, SocialNetwork> = {
-  'acc-bluesky': SocialNetwork.BLUESKY,
-  'acc-mastodon': SocialNetwork.MASTODON,
-  'acc-telegram': SocialNetwork.TELEGRAM,
-  'acc-linkedin': SocialNetwork.LINKEDIN,
-  'acc-x': SocialNetwork.X,
+  "acc-bluesky": SocialNetwork.BLUESKY,
+  "acc-mastodon": SocialNetwork.MASTODON,
+  "acc-telegram": SocialNetwork.TELEGRAM,
+  "acc-linkedin": SocialNetwork.LINKEDIN,
+  "acc-x": SocialNetwork.X,
 };
 
-describe('E2E: Phase 2 social posting (Bluesky, Mastodon, Telegram, LinkedIn)', () => {
+describe("E2E: Phase 2 social posting (Bluesky, Mastodon, Telegram, LinkedIn)", () => {
   let app: INestApplication;
   let moduleRef: TestingModule;
   let prisma: ReturnType<typeof createMockPrismaService>;
   let originalEnabledNetworks: string | undefined;
+  let originalBlueskyTransport: string | undefined;
+  let originalMastodonTransport: string | undefined;
 
   beforeAll(async () => {
     sharedRedisStore.clear();
     originalEnabledNetworks = process.env.ENABLED_NETWORKS;
-    process.env.ENABLED_NETWORKS = 'X,THREADS,FACEBOOK,BLUESKY,MASTODON,TELEGRAM,LINKEDIN';
+    originalBlueskyTransport = process.env.BLUESKY_TRANSPORT;
+    originalMastodonTransport = process.env.MASTODON_TRANSPORT;
+    process.env.ENABLED_NETWORKS = "X,THREADS,FACEBOOK,BLUESKY,MASTODON,TELEGRAM,LINKEDIN";
+    // These scenarios exercise the existing browser poster mocks. API-first
+    // transport is covered by NETWORK-101 unit/API tests and live evidence.
+    process.env.BLUESKY_TRANSPORT = "browser";
+    process.env.MASTODON_TRANSPORT = "browser";
 
     prisma = createMockPrismaService();
 
     const postStore = new Map<string, Record<string, unknown>>();
-    for (const id of ['post-bluesky-1', 'post-mastodon-1', 'post-telegram-1', 'post-linkedin-1']) {
+    for (const id of ["post-bluesky-1", "post-mastodon-1", "post-telegram-1", "post-linkedin-1"]) {
       const post = createPostById(id);
       if (post) postStore.set(id, post);
     }
@@ -170,12 +203,12 @@ describe('E2E: Phase 2 social posting (Bluesky, Mastodon, Telegram, LinkedIn)', 
 
     // Return an active session for any queried account.
     prisma.session.findFirst.mockImplementation(({ where }: { where: { accountId?: string } }) => {
-      const accountId = where?.accountId ?? 'acc-x';
+      const accountId = where?.accountId ?? "acc-x";
       return Promise.resolve({
         id: `sess-${accountId}`,
         accountId,
         storageState: { cookies: [], origins: [] },
-        status: 'ACTIVE',
+        status: "ACTIVE",
         lastHealthCheck: new Date(),
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -184,10 +217,10 @@ describe('E2E: Phase 2 social posting (Bluesky, Mastodon, Telegram, LinkedIn)', 
 
     prisma.session.upsert.mockImplementation(({ create }: { create: { accountId?: string } }) =>
       Promise.resolve({
-        id: `sess-${create.accountId ?? 'x'}`,
-        accountId: create.accountId ?? 'acc-x',
+        id: `sess-${create.accountId ?? "x"}`,
+        accountId: create.accountId ?? "acc-x",
         storageState: { cookies: [], origins: [] },
-        status: 'ACTIVE',
+        status: "ACTIVE",
         lastHealthCheck: new Date(),
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -199,13 +232,15 @@ describe('E2E: Phase 2 social posting (Bluesky, Mastodon, Telegram, LinkedIn)', 
       return Promise.resolve(postStore.get(where.id) ?? null);
     });
 
-    prisma.post.update.mockImplementation(({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
-      const existing = postStore.get(where.id);
-      if (!existing) return Promise.resolve(null);
-      const updated = { ...existing, ...data };
-      postStore.set(where.id, updated);
-      return Promise.resolve(updated);
-    });
+    prisma.post.update.mockImplementation(
+      ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        const existing = postStore.get(where.id);
+        if (!existing) return Promise.resolve(null);
+        const updated = { ...existing, ...data };
+        postStore.set(where.id, updated);
+        return Promise.resolve(updated);
+      },
+    );
 
     prisma.post.findMany.mockResolvedValue([]);
 
@@ -219,19 +254,23 @@ describe('E2E: Phase 2 social posting (Bluesky, Mastodon, Telegram, LinkedIn)', 
     } as unknown as QueueFactory;
 
     const blueskyPoster = {
-      post: vi.fn().mockResolvedValue({ url: 'https://bsky.app/profile/test.bsky.social/post/3k2' }),
+      post: vi
+        .fn()
+        .mockResolvedValue({ url: "https://bsky.app/profile/test.bsky.social/post/3k2" }),
     } as unknown as BlueskyPoster;
 
     const mastodonPoster = {
-      post: vi.fn().mockResolvedValue({ url: 'https://mastodon.social/@test/123456' }),
+      post: vi.fn().mockResolvedValue({ url: "https://mastodon.social/@test/123456" }),
     } as unknown as MastodonPoster;
 
     const linkedinSocialPoster = {
-      post: vi.fn().mockResolvedValue({ url: 'https://www.linkedin.com/feed/update/urn:li:activity:123456' }),
+      post: vi
+        .fn()
+        .mockResolvedValue({ url: "https://www.linkedin.com/feed/update/urn:li:activity:123456" }),
     } as unknown as LinkedinSocialPoster;
 
     const telegramAdapter = {
-      postMessage: vi.fn().mockResolvedValue({ url: 'https://t.me/testchannel/123' }),
+      postMessage: vi.fn().mockResolvedValue({ url: "https://t.me/testchannel/123" }),
     } as unknown as TelegramAdapter;
 
     moduleRef = await Test.createTestingModule({
@@ -254,9 +293,19 @@ describe('E2E: Phase 2 social posting (Bluesky, Mastodon, Telegram, LinkedIn)', 
       .overrideProvider(TelegramAdapter)
       .useValue(telegramAdapter)
       .overrideProvider(RedisCheckpointSaver)
-      .useValue({ onModuleInit: vi.fn(), save: vi.fn(), get: vi.fn(), list: vi.fn(), close: vi.fn() })
+      .useValue({
+        onModuleInit: vi.fn(),
+        save: vi.fn(),
+        get: vi.fn(),
+        list: vi.fn(),
+        close: vi.fn(),
+      })
       .overrideProvider(EncryptionService)
-      .useValue({ encrypt: (data: unknown) => data, decrypt: (data: string) => data, isEnabled: () => false })
+      .useValue({
+        encrypt: (data: unknown) => data,
+        decrypt: (data: string) => data,
+        isEnabled: () => false,
+      })
       .overrideProvider(TrendingScraperService)
       .useValue({
         getGoogleTrends: () => Promise.resolve([]),
@@ -269,9 +318,18 @@ describe('E2E: Phase 2 social posting (Bluesky, Mastodon, Telegram, LinkedIn)', 
       .overrideProvider(LlmService)
       .useValue({ onModuleInit: vi.fn(), generate: vi.fn() })
       .overrideProvider(GenerationService)
-      .useValue({ generate: vi.fn().mockResolvedValue('run-1'), generateSocialPromo: vi.fn().mockResolvedValue(null) })
+      .useValue({
+        generate: vi.fn().mockResolvedValue("run-1"),
+        generateSocialPromo: vi.fn().mockResolvedValue(null),
+      })
       .overrideProvider(HealthController)
-      .useValue({ check: vi.fn() })
+      .useValue({
+        live: vi.fn(),
+        liveNamed: vi.fn(),
+        ready: vi.fn(),
+        degradation: vi.fn(),
+        getError: vi.fn(),
+      })
       .overrideProvider(SchedulerRegistry)
       .useValue({
         getTimeouts: () => [],
@@ -302,13 +360,18 @@ describe('E2E: Phase 2 social posting (Bluesky, Mastodon, Telegram, LinkedIn)', 
         recordPost: vi.fn(),
       })
       .overrideProvider(MetricsScraperService)
-      .useValue({ collectMetrics: vi.fn().mockResolvedValue({ collected: 0, failed: 0, skipped: 0 }) })
+      .useValue({
+        collectMetrics: vi.fn().mockResolvedValue({ collected: 0, failed: 0, skipped: 0 }),
+      })
       .overrideProvider(ContentReader)
-      .useValue({ getTopics: vi.fn().mockResolvedValue([]), readBriefs: vi.fn().mockResolvedValue([]) })
+      .useValue({
+        getTopics: vi.fn().mockResolvedValue([]),
+        readBriefs: vi.fn().mockResolvedValue([]),
+      })
       .compile();
 
     app = moduleRef.createNestApplication();
-    app.setGlobalPrefix('api/v1');
+    app.setGlobalPrefix("api/v1");
     await app.init();
   });
 
@@ -319,42 +382,48 @@ describe('E2E: Phase 2 social posting (Bluesky, Mastodon, Telegram, LinkedIn)', 
     } else {
       delete process.env.ENABLED_NETWORKS;
     }
+    if (originalBlueskyTransport !== undefined) {
+      process.env.BLUESKY_TRANSPORT = originalBlueskyTransport;
+    } else {
+      delete process.env.BLUESKY_TRANSPORT;
+    }
+    if (originalMastodonTransport !== undefined) {
+      process.env.MASTODON_TRANSPORT = originalMastodonTransport;
+    } else {
+      delete process.env.MASTODON_TRANSPORT;
+    }
   });
 
   beforeEach(() => {
     clearHookCache();
   });
 
-  it('E2E-PHASE2-01: POST /posting/:postId posts to Bluesky and returns a postUrl', async () => {
-    const res = await request(app.getHttpServer())
-      .post('/api/v1/posting/post-bluesky-1');
+  it("E2E-PHASE2-01: POST /posting/:postId posts to Bluesky and returns a postUrl", async () => {
+    const res = await request(app.getHttpServer()).post("/api/v1/posting/post-bluesky-1");
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.url).toMatch(/bsky\.app/);
   });
 
-  it('E2E-PHASE2-02: POST /posting/:postId posts to Mastodon and returns a postUrl', async () => {
-    const res = await request(app.getHttpServer())
-      .post('/api/v1/posting/post-mastodon-1');
+  it("E2E-PHASE2-02: POST /posting/:postId posts to Mastodon and returns a postUrl", async () => {
+    const res = await request(app.getHttpServer()).post("/api/v1/posting/post-mastodon-1");
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.url).toMatch(/mastodon/);
   });
 
-  it('E2E-PHASE2-03: POST /posting/:postId posts to Telegram and returns a postUrl', async () => {
-    const res = await request(app.getHttpServer())
-      .post('/api/v1/posting/post-telegram-1');
+  it("E2E-PHASE2-03: POST /posting/:postId posts to Telegram and returns a postUrl", async () => {
+    const res = await request(app.getHttpServer()).post("/api/v1/posting/post-telegram-1");
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.url).toMatch(/t\.me/);
   });
 
-  it('E2E-PHASE2-04: POST /posting/:postId posts to LinkedIn social and returns a postUrl', async () => {
-    const res = await request(app.getHttpServer())
-      .post('/api/v1/posting/post-linkedin-1');
+  it("E2E-PHASE2-04: POST /posting/:postId posts to LinkedIn social and returns a postUrl", async () => {
+    const res = await request(app.getHttpServer()).post("/api/v1/posting/post-linkedin-1");
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
@@ -363,22 +432,42 @@ describe('E2E: Phase 2 social posting (Bluesky, Mastodon, Telegram, LinkedIn)', 
 });
 
 function createPostById(id: string): Record<string, unknown> | undefined {
-  if (id === 'post-bluesky-1') {
-    return postFixture('post-bluesky-1', SocialNetwork.BLUESKY, 'acc-bluesky', 'Bluesky test post');
+  if (id === "post-bluesky-1") {
+    return postFixture("post-bluesky-1", SocialNetwork.BLUESKY, "acc-bluesky", "Bluesky test post");
   }
-  if (id === 'post-mastodon-1') {
-    return postFixture('post-mastodon-1', SocialNetwork.MASTODON, 'acc-mastodon', 'Mastodon test post');
+  if (id === "post-mastodon-1") {
+    return postFixture(
+      "post-mastodon-1",
+      SocialNetwork.MASTODON,
+      "acc-mastodon",
+      "Mastodon test post",
+    );
   }
-  if (id === 'post-telegram-1') {
-    return postFixture('post-telegram-1', SocialNetwork.TELEGRAM, 'acc-telegram', 'Telegram test post');
+  if (id === "post-telegram-1") {
+    return postFixture(
+      "post-telegram-1",
+      SocialNetwork.TELEGRAM,
+      "acc-telegram",
+      "Telegram test post",
+    );
   }
-  if (id === 'post-linkedin-1') {
-    return postFixture('post-linkedin-1', SocialNetwork.LINKEDIN, 'acc-linkedin', 'LinkedIn social test post');
+  if (id === "post-linkedin-1") {
+    return postFixture(
+      "post-linkedin-1",
+      SocialNetwork.LINKEDIN,
+      "acc-linkedin",
+      "LinkedIn social test post",
+    );
   }
   return undefined;
 }
 
-function postFixture(id: string, network: SocialNetwork, accountId: string, content: string): Record<string, unknown> {
+function postFixture(
+  id: string,
+  network: SocialNetwork,
+  accountId: string,
+  content: string,
+): Record<string, unknown> {
   return {
     id,
     accountId,

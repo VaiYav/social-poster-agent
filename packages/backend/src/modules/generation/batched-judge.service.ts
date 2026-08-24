@@ -5,17 +5,17 @@
  * per iteration of the retry loop. Caches results by content hash so concurrent
  * per-network judge nodes share the same promise and the same batch result.
  */
-import { Logger } from '@nestjs/common';
-import type { SocialNetwork } from '@prisma/client';
-import type { JudgeScores } from '@spa/shared';
-import type { ILlmPort } from '../../domain/ports/llm.port.js';
-import type { IPromptPort } from '../../domain/ports/prompt.port.js';
-import { interpolate } from '../../domain/prompt-interpolation.js';
+import { Logger } from "@nestjs/common";
+import type { SocialNetwork } from "../../generated/prisma/client.js";
+import type { JudgeScores } from "@spa/shared";
+import type { ILlmPort } from "../../domain/ports/llm.port.js";
+import type { IPromptPort } from "../../domain/ports/prompt.port.js";
+import { interpolate } from "../../domain/prompt-interpolation.js";
 import {
   JUDGE_BATCH_FALLBACK,
   JUDGE_BATCH_SYSTEM_PROMPT,
   JUDGE_BATCH_USER_PROMPT_TEMPLATE,
-} from './prompts/judge-batch-prompt.js';
+} from "./prompts/judge-batch-prompt.js";
 
 export interface BatchJudgeInput {
   network: SocialNetwork;
@@ -62,22 +62,25 @@ export class BatchedJudgeService {
     return inputs
       .sort((a, b) => a.network.localeCompare(b.network))
       .map((i) => `${i.network}:${i.factsText}:${i.content}`)
-      .join(':::');
+      .join(":::");
   }
 
-  private async runJudgeBatch(inputs: BatchJudgeInput[], key: string): Promise<Record<string, JudgeScores>> {
+  private async runJudgeBatch(
+    inputs: BatchJudgeInput[],
+    key: string,
+  ): Promise<Record<string, JudgeScores>> {
     try {
       const batchText = inputs
         .map(
           (i, idx) =>
             `[POST ${idx + 1}]\nNetwork: ${i.network}\nCharacter limit: ${i.charLimit}\nSlop list: ${i.slopList}\nText:\n"""${i.content}"""`,
         )
-        .join('\n\n---\n\n');
+        .join("\n\n---\n\n");
 
-      const facts = inputs[0]?.factsText ?? '- (no source facts provided)';
+      const facts = inputs[0]?.factsText ?? "- (no source facts provided)";
       const compiled = this.promptPort
         ? await this.promptPort.getCompiledChat(
-            'post-quality-judge-batch',
+            "post-quality-judge-batch",
             { facts, batch: batchText },
             JUDGE_BATCH_FALLBACK,
           )
@@ -89,50 +92,55 @@ export class BatchedJudgeService {
       const response = await this.llm.generateChat(compiled.systemPrompt, compiled.userPrompt, {
         temperature: 0.2,
         maxTokens: this.maxTokens,
-        role: 'judge',
+        role: "judge",
+        traceName: "generation.internal_judge",
       });
 
       const jsonMatch = response.content.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
-        throw new Error('No JSON in batched judge response');
+        throw new Error("No JSON in batched judge response");
       }
 
       const parsed = JSON.parse(jsonMatch[0]);
-      if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.judgments)) {
-        throw new Error('Invalid batched judge JSON structure');
+      if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.judgments)) {
+        throw new Error("Invalid batched judge JSON structure");
       }
 
       const judgments = parsed.judgments as unknown[];
       if (judgments.length < inputs.length) {
-        throw new Error(`Batched judge returned ${judgments.length} judgments for ${inputs.length} posts`);
+        throw new Error(
+          `Batched judge returned ${judgments.length} judgments for ${inputs.length} posts`,
+        );
       }
 
       const out: Record<string, JudgeScores> = {};
       const inputByNetwork = new Map(inputs.map((i) => [i.network, i]));
       for (let i = 0; i < judgments.length; i++) {
         const raw = judgments[i] as Record<string, unknown> | undefined;
-        if (!raw || typeof raw !== 'object') continue;
+        if (!raw || typeof raw !== "object") continue;
 
         // Prefer the network field from the LLM output; fall back to input order.
         const network =
-          typeof raw.network === 'string' && inputByNetwork.has(raw.network as SocialNetwork)
+          typeof raw.network === "string" && inputByNetwork.has(raw.network as SocialNetwork)
             ? (raw.network as SocialNetwork)
             : inputs[i]?.network;
         if (!network) continue;
 
         out[network] = {
           anti_ai_tone: this.clamp01(raw.anti_ai_tone),
-          anti_ai_tone_reason: String(raw.anti_ai_tone_reason ?? ''),
+          anti_ai_tone_reason: String(raw.anti_ai_tone_reason ?? ""),
           hook_strength: this.clamp01(raw.hook_strength),
-          hook_strength_reason: String(raw.hook_strength_reason ?? ''),
+          hook_strength_reason: String(raw.hook_strength_reason ?? ""),
           factual_accuracy: this.clamp01(raw.factual_accuracy),
-          factual_accuracy_reason: String(raw.factual_accuracy_reason ?? ''),
+          factual_accuracy_reason: String(raw.factual_accuracy_reason ?? ""),
           character_limit: this.clamp01(raw.character_limit),
-          character_limit_reason: String(raw.character_limit_reason ?? ''),
+          character_limit_reason: String(raw.character_limit_reason ?? ""),
         };
       }
 
-      this.logger.debug(`Batched judge for ${inputs.map((i) => i.network).join(', ')}: ${JSON.stringify(Object.fromEntries(Object.entries(out).map(([k, v]) => [k, { anti: v.anti_ai_tone, hook: v.hook_strength, factual: v.factual_accuracy, chars: v.character_limit }])))}`);
+      this.logger.debug(
+        `Batched judge for ${inputs.map((i) => i.network).join(", ")}: ${JSON.stringify(Object.fromEntries(Object.entries(out).map(([k, v]) => [k, { anti: v.anti_ai_tone, hook: v.hook_strength, factual: v.factual_accuracy, chars: v.character_limit }])))}`,
+      );
       this.resultsCache.set(key, Promise.resolve(out));
       return out;
     } catch (err) {

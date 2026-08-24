@@ -21,23 +21,23 @@
  *   - Human-like delays between page loads (5-15s)
  *   - Limited to posts from last 30 days (configurable)
  */
-import { Injectable, Logger, Optional, type OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { SchedulerRegistry } from '@nestjs/schedule';
-import { CronJob } from 'cron';
-import { randomUUID } from 'node:crypto';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { SseService } from '../../infrastructure/sse/sse.service.js';
-import { IBrowserPort } from '../../domain/ports/browser.port.js';
-import { Inject } from '@nestjs/common';
-import { getEnabledNetworks, isNetworkEnabled } from '../../domain/enabled-networks.js';
-import { SocialNetwork, PostStatus } from '@prisma/client';
-import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
-import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
-import type { IMetricsSource, PostMetricsData } from './metrics-sources/metrics-source.port.js';
-import { ThreadsInsightsSource } from './metrics-sources/threads-insights.source.js';
-import { FacebookInsightsSource } from './metrics-sources/facebook-insights.source.js';
-import { ABVariantService } from '../content-enhancements/ab-variant.service.js';
+import { Injectable, Logger, Optional, type OnModuleInit } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { SchedulerRegistry } from "@nestjs/schedule";
+import { CronJob } from "cron";
+import { randomUUID } from "node:crypto";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { SseService } from "../../infrastructure/sse/sse.service.js";
+import { IBrowserPort } from "../../domain/ports/browser.port.js";
+import { Inject } from "@nestjs/common";
+import { getEnabledNetworks, isNetworkEnabled } from "../../domain/enabled-networks.js";
+import { SocialNetwork, PostStatus } from "../../generated/prisma/client.js";
+import { isOrchestratorEnabled } from "../../domain/feature-flags.js";
+import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
+import type { IMetricsSource, PostMetricsData } from "./metrics-sources/metrics-source.port.js";
+import { ThreadsInsightsSource } from "./metrics-sources/threads-insights.source.js";
+import { FacebookInsightsSource } from "./metrics-sources/facebook-insights.source.js";
+import { ABVariantService } from "../content-enhancements/ab-variant.service.js";
 
 export interface ScrapedMetrics {
   likes: number;
@@ -68,10 +68,15 @@ export class MetricsScraperService implements OnModuleInit {
     private readonly schedulerRegistry: SchedulerRegistry,
     @Inject(IBrowserPort) @Optional() private readonly browser?: IBrowserPort,
     @Optional() private readonly abVariantService?: ABVariantService,
-    @Inject(SHARED_REDIS) @Optional() private readonly redis?: InstanceType<typeof import('ioredis').default>,
+    @Inject(SHARED_REDIS) @Optional() private readonly redis?: InstanceType<
+      typeof import("ioredis").default
+    >,
   ) {
-    this.metricsLockKey = this.configService.get<string>('METRICS_SCRAPER_LOCK_KEY', 'spa:lock:metrics-scraper');
-    this.metricsLockTtlMs = this.configService.get<number>('METRICS_SCRAPER_LOCK_TTL_MS', 600_000);
+    this.metricsLockKey = this.configService.get<string>(
+      "METRICS_SCRAPER_LOCK_KEY",
+      "spa:lock:metrics-scraper",
+    );
+    this.metricsLockTtlMs = this.configService.get<number>("METRICS_SCRAPER_LOCK_TTL_MS", 600_000);
   }
 
   // AN1: per-network metrics sources, built lazily from env tokens. A network with
@@ -82,11 +87,11 @@ export class MetricsScraperService implements OnModuleInit {
   private getSources(): Partial<Record<SocialNetwork, IMetricsSource>> {
     if (this.sourcesCache) return this.sourcesCache;
     const sources: Partial<Record<SocialNetwork, IMetricsSource>> = {};
-    const threadsToken = this.configService.get<string>('THREADS_ACCESS_TOKEN', '');
+    const threadsToken = this.configService.get<string>("THREADS_ACCESS_TOKEN", "");
     if (threadsToken && isNetworkEnabled(SocialNetwork.THREADS)) {
       sources[SocialNetwork.THREADS] = new ThreadsInsightsSource(threadsToken);
     }
-    const facebookToken = this.configService.get<string>('FACEBOOK_PAGE_TOKEN', '');
+    const facebookToken = this.configService.get<string>("FACEBOOK_PAGE_TOKEN", "");
     if (facebookToken && isNetworkEnabled(SocialNetwork.FACEBOOK)) {
       sources[SocialNetwork.FACEBOOK] = new FacebookInsightsSource(facebookToken);
     }
@@ -104,21 +109,23 @@ export class MetricsScraperService implements OnModuleInit {
    */
   onModuleInit(): void {
     if (isOrchestratorEnabled()) {
-      this.logger.log('Orchestrator is enabled — metrics scraper cron NOT registered');
+      this.logger.log("Orchestrator is enabled — metrics scraper cron NOT registered");
       return;
     }
-    if (this.configService.get<string>('METRICS_SCRAPER_ENABLED', 'false') !== 'true') {
+    if (this.configService.get<string>("METRICS_SCRAPER_ENABLED", "false") !== "true") {
       return;
     }
 
-    const cronExpr = this.configService.get<string>('METRICS_SCRAPER_SCHEDULE', '0 6 * * *');
-    const job = new CronJob(cronExpr, async () => { await this.collectMetrics(); });
+    const cronExpr = this.configService.get<string>("METRICS_SCRAPER_SCHEDULE", "0 6 * * *");
+    const job = new CronJob(cronExpr, async () => {
+      await this.collectMetrics();
+    });
     try {
-      this.schedulerRegistry.addCronJob('metrics-scraper', job);
+      this.schedulerRegistry.addCronJob("metrics-scraper", job);
       job.start();
       this.logger.log(`Metrics scraper cron registered: ${cronExpr}`);
     } catch {
-      this.logger.warn('SchedulerRegistry not available — metrics scraper cron will not run');
+      this.logger.warn("SchedulerRegistry not available — metrics scraper cron will not run");
     }
   }
 
@@ -132,7 +139,7 @@ export class MetricsScraperService implements OnModuleInit {
     if (this.redis) {
       const acquired = await this.acquireMetricsLock();
       if (!acquired.acquired) {
-        this.logger.warn('F6: metrics collection already in progress — skipping concurrent run');
+        this.logger.warn("F6: metrics collection already in progress — skipping concurrent run");
         return { collected: 0, failed: 0, skipped: 0 };
       }
       lockToken = acquired.token;
@@ -142,7 +149,7 @@ export class MetricsScraperService implements OnModuleInit {
       // HTTP API sources (Threads/FB) need no browser; only skip everything when
       // there is neither a browser nor any configured API source.
       if (!this.browser && Object.keys(this.getSources()).length === 0) {
-        this.logger.warn('F6: no browser and no metrics API sources configured — skipped');
+        this.logger.warn("F6: no browser and no metrics API sources configured — skipped");
         return { collected: 0, failed: 0, skipped: 0 };
       }
 
@@ -156,7 +163,7 @@ export class MetricsScraperService implements OnModuleInit {
           postedAt: { gte: startDate },
           network: { in: getEnabledNetworks() },
         },
-        orderBy: { postedAt: 'desc' },
+        orderBy: { postedAt: "desc" },
         take: this.maxPostsPerRun,
         select: {
           id: true,
@@ -166,7 +173,9 @@ export class MetricsScraperService implements OnModuleInit {
         },
       });
 
-      this.logger.log(`F6: Collecting metrics for ${posts.length} posts (last ${this.daysLookback} days)`);
+      this.logger.log(
+        `F6: Collecting metrics for ${posts.length} posts (last ${this.daysLookback} days)`,
+      );
 
       let collected = 0;
       let failed = 0;
@@ -199,7 +208,9 @@ export class MetricsScraperService implements OnModuleInit {
           }
 
           collected++;
-          this.logger.debug(`F6: Collected metrics for ${post.id} — likes: ${metrics.likes}, comments: ${metrics.comments}, shares: ${metrics.shares}`);
+          this.logger.debug(
+            `F6: Collected metrics for ${post.id} — likes: ${metrics.likes}, comments: ${metrics.comments}, shares: ${metrics.shares}`,
+          );
         } catch (err) {
           failed++;
           const message = err instanceof Error ? err.message : String(err);
@@ -216,12 +227,14 @@ export class MetricsScraperService implements OnModuleInit {
 
       // SSE notification
       await this.sseService.publish({
-        type: 'health_alert',
-        severity: 'info',
+        type: "health_alert",
+        severity: "info",
         error: `F6: Metrics collected — ${collected} ok, ${failed} failed, ${skipped} skipped`,
       });
 
-      this.logger.log(`F6: Metrics collection complete — collected: ${collected}, failed: ${failed}, skipped: ${skipped}`);
+      this.logger.log(
+        `F6: Metrics collection complete — collected: ${collected}, failed: ${failed}, skipped: ${skipped}`,
+      );
       return { collected, failed, skipped };
     } finally {
       if (lockToken) {
@@ -260,11 +273,11 @@ export class MetricsScraperService implements OnModuleInit {
     const result = await this.redis.set(
       this.metricsLockKey,
       token,
-      'PX',
+      "PX",
       this.metricsLockTtlMs,
-      'NX',
+      "NX",
     );
-    return { acquired: result === 'OK', token };
+    return { acquired: result === "OK", token };
   }
 
   /**
@@ -287,7 +300,7 @@ export class MetricsScraperService implements OnModuleInit {
   } | null> {
     const latest = await this.prisma.postMetrics.findFirst({
       where: { postId },
-      orderBy: { collectedAt: 'desc' },
+      orderBy: { collectedAt: "desc" },
     });
     if (!latest) return null;
     return {
@@ -302,16 +315,18 @@ export class MetricsScraperService implements OnModuleInit {
   /**
    * Get metrics time-series for a post (all snapshots).
    */
-  async getMetricsHistory(postId: string): Promise<Array<{
-    likes: number;
-    comments: number;
-    shares: number;
-    impressions: number | null;
-    collectedAt: Date;
-  }>> {
+  async getMetricsHistory(postId: string): Promise<
+    Array<{
+      likes: number;
+      comments: number;
+      shares: number;
+      impressions: number | null;
+      collectedAt: Date;
+    }>
+  > {
     return this.prisma.postMetrics.findMany({
       where: { postId },
-      orderBy: { collectedAt: 'asc' },
+      orderBy: { collectedAt: "asc" },
       select: {
         likes: true,
         comments: true,

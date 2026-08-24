@@ -1,27 +1,32 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { ILlmPort } from '../../domain/ports/llm.port.js';
-import type { BaseCallbackHandler } from '../../domain/ports/llm-primitives.js';
-import { ContentSourceService } from '../content-source/content-source.service';
-import { AccountsService } from '../accounts/accounts.service';
-import { PostsService, extractSourcePath } from '../posts/posts.service';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import type { Prisma } from '@prisma/client';
-import { RedisCheckpointSaver } from '../../infrastructure/checkpoint/redis-checkpoint.js';
-import { SseService } from '../../infrastructure/sse/sse.service.js';
-import { TrendingService } from '../trending/trending.service.js';
-import { TrendingScraperService } from '../trending/trending-scraper.service.js';
-import { LangfuseService, type LangfuseHandlerOptions } from '../../infrastructure/langfuse/langfuse.service.js';
-import { withLlmContext } from '../../infrastructure/llm/llm.service.js';
-import { combineSignals } from '../../infrastructure/util/abort-signal.js';
-import { parseBool } from '../../infrastructure/config/parse-bool.js';
-import { IPromptPort } from '../../domain/ports/prompt.port.js';
-import { DomainConfigService } from '../../domain/domain-config/domain-config.service.js';
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
+import { createHash } from "node:crypto";
+import { ConfigService } from "@nestjs/config";
+import { ILlmPort } from "../../domain/ports/llm.port.js";
+import type { BaseCallbackHandler } from "../../domain/ports/llm-primitives.js";
+import { ContentSourceService } from "../content-source/content-source.service.js";
+import { AccountsService } from "../accounts/accounts.service.js";
+import { AccountSettingsService } from "../accounts/account-settings.service.js";
+import { PostsService, extractSourcePath } from "../posts/posts.service.js";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import type { Prisma } from "../../generated/prisma/client.js";
+import { RedisCheckpointSaver } from "../../infrastructure/checkpoint/redis-checkpoint.js";
+import { SseService } from "../../infrastructure/sse/sse.service.js";
+import { TrendingService } from "../trending/trending.service.js";
+import { TrendingScraperService } from "../trending/trending-scraper.service.js";
+import {
+  LangfuseService,
+  type LangfuseHandlerOptions,
+} from "../../infrastructure/langfuse/langfuse.service.js";
+import { withLlmContext } from "../../infrastructure/llm/llm.service.js";
+import { combineSignals } from "../../infrastructure/util/abort-signal.js";
+import { parseBool } from "../../infrastructure/config/parse-bool.js";
+import { IPromptPort } from "../../domain/ports/prompt.port.js";
+import { DomainConfigService } from "../../domain/domain-config/domain-config.service.js";
 import {
   withPromptLabelContext,
   getRecordedPromptLabels,
-} from '../../infrastructure/prompt/prompt-label-context.js';
-import { getEnabledNetworks, isNetworkEnabled } from '../../domain/enabled-networks.js';
+} from "../../infrastructure/prompt/prompt-label-context.js";
+import { getEnabledNetworks, isNetworkEnabled } from "../../domain/enabled-networks.js";
 import {
   SocialNetwork,
   GenerationRunStatus,
@@ -29,22 +34,49 @@ import {
   PostStatus,
   ContentType,
   Post as PrismaPost,
-} from '@prisma/client';
-import type { ContentTopic, GenerateArticleOptions, ArticleGraphState, ArticleContent } from '@spa/shared';
-import { buildGenerationGraph, createInitialState, type GeneratedPost, type ProgressPublisher } from './generation.graph.js';
-import { buildArticleGraph, createArticleInitialState } from './article-graph.js';
-import { CanonicalUrlService } from '../canonical/canonical-url.service.js';
-import type { JudgeScores } from '@spa/shared';
-import { Command } from '@langchain/langgraph';
-import { simhash, isDuplicateHash } from './simhash.js';
-import { prioritizeTopics as prioritizeTopicsByFreshness } from './topic-prioritization.js';
-import { checkTrendSafety } from '../content-enhancements/trend-guardrail.js';
-import { ContentPillarTracker } from '../content-enhancements/content-pillar.tracker.js';
-import { HookPerformanceBank } from '../content-enhancements/hook-performance-bank.js';
-import { VisualConceptService } from '../content-enhancements/visual-concept.service.js';
-import { ThreadDepthService } from '../content-enhancements/thread-depth.service.js';
-import { ABVariantGenerator } from '../content-enhancements/ab-variant.generator.js';
-import { ABVariantService } from '../content-enhancements/ab-variant.service.js';
+} from "../../generated/prisma/client.js";
+import type {
+  ContentTopic,
+  GenerateArticleOptions,
+  ArticleGraphState,
+  ArticleContent,
+} from "@spa/shared";
+import {
+  buildGenerationGraph,
+  createInitialState,
+  type GeneratedPost,
+  type ProgressPublisher,
+} from "./generation.graph.js";
+import { buildArticleGraph, createArticleInitialState } from "./article-graph.js";
+import { CanonicalUrlService } from "../canonical/canonical-url.service.js";
+import type { JudgeScores } from "@spa/shared";
+import { simhash } from "./simhash.js";
+import { prioritizeTopics as prioritizeTopicsByFreshness } from "./topic-prioritization.js";
+import { checkTrendSafety } from "../content-enhancements/trend-guardrail.js";
+import { ContentPillarTracker } from "../content-enhancements/content-pillar.tracker.js";
+import { HookPerformanceBank } from "../content-enhancements/hook-performance-bank.js";
+import { VisualConceptService } from "../content-enhancements/visual-concept.service.js";
+import { ThreadDepthService } from "../content-enhancements/thread-depth.service.js";
+import { ABVariantGenerator } from "../content-enhancements/ab-variant.generator.js";
+import { ABVariantService } from "../content-enhancements/ab-variant.service.js";
+import { OnlineEvaluationService } from "../evaluation/online-evaluation.service.js";
+import {
+  IAuthorContextPort,
+  type AuthorContextResult,
+  type IAuthorContextPort as AuthorContextPort,
+} from "../../domain/ports/author-context.port.js";
+import { EditorialPortfolioService } from "../persona/editorial-portfolio.service.js";
+import type { EditorialAccountCandidate } from "../persona/editorial-portfolio-planner.js";
+import {
+  GenerationPersistenceService,
+  type GenerationAccount,
+  type GenerationPersistenceOptions,
+  type GenerationSourceRef,
+  type PersistedGenerationPost,
+} from "./generation-persistence.service.js";
+import { PostFactory } from "./post.factory.js";
+import { GenerationRunLifecycleService } from "./generation-run-lifecycle.service.js";
+import { ReviewResumeService } from "./review-resume.service.js";
 
 /**
  * Generation service — uses LangGraph workflow for creating social post drafts.
@@ -57,7 +89,7 @@ import { ABVariantService } from '../content-enhancements/ab-variant.service.js'
  *     → save_to_db → END
  *
  * One graph invocation per topic generates posts for ALL target networks.
- * Each network gets a DIFFERENT hook + angle (OQ-16: per-network angle = разный контент).
+ * Each network gets a DIFFERENT hook + angle (OQ-16: per-network angle = different content).
  *
  * Checkpoint: RedisCheckpointSaver persists state after each node.
  *   thread_id = generationRunId (enables resume after crash — B6 mitigation).
@@ -65,8 +97,8 @@ import { ABVariantService } from '../content-enhancements/ab-variant.service.js'
  * Saves drafts as Post (status=DRAFT). Operator reviews in UI before posting.
  */
 
-type CompiledGraph = ReturnType<ReturnType<typeof buildGenerationGraph>['compile']>;
-type AccountResult = Awaited<ReturnType<AccountsService['findFirstActiveByNetwork']>>;
+type CompiledGraph = ReturnType<ReturnType<typeof buildGenerationGraph>["compile"]>;
+type AccountResult = Awaited<ReturnType<AccountsService["findFirstActiveByNetwork"]>>;
 
 /**
  * Config object passed to `graph.invoke()`. Includes `callbacks` in the type
@@ -76,6 +108,7 @@ interface GraphInvokeConfig {
   configurable: { thread_id: string };
   recursionLimit: number;
   callbacks?: BaseCallbackHandler[];
+  runName?: string;
   /** AbortSignal passed to graph.invoke so pause/resume can cancel the run. */
   signal?: AbortSignal;
 }
@@ -87,12 +120,9 @@ export class GenerationService {
   private compiledGraph: CompiledGraph | null = null;
   /** Article generation graph (lazy-compiled, like social graph) */
   private compiledArticleGraph: Awaited<ReturnType<typeof buildArticleGraph>> | null = null;
-  /** Active run cancellations — runId → AbortController */
-  private readonly activeRuns = new Map<string, AbortController>();
-  /** Languages for multilingual post generation (ISO 639-1 codes) */
-  private readonly postingLanguages: string[];
-  /** Counter for round-robin language rotation across topics */
-  private languageRotationIndex = 0;
+  private readonly persistenceService: GenerationPersistenceService;
+  private readonly runLifecycle: GenerationRunLifecycleService;
+  private readonly reviewResumeService: ReviewResumeService;
 
   constructor(
     @Inject(ILlmPort) private readonly llm: ILlmPort,
@@ -114,18 +144,30 @@ export class GenerationService {
     @Optional() private readonly langfuse?: LangfuseService,
     @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
     @Optional() private readonly domainConfig?: DomainConfigService,
+    // M1.3: per-account brand voice overrides (AccountSettings.brandVoice)
+    @Optional() private readonly accountSettings?: AccountSettingsService,
+    @Optional() private readonly onlineEvaluator?: OnlineEvaluationService,
+    @Optional()
+    @Inject(IAuthorContextPort)
+    private readonly authorContextPort?: AuthorContextPort,
+    @Optional() private readonly editorialPortfolio?: EditorialPortfolioService,
+    @Optional() persistenceService?: GenerationPersistenceService,
+    @Optional() runLifecycle?: GenerationRunLifecycleService,
+    @Optional() reviewResumeService?: ReviewResumeService,
   ) {
-    // Read POSTING_LANGUAGES from config — comma-separated ISO 639-1 codes.
-    // Default: en only (backward compatible). Round-robin rotation across topics.
-    const langEnv = this.configService.get<string>('POSTING_LANGUAGES', 'en').trim();
-    this.postingLanguages = langEnv
-      .split(',')
-      .map((s) => s.trim().toLowerCase())
-      .filter(Boolean);
-    if (this.postingLanguages.length === 0) this.postingLanguages.push('en');
-    if (this.postingLanguages.length > 1) {
-      this.logger.log(`Multilingual generation enabled: ${this.postingLanguages.join(', ')}`);
-    }
+    this.persistenceService =
+      persistenceService ??
+      new GenerationPersistenceService(
+        postsService,
+        abVariantService,
+        onlineEvaluator,
+        new PostFactory(llm),
+      );
+    this.runLifecycle =
+      runLifecycle ?? new GenerationRunLifecycleService(prisma, sseService, checkpointSaver);
+    this.reviewResumeService =
+      reviewResumeService ??
+      new ReviewResumeService(accountsService, sseService, this.persistenceService);
   }
 
   /**
@@ -136,7 +178,7 @@ export class GenerationService {
     if (!this.compiledGraph) {
       const progressPublisher: ProgressPublisher = (event) => {
         this.sseService.publish({
-          type: 'generation_progress',
+          type: "generation_progress",
           node: event.node,
           topic: event.topic,
           postsCount: event.postsCount,
@@ -144,30 +186,55 @@ export class GenerationService {
         });
       };
       // Q8: judge-gated refine loop threshold (0 disables the retry loop)
-      const rawThreshold = Number(this.configService.get<string>('JUDGE_REFINE_THRESHOLD', '0.6'));
-      const rawHardFail = Number(this.configService.get<string>('JUDGE_HARD_FAIL_THRESHOLD', '0.25'));
-      const rawHardFailAntiAi = Number(this.configService.get<string>('JUDGE_HARD_FAIL_ANTI_AI', ''));
-      const rawHardFailFactual = Number(this.configService.get<string>('JUDGE_HARD_FAIL_FACTUAL', ''));
-      const rawHardFailCharacter = Number(this.configService.get<string>('JUDGE_HARD_FAIL_CHARACTER', ''));
-      const rawSkipAB = Number(this.configService.get<string>('JUDGE_SKIP_AB_THRESHOLD', '0.6'));
+      const rawThreshold = Number(this.configService.get<string>("JUDGE_REFINE_THRESHOLD", "0.6"));
+      const rawHardFail = Number(
+        this.configService.get<string>("JUDGE_HARD_FAIL_THRESHOLD", "0.25"),
+      );
+      const rawHardFailAntiAi = Number(
+        this.configService.get<string>("JUDGE_HARD_FAIL_ANTI_AI", ""),
+      );
+      const rawHardFailFactual = Number(
+        this.configService.get<string>("JUDGE_HARD_FAIL_FACTUAL", ""),
+      );
+      const rawHardFailCharacter = Number(
+        this.configService.get<string>("JUDGE_HARD_FAIL_CHARACTER", ""),
+      );
+      const rawSkipAB = Number(this.configService.get<string>("JUDGE_SKIP_AB_THRESHOLD", "0.6"));
       const judgeRefineThreshold = Number.isFinite(rawThreshold) ? rawThreshold : 0.6;
       const judgeHardFailThreshold = Number.isFinite(rawHardFail) ? rawHardFail : 0.25;
-      const graphBuilder = buildGenerationGraph(this.llm, progressPublisher, this.hookBank, this.visualService, this.abGenerator, this.abVariantService, this.promptPort, {
-        judgeRefineThreshold,
-        judgeHardFailThreshold,
-        judgeHardFailAntiAi: Number.isFinite(rawHardFailAntiAi) ? rawHardFailAntiAi : judgeHardFailThreshold,
-        judgeHardFailFactual: Number.isFinite(rawHardFailFactual) ? rawHardFailFactual : judgeHardFailThreshold,
-        judgeHardFailCharacter: Number.isFinite(rawHardFailCharacter) ? rawHardFailCharacter : judgeHardFailThreshold,
-        judgeSkipABThreshold: Number.isFinite(rawSkipAB) ? rawSkipAB : 0.6,
-        getRecordedPromptLabels,
-        temperatures: {
-          hook: Number(this.configService.get<number>('GENERATION_TEMPERATURE_HOOK', 0.95)),
-          draft: Number(this.configService.get<number>('GENERATION_TEMPERATURE_DRAFT', 0.8)),
-          refine: Number(this.configService.get<number>('GENERATION_TEMPERATURE_REFINE', 0.6)),
+      const graphBuilder = buildGenerationGraph(
+        this.llm,
+        progressPublisher,
+        this.hookBank,
+        this.visualService,
+        this.abGenerator,
+        this.abVariantService,
+        this.promptPort,
+        {
+          judgeRefineThreshold,
+          judgeHardFailThreshold,
+          judgeHardFailAntiAi: Number.isFinite(rawHardFailAntiAi)
+            ? rawHardFailAntiAi
+            : judgeHardFailThreshold,
+          judgeHardFailFactual: Number.isFinite(rawHardFailFactual)
+            ? rawHardFailFactual
+            : judgeHardFailThreshold,
+          judgeHardFailCharacter: Number.isFinite(rawHardFailCharacter)
+            ? rawHardFailCharacter
+            : judgeHardFailThreshold,
+          judgeSkipABThreshold: Number.isFinite(rawSkipAB) ? rawSkipAB : 0.6,
+          getRecordedPromptLabels,
+          temperatures: {
+            hook: Number(this.configService.get<number>("GENERATION_TEMPERATURE_HOOK", 0.95)),
+            draft: Number(this.configService.get<number>("GENERATION_TEMPERATURE_DRAFT", 0.8)),
+            refine: Number(this.configService.get<number>("GENERATION_TEMPERATURE_REFINE", 0.6)),
+          },
         },
-      });
+      );
       this.compiledGraph = graphBuilder.compile({ checkpointer: this.checkpointSaver });
-      this.logger.log('LangGraph workflow compiled with Redis checkpoint saver + SSE progress (§10.3 parallel graph)');
+      this.logger.log(
+        "LangGraph workflow compiled with Redis checkpoint saver + SSE progress (§10.3 parallel graph)",
+      );
     }
     return this.compiledGraph;
   }
@@ -187,8 +254,9 @@ export class GenerationService {
       // (set_canonical node handles null gracefully via a fallback slugify)
       let canonicalService: CanonicalUrlService | undefined;
       try {
-        const { ModuleRef } = await import('@nestjs/core');
-        const moduleRef = (this as unknown as { moduleRef?: InstanceType<typeof ModuleRef> }).moduleRef;
+        const { ModuleRef } = await import("@nestjs/core");
+        const moduleRef = (this as unknown as { moduleRef?: InstanceType<typeof ModuleRef> })
+          .moduleRef;
         if (moduleRef) {
           canonicalService = moduleRef.get(CanonicalUrlService, { strict: false });
         }
@@ -200,7 +268,11 @@ export class GenerationService {
       const blogBaseUrl = this.blogBaseUrl;
       const fallbackCanonical = {
         buildBlogUrl: (slug: string) => `${blogBaseUrl}/blog/${slug}`,
-        slugify: (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
+        slugify: (title: string) =>
+          title
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-+|-+$/g, ""),
         setCanonical: async () => {},
         addSyndicatedUrl: async () => {},
         verifyCanonical: async () => true,
@@ -211,7 +283,7 @@ export class GenerationService {
         promptPort: this.promptPort ?? null,
         canonicalService: canonicalService ?? fallbackCanonical,
       });
-      this.logger.log('Article generation graph compiled (Phase 0 stub nodes)');
+      this.logger.log("Article generation graph compiled (Phase 0 stub nodes)");
     }
     return this.compiledArticleGraph;
   }
@@ -232,7 +304,9 @@ export class GenerationService {
     const runId = `article-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     this.logger.log(`generateArticle: topic="${options.topic}", runId=${runId}`);
 
-    const initialState = createArticleInitialState(options, runId);
+    // English-only article generation.
+    const englishOptions = { ...options, language: "en" };
+    const initialState = createArticleInitialState(englishOptions, runId);
     const config = {
       configurable: { thread_id: `${runId}:${options.topic}` },
       recursionLimit: 50,
@@ -273,159 +347,118 @@ export class GenerationService {
   private async tracedGraphInvoke(
     config: GraphInvokeConfig,
     handlerOpts: LangfuseHandlerOptions,
-    input: Parameters<ReturnType<ReturnType<typeof buildGenerationGraph>['compile']>['invoke']>[0],
+    input: Parameters<ReturnType<ReturnType<typeof buildGenerationGraph>["compile"]>["invoke"]>[0],
     runId: string,
     model?: string,
-  ): Promise<{ finalState: Record<string, unknown>; promptLabels: Record<string, { label: string; isFallback?: boolean }> }> {
+  ): Promise<{
+    finalState: Record<string, unknown>;
+    promptLabels: Record<string, { label: string; isFallback?: boolean }>;
+  }> {
     const handler = this.langfuse?.createHandler(handlerOpts);
     const callbacks = handler ? [handler] : [];
     if (callbacks.length > 0) {
       config.callbacks = callbacks;
     }
+    const invokeGraph = async (): Promise<Record<string, unknown>> =>
+      (await this.getGraph().invoke(input, config)) as Record<string, unknown>;
     return withPromptLabelContext(() =>
-      withLlmContext({ callbacks, signal: config.signal, budgetScope: 'generation', budgetRunId: runId, model }, async () => {
-        const finalState = await this.getGraph().invoke(input, config);
-        const promptLabels = getRecordedPromptLabels();
-        return { finalState, promptLabels };
-      }),
+      withLlmContext(
+        { callbacks, signal: config.signal, budgetScope: "generation", budgetRunId: runId, model },
+        async () => {
+          let finalState: Record<string, unknown>;
+          if (this.langfuse?.isEnabled) {
+            const traceMetadata = handlerOpts.traceMetadata ?? {};
+            const traceInput = {
+              run_id: runId,
+              topic: typeof traceMetadata.topic === "string" ? traceMetadata.topic : "unknown",
+              language:
+                typeof traceMetadata.language === "string" ? traceMetadata.language : "unknown",
+              networks:
+                typeof traceMetadata.networks === "string" ? traceMetadata.networks : "unknown",
+            } as const;
+            finalState = await this.langfuse.withTrace(
+              {
+                rootName: "agent.generation",
+                feature: "generation",
+                sessionId: handlerOpts.sessionId ?? runId,
+                tags: handlerOpts.tags,
+                metadata: traceMetadata,
+                input: traceInput,
+                output: () => ({ status: "completed", run_id: runId }),
+              },
+              invokeGraph,
+            );
+          } else {
+            finalState = await invokeGraph();
+          }
+          const promptLabels = getRecordedPromptLabels();
+          return { finalState, promptLabels };
+        },
+      ),
     );
   }
 
-  /**
-   * Build the llmMetadata JSON for a saved Post.
-   *
-   * promptVersion = the active PROMPT_VERSION (global label)
-   * promptLabels = map of promptName -> { label, isFallback } recorded during this run
-   */
+  // Compatibility delegators keep the public GenerationService surface stable while the
+  // persistence/factory implementation lives in GenerationPersistenceService.
   private buildPostLlmMetadata(
     genPost: GeneratedPost,
-    simhash: string,
+    postSimhash: string,
     promptLabels: Record<string, { label: string; isFallback?: boolean }>,
     overrides: Record<string, unknown> = {},
   ): Record<string, unknown> {
-    return {
-      model: genPost.model,
-      tokens: genPost.tokens ?? 0,
-      cost: genPost.cost ?? 0,
-      promptVersion: this.llm.getPromptVersion?.() ?? 'unknown',
+    this.persistenceService.configureOptionalServices(this.abVariantService, this.onlineEvaluator);
+    return this.persistenceService.buildPostLlmMetadata(
+      genPost,
+      postSimhash,
       promptLabels,
-      hook: genPost.hook,
-      hookTechnique: genPost.hookTechnique,
-      contentStyleId: genPost.contentStyleId,
-      humorMechanicId: genPost.humorMechanicId ?? null,
-      angleType: genPost.angle.split('—')[0]?.trim(),
-      simhash,
-      qualityScore: genPost.qualityScore,
-      judgeScores: genPost.judgeScores ?? null,
-      visualConcept: genPost.visualConcept ?? null,
-      abVariants: genPost.abVariants ?? null,
-      ...overrides,
-    };
+      overrides,
+    );
   }
 
-  /**
-   * Persist A/B variants for a generated post. Non-blocking — if the service is
-   * not available (e.g. tests), the post is still saved.
-   */
-  private async persistPostVariants(
+  private persistGeneratedPosts(
+    generatedPosts: GeneratedPost[],
+    accountsByNetwork: Map<SocialNetwork, AccountResult[] | AccountResult | null | undefined>,
+    runId: string,
+    sourceRef: GenerationSourceRef,
+    options: GenerationPersistenceOptions = {},
+  ): Promise<PersistedGenerationPost[]> {
+    this.persistenceService.configureOptionalServices(this.abVariantService, this.onlineEvaluator);
+    return this.persistenceService.persistGeneratedPosts(
+      generatedPosts,
+      accountsByNetwork,
+      runId,
+      sourceRef,
+      options,
+    );
+  }
+
+  private persistPostVariants(
     postId: string,
     genPost: GeneratedPost,
     judgeScores?: JudgeScores,
   ): Promise<void> {
-    if (!this.abVariantService) return;
-    try {
-      await this.abVariantService.createVariants(
-        postId,
-        genPost.network,
-        genPost.content,
-        genPost.abVariants ?? null,
-        judgeScores,
-      );
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.logger.warn(`Failed to persist A/B variants for ${postId}: ${message}`);
-    }
+    this.persistenceService.configureOptionalServices(this.abVariantService, this.onlineEvaluator);
+    return this.persistenceService.persistPostVariants(postId, genPost, judgeScores);
   }
 
-  private async persistPostVariantForContent(
+  private persistPostVariantForContent(
     postId: string,
     network: SocialNetwork,
     content: string,
     judgeScores?: JudgeScores,
   ): Promise<void> {
-    if (!this.abVariantService) return;
-    try {
-      await this.abVariantService.createVariants(postId, network, content, null, judgeScores);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.logger.warn(`Failed to persist default variant for ${postId}: ${message}`);
-    }
+    this.persistenceService.configureOptionalServices(this.abVariantService, this.onlineEvaluator);
+    return this.persistenceService.persistPostVariantForContent(
+      postId,
+      network,
+      content,
+      judgeScores,
+    );
   }
 
-  /**
-   * Persist generated posts to the DB with SimHash dedup + A/B variants.
-   * Shared by generate, resume, and review-resume paths.
-   */
-  private async persistGeneratedPosts(
-    generatedPosts: GeneratedPost[],
-    accountsByNetwork: Map<SocialNetwork, AccountResult[] | AccountResult | null | undefined>,
-    runId: string,
-    sourceRef: { type: string; path: string; topic: string; keywords: string[]; originalPostId?: string; originalTopic?: string },
-    options: {
-      language?: string;
-      recentHashes?: string[];
-      promptLabels?: Record<string, { label: string; isFallback?: boolean }>;
-      canonicalUrl?: string;
-    } = {},
-  ): Promise<{ id: string; network: SocialNetwork; llmMetadata: Prisma.JsonValue }[]> {
-    const savedPosts: { id: string; network: SocialNetwork; llmMetadata: Prisma.JsonValue }[] = [];
-    const recentHashes = options.recentHashes ?? [];
-
-    for (const genPost of generatedPosts) {
-      if (!genPost.content) {
-        this.logger.warn(`Generated post empty for ${genPost.network} / "${sourceRef.topic}"`);
-        continue;
-      }
-
-      const candidateHash = simhash(genPost.content);
-      if (isDuplicateHash(candidateHash, recentHashes)) {
-        this.logger.warn(
-          `Skipping near-duplicate post for ${genPost.network} / "${sourceRef.topic}" — SimHash match`,
-        );
-        continue;
-      }
-
-      const configuredAccounts = accountsByNetwork.get(genPost.network);
-      const accounts = (Array.isArray(configuredAccounts) ? configuredAccounts : [configuredAccounts]).filter(
-        (account): account is NonNullable<AccountResult> => Boolean(account),
-      );
-      for (const account of accounts) {
-        const post = await this.postsService.create({
-          accountId: account.id,
-          network: genPost.network,
-          language: options.language ?? 'en',
-          content: genPost.content,
-          generationRunId: runId,
-          simhash: candidateHash,
-          sourceRef,
-          canonicalUrl: options.canonicalUrl ?? null,
-          llmMetadata: this.buildPostLlmMetadata(
-            genPost,
-            candidateHash,
-            genPost.promptLabels ?? options.promptLabels ?? {},
-          ) as Prisma.InputJsonValue,
-        });
-
-        await this.persistPostVariants(post.id, genPost, genPost.judgeScores);
-        savedPosts.push(post);
-      }
-      if (accounts.length > 0) recentHashes.push(candidateHash);
-      this.logger.debug(
-        `Created draft post for ${genPost.network} (score: ${genPost.qualityScore ?? 'n/a'}/10): ${genPost.content.slice(0, 50)}...`,
-      );
-    }
-
-    return savedPosts;
+  private evaluateOnlineOutput(postId: string, generated: GeneratedPost): Promise<void> {
+    this.persistenceService.configureOptionalServices(this.abVariantService, this.onlineEvaluator);
+    return this.persistenceService.evaluateOnlineOutput(postId, generated);
   }
 
   /**
@@ -460,16 +493,10 @@ export class GenerationService {
     signal?: AbortSignal,
     options?: { accountIds?: string[] },
   ): Promise<string> {
-    const run = await this.prisma.generationRun.create({
-      data: { triggeredBy, sourceTopics: [] },
-    });
-
-    // Sprint I: SSE generation_started event
-    await this.sseService.publish({ type: 'generation_started', runId: run.id, count });
+    const run = await this.runLifecycle.start(triggeredBy, count);
 
     // AbortController enables pause/resume to actually stop the in-flight run.
-    const controller = new AbortController();
-    this.activeRuns.set(run.id, controller);
+    const controller = this.runLifecycle.register(run.id);
 
     // Merge internal pause/resume controller with any external abort signal
     // (e.g. orchestrator execute-node timeout / stop).
@@ -478,7 +505,7 @@ export class GenerationService {
     try {
       let topics = await this.contentSourceService.getTopics(count);
 
-      // Sprint P / F22: Enrich topics with trending topics (Google Trends + X + domain calendar)
+      // INTEL-101 / F22: Enrich topics with trending topics (Google Trends + X + domain calendar)
       // Trending topics are ADDED ON TOP of content-source topics (not replacing them).
       // This way, if the trend guardrail rejects trending topics, we still have
       // the full set of content-source topics to fall back on.
@@ -493,10 +520,7 @@ export class GenerationService {
             // and the prioritization step (B5) will trim to `count`.
             // Target mix: ~60% content, ~40% trending — but content topics
             // are never reduced to make room for trending.
-            const trendingCount = Math.min(
-              Math.ceil(count * 0.4),
-              trendingTopics.length,
-            );
+            const trendingCount = Math.min(Math.ceil(count * 0.4), trendingTopics.length);
             const trendSlice = trendingTopics.slice(0, trendingCount);
             topics = [...topics, ...trendSlice];
             this.logger.log(
@@ -512,8 +536,8 @@ export class GenerationService {
       }
 
       if (topics.length === 0) {
-        this.logger.warn('No topics found from content sources');
-        await this.markRunCompleted(run.id, [], 'No topics found');
+        this.logger.warn("No topics found from content sources");
+        await this.markRunCompleted(run.id, [], "No topics found");
         return run.id;
       }
 
@@ -526,8 +550,8 @@ export class GenerationService {
       // automatically backfilled by the remaining content topics.
       const safeTopics = await this.filterTrendingTopics(topics);
       if (safeTopics.length === 0) {
-        this.logger.warn('P5: All topics rejected by trend guardrail — no topics to generate');
-        await this.markRunCompleted(run.id, [], 'All topics rejected by trend guardrail');
+        this.logger.warn("P5: All topics rejected by trend guardrail — no topics to generate");
+        await this.markRunCompleted(run.id, [], "All topics rejected by trend guardrail");
         return run.id;
       }
       topics = safeTopics;
@@ -537,14 +561,16 @@ export class GenerationService {
       // keywords so the generation graph steers the LLM toward the
       // underrepresented pillar. Graceful degradation: if the tracker is
       // unavailable (Redis down), generation continues without steering.
-      let pillarHint = '';
+      let pillarHint = "";
       if (this.pillarTracker) {
         try {
           const rec = await this.pillarTracker.recommendPillar();
           pillarHint = rec.recommended;
           this.logger.log(`P6: Recommending pillar "${pillarHint}" — ${rec.reason}`);
         } catch (err) {
-          this.logger.warn(`P6: Pillar recommendation failed (non-blocking): ${(err as Error).message}`);
+          this.logger.warn(
+            `P6: Pillar recommendation failed (non-blocking): ${(err as Error).message}`,
+          );
         }
       }
       if (pillarHint) {
@@ -589,11 +615,9 @@ export class GenerationService {
         const batch = prioritizedTopics.slice(i, i + MAX_CONCURRENCY);
         const results = await Promise.allSettled(
           batch.map((topic) => {
-            // Round-robin language rotation — each topic gets a different language
-            const language = this.postingLanguages[
-              this.languageRotationIndex % this.postingLanguages.length
-            ]!;
-            this.languageRotationIndex++;
+            // Generation is deliberately English-only. Source/topic language metadata
+            // remains immutable, but it never changes the generated post language.
+            const language = "en";
             this.logger.debug(`Generating topic "${topic.topic.slice(0, 40)}" in ${language}`);
             return this.generatePostsForTopic(
               topic,
@@ -614,14 +638,16 @@ export class GenerationService {
           const result = results[r];
           if (!result) continue;
           const topic = batch[r];
-          if (result.status === 'fulfilled') {
+          if (result.status === "fulfilled") {
             // 2.8.1: Mark the topic as used after successful generation so
             // it is not selected again in the next cycle.
             if (topic) {
               try {
                 await this.contentSourceService.markUsed(topic);
               } catch (err) {
-                this.logger.debug(`markUsed failed for topic (non-blocking): ${(err as Error).message}`);
+                this.logger.debug(
+                  `markUsed failed for topic (non-blocking): ${(err as Error).message}`,
+                );
               }
             }
             postIds.push(...result.value.map((p) => p.id));
@@ -629,7 +655,7 @@ export class GenerationService {
             for (const post of result.value) {
               const meta = post.llmMetadata as Record<string, unknown> | null;
               const scores = meta?.judgeScores as Record<string, unknown> | null;
-              if (scores && typeof scores.anti_ai_tone === 'number') {
+              if (scores && typeof scores.anti_ai_tone === "number") {
                 judgeScoreSamples.push({
                   network: post.network,
                   anti_ai_tone: scores.anti_ai_tone as number,
@@ -640,15 +666,15 @@ export class GenerationService {
                 });
               }
               if (meta) {
-                const tokens = typeof meta.tokens === 'number' ? meta.tokens : 0;
-                const cost = typeof meta.cost === 'number' ? meta.cost : 0;
+                const tokens = typeof meta.tokens === "number" ? meta.tokens : 0;
+                const cost = typeof meta.cost === "number" ? meta.cost : 0;
                 runTokens += tokens;
                 runCost += cost;
               }
             }
           } else {
             this.logger.error(
-              `Failed to generate posts for topic: ${(result.reason as Error)?.message ?? 'unknown'}`,
+              `Failed to generate posts for topic: ${(result.reason as Error)?.message ?? "unknown"}`,
             );
           }
         }
@@ -658,15 +684,22 @@ export class GenerationService {
       // operators can correlate anti_ai_tone with approve/reject decisions and
       // adjust JUDGE_REFINE_THRESHOLD or the judge prompt over time.
       if (judgeScoreSamples.length > 0) {
-        const avg = (key: 'anti_ai_tone' | 'hook_strength' | 'factual_accuracy' | 'character_limit') =>
-          Number((judgeScoreSamples.reduce((s, x) => s + x[key], 0) / judgeScoreSamples.length).toFixed(2));
-        const threshold = Number(this.configService.get<string>('JUDGE_REFINE_THRESHOLD', '0.6')) || 0.6;
+        const avg = (
+          key: "anti_ai_tone" | "hook_strength" | "factual_accuracy" | "character_limit",
+        ) =>
+          Number(
+            (judgeScoreSamples.reduce((s, x) => s + x[key], 0) / judgeScoreSamples.length).toFixed(
+              2,
+            ),
+          );
+        const threshold =
+          Number(this.configService.get<string>("JUDGE_REFINE_THRESHOLD", "0.6")) || 0.6;
         const belowThreshold = judgeScoreSamples.filter((s) => s.anti_ai_tone < threshold).length;
-        const promptVersion = this.llm.getPromptVersion?.() ?? 'unknown';
+        const promptVersion = this.llm.getPromptVersion?.() ?? "unknown";
         this.logger.log(
           `Judge calibration [run ${run.id}]: ${judgeScoreSamples.length} posts scored — ` +
-            `avg anti_ai=${avg('anti_ai_tone')} hook=${avg('hook_strength')} ` +
-            `factual=${avg('factual_accuracy')} chars=${avg('character_limit')} — ` +
+            `avg anti_ai=${avg("anti_ai_tone")} hook=${avg("hook_strength")} ` +
+            `factual=${avg("factual_accuracy")} chars=${avg("character_limit")} — ` +
             `${belowThreshold}/${judgeScoreSamples.length} below refine threshold — ` +
             `tokens=${runTokens} cost=$${runCost.toFixed(6)} promptVersion=${promptVersion}`,
         );
@@ -675,16 +708,25 @@ export class GenerationService {
       // If the run was paused, do not mark it as completed.
       if (stopSignal?.aborted) {
         if (signal?.aborted) {
-          throw new Error('Generation aborted by orchestrator');
+          throw new Error("Generation aborted by orchestrator");
         }
         this.logger.warn(`Generation run ${run.id} ended early (paused or aborted)`);
         return run.id;
       }
 
-      await this.markRunCompleted(run.id, prioritizedTopics.map((t) => t.topic));
-      this.logger.log(`Generation run ${run.id}: ${postIds.length} drafts created — tokens=${runTokens} cost=$${runCost.toFixed(6)}`);
+      await this.markRunCompleted(
+        run.id,
+        prioritizedTopics.map((t) => t.topic),
+      );
+      this.logger.log(
+        `Generation run ${run.id}: ${postIds.length} drafts created — tokens=${runTokens} cost=$${runCost.toFixed(6)}`,
+      );
       // Sprint I: SSE generation_completed event
-      await this.sseService.publish({ type: 'generation_completed', runId: run.id, postCount: postIds.length });
+      await this.sseService.publish({
+        type: "generation_completed",
+        runId: run.id,
+        postCount: postIds.length,
+      });
       return run.id;
     } catch (err) {
       // Distinguish pause/resume (internal controller aborted) from orchestrator
@@ -694,20 +736,13 @@ export class GenerationService {
         return run.id;
       }
 
-      const message = signal?.aborted ? 'Generation aborted by orchestrator' : (err as Error).message;
-      await this.prisma.generationRun.update({
-        where: { id: run.id },
-        data: {
-          status: GenerationRunStatus.FAILED,
-          completedAt: new Date(),
-          errorMessage: message,
-        },
-      });
-      // Sprint I: SSE generation_failed event
-      await this.sseService.publish({ type: 'generation_failed', runId: run.id, error: message });
+      const message = signal?.aborted
+        ? "Generation aborted by orchestrator"
+        : (err as Error).message;
+      await this.runLifecycle.markFailed(run.id, message);
       throw new Error(message);
     } finally {
-      this.activeRuns.delete(run.id);
+      this.runLifecycle.remove(run.id);
       // Abort the internal controller so the combined signal cleans up its
       // listeners on the external orchestrator signal.
       controller.abort();
@@ -737,12 +772,12 @@ export class GenerationService {
       // Get articles only (not briefs/topics) — they have facts
       const allTopics = await this.contentSourceService.getTopics(articleCount * 3);
       const articles = allTopics
-        .filter((t) => t.sourceType === 'article' && t.facts.length > 0)
+        .filter((t) => t.sourceType === "article" && t.facts.length > 0)
         .slice(0, articleCount);
 
       if (articles.length === 0) {
-        this.logger.warn('F10: No articles with facts found for repurposing');
-        await this.markRunCompleted(run.id, [], 'No articles with facts found');
+        this.logger.warn("F10: No articles with facts found for repurposing");
+        await this.markRunCompleted(run.id, [], "No articles with facts found");
         return run.id;
       }
 
@@ -753,7 +788,9 @@ export class GenerationService {
 
       for (const article of articles) {
         sourceTopics.push(article.topic);
-        this.logger.log(`F10: Repurposing "${article.topic}" — ${article.facts.length} facts extracted`);
+        this.logger.log(
+          `F10: Repurposing "${article.topic}" — ${article.facts.length} facts extracted`,
+        );
 
         for (let factIdx = 0; factIdx < article.facts.length; factIdx++) {
           const fact = article.facts[factIdx]!;
@@ -764,11 +801,17 @@ export class GenerationService {
               topic: `${article.topic} — Fact ${factIdx + 1}`,
               facts: [fact],
             };
-            const posts = await this.generatePostsForTopic(factTopic, targetNetworks, brandVoice, run.id, false);
+            const posts = await this.generatePostsForTopic(
+              factTopic,
+              targetNetworks,
+              brandVoice,
+              run.id,
+              false,
+            );
             // Tag posts with fact_index in sourceRef
             for (const post of posts) {
               const sourceRef = {
-                type: 'article' as const,
+                type: "article" as const,
                 path: article.path,
                 topic: article.topic,
                 factIndex: factIdx,
@@ -784,7 +827,9 @@ export class GenerationService {
             }
             postIds.push(...posts.map((p) => p.id));
           } catch (err) {
-            this.logger.error(`F10: Failed to generate post for fact ${factIdx + 1} of "${article.topic}": ${(err as Error).message}`);
+            this.logger.error(
+              `F10: Failed to generate post for fact ${factIdx + 1} of "${article.topic}": ${(err as Error).message}`,
+            );
           }
         }
 
@@ -792,12 +837,16 @@ export class GenerationService {
         try {
           await this.contentSourceService.markUsed(article);
         } catch (err) {
-          this.logger.debug(`markUsed failed for article (non-blocking): ${(err as Error).message}`);
+          this.logger.debug(
+            `markUsed failed for article (non-blocking): ${(err as Error).message}`,
+          );
         }
       }
 
       await this.markRunCompleted(run.id, sourceTopics);
-      this.logger.log(`F10: Generation run ${run.id}: ${postIds.length} posts from ${articles.length} articles`);
+      this.logger.log(
+        `F10: Generation run ${run.id}: ${postIds.length} posts from ${articles.length} articles`,
+      );
       return run.id;
     } catch (err) {
       await this.prisma.generationRun.update({
@@ -850,30 +899,33 @@ export class GenerationService {
           createdAt: true,
           llmMetadata: true,
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
         take: postCount * 3, // Get more than needed — dedup by topic
       });
 
       if (oldPosts.length === 0) {
         this.logger.warn(`F13: No posted posts older than ${minAgeDays} days found for recycling`);
-        await this.markRunCompleted(run.id, [], 'No old posts found for recycling');
+        await this.markRunCompleted(run.id, [], "No old posts found for recycling");
         return run.id;
       }
 
       // Deduplicate by sourceRef topic — only recycle each topic once
       const seenTopics = new Set<string>();
-      const uniquePosts = oldPosts.filter((p) => {
-        const topic = p.sourceRef && typeof p.sourceRef === 'object' && 'topic' in p.sourceRef
-          ? String((p.sourceRef as Record<string, unknown>).topic)
-          : p.content.slice(0, 80);
-        if (seenTopics.has(topic)) return false;
-        seenTopics.add(topic);
-        return true;
-      }).slice(0, postCount);
+      const uniquePosts = oldPosts
+        .filter((p) => {
+          const topic =
+            p.sourceRef && typeof p.sourceRef === "object" && "topic" in p.sourceRef
+              ? String((p.sourceRef as Record<string, unknown>).topic)
+              : p.content.slice(0, 80);
+          if (seenTopics.has(topic)) return false;
+          seenTopics.add(topic);
+          return true;
+        })
+        .slice(0, postCount);
 
       if (uniquePosts.length === 0) {
-        this.logger.warn('F13: All old posts are duplicates — nothing to recycle');
-        await this.markRunCompleted(run.id, [], 'All old posts already recycled');
+        this.logger.warn("F13: All old posts are duplicates — nothing to recycle");
+        await this.markRunCompleted(run.id, [], "All old posts already recycled");
         return run.id;
       }
 
@@ -884,12 +936,15 @@ export class GenerationService {
 
       for (const oldPost of uniquePosts) {
         // Extract topic from sourceRef or content
-        const topicStr = oldPost.sourceRef && typeof oldPost.sourceRef === 'object' && 'topic' in oldPost.sourceRef
-          ? String((oldPost.sourceRef as Record<string, unknown>).topic)
-          : oldPost.content.slice(0, 80);
+        const topicStr =
+          oldPost.sourceRef && typeof oldPost.sourceRef === "object" && "topic" in oldPost.sourceRef
+            ? String((oldPost.sourceRef as Record<string, unknown>).topic)
+            : oldPost.content.slice(0, 80);
 
         sourceTopics.push(topicStr);
-        this.logger.log(`F13: Recycling "${topicStr}" (original post: ${oldPost.id}, age: ${Math.round((Date.now() - oldPost.createdAt.getTime()) / (1000 * 60 * 60 * 24))} days)`);
+        this.logger.log(
+          `F13: Recycling "${topicStr}" (original post: ${oldPost.id}, age: ${Math.round((Date.now() - oldPost.createdAt.getTime()) / (1000 * 60 * 60 * 24))} days)`,
+        );
 
         const metadata = (oldPost.llmMetadata as Record<string, unknown> | null) ?? {};
         if (metadata.recycled === true) {
@@ -900,22 +955,30 @@ export class GenerationService {
         try {
           // Create a synthetic topic for regeneration with "evergreen" angle
           const recycledTopic: ContentTopic = {
-            sourceType: 'topic',
+            sourceType: "topic",
             path: `recycle://${oldPost.id}`,
             topic: `${topicStr} (evergreen revival)`,
             keywords: [],
             facts: [],
-            category: 'evergreen',
+            category: "evergreen",
             publishedAt: new Date(),
             language: oldPost.language,
           };
 
-          const posts = await this.generatePostsForTopic(recycledTopic, targetNetworks, brandVoice, run.id, false, false, recycledTopic.language);
+          const posts = await this.generatePostsForTopic(
+            recycledTopic,
+            targetNetworks,
+            brandVoice,
+            run.id,
+            false,
+            false,
+            recycledTopic.language,
+          );
 
           // Tag posts with recycle metadata
           for (const post of posts) {
             const sourceRef = {
-              type: 'recycle' as const,
+              type: "recycle" as const,
               path: recycledTopic.path,
               originalPostId: oldPost.id,
               originalTopic: topicStr,
@@ -936,15 +999,21 @@ export class GenerationService {
           // 2.8.3: Mark the original as recycled only after successful generation.
           await this.prisma.post.update({
             where: { id: oldPost.id },
-            data: { llmMetadata: { ...metadata, recycled: true, recycledAt: new Date().toISOString() } },
+            data: {
+              llmMetadata: { ...metadata, recycled: true, recycledAt: new Date().toISOString() },
+            },
           });
         } catch (err) {
-          this.logger.error(`F13: Failed to recycle post ${oldPost.id} ("${topicStr}"): ${(err as Error).message}`);
+          this.logger.error(
+            `F13: Failed to recycle post ${oldPost.id} ("${topicStr}"): ${(err as Error).message}`,
+          );
         }
       }
 
       await this.markRunCompleted(run.id, sourceTopics);
-      this.logger.log(`F13: Generation run ${run.id}: ${postIds.length} recycled posts from ${uniquePosts.length} old posts`);
+      this.logger.log(
+        `F13: Generation run ${run.id}: ${postIds.length} recycled posts from ${uniquePosts.length} old posts`,
+      );
       return run.id;
     } catch (err) {
       await this.prisma.generationRun.update({
@@ -967,10 +1036,21 @@ export class GenerationService {
    * SimHash (the old RecyclingService.recyclePost copied content verbatim and nothing
    * rewrote it).
    */
-  async recycleById(postId: string, networks?: SocialNetwork[]): Promise<{ id: string; status: string } | null> {
+  async recycleById(
+    postId: string,
+    networks?: SocialNetwork[],
+  ): Promise<{ id: string; status: string } | null> {
     const original = await this.prisma.post.findUnique({
       where: { id: postId },
-      select: { id: true, content: true, network: true, language: true, sourceRef: true, status: true, llmMetadata: true },
+      select: {
+        id: true,
+        content: true,
+        network: true,
+        language: true,
+        sourceRef: true,
+        status: true,
+        llmMetadata: true,
+      },
     });
     if (!original || original.status !== PostStatus.POSTED) {
       return null;
@@ -985,13 +1065,15 @@ export class GenerationService {
     }
 
     const topicStr =
-      original.sourceRef && typeof original.sourceRef === 'object' && 'topic' in original.sourceRef
+      original.sourceRef && typeof original.sourceRef === "object" && "topic" in original.sourceRef
         ? String((original.sourceRef as Record<string, unknown>).topic)
         : original.content.slice(0, 80);
 
     const targetNetworks = this.resolveTargetNetworks(networks ?? [original.network]);
     if (targetNetworks.length === 0) {
-      this.logger.debug(`RC3: skipping recycle of ${postId} — network ${original.network} is disabled`);
+      this.logger.debug(
+        `RC3: skipping recycle of ${postId} — network ${original.network} is disabled`,
+      );
       return null;
     }
     const brandVoice = await this.loadBrandVoice();
@@ -1001,19 +1083,27 @@ export class GenerationService {
 
     try {
       const recycledTopic: ContentTopic = {
-        sourceType: 'topic',
+        sourceType: "topic",
         path: `recycle://${original.id}`,
         topic: `${topicStr} (evergreen revival)`,
         keywords: [],
         facts: [],
-        category: 'evergreen',
+        category: "evergreen",
         publishedAt: new Date(),
         language: original.language,
       };
-      const posts = await this.generatePostsForTopic(recycledTopic, targetNetworks, brandVoice, run.id, false, false, recycledTopic.language);
+      const posts = await this.generatePostsForTopic(
+        recycledTopic,
+        targetNetworks,
+        brandVoice,
+        run.id,
+        false,
+        false,
+        recycledTopic.language,
+      );
       for (const post of posts) {
         const sourceRef = {
-          type: 'recycle' as const,
+          type: "recycle" as const,
           path: recycledTopic.path,
           originalPostId: original.id,
           originalTopic: topicStr,
@@ -1033,16 +1123,24 @@ export class GenerationService {
       // 2.8.3: Mark the original as recycled only after successful generation.
       await this.prisma.post.update({
         where: { id: postId },
-        data: { llmMetadata: { ...metadata, recycled: true, recycledAt: new Date().toISOString() } },
+        data: {
+          llmMetadata: { ...metadata, recycled: true, recycledAt: new Date().toISOString() },
+        },
       });
 
       await this.markRunCompleted(run.id, [topicStr]);
-      this.logger.log(`RC3: recycled post ${postId} → ${posts.length} re-written draft(s) via graph`);
+      this.logger.log(
+        `RC3: recycled post ${postId} → ${posts.length} re-written draft(s) via graph`,
+      );
       return posts[0] ? { id: posts[0].id, status: PostStatus.DRAFT } : null;
     } catch (err) {
       await this.prisma.generationRun.update({
         where: { id: run.id },
-        data: { status: GenerationRunStatus.FAILED, completedAt: new Date(), errorMessage: (err as Error).message },
+        data: {
+          status: GenerationRunStatus.FAILED,
+          completedAt: new Date(),
+          errorMessage: (err as Error).message,
+        },
       });
       throw err;
     }
@@ -1073,7 +1171,9 @@ export class GenerationService {
     targetNetworks?: SocialNetwork[],
   ): Promise<string | null> {
     if (originalPost.status !== PostStatus.POSTED && originalPost.status !== PostStatus.VERIFIED) {
-      this.logger.debug(`Social promo skipped for post ${originalPost.id} — status ${originalPost.status}`);
+      this.logger.debug(
+        `Social promo skipped for post ${originalPost.id} — status ${originalPost.status}`,
+      );
       return null;
     }
 
@@ -1085,7 +1185,9 @@ export class GenerationService {
 
     const networks = this.resolveTargetNetworks(
       targetNetworks ??
-        Array.from(GenerationService.SOCIAL_PROMO_NETWORKS).filter((n) => n !== originalPost.network),
+        Array.from(GenerationService.SOCIAL_PROMO_NETWORKS).filter(
+          (n) => n !== originalPost.network,
+        ),
     );
     if (networks.length === 0) {
       this.logger.debug(`Social promo: no eligible networks for post ${originalPost.id}`);
@@ -1097,10 +1199,20 @@ export class GenerationService {
     });
 
     try {
-      this.logger.log(`Social promo: generating posts for "${topic.topic}" from ${originalPost.id} → ${networks.join(', ')}`);
+      this.logger.log(
+        `Social promo: generating posts for "${topic.topic}" from ${originalPost.id} → ${networks.join(", ")}`,
+      );
 
       const brandVoice = await this.loadBrandVoice();
-      const savedPosts = await this.generatePostsForTopic(topic, networks, brandVoice, run.id, false, false, topic.language);
+      const savedPosts = await this.generatePostsForTopic(
+        topic,
+        networks,
+        brandVoice,
+        run.id,
+        false,
+        false,
+        topic.language,
+      );
 
       // Inherit canonical URL from the original post (articles) and tag the source.
       if (originalPost.canonicalUrl) {
@@ -1112,14 +1224,20 @@ export class GenerationService {
 
       const postCount = savedPosts.length;
       await this.markRunCompleted(run.id, [topic.topic]);
-      this.logger.log(`Social promo run ${run.id}: ${postCount} promo drafts created from ${originalPost.id}`);
+      this.logger.log(
+        `Social promo run ${run.id}: ${postCount} promo drafts created from ${originalPost.id}`,
+      );
       return run.id;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`Social promo failed for ${originalPost.id}: ${message}`);
       await this.prisma.generationRun.update({
         where: { id: run.id },
-        data: { status: GenerationRunStatus.FAILED, completedAt: new Date(), errorMessage: message },
+        data: {
+          status: GenerationRunStatus.FAILED,
+          completedAt: new Date(),
+          errorMessage: message,
+        },
       });
       return null;
     }
@@ -1131,7 +1249,7 @@ export class GenerationService {
    */
   private buildPromoTopic(originalPost: PrismaPost): ContentTopic | null {
     const base: ContentTopic = {
-      sourceType: 'topic' as const,
+      sourceType: "topic" as const,
       path: `promo://${originalPost.id}`,
       topic: originalPost.content.slice(0, 120),
       keywords: [],
@@ -1145,13 +1263,15 @@ export class GenerationService {
       try {
         article = JSON.parse(originalPost.content) as ArticleContent;
       } catch {
-        this.logger.warn(`Social promo: post ${originalPost.id} has ARTICLE contentType but invalid JSON`);
+        this.logger.warn(
+          `Social promo: post ${originalPost.id} has ARTICLE contentType but invalid JSON`,
+        );
         return null;
       }
 
       return {
         ...base,
-        sourceType: 'article' as const,
+        sourceType: "article" as const,
         path: originalPost.canonicalUrl || `promo://article/${article.slug || originalPost.id}`,
         topic: article.title || base.topic,
         keywords: article.tags || [],
@@ -1161,10 +1281,10 @@ export class GenerationService {
       };
     }
 
-    if (originalPost.sourceRef && typeof originalPost.sourceRef === 'object') {
+    if (originalPost.sourceRef && typeof originalPost.sourceRef === "object") {
       const ref = originalPost.sourceRef as Record<string, unknown>;
-      if (typeof ref.path === 'string') base.path = ref.path;
-      if (typeof ref.topic === 'string') {
+      if (typeof ref.path === "string") base.path = ref.path;
+      if (typeof ref.topic === "string") {
         base.topic = ref.topic;
         base.originalTopic = ref.topic;
       }
@@ -1172,6 +1292,188 @@ export class GenerationService {
     }
 
     return base;
+  }
+
+  /**
+   * M1.3: group target networks by the effective brand voice of their primary
+   * account. Networks whose account has no settings.brandVoice override share
+   * the global brand-voice group; each distinct override gets its own group
+   * (and therefore its own graph invocation). Order is preserved.
+   */
+  private async groupNetworksByBrandVoice(
+    networks: SocialNetwork[],
+    accountsByNetwork: Map<SocialNetwork, AccountResult[]>,
+    globalVoice: string,
+  ): Promise<Map<string, SocialNetwork[]>> {
+    const groups = new Map<string, SocialNetwork[]>();
+    for (const network of networks) {
+      let effective = globalVoice;
+      const primary = accountsByNetwork.get(network)?.[0];
+      if (primary && this.accountSettings) {
+        try {
+          const { values } = await this.accountSettings.resolve(primary.id);
+          if (values.brandVoice && values.brandVoice.trim() !== "") {
+            effective = values.brandVoice;
+          }
+        } catch (err) {
+          this.logger.warn(
+            `Brand-voice override lookup failed for account ${primary.id} — using global voice`,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      }
+      const list = groups.get(effective);
+      if (list) list.push(network);
+      else groups.set(effective, [network]);
+    }
+    return groups;
+  }
+
+  /**
+   * Resolve a versioned author context for the account selected for each
+   * network. Resolution is best-effort for legacy/test deployments: a failed
+   * lookup falls back to the global brand voice and never fabricates identity.
+   */
+  private async resolveAuthorContexts(
+    networks: SocialNetwork[],
+    accountsByNetwork: Map<SocialNetwork, AccountResult[]>,
+    retrievalQuery?: string,
+    retrievalDomain?: string,
+  ): Promise<Partial<Record<SocialNetwork, AuthorContextResult>>> {
+    const contexts: Partial<Record<SocialNetwork, AuthorContextResult>> = {};
+    if (!this.authorContextPort) return contexts;
+
+    await Promise.all(
+      networks.map(async (network) => {
+        const account = accountsByNetwork.get(network)?.[0];
+        if (!account) return;
+        try {
+          contexts[network] = await this.authorContextPort!.resolve({
+            accountId: account.id,
+            network,
+            retrievalQuery,
+            retrievalDomain,
+          });
+        } catch (err) {
+          this.logger.warn(
+            `Author context lookup failed for account ${account.id} — using global fallback`,
+            err instanceof Error ? err.message : String(err),
+          );
+          contexts[network] = {
+            accountId: account.id,
+            network,
+            personaId: null,
+            personaRevisionId: null,
+            voiceMode: "default",
+            experimentAssignmentId: null,
+            profile: null,
+            disclosure: null,
+            safetyPolicyVersion: null,
+            source: "GLOBAL_FALLBACK",
+          };
+        }
+      }),
+    );
+    return contexts;
+  }
+
+  private async planPortfolioDispatch(
+    topic: ContentTopic,
+    activeNetworks: readonly SocialNetwork[],
+    accountsByNetwork: Map<SocialNetwork, AccountResult[]>,
+    humanReview: boolean,
+  ): Promise<Map<SocialNetwork, { accountId: string; assignmentId?: string } | null>> {
+    const dispatch = new Map<SocialNetwork, { accountId: string; assignmentId?: string } | null>();
+    if (!this.editorialPortfolio || !this.authorContextPort) return dispatch;
+    const domain = topic.category ?? "general";
+
+    for (const network of activeNetworks) {
+      const accounts = (accountsByNetwork.get(network) ?? []).filter(
+        (account): account is NonNullable<AccountResult> => Boolean(account),
+      );
+      if (accounts.length === 0) continue;
+      try {
+        const thesisHash = createHash("sha256")
+          .update(`${network}:${topic.topic}:${domain}`, "utf8")
+          .digest("hex");
+        const opportunity = await this.editorialPortfolio.ensureOpportunity({
+          sourceType: topic.sourceType,
+          sourceRef: { path: topic.path, topic: topic.topic, network },
+          canonicalTopic: topic.topic,
+          thesis: topic.topic,
+          thesisHash,
+          domain,
+          riskTier: "LOW",
+          funnelIntent: "AWARENESS",
+          validUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          status: "OPEN",
+        });
+        const existing = await this.editorialPortfolio.findActiveAssignment(opportunity.id);
+        if (existing?.accountId) {
+          dispatch.set(network, { accountId: existing.accountId, assignmentId: existing.id });
+          continue;
+        }
+
+        const candidates: EditorialAccountCandidate[] = await Promise.all(
+          accounts.map(async (account) => {
+            const context = await this.authorContextPort!.resolve({
+              accountId: account.id,
+              network,
+              retrievalQuery: topic.topic,
+              retrievalDomain: domain,
+            });
+            const ageDays = topic.publishedAt
+              ? Math.max(0, (Date.now() - topic.publishedAt.getTime()) / 86_400_000)
+              : 0;
+            return {
+              accountId: account.id,
+              personaRevisionId: context.personaRevisionId ?? "",
+              network,
+              voiceMode: context.voiceMode,
+              policyMode: humanReview ? "HUMAN_APPROVAL_REQUIRED" : "SUGGEST_ONLY",
+              healthy: account.active,
+              allowedActions: ["OWN_POST"],
+              personaFit: context.source === "PERSONA" ? 1 : 0.25,
+              audienceDemand: 0.5,
+              sourceFreshness: Math.max(0, Math.min(1, 1 - ageDays / 30)),
+              novelty: 1,
+              pillarDeficit: 0.5,
+              funnelDeficit: 0.5,
+              conversationOpportunity: 0,
+              expectedCost: 0.5,
+              reviewCapacity: humanReview ? 1 : 0.5,
+            } satisfies EditorialAccountCandidate;
+          }),
+        );
+        const assignment = await this.editorialPortfolio.planAndPersist({
+          opportunity: {
+            opportunityId: opportunity.id,
+            canonicalTopic: topic.topic,
+            thesis: topic.topic,
+            thesisHash,
+            domain,
+            riskTier: "LOW",
+            funnelIntent: "AWARENESS",
+            validUntil: new Date(opportunity.validUntil ?? Date.now() + 86_400_000),
+            status: "OPEN",
+          },
+          candidates,
+        });
+        if (assignment?.accountId && assignment.action === "OWN_POST") {
+          dispatch.set(network, {
+            accountId: assignment.accountId,
+            assignmentId: assignment.assignmentId,
+          });
+        } else {
+          dispatch.set(network, null);
+        }
+      } catch (err) {
+        this.logger.warn(
+          `PERSONA-103 portfolio dispatch unavailable for ${network}; retaining legacy account selection: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return dispatch;
   }
 
   /**
@@ -1185,11 +1487,15 @@ export class GenerationService {
     runId: string,
     multiStage = false,
     humanReview = false,
-    language = 'en',
+    _language = "en",
     model?: string,
     signal?: AbortSignal,
     accountIds?: string[],
   ): Promise<{ id: string; network: SocialNetwork; llmMetadata: Prisma.JsonValue }[]> {
+    // English-only generation: ignore any non-English language passed from
+    // topic/language rotation and always generate in English.
+    const language = "en";
+
     // Only generate for networks that are enabled in configuration.
     const resolvedTargetNetworks = this.resolveTargetNetworks(targetNetworks);
 
@@ -1203,16 +1509,18 @@ export class GenerationService {
       resolvedTargetNetworks.map(async (network) => {
         const accounts = accountIds?.length
           ? (await Promise.all(accountIds.map((id) => this.accountsService.findById(id)))).filter(
-              (account): account is NonNullable<AccountResult> => Boolean(account?.active && account.network === network),
+              (account): account is NonNullable<AccountResult> =>
+                Boolean(account?.active && account.network === network),
             )
-          : [(await this.accountsService.getNextAccountForNetwork(network))].filter(
-              (account): account is NonNullable<AccountResult> => Boolean(account),
+          : (await this.accountsService.findByNetwork(network)).filter(
+              (account): account is NonNullable<AccountResult> => Boolean(account?.active),
             );
-        if (accounts.length === 0) return { network, accounts: [] as AccountResult[], recentCount: 0 };
+        if (accounts.length === 0)
+          return { network, accounts: [] as AccountResult[], recentCount: 0 };
         const recent = await this.postsService.findBySourceAndNetwork(
           topic.path,
           network,
-          Number(this.configService.get<string>('DEDUP_SINCE_DAYS', '14')) || 14,
+          Number(this.configService.get<string>("DEDUP_SINCE_DAYS", "14")) || 14,
         );
         return { network, accounts, recentCount: recent.length };
       }),
@@ -1233,48 +1541,129 @@ export class GenerationService {
       return [];
     }
 
-    // Build initial state — graph will fan out to all active networks
-    const initialState = createInitialState(topic, activeNetworks, brandVoice, humanReview, language);
-
-    // Invoke the LangGraph workflow with checkpoint
-    // thread_id = runId:topic enables resume after crash (B6 mitigation)
-    const config: GraphInvokeConfig = {
-      configurable: { thread_id: `${runId}:${topic.topic}` },
-      recursionLimit: 50, // P3+P7 added 6 nodes; Q8 judge-retry adds up to 2 supersteps per network
-      signal,
-    };
-
-    this.logger.debug(
-      `Invoking LangGraph for "${topic.topic}" → ${activeNetworks.join(', ')} (thread: ${config.configurable.thread_id})`,
+    // Build initial state — graph will fan out to all active networks.
+    // M1.3: networks whose primary account has a settings.brandVoice override
+    // are split into their own graph invocation so each account's posts sound
+    // like that account; the rest share the global brand-voice run.
+    const portfolioDispatch = await this.planPortfolioDispatch(
+      topic,
+      activeNetworks,
+      accountsByNetwork,
+      humanReview,
+    );
+    for (const [network, selection] of portfolioDispatch) {
+      if (!selection) continue;
+      const accounts = (accountsByNetwork.get(network) ?? []).filter(
+        (account): account is NonNullable<AccountResult> => Boolean(account),
+      );
+      const selected = accounts.find((account) => account.id === selection.accountId);
+      if (selected) {
+        accountsByNetwork.set(network, [
+          selected,
+          ...accounts.filter((account) => account.id !== selected.id),
+        ]);
+      }
+    }
+    const dispatchedNetworks = activeNetworks.filter(
+      (network) => !portfolioDispatch.has(network) || portfolioDispatch.get(network) !== null,
+    );
+    const voiceGroups = await this.groupNetworksByBrandVoice(
+      dispatchedNetworks,
+      accountsByNetwork,
+      brandVoice,
+    );
+    const authorContexts = await this.resolveAuthorContexts(
+      dispatchedNetworks,
+      accountsByNetwork,
+      topic.topic,
+      topic.category,
     );
 
-    // Langfuse tracing: sessionId=runId groups all LLM calls across topics
-    // in the same run. tags + traceMetadata enable filtering in the Langfuse UI.
-    // promptNames links this trace to the Langfuse Prompt Management prompts used.
-    const { finalState, promptLabels } = await this.tracedGraphInvoke(
-      config,
-      {
-        sessionId: runId,
-        tags: ['generation', language, ...activeNetworks.map((n) => n.toLowerCase())],
-        traceMetadata: {
-          topic: topic.topic,
-          runId,
-          language,
-          networks: activeNetworks.join(','),
-          promptNames: 'research-extract,hook-generation,draft-post,critique-post,refine-post',
+    const generatedPosts: GeneratedPost[] = [];
+    const finalFacts: string[] = [];
+    const promptLabelsAcc: Record<string, { label: string; isFallback?: boolean }> = {};
+
+    for (const [effectiveVoice, groupNetworks] of voiceGroups) {
+      const initialState = createInitialState(
+        topic,
+        groupNetworks,
+        effectiveVoice,
+        humanReview,
+        language,
+        authorContexts,
+      );
+
+      // Invoke the LangGraph workflow with checkpoint
+      // thread_id = runId:topic[:group] enables resume after crash (B6 mitigation)
+      const config: GraphInvokeConfig = {
+        configurable: {
+          thread_id:
+            voiceGroups.size > 1
+              ? `${runId}:${topic.topic}:${groupNetworks.join("-").toLowerCase()}`
+              : `${runId}:${topic.topic}`,
         },
-      },
-      initialState,
-      runId,
-      model,
-    );
-    const generatedPosts = (finalState as { posts?: GeneratedPost[] }).posts ?? [];
-    // P4: Extract facts from final state for thread depth planning
-    const finalFacts = (finalState as { facts?: string[] }).facts ?? [];
+        recursionLimit: 50, // P3+P7 added 6 nodes; Q8 judge-retry adds up to 2 supersteps per network
+        runName: "generation.workflow",
+        signal,
+      };
+
+      this.logger.debug(
+        `Invoking LangGraph for "${topic.topic}" → ${groupNetworks.join(", ")} (thread: ${config.configurable.thread_id}, voice: ${effectiveVoice === brandVoice ? "global" : "account-override"})`,
+      );
+
+      // Langfuse tracing: sessionId=runId groups all LLM calls across topics
+      // in the same run. tags + traceMetadata enable filtering in the Langfuse UI.
+      // promptNames links this trace to the Langfuse Prompt Management prompts used.
+      const { finalState, promptLabels } = await this.tracedGraphInvoke(
+        config,
+        {
+          sessionId: runId,
+          tags: ["generation", language, ...groupNetworks.map((n) => n.toLowerCase())],
+          traceMetadata: {
+            topic: topic.topic,
+            runId,
+            language,
+            networks: groupNetworks.join(","),
+            authorContexts: Object.fromEntries(
+              groupNetworks.map((network) => {
+                const context = authorContexts[network];
+                return [
+                  network,
+                  {
+                    accountId: context?.accountId ?? null,
+                    personaRevisionId: context?.personaRevisionId ?? null,
+                    voiceMode: context?.voiceMode ?? null,
+                    source: context?.source ?? "GLOBAL_FALLBACK",
+                  },
+                ];
+              }),
+            ),
+            promptNames: "research-extract,hook-generation,draft-post,critique-post,refine-post",
+          },
+        },
+        initialState,
+        runId,
+        model,
+      );
+      generatedPosts.push(...((finalState as { posts?: GeneratedPost[] }).posts ?? []));
+      // P4: Extract facts from final state for thread depth planning
+      finalFacts.push(...((finalState as { facts?: string[] }).facts ?? []));
+      // Merge per-group prompt labels (later groups win on name collisions —
+      // labels are identical across groups unless a per-account Langfuse label
+      // overrides them).
+      Object.assign(promptLabelsAcc, promptLabels);
+    }
 
     // Save each generated post as DRAFT
     // B5: SimHash dedup — skip near-duplicate posts (Hamming distance ≤ 8)
     const recentHashes = await this.loadRecentPostHashes(topic.topic);
+    const editorialAssignmentIds = Object.fromEntries(
+      [...portfolioDispatch.entries()]
+        .filter((entry): entry is [SocialNetwork, { accountId: string; assignmentId: string }] =>
+          Boolean(entry[1]?.assignmentId),
+        )
+        .map(([network, selection]) => [network, selection.assignmentId]),
+    ) as Partial<Record<SocialNetwork, string>>;
 
     const savedPosts = await this.persistGeneratedPosts(
       generatedPosts,
@@ -1288,7 +1677,13 @@ export class GenerationService {
         ...(topic.originalPostId ? { originalPostId: topic.originalPostId } : {}),
         ...(topic.originalTopic ? { originalTopic: topic.originalTopic } : {}),
       },
-      { language, recentHashes, promptLabels, canonicalUrl: topic.canonicalUrl },
+      {
+        language,
+        recentHashes,
+        promptLabels: promptLabelsAcc,
+        canonicalUrl: topic.canonicalUrl,
+        editorialAssignmentIds,
+      },
     );
 
     // F2/P4: Multi-Stage Posting with Thread Depth Service.
@@ -1304,10 +1699,15 @@ export class GenerationService {
       const post = rootPostsByNetwork.get(genPost.network);
       if (!post) continue;
 
-      const account = accountsByNetwork.get(genPost.network)?.[0] ?? (await this.accountsService.getNextAccountForNetwork(genPost.network));
+      const account = (accountsByNetwork.get(genPost.network) ?? []).find(
+        (candidate): candidate is NonNullable<AccountResult> => candidate?.id === post.accountId,
+      );
       if (!account) continue;
 
-      if (multiStage && (genPost.network === SocialNetwork.X || genPost.network === SocialNetwork.THREADS)) {
+      if (
+        multiStage &&
+        (genPost.network === SocialNetwork.X || genPost.network === SocialNetwork.THREADS)
+      ) {
         if (this.threadDepthController) {
           // P4: Configurable thread depth
           try {
@@ -1323,64 +1723,79 @@ export class GenerationService {
               // atomic — a mid-assembly crash must not leave an orphan PostThread
               // or a thread with position gaps. planThread() (LLM) already ran
               // above, so only fast DB writes live inside the transaction.
-              const contPosts = await this.prisma.$transaction(async (tx) => {
-                const thread = await tx.postThread.create({
-                  data: { accountId: account.id, status: PostStatus.DRAFT },
-                });
-                // Link root post to thread and mark it as multi-stage.
-                // F2: root must carry the multiStage flag so the posting worker
-                // can decide whether to post all replies at once (legacy) or
-                // schedule them with a 30-minute delay.
-                await tx.post.update({
-                  where: { id: post.id },
-                  data: {
-                    threadId: thread.id,
-                    threadPosition: 0,
-                    llmMetadata: {
-                      ...(typeof post.llmMetadata === 'object' && post.llmMetadata !== null ? post.llmMetadata : {}),
-                      multiStage: true,
-                      threadDepth: plan.depth,
-                    } as Prisma.InputJsonValue,
-                  },
-                });
-                // Create continuation posts (same tx client → all-or-nothing)
-                const created: { id: string; network: SocialNetwork; llmMetadata: Prisma.JsonValue }[] = [];
-                for (const cont of plan.continuations) {
-                  created.push(
-                    await this.postsService.create(
-                      {
-                        accountId: account.id,
-                        network: genPost.network,
-                        content: cont.content,
-                        threadId: thread.id,
-                        threadPosition: cont.position,
-                        generationRunId: runId,
-                        sourceRef: {
-                          type: topic.sourceType,
-                          path: topic.path,
-                          topic: topic.topic,
-                        },
-                        llmMetadata: this.buildPostLlmMetadata(
-                          genPost,
-                          simhash(cont.content),
-                          {},
-                          {
-                            angleType: 'continuation',
-                            multiStage: true,
-                            threadDepth: plan.depth,
+              const contPosts = await this.prisma.$transaction(
+                async (tx) => {
+                  const thread = await tx.postThread.create({
+                    data: { accountId: account.id, status: PostStatus.DRAFT },
+                  });
+                  // Link root post to thread and mark it as multi-stage.
+                  // F2: root must carry the multiStage flag so the posting worker
+                  // can decide whether to post all replies at once (legacy) or
+                  // schedule them with a 30-minute delay.
+                  await tx.post.update({
+                    where: { id: post.id },
+                    data: {
+                      threadId: thread.id,
+                      threadPosition: 0,
+                      llmMetadata: {
+                        ...(typeof post.llmMetadata === "object" && post.llmMetadata !== null
+                          ? post.llmMetadata
+                          : {}),
+                        multiStage: true,
+                        threadDepth: plan.depth,
+                      } as Prisma.InputJsonValue,
+                    },
+                  });
+                  // Create continuation posts (same tx client → all-or-nothing)
+                  const created: {
+                    id: string;
+                    network: SocialNetwork;
+                    accountId: string;
+                    llmMetadata: Prisma.JsonValue;
+                  }[] = [];
+                  for (const cont of plan.continuations) {
+                    created.push({
+                      ...(await this.postsService.create(
+                        {
+                          accountId: account.id,
+                          network: genPost.network,
+                          content: cont.content,
+                          threadId: thread.id,
+                          threadPosition: cont.position,
+                          generationRunId: runId,
+                          sourceRef: {
+                            type: topic.sourceType,
+                            path: topic.path,
+                            topic: topic.topic,
                           },
-                        ) as Prisma.InputJsonValue,
-                      },
-                      tx,
-                      { emitEvent: false }, // H1: emit after the tx commits, not inside it
-                    ),
+                          llmMetadata: this.buildPostLlmMetadata(
+                            genPost,
+                            simhash(cont.content),
+                            {},
+                            {
+                              angleType: "continuation",
+                              multiStage: true,
+                              threadDepth: plan.depth,
+                            },
+                          ) as Prisma.InputJsonValue,
+                        },
+                        tx,
+                        { emitEvent: false }, // H1: emit after the tx commits, not inside it
+                      )),
+                      accountId: account.id,
+                    });
+                  }
+                  this.logger.debug(
+                    `P4: Created ${plan.continuations.length} continuation posts for ${genPost.network} thread ${thread.id} — ${plan.reasoning}`,
                   );
-                }
-                this.logger.debug(
-                  `P4: Created ${plan.continuations.length} continuation posts for ${genPost.network} thread ${thread.id} — ${plan.reasoning}`,
-                );
-                return created;
-              }, { timeout: Number(this.configService.get<string>('PRISMA_TRANSACTION_TIMEOUT_MS', '30000')) });
+                  return created;
+                },
+                {
+                  timeout: Number(
+                    this.configService.get<string>("PRISMA_TRANSACTION_TIMEOUT_MS", "30000"),
+                  ),
+                },
+              );
               // H1: emit DRAFT_GENERATED only AFTER the tx commits, so the async
               // auto-approve + SSE listeners never read a not-yet-committed row.
               for (const cp of contPosts) {
@@ -1390,12 +1805,23 @@ export class GenerationService {
               for (let i = 0; i < contPosts.length; i++) {
                 const cont = plan.continuations[i];
                 if (cont) {
-                  await this.persistPostVariantForContent(contPosts[i]!.id, genPost.network, cont.content, genPost.judgeScores);
+                  await this.evaluateOnlineOutput(contPosts[i]!.id, {
+                    ...genPost,
+                    content: cont.content,
+                  });
+                  await this.persistPostVariantForContent(
+                    contPosts[i]!.id,
+                    genPost.network,
+                    cont.content,
+                    genPost.judgeScores,
+                  );
                 }
               }
             }
           } catch (err) {
-            this.logger.warn(`P4: Thread planning failed, falling back to F2: ${(err as Error).message}`);
+            this.logger.warn(
+              `P4: Thread planning failed, falling back to F2: ${(err as Error).message}`,
+            );
             await this.fallbackF2Continuation(genPost, post, account, topic, runId, savedPosts);
           }
         } else {
@@ -1431,59 +1857,75 @@ export class GenerationService {
     // LLM continuation generation runs OUTSIDE the transaction (slow call must
     // not hold a DB tx open). A4: the thread + root link + continuation write
     // are then committed atomically.
-    const continuationContent = await this.generateContinuationContent(genPost.hook, genPost.content, topic.topic);
-    const continuationPost = await this.prisma.$transaction(async (tx) => {
-      const thread = await tx.postThread.create({
-        data: { accountId: account.id, status: PostStatus.DRAFT },
-      });
-      // F2: mark root as multi-stage so the posting worker schedules
-      // the continuation with a 30-minute delay instead of posting both now.
-      await tx.post.update({
-        where: { id: post.id },
-        data: {
-          threadId: thread.id,
-          threadPosition: 0,
-          llmMetadata: {
-            ...(typeof post.llmMetadata === 'object' && post.llmMetadata !== null ? post.llmMetadata : {}),
-            multiStage: true,
-            threadDepth: 2,
-          } as Prisma.InputJsonValue,
-        },
-      });
-      const created = await this.postsService.create(
-        {
-          accountId: account.id,
-          network: genPost.network,
-          content: continuationContent,
-          threadId: thread.id,
-          threadPosition: 1,
-          generationRunId: runId,
-          sourceRef: {
-            type: topic.sourceType,
-            path: topic.path,
-            topic: topic.topic,
-            keywords: topic.keywords,
-          },
-          llmMetadata: this.buildPostLlmMetadata(
-            genPost,
-            simhash(continuationContent),
-            {},
-            {
-              angleType: 'continuation',
+    const continuationContent = await this.generateContinuationContent(
+      genPost.hook,
+      genPost.content,
+      topic.topic,
+    );
+    const continuationPost = await this.prisma.$transaction(
+      async (tx) => {
+        const thread = await tx.postThread.create({
+          data: { accountId: account.id, status: PostStatus.DRAFT },
+        });
+        // F2: mark root as multi-stage so the posting worker schedules
+        // the continuation with a 30-minute delay instead of posting both now.
+        await tx.post.update({
+          where: { id: post.id },
+          data: {
+            threadId: thread.id,
+            threadPosition: 0,
+            llmMetadata: {
+              ...(typeof post.llmMetadata === "object" && post.llmMetadata !== null
+                ? post.llmMetadata
+                : {}),
               multiStage: true,
+              threadDepth: 2,
+            } as Prisma.InputJsonValue,
+          },
+        });
+        const created = await this.postsService.create(
+          {
+            accountId: account.id,
+            network: genPost.network,
+            content: continuationContent,
+            threadId: thread.id,
+            threadPosition: 1,
+            generationRunId: runId,
+            sourceRef: {
+              type: topic.sourceType,
+              path: topic.path,
+              topic: topic.topic,
+              keywords: topic.keywords,
             },
-          ) as Prisma.InputJsonValue,
-        },
-        tx,
-        { emitEvent: false }, // H1: emit after the tx commits, not inside it
-      );
-      this.logger.debug(`F2: Created continuation post for ${genPost.network} thread ${thread.id}`);
-      return created;
-    }, { timeout: Number(this.configService.get<string>('PRISMA_TRANSACTION_TIMEOUT_MS', '30000')) });
+            llmMetadata: this.buildPostLlmMetadata(
+              genPost,
+              simhash(continuationContent),
+              {},
+              {
+                angleType: "continuation",
+                multiStage: true,
+              },
+            ) as Prisma.InputJsonValue,
+          },
+          tx,
+          { emitEvent: false }, // H1: emit after the tx commits, not inside it
+        );
+        this.logger.debug(
+          `F2: Created continuation post for ${genPost.network} thread ${thread.id}`,
+        );
+        return created;
+      },
+      { timeout: Number(this.configService.get<string>("PRISMA_TRANSACTION_TIMEOUT_MS", "30000")) },
+    );
     // H1: emit DRAFT_GENERATED only AFTER the tx commits.
     this.postsService.emitDraftGenerated(continuationPost.id, genPost.network);
     savedPosts.push(continuationPost);
-    await this.persistPostVariantForContent(continuationPost.id, genPost.network, continuationContent, genPost.judgeScores);
+    await this.persistPostVariantForContent(
+      continuationPost.id,
+      genPost.network,
+      continuationContent,
+      genPost.judgeScores,
+    );
   }
 
   /**
@@ -1491,7 +1933,11 @@ export class GenerationService {
    * Uses LLM to create a natural follow-up that references the root post.
    * Falls back to a heuristic if the LLM call fails.
    */
-  private async generateContinuationContent(hook: string, rootContent: string, topic: string): Promise<string> {
+  private async generateContinuationContent(
+    hook: string,
+    rootContent: string,
+    topic: string,
+  ): Promise<string> {
     try {
       const brandVoice = await this.loadBrandVoice();
       const systemPrompt = `You are a social media writer for ${this.brandName}, ${this.domainDescription}.
@@ -1514,38 +1960,42 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
       // If too long, truncate at last sentence boundary
       if (content.length > 280) {
         const truncated = content.slice(0, 277);
-        const lastPeriod = truncated.lastIndexOf('.');
-        return truncated.slice(0, lastPeriod > 100 ? lastPeriod + 1 : 277) + '…';
+        const lastPeriod = truncated.lastIndexOf(".");
+        return truncated.slice(0, lastPeriod > 100 ? lastPeriod + 1 : 277) + "…";
       }
       // Empty response — fall through to heuristic
     } catch (err) {
-      this.logger.warn(`F2 continuation LLM call failed: ${(err as Error).message} — using heuristic`);
+      this.logger.warn(
+        `F2 continuation LLM call failed: ${(err as Error).message} — using heuristic`,
+      );
     }
 
     // Heuristic fallback — no links in posts (text-only per brand voice).
     // P9 compliance: no engagement bait ("share below", "comment", "tag").
     // Close with a value-first CTA (no URL).
-    const rootSentence = rootContent.split('.')[0]?.trim() ?? hook;
+    const rootSentence = rootContent.split(".")[0]?.trim() ?? hook;
     return `${rootSentence}.\n\nWhat's your take on ${topic.toLowerCase()}? ✨`;
   }
 
   private get brandName(): string {
-    return this.domainConfig?.brandName ?? 'Social Poster Agent';
+    return this.domainConfig?.brandName ?? "Social Poster Agent";
   }
 
   private get domainDescription(): string {
-    return this.domainConfig?.domainDescription ?? 'an AI-assisted multi-network social posting system';
+    return (
+      this.domainConfig?.domainDescription ?? "an AI-assisted multi-network social posting system"
+    );
   }
 
   private get blogBaseUrl(): string {
-    return this.domainConfig?.blogBaseUrl ?? 'https://example.com';
+    return this.domainConfig?.blogBaseUrl ?? "https://example.com";
   }
 
   private async loadBrandVoice(): Promise<string> {
     if (this.brandVoice) return this.brandVoice;
     this.brandVoice = this.domainConfig
       ? await this.domainConfig.getBrandVoice()
-      : 'Be specific, opinionated, and human. No fear-mongering, no absolute predictions, no medical/financial advice, no engagement bait. No hashtags or URLs in posts.';
+      : "Be specific, opinionated, and human. No fear-mongering, no absolute predictions, no medical/financial advice, no engagement bait. No hashtags or URLs in posts.";
     return this.brandVoice;
   }
 
@@ -1558,7 +2008,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
    * Topics without a publishedAt are sorted last (stable).
    */
   /**
-   * Sprint P / F22: Fetch trending topics (Google Trends + X + domain calendar) and
+   * INTEL-101 / F22: Fetch trending topics (Google Trends + X + domain calendar) and
    * convert them to ContentTopic format so they can be used by the generation
    * graph alongside content-source topics.
    *
@@ -1583,7 +2033,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
     }
 
     // Get merged trending (domain calendar + Google Trends + X)
-    const skipXInDryRun = parseBool(process.env.SPA_DRY_RUN ?? 'false');
+    const skipXInDryRun = parseBool(this.configService.get<string>("SPA_DRY_RUN", "false"));
     const merged = await this.trendingScraper.getMergedTrending(calendarTopics, {
       includeX: !skipXInDryRun,
     });
@@ -1593,16 +2043,19 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
       // Include topic slug in path so dedup is per-topic, not per-source
       // (otherwise all Google Trends topics share "trending/google_trends" and
       // only the first one ever gets posted)
-      const slug = t.topic.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 50);
+      const slug = t.topic
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .slice(0, 50);
       return {
-        sourceType: 'topic' as const,
-        path: `trending/${t.sources.join('+')}/${slug}`,
+        sourceType: "topic" as const,
+        path: `trending/${t.sources.join("+")}/${slug}`,
         topic: t.topic,
         keywords: t.sources, // use sources as keywords for LLM context
         facts: [],
-        category: 'trending',
+        category: "trending",
         publishedAt: t.scrapedAt ?? new Date(),
-        language: 'en',
+        language: "en",
       };
     });
   }
@@ -1613,7 +2066,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
     const result = prioritizeTopicsByFreshness(topics, count);
     this.logger.debug(
       `B5: Prioritized ${result.length}/${topics.length} topics — ` +
-        `categories: ${result.map((t) => t.category ?? 'uncategorized').join(', ')}`,
+        `categories: ${result.map((t) => t.category ?? "uncategorized").join(", ")}`,
     );
     return result;
   }
@@ -1631,10 +2084,10 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
    */
   private async filterTrendingTopics(topics: ContentTopic[]): Promise<ContentTopic[]> {
     const nonTrending = topics.filter(
-      (t) => t.sourceType !== 'topic' || !t.path.startsWith('trending/'),
+      (t) => t.sourceType !== "topic" || !t.path.startsWith("trending/"),
     );
     const trending = topics.filter(
-      (t) => t.sourceType === 'topic' && t.path.startsWith('trending/'),
+      (t) => t.sourceType === "topic" && t.path.startsWith("trending/"),
     );
 
     if (trending.length === 0) {
@@ -1657,9 +2110,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
             this.llm,
           );
           if (!result.safe) {
-            this.logger.warn(
-              `P5: Rejected trending topic "${topic.topic}" — ${result.reason}`,
-            );
+            this.logger.warn(`P5: Rejected trending topic "${topic.topic}" — ${result.reason}`);
             return null;
           }
           this.logger.debug(
@@ -1726,31 +2177,18 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
       }
     }
 
-    this.logger.debug(`Loaded ${hashes.length} recent post hashes for dedup (topic: "${currentTopic}")`);
+    this.logger.debug(
+      `Loaded ${hashes.length} recent post hashes for dedup (topic: "${currentTopic}")`,
+    );
     return hashes;
   }
 
-  private async markRunCompleted(runId: string, topics: string[], errorMessage?: string): Promise<void> {
-    await this.prisma.generationRun.update({
-      where: { id: runId },
-      data: {
-        status: errorMessage ? GenerationRunStatus.FAILED : GenerationRunStatus.COMPLETED,
-        completedAt: new Date(),
-        sourceTopics: topics,
-        errorMessage,
-      },
-    });
-
-    // Memory optimization: generation checkpoints are only needed for resume.
-    // Once a run completes successfully, delete the Redis keys immediately.
-    // Failed/paused runs keep their checkpoints until TTL expires.
-    if (!errorMessage && topics.length > 0) {
-      try {
-        await this.checkpointSaver.deleteRunCheckpoints(runId);
-      } catch (err) {
-        this.logger.warn(`markRunCompleted: cleanup for ${runId} failed: ${(err as Error).message}`);
-      }
-    }
+  private async markRunCompleted(
+    runId: string,
+    topics: string[],
+    errorMessage?: string,
+  ): Promise<void> {
+    await this.runLifecycle.markCompleted(runId, topics, errorMessage);
   }
 
   /**
@@ -1759,7 +2197,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
    */
   async listRuns(limit = 20) {
     const runs = await this.prisma.generationRun.findMany({
-      orderBy: { startedAt: 'desc' },
+      orderBy: { startedAt: "desc" },
       take: limit,
       include: { _count: { select: { posts: true } } },
     });
@@ -1780,7 +2218,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
       include: {
         posts: {
           select: { id: true, network: true, content: true, status: true, createdAt: true },
-          orderBy: { createdAt: 'asc' },
+          orderBy: { createdAt: "asc" },
         },
       },
     });
@@ -1806,18 +2244,9 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
    * Uses PAUSED status (not FAILED) so health monitor doesn't alert on manual pauses.
    */
   async pauseRun(runId: string): Promise<{ runId: string; status: string }> {
-    const controller = this.activeRuns.get(runId);
-    if (controller) {
-      controller.abort();
-      this.activeRuns.delete(runId);
-    }
-    await this.prisma.generationRun.update({
-      where: { id: runId },
-      data: { status: GenerationRunStatus.PAUSED, completedAt: new Date(), errorMessage: 'Paused by operator' },
-    });
-    await this.sseService.publish({ type: 'generation_paused', runId });
+    const result = await this.runLifecycle.pause(runId);
     this.logger.log(`Generation run ${runId} paused`);
-    return { runId, status: 'paused' };
+    return result;
   }
 
   /**
@@ -1828,24 +2257,15 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
    * Includes SimHash dedup (B5) and SSE progress events for UI consistency.
    */
   async resumeRun(runId: string): Promise<{ runId: string; status: string }> {
-    const run = await this.prisma.generationRun.findUnique({ where: { id: runId } });
-    if (!run) throw new Error(`Generation run ${runId} not found`);
-
-    // Mark as RUNNING again
-    await this.prisma.generationRun.update({
-      where: { id: runId },
-      data: { status: GenerationRunStatus.RUNNING, completedAt: null, errorMessage: null },
-    });
-
-    await this.sseService.publish({ type: 'generation_resumed', runId });
+    const run = await this.runLifecycle.prepareResume(runId);
 
     // Re-fetch topics from sourceTopics stored in the run
     const sourceTopics = (run.sourceTopics as string[]) ?? [];
     if (sourceTopics.length === 0) {
       // No topics stored — can't resume from checkpoint, mark as failed
       this.logger.warn(`Run ${runId} has no stored sourceTopics — cannot resume`);
-      await this.markRunCompleted(runId, [], 'Cannot resume: no sourceTopics stored');
-      return { runId, status: 'failed' };
+      await this.markRunCompleted(runId, [], "Cannot resume: no sourceTopics stored");
+      return { runId, status: "failed" };
     }
 
     // Get all topics and filter to the ones in this run
@@ -1853,14 +2273,13 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
     const topics = allTopics.filter((t) => sourceTopics.includes(t.topic));
 
     if (topics.length === 0) {
-      await this.markRunCompleted(runId, sourceTopics, 'No topics found for resume');
-      return { runId, status: 'completed' };
+      await this.markRunCompleted(runId, sourceTopics, "No topics found for resume");
+      return { runId, status: "completed" };
     }
 
     const brandVoice = await this.loadBrandVoice();
     const targetNetworks = this.resolveTargetNetworks();
-    const controller = new AbortController();
-    this.activeRuns.set(runId, controller);
+    const controller = this.runLifecycle.register(runId);
 
     // Resume in background — don't block the API response
     void (async () => {
@@ -1881,6 +2300,7 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
             const config: GraphInvokeConfig = {
               configurable: { thread_id: `${runId}:${topic.topic}` },
               recursionLimit: 30, // Q8: judge-retry can add up to 2 supersteps per network
+              runName: "generation.workflow",
               signal: controller.signal,
             };
             const initialState = createInitialState(topic, targetNetworks, brandVoice);
@@ -1889,8 +2309,8 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
               config,
               {
                 sessionId: runId,
-                tags: ['generation', 'resume'],
-                traceMetadata: { topic: topic.topic, runId, mode: 'resume' },
+                tags: ["generation", "resume"],
+                traceMetadata: { topic: topic.topic, runId, mode: "resume" },
               },
               initialState,
               runId,
@@ -1913,33 +2333,32 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
             );
             postIds.push(...savedPosts.map((p) => p.id));
           } catch (err) {
-            this.logger.error(`Resume failed for topic "${topic.topic}": ${(err as Error).message}`);
+            this.logger.error(
+              `Resume failed for topic "${topic.topic}": ${(err as Error).message}`,
+            );
           }
         }
-        await this.markRunCompleted(runId, topics.map((t) => t.topic));
-        this.activeRuns.delete(runId);
-        await this.sseService.publish({ type: 'generation_completed', runId, postCount: postIds.length });
+        await this.markRunCompleted(
+          runId,
+          topics.map((t) => t.topic),
+        );
+        this.runLifecycle.remove(runId);
+        await this.sseService.publish({
+          type: "generation_completed",
+          runId,
+          postCount: postIds.length,
+        });
       } catch (outerErr) {
         // Outer error handler — ensures run is never stuck in RUNNING forever
-        this.logger.error(`Resume run ${runId} failed unexpectedly: ${(outerErr as Error).message}`);
-        this.activeRuns.delete(runId);
-        await this.prisma.generationRun.update({
-          where: { id: runId },
-          data: {
-            status: GenerationRunStatus.FAILED,
-            completedAt: new Date(),
-            errorMessage: `Resume failed: ${(outerErr as Error).message}`,
-          },
-        });
-        await this.sseService.publish({
-          type: 'generation_failed',
-          runId,
-          error: `Resume failed: ${(outerErr as Error).message}`,
-        });
+        this.logger.error(
+          `Resume run ${runId} failed unexpectedly: ${(outerErr as Error).message}`,
+        );
+        this.runLifecycle.remove(runId);
+        await this.runLifecycle.markFailed(runId, `Resume failed: ${(outerErr as Error).message}`);
       }
     })();
 
-    return { runId, status: 'resumed' };
+    return { runId, status: "resumed" };
   }
 
   /**
@@ -1959,56 +2378,29 @@ Write a follow-up post that adds a new angle or asks an engaging question:`;
     approved: boolean,
     edits?: Record<string, string>,
   ): Promise<{ runId: string; topic: string; status: string }> {
-    const config: GraphInvokeConfig = {
-      configurable: { thread_id: `${runId}:${topic}` },
-      recursionLimit: 30, // Q8: judge-retry can add up to 2 supersteps per network
-    };
-
-    // Resume the graph by passing a Command with the resume payload.
-    // The interrupt() call in human_review node will return this value.
-    const resumePayload = { approved, edits };
-    // Langfuse tracing for review resume — same sessionId as original run
-    const { finalState, promptLabels } = await this.tracedGraphInvoke(
-      config,
-      {
-        sessionId: runId,
-        tags: ['generation', 'review-resume'],
-        traceMetadata: { topic, runId, mode: 'review-resume', approved },
-      },
-      new Command({ resume: resumePayload }),
+    return this.reviewResumeService.resume(
       runId,
+      topic,
+      approved,
+      edits,
+      (config, command, context) =>
+        this.tracedGraphInvoke(
+          config,
+          {
+            sessionId: context.runId,
+            tags: ["generation", "review-resume"],
+            traceMetadata: {
+              topic: context.topic,
+              runId: context.runId,
+              mode: "review-resume",
+              approved: context.approved,
+            },
+          },
+          command,
+          context.runId,
+        ),
+      (reviewTopic) => this.loadRecentPostHashes(reviewTopic),
     );
-    const generatedPosts = (finalState as { posts?: GeneratedPost[] }).posts ?? [];
-
-    // Pre-load accounts for the networks that actually produced posts.
-    const accountByNetwork = new Map<SocialNetwork, AccountResult>();
-    const postNetworks = [...new Set(generatedPosts.map((p) => p.network))];
-    await Promise.all(
-      postNetworks.map(async (network) => {
-        const account = await this.accountsService.getNextAccountForNetwork(network);
-        accountByNetwork.set(network, account);
-      }),
-    );
-
-    // Save the generated posts (same logic as generatePostsForTopic)
-    const postIds: string[] = [];
-    const recentHashes = await this.loadRecentPostHashes(topic);
-    const savedPosts = await this.persistGeneratedPosts(
-      generatedPosts,
-      accountByNetwork,
-      runId,
-      { type: 'review', path: '', topic, keywords: [] },
-      { recentHashes, promptLabels },
-    );
-    postIds.push(...savedPosts.map((p) => p.id));
-
-    await this.sseService.publish({
-      type: 'generation_completed',
-      runId,
-      postCount: postIds.length,
-    });
-
-    return { runId, topic, status: 'completed' };
   }
 
   /**

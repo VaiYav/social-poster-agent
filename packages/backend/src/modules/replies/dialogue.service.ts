@@ -8,22 +8,22 @@
  *   - Invoke the DialogueGraph to decide whether to reply
  *   - Return a DialogueDecision the RepliesMonitor can execute
  */
-import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service.js';
-import { ILlmPort } from '../../domain/ports/llm.port.js';
-import { IPromptPort } from '../../domain/ports/prompt.port.js';
-import { detectLanguage } from '../../infrastructure/util/language-detector.js';
-import type { IncomingComment, SocialNetwork } from '@prisma/client';
-import { QuestionClassifierService } from './question-classifier.service.js';
-import { ToneAnalyzerService } from './tone-analyzer.service.js';
+import { Injectable, Logger, Inject, Optional } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { ILlmPort } from "../../domain/ports/llm.port.js";
+import { IPromptPort } from "../../domain/ports/prompt.port.js";
+import { detectLanguage } from "../../infrastructure/util/language-detector.js";
+import type { IncomingComment, SocialNetwork } from "../../generated/prisma/client.js";
+import { QuestionClassifierService } from "./question-classifier.service.js";
+import { ToneAnalyzerService } from "./tone-analyzer.service.js";
 import {
   compileDialogueGraph,
   createDialogueState,
   type DialogueMessage,
   type DialogueDecision,
   type DialogueStateType,
-} from './dialogue.graph.js';
+} from "./dialogue.graph.js";
 
 export type { DialogueDecision };
 
@@ -33,7 +33,7 @@ type CompiledGraph = ReturnType<typeof compileDialogueGraph>;
 export class DialogueService {
   private readonly logger = new Logger(DialogueService.name);
   private readonly maxDepth: number;
-  private readonly autoReplyComplexity: 'low' | 'medium' | 'high';
+  private readonly autoReplyComplexity: "low" | "medium" | "high";
   private readonly repliesTemperature: number;
   private compiledGraph: CompiledGraph | null = null;
 
@@ -45,16 +45,18 @@ export class DialogueService {
     private readonly configService: ConfigService,
     @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
   ) {
-    const rawDepth = Number(this.configService.get<string>('REPLIES_MAX_CONVERSATION_DEPTH', '3'));
+    const rawDepth = Number(this.configService.get<string>("REPLIES_MAX_CONVERSATION_DEPTH", "3"));
     this.maxDepth = Number.isFinite(rawDepth) && rawDepth > 0 ? rawDepth : 3;
 
-    const complexity = this.configService.get<string>('REPLIES_AUTO_REPLY_COMPLEXITY', 'medium');
-    this.autoReplyComplexity = complexity === 'low' || complexity === 'medium' || complexity === 'high'
-      ? complexity
-      : 'medium';
+    const complexity = this.configService.get<string>("REPLIES_AUTO_REPLY_COMPLEXITY", "medium");
+    this.autoReplyComplexity =
+      complexity === "low" || complexity === "medium" || complexity === "high"
+        ? complexity
+        : "medium";
 
-    const rawTemp = Number(this.configService.get<string>('REPLIES_TEMPERATURE', '0.6'));
-    this.repliesTemperature = Number.isFinite(rawTemp) && rawTemp >= 0 && rawTemp <= 2 ? rawTemp : 0.6;
+    const rawTemp = Number(this.configService.get<string>("REPLIES_TEMPERATURE", "0.6"));
+    this.repliesTemperature =
+      Number.isFinite(rawTemp) && rawTemp >= 0 && rawTemp <= 2 ? rawTemp : 0.6;
   }
 
   private getGraph(): CompiledGraph {
@@ -77,10 +79,7 @@ export class DialogueService {
   /**
    * Process one incoming comment in the context of its conversation thread.
    */
-  async processComment(
-    comment: IncomingComment,
-    postContent: string,
-  ): Promise<DialogueDecision> {
+  async processComment(comment: IncomingComment, postContent: string): Promise<DialogueDecision> {
     const conversationId = comment.conversationId ?? comment.commentId;
     const detectedLanguage = detectLanguage(comment.text);
     const messages = await this.buildMessages(comment, conversationId);
@@ -105,7 +104,7 @@ export class DialogueService {
 
       const elapsed = Date.now() - startTime;
       this.logger.debug(
-        `DialogueGraph for ${conversationId} completed in ${elapsed}ms: ${result.decision?.action ?? 'no decision'}`,
+        `DialogueGraph for ${conversationId} completed in ${elapsed}ms: ${result.decision?.action ?? "no decision"}`,
       );
 
       // Persist question classification for analytics and UI filtering.
@@ -122,15 +121,13 @@ export class DialogueService {
 
       return (
         result.decision ?? {
-          action: 'skip' as const,
-          reason: 'Graph returned no decision',
+          action: "skip" as const,
+          reason: "Graph returned no decision",
         }
       );
     } catch (err) {
-      this.logger.error(
-        `DialogueGraph failed for ${conversationId}: ${(err as Error).message}`,
-      );
-      return { action: 'skip', reason: `DialogueGraph error: ${(err as Error).message}` };
+      this.logger.error(`DialogueGraph failed for ${conversationId}: ${(err as Error).message}`);
+      return { action: "skip", reason: `DialogueGraph error: ${(err as Error).message}` };
     }
   }
 
@@ -150,14 +147,14 @@ export class DialogueService {
         conversationId,
         scrapedAt: { lte: target.scrapedAt },
       },
-      orderBy: { scrapedAt: 'asc' },
+      orderBy: { scrapedAt: "asc" },
     });
 
     const messages: DialogueMessage[] = [];
     let targetIncluded = false;
     for (const c of allComments) {
       const userMessage: DialogueMessage = {
-        role: 'user',
+        role: "user",
         author: c.author,
         text: c.text,
         commentId: c.commentId,
@@ -171,8 +168,8 @@ export class DialogueService {
       // target was scraped, include our assistant turn in the context.
       if (c.replyText && c.replyPostedAt && c.replyPostedAt <= target.scrapedAt) {
         messages.push({
-          role: 'assistant',
-          author: '',
+          role: "assistant",
+          author: "",
           text: c.replyText,
           commentId: c.replyUrl ?? `${c.commentId}-reply`,
           depth: c.depth + 1,
@@ -189,7 +186,7 @@ export class DialogueService {
     // Fallback for tests or first scrape: the target itself may not yet be persisted.
     if (!targetIncluded) {
       messages.push({
-        role: 'user',
+        role: "user",
         author: target.author,
         text: target.text,
         commentId: target.commentId,

@@ -8,11 +8,11 @@
 
 export function interpolate(template: string, variables: Record<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (match, key: string): string => {
-    if (key in variables) return variables[key]!
-    return match
-  })
+    if (key in variables) return variables[key]!;
+    return match;
+  });
 }
 
 export function toMustache(template: string): string {
-  return template.replace(/(?<!\{)\{(\w+)\}(?!\})/g, '{{$1}}')
+  return template.replace(/(?<!\{)\{(\w+)\}(?!\})/g, "{{$1}}");
 }

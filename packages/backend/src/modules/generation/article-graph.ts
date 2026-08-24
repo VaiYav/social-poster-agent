@@ -1,25 +1,25 @@
-import { StateGraph, END, START, Annotation } from '@langchain/langgraph';
-import { Logger } from '@nestjs/common';
-import type { ILlmPort } from '../../domain/ports/llm.port.js';
-import type { IPromptPort } from '../../domain/ports/prompt.port.js';
+import { StateGraph, END, START, Annotation } from "@langchain/langgraph";
+import { Logger } from "@nestjs/common";
+import type { ILlmPort } from "../../domain/ports/llm.port.js";
+import type { IPromptPort } from "../../domain/ports/prompt.port.js";
 import type {
   ArticleGraphState,
   ArticleContent,
   ArticleOutlineSection,
   ArticleJudgeScores,
   GenerateArticleOptions,
-} from '@spa/shared';
-import { SocialNetwork } from '@prisma/client';
-import type { CanonicalUrlService } from '../canonical/canonical-url.service.js';
+} from "@spa/shared";
+import { SocialNetwork } from "../../generated/prisma/client.js";
+import type { CanonicalUrlService } from "../canonical/canonical-url.service.js";
 import {
   ARTICLE_RESEARCH_EXTRACT_PROMPT,
   ARTICLE_OUTLINE_PROMPT,
   ARTICLE_DRAFT_PROMPT,
   ARTICLE_JUDGE_PROMPT,
   ARTICLE_REFINE_PROMPT,
-} from './prompts/fallback-prompts.js';
+} from "./prompts/fallback-prompts.js";
 
-const logger = new Logger('ArticleGraph');
+const logger = new Logger("ArticleGraph");
 
 // ============================================================
 // State definition
@@ -82,7 +82,7 @@ export const ArticleState = Annotation.Root({
   }),
   language: Annotation<string>({
     reducer: (_, y) => y,
-    default: () => 'en',
+    default: () => "en",
   }),
   targetNetworks: Annotation<SocialNetwork[]>({
     reducer: (_, y) => y,
@@ -121,32 +121,44 @@ async function researchExtractNode(
 
   const variables = {
     topic: state.topic,
-    keywords: state.keywords.join(', '),
+    keywords: state.keywords.join(", "),
     language: state.language,
   };
 
   try {
     const { systemPrompt, userPrompt } = promptPort
-      ? await promptPort.getCompiledChat('article-research-extract', variables, ARTICLE_RESEARCH_EXTRACT_PROMPT)
+      ? await promptPort.getCompiledChat(
+          "article-research-extract",
+          variables,
+          ARTICLE_RESEARCH_EXTRACT_PROMPT,
+        )
       : { ...ARTICLE_RESEARCH_EXTRACT_PROMPT };
 
     const response = await llm.generateChat(systemPrompt, userPrompt, {
       temperature: 0.4,
-      role: 'facts',
+      role: "facts",
       maxTokens: 2000,
     });
 
     // Parse numbered list of facts
     const facts = response.content
-      .split('\n')
-      .map((line) => line.replace(/^\d+[\.\)]\s*/, '').trim())
-      .filter((line) => line.length > 10 && !line.startsWith('#') && !line.toLowerCase().startsWith('here'));
+      .split("\n")
+      .map((line) => line.replace(/^\d+[\.\)]\s*/, "").trim())
+      .filter(
+        (line) =>
+          line.length > 10 && !line.startsWith("#") && !line.toLowerCase().startsWith("here"),
+      );
 
     logger.log(`research_extract: extracted ${facts.length} facts`);
     return { facts };
   } catch (error) {
-    logger.warn(`research_extract failed: ${error instanceof Error ? error.message : String(error)}`);
-    return { facts: [], error: `research_extract: ${error instanceof Error ? error.message : String(error)}` };
+    logger.warn(
+      `research_extract failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return {
+      facts: [],
+      error: `research_extract: ${error instanceof Error ? error.message : String(error)}`,
+    };
   }
 }
 
@@ -163,19 +175,19 @@ async function outlineNode(
 
   const variables = {
     topic: state.topic,
-    keywords: state.keywords.join(', '),
-    facts: state.facts.map((f, i) => `${i + 1}. ${f}`).join('\n'),
+    keywords: state.keywords.join(", "),
+    facts: state.facts.map((f, i) => `${i + 1}. ${f}`).join("\n"),
     language: state.language,
   };
 
   try {
     const promptText = promptPort
-      ? await promptPort.getCompiledText('article-outline', variables, ARTICLE_OUTLINE_PROMPT)
+      ? await promptPort.getCompiledText("article-outline", variables, ARTICLE_OUTLINE_PROMPT)
       : ARTICLE_OUTLINE_PROMPT;
 
-    const response = await llm.generateChat('', promptText, {
+    const response = await llm.generateChat("", promptText, {
       temperature: 0.5,
-      role: 'outline',
+      role: "outline",
       maxTokens: 2000,
     });
 
@@ -185,7 +197,10 @@ async function outlineNode(
     return { outline };
   } catch (error) {
     logger.warn(`outline failed: ${error instanceof Error ? error.message : String(error)}`);
-    return { outline: [], error: `outline: ${error instanceof Error ? error.message : String(error)}` };
+    return {
+      outline: [],
+      error: `outline: ${error instanceof Error ? error.message : String(error)}`,
+    };
   }
 }
 
@@ -199,7 +214,7 @@ async function outlineNode(
  */
 function parseOutline(markdown: string): ArticleOutlineSection[] {
   const sections: ArticleOutlineSection[] = [];
-  const lines = markdown.split('\n');
+  const lines = markdown.split("\n");
   let current: ArticleOutlineSection | null = null;
 
   for (const line of lines) {
@@ -236,30 +251,35 @@ async function draftArticleNode(
   logger.log(`draft_article: topic="${state.topic}", outline sections=${state.outline.length}`);
 
   const outlineText = state.outline
-    .map((s) => `${'#'.repeat(s.level)} ${s.heading}\n${s.keyPoints.map((p) => `- ${p}`).join('\n')}\nEstimated: ${s.estimatedWordCount} words`)
-    .join('\n\n');
+    .map(
+      (s) =>
+        `${"#".repeat(s.level)} ${s.heading}\n${s.keyPoints.map((p) => `- ${p}`).join("\n")}\nEstimated: ${s.estimatedWordCount} words`,
+    )
+    .join("\n\n");
 
   const variables = {
     topic: state.topic,
-    keywords: state.keywords.join(', '),
+    keywords: state.keywords.join(", "),
     language: state.language,
     outline: outlineText,
-    facts: state.facts.map((f, i) => `${i + 1}. ${f}`).join('\n'),
+    facts: state.facts.map((f, i) => `${i + 1}. ${f}`).join("\n"),
   };
 
   try {
     const { systemPrompt, userPrompt } = promptPort
-      ? await promptPort.getCompiledChat('article-draft', variables, ARTICLE_DRAFT_PROMPT)
+      ? await promptPort.getCompiledChat("article-draft", variables, ARTICLE_DRAFT_PROMPT)
       : { ...ARTICLE_DRAFT_PROMPT };
 
     const response = await llm.generateChat(systemPrompt, userPrompt, {
       temperature: 0.7,
-      role: 'draft',
+      role: "draft",
       maxTokens: 4000,
     });
 
     const article = parseArticle(response.content, state.topic, state.keywords);
-    logger.log(`draft_article: wrote ${article.bodyMarkdown.length} chars, title="${article.title}"`);
+    logger.log(
+      `draft_article: wrote ${article.bodyMarkdown.length} chars, title="${article.title}"`,
+    );
     return { draft: article };
   } catch (error) {
     logger.warn(`draft_article failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -282,14 +302,17 @@ function parseArticle(markdown: string, topic: string, keywords: string[]): Arti
   // Generate slug from title
   const slug = title
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
     .slice(0, 80);
 
   // Extract excerpt from first paragraph after title (first 200 chars)
-  const bodyWithoutTitle = markdown.replace(/^#\s+.+\n?/, '');
-  const firstPara = bodyWithoutTitle.split('\n\n').find((p) => p.trim().length > 20) ?? '';
-  const excerpt = firstPara.replace(/[#*\-`]/g, '').trim().slice(0, 200);
+  const bodyWithoutTitle = markdown.replace(/^#\s+.+\n?/, "");
+  const firstPara = bodyWithoutTitle.split("\n\n").find((p) => p.trim().length > 20) ?? "";
+  const excerpt = firstPara
+    .replace(/[#*\-`]/g, "")
+    .trim()
+    .slice(0, 200);
 
   return {
     title,
@@ -312,39 +335,45 @@ async function judgeArticleNode(
   logger.log(`judge_article: topic="${state.topic}", refineCount=${state.refineCount}`);
 
   if (!state.draft) {
-    logger.warn('judge_article: no draft to judge');
+    logger.warn("judge_article: no draft to judge");
     return { judgeScores: null };
   }
 
   const variables = {
     article: state.draft.bodyMarkdown,
     topic: state.topic,
-    keywords: state.keywords.join(', '),
+    keywords: state.keywords.join(", "),
   };
 
   try {
     const promptText = promptPort
-      ? await promptPort.getCompiledText('article-judge', variables, ARTICLE_JUDGE_PROMPT)
+      ? await promptPort.getCompiledText("article-judge", variables, ARTICLE_JUDGE_PROMPT)
       : ARTICLE_JUDGE_PROMPT;
 
-    const response = await llm.generateChat('', promptText, {
+    const response = await llm.generateChat("", promptText, {
       temperature: 0.2,
-      role: 'judge',
+      role: "judge",
       maxTokens: 1000,
     });
 
     const parsed = extractJson(response.content);
-    if (!parsed || typeof parsed !== 'object') {
-      logger.warn('judge_article: failed to parse JSON from LLM response');
+    if (!parsed || typeof parsed !== "object") {
+      logger.warn("judge_article: failed to parse JSON from LLM response");
       return { judgeScores: null };
     }
 
     const scores = parsed as ArticleJudgeScores;
     // Validate required fields
-    const required = ['anti_ai_tone', 'hook_strength', 'factual_accuracy', 'structure_quality', 'seo_optimization'];
-    const valid = required.every((k) => typeof scores[k] === 'number');
+    const required = [
+      "anti_ai_tone",
+      "hook_strength",
+      "factual_accuracy",
+      "structure_quality",
+      "seo_optimization",
+    ];
+    const valid = required.every((k) => typeof scores[k] === "number");
     if (!valid) {
-      logger.warn('judge_article: missing or invalid score fields');
+      logger.warn("judge_article: missing or invalid score fields");
       return { judgeScores: null };
     }
 
@@ -355,7 +384,7 @@ async function judgeArticleNode(
       `factual_accuracy: ${scores.factual_accuracy} — ${scores.factual_accuracy_reason}`,
       `structure_quality: ${scores.structure_quality} — ${scores.structure_quality_reason}`,
       `seo_optimization: ${scores.seo_optimization} — ${scores.seo_optimization_reason}`,
-    ].join('\n');
+    ].join("\n");
 
     logger.log(`judge_article: scores avg=${avgScore(scores).toFixed(2)}`);
     return { judgeScores: scores, judgeFeedback: feedback };
@@ -369,8 +398,14 @@ async function judgeArticleNode(
  * Calculate average score across all 5 dimensions.
  */
 function avgScore(scores: ArticleJudgeScores): number {
-  const dims = ['anti_ai_tone', 'hook_strength', 'factual_accuracy', 'structure_quality', 'seo_optimization'] as const;
-  const values = dims.map((k) => scores[k]).filter((v) => typeof v === 'number') as number[];
+  const dims = [
+    "anti_ai_tone",
+    "hook_strength",
+    "factual_accuracy",
+    "structure_quality",
+    "seo_optimization",
+  ] as const;
+  const values = dims.map((k) => scores[k]).filter((v) => typeof v === "number") as number[];
   if (values.length === 0) return 0;
   return values.reduce((a, b) => a + b, 0) / values.length;
 }
@@ -392,20 +427,20 @@ async function refineArticleNode(
 
   const variables = {
     article: state.draft.bodyMarkdown,
-    feedback: state.judgeFeedback ?? 'Improve overall quality.',
+    feedback: state.judgeFeedback ?? "Improve overall quality.",
     topic: state.topic,
-    keywords: state.keywords.join(', '),
+    keywords: state.keywords.join(", "),
     language: state.language,
   };
 
   try {
     const promptText = promptPort
-      ? await promptPort.getCompiledText('article-refine', variables, ARTICLE_REFINE_PROMPT)
+      ? await promptPort.getCompiledText("article-refine", variables, ARTICLE_REFINE_PROMPT)
       : ARTICLE_REFINE_PROMPT;
 
-    const response = await llm.generateChat('', promptText, {
+    const response = await llm.generateChat("", promptText, {
       temperature: 0.6,
-      role: 'refine',
+      role: "refine",
       maxTokens: 4000,
     });
 
@@ -466,24 +501,34 @@ const JUDGE_THRESHOLD = 0.7; // Phase 1: make configurable via env
  * If average judge score < threshold AND refineCount < MAX_REFINES → refine.
  * Otherwise → set_canonical.
  */
-function judgeRouter(
-  state: typeof ArticleState.State,
-): 'refine_article' | 'set_canonical' {
-  if (!state.judgeScores) return 'set_canonical';
+function judgeRouter(state: typeof ArticleState.State): "refine_article" | "set_canonical" {
+  if (!state.judgeScores) return "set_canonical";
 
-  const dims = ['anti_ai_tone', 'hook_strength', 'factual_accuracy', 'structure_quality', 'seo_optimization'] as const;
-  const values = dims.map((k) => state.judgeScores![k]).filter((v) => typeof v === 'number') as number[];
-  if (values.length === 0) return 'set_canonical';
+  const dims = [
+    "anti_ai_tone",
+    "hook_strength",
+    "factual_accuracy",
+    "structure_quality",
+    "seo_optimization",
+  ] as const;
+  const values = dims
+    .map((k) => state.judgeScores![k])
+    .filter((v) => typeof v === "number") as number[];
+  if (values.length === 0) return "set_canonical";
 
   const avg = values.reduce((a, b) => a + b, 0) / values.length;
 
   if (avg < JUDGE_THRESHOLD && state.refineCount < MAX_REFINES) {
-    logger.log(`judge_router: avg=${avg.toFixed(2)} < ${JUDGE_THRESHOLD}, refining (count=${state.refineCount + 1})`);
-    return 'refine_article';
+    logger.log(
+      `judge_router: avg=${avg.toFixed(2)} < ${JUDGE_THRESHOLD}, refining (count=${state.refineCount + 1})`,
+    );
+    return "refine_article";
   }
 
-  logger.log(`judge_router: avg=${avg.toFixed(2)} ≥ ${JUDGE_THRESHOLD}, proceeding to set_canonical`);
-  return 'set_canonical';
+  logger.log(
+    `judge_router: avg=${avg.toFixed(2)} ≥ ${JUDGE_THRESHOLD}, proceeding to set_canonical`,
+  );
+  return "set_canonical";
 }
 
 // ============================================================
@@ -511,21 +556,31 @@ export function buildArticleGraph(deps: ArticleGraphDependencies) {
   const { llm, promptPort, canonicalService } = deps;
 
   const graph = new StateGraph(ArticleState)
-    .addNode('research_extract', (s: typeof ArticleState.State) => researchExtractNode(s, llm, promptPort))
-    .addNode('build_outline', (s: typeof ArticleState.State) => outlineNode(s, llm, promptPort))
-    .addNode('draft_article', (s: typeof ArticleState.State) => draftArticleNode(s, llm, promptPort))
-    .addNode('judge_article', (s: typeof ArticleState.State) => judgeArticleNode(s, llm, promptPort))
-    .addNode('refine_article', (s: typeof ArticleState.State) => refineArticleNode(s, llm, promptPort))
-    .addNode('set_canonical', (s: typeof ArticleState.State) => setCanonicalNode(s, canonicalService))
-    .addNode('save_to_db', (s: typeof ArticleState.State) => saveToDbNode(s))
-    .addEdge(START, 'research_extract')
-    .addEdge('research_extract', 'build_outline')
-    .addEdge('build_outline', 'draft_article')
-    .addEdge('draft_article', 'judge_article')
-    .addConditionalEdges('judge_article', judgeRouter)
-    .addEdge('refine_article', 'judge_article')
-    .addEdge('set_canonical', 'save_to_db')
-    .addEdge('save_to_db', END);
+    .addNode("research_extract", (s: typeof ArticleState.State) =>
+      researchExtractNode(s, llm, promptPort),
+    )
+    .addNode("build_outline", (s: typeof ArticleState.State) => outlineNode(s, llm, promptPort))
+    .addNode("draft_article", (s: typeof ArticleState.State) =>
+      draftArticleNode(s, llm, promptPort),
+    )
+    .addNode("judge_article", (s: typeof ArticleState.State) =>
+      judgeArticleNode(s, llm, promptPort),
+    )
+    .addNode("refine_article", (s: typeof ArticleState.State) =>
+      refineArticleNode(s, llm, promptPort),
+    )
+    .addNode("set_canonical", (s: typeof ArticleState.State) =>
+      setCanonicalNode(s, canonicalService),
+    )
+    .addNode("save_to_db", (s: typeof ArticleState.State) => saveToDbNode(s))
+    .addEdge(START, "research_extract")
+    .addEdge("research_extract", "build_outline")
+    .addEdge("build_outline", "draft_article")
+    .addEdge("draft_article", "judge_article")
+    .addConditionalEdges("judge_article", judgeRouter)
+    .addEdge("refine_article", "judge_article")
+    .addEdge("set_canonical", "save_to_db")
+    .addEdge("save_to_db", END);
 
   return graph.compile();
 }
@@ -551,7 +606,12 @@ export function createArticleInitialState(
     canonicalUrl: null,
     finalArticle: null,
     error: null,
-    language: options.language ?? 'en',
-    targetNetworks: options.targetNetworks ?? [SocialNetwork.DEVTO, SocialNetwork.HASHNODE, SocialNetwork.LINKEDIN],
+    // English-only article generation regardless of the requested language.
+    language: "en",
+    targetNetworks: options.targetNetworks ?? [
+      SocialNetwork.DEVTO,
+      SocialNetwork.HASHNODE,
+      SocialNetwork.LINKEDIN,
+    ],
   };
 }

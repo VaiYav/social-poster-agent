@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
-import { Globe, HeartPulse, Gauge, Timer, Activity } from '@lucide/vue';
-import { useSessionsStore } from '../stores/sessions';
-import { Card, Button, Badge, ProgressBar, SectionHeader } from '../components/ui';
-import LoadingSpinner from '../components/LoadingSpinner.vue';
-import ErrorState from '../components/ErrorState.vue';
-import EmptyState from '../components/EmptyState.vue';
+import { onMounted } from "vue";
+import { Globe, HeartPulse, Gauge, Timer, Activity } from "@lucide/vue";
+import { useSessionsStore } from "../stores/sessions";
+import { Card, Button, Badge, ProgressBar, SectionHeader } from "../components/ui";
+import LoadingSpinner from "../components/LoadingSpinner.vue";
+import ErrorState from "../components/ErrorState.vue";
+import EmptyState from "../components/EmptyState.vue";
 
 const sessionsStore = useSessionsStore();
 
@@ -23,10 +23,10 @@ function warmupDaysElapsed(startedAt: string | null): number {
 }
 
 function warmupPhase(days: number): string {
-  if (days <= 2) return 'Browse-only (days 1–2)';
-  if (days <= 5) return 'Light interactions (days 3–5)';
-  if (days <= 7) return 'Moderate (days 6–7)';
-  return 'Full activity (day 8+)';
+  if (days <= 2) return "Browse-only (days 1–2)";
+  if (days <= 5) return "Light interactions (days 3–5)";
+  if (days <= 7) return "Moderate (days 6–7)";
+  return "Full activity (day 8+)";
 }
 
 function rateLimitFor(network: string | undefined) {
@@ -34,18 +34,18 @@ function rateLimitFor(network: string | undefined) {
   return sessionsStore.rateLimits[network] ?? null;
 }
 
-const statusVariant: Record<string, 'success' | 'warning' | 'info' | 'error' | 'neutral'> = {
-  ACTIVE: 'success',
-  EXPIRED: 'warning',
-  WARMUP: 'info',
-  ERROR: 'error',
-  BANNED: 'error',
+const statusVariant: Record<string, "success" | "warning" | "info" | "error" | "neutral"> = {
+  ACTIVE: "success",
+  EXPIRED: "warning",
+  WARMUP: "info",
+  ERROR: "error",
+  BANNED: "error",
 };
 
 const networkIcons: Record<string, string> = {
-  X: '𝕏',
-  THREADS: '🧵',
-  FACEBOOK: '📘',
+  X: "𝕏",
+  THREADS: "🧵",
+  FACEBOOK: "📘",
 };
 </script>
 
@@ -60,22 +60,20 @@ const networkIcons: Record<string, string> = {
     <ErrorState v-else-if="sessionsStore.error" :message="sessionsStore.error" />
     <EmptyState v-else-if="sessionsStore.sessions.length === 0" message="No sessions configured." />
     <div v-else class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <Card
-        v-for="session in sessionsStore.sessions"
-        :key="session.id"
-        hoverable
-      >
+      <Card v-for="session in sessionsStore.sessions" :key="session.id" hoverable>
         <template #header>
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-3">
-              <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-highlight text-lg">
-                {{ networkIcons[session.account?.network ?? ''] ?? '?' }}
+              <div
+                class="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-highlight text-lg"
+              >
+                {{ networkIcons[session.account?.network ?? ""] ?? "?" }}
               </div>
               <div>
                 <h2 class="font-semibold text-text-primary">
-                  {{ session.account?.network ?? 'Unknown' }}
+                  {{ session.account?.network ?? "Unknown" }}
                 </h2>
-                <p class="text-xs text-text-muted">@{{ session.account?.handle ?? 'N/A' }}</p>
+                <p class="text-xs text-text-muted">@{{ session.account?.handle ?? "N/A" }}</p>
               </div>
             </div>
             <Badge :variant="statusVariant[session.status] ?? 'neutral'">
@@ -86,22 +84,27 @@ const networkIcons: Record<string, string> = {
         </template>
 
         <!-- Warm-up status (F20) -->
-        <div
-          v-if="session.account?.warmupEnabled"
-          class="mb-4 rounded-lg bg-info-subtle p-3"
-        >
+        <div v-if="session.account?.warmupEnabled" class="mb-4 rounded-lg bg-info-subtle p-3">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2 text-sm font-medium text-info">
               <Activity class="h-4 w-4" />
               Warm-up Mode
             </div>
             <span class="text-xs text-info">
-              Day {{ warmupDaysElapsed(session.account?.warmupStartedAt ?? null) }} / {{ session.account?.warmupDaysTotal ?? 7 }}
+              Day {{ warmupDaysElapsed(session.account?.warmupStartedAt ?? null) }} /
+              {{ session.account?.warmupDaysTotal ?? 7 }}
             </span>
           </div>
           <ProgressBar
             class="mt-2"
-            :value="Math.min(100, (warmupDaysElapsed(session.account?.warmupStartedAt ?? null) / (session.account?.warmupDaysTotal ?? 7)) * 100)"
+            :value="
+              Math.min(
+                100,
+                (warmupDaysElapsed(session.account?.warmupStartedAt ?? null) /
+                  (session.account?.warmupDaysTotal ?? 7)) *
+                  100,
+              )
+            "
             color="info"
             :show-label="false"
           />
@@ -121,18 +124,28 @@ const networkIcons: Record<string, string> = {
               Rate Limits
             </span>
             <span
-              :class="rateLimitFor(session.account?.network)!.dailyCount < rateLimitFor(session.account?.network)!.dailyLimit ? 'text-success' : 'text-error'"
+              :class="
+                rateLimitFor(session.account?.network)!.dailyCount <
+                rateLimitFor(session.account?.network)!.dailyLimit
+                  ? 'text-success'
+                  : 'text-error'
+              "
             >
-              {{ rateLimitFor(session.account?.network)!.dailyCount }} / {{ rateLimitFor(session.account?.network)!.dailyLimit }} daily
+              {{ rateLimitFor(session.account?.network)!.dailyCount }} /
+              {{ rateLimitFor(session.account?.network)!.dailyLimit }} daily
             </span>
           </div>
           <div class="mt-2 flex items-center justify-between text-xs text-text-muted">
             <span class="flex items-center gap-1.5">
               <Timer class="h-3.5 w-3.5" />
-              Weekly: {{ rateLimitFor(session.account?.network)!.weeklyCount }} / {{ rateLimitFor(session.account?.network)!.weeklyLimit }}
+              Weekly: {{ rateLimitFor(session.account?.network)!.weeklyCount }} /
+              {{ rateLimitFor(session.account?.network)!.weeklyLimit }}
             </span>
             <span v-if="rateLimitFor(session.account?.network)!.lastPostAt">
-              Last: {{ new Date(rateLimitFor(session.account?.network)!.lastPostAt!).toLocaleTimeString() }}
+              Last:
+              {{
+                new Date(rateLimitFor(session.account?.network)!.lastPostAt!).toLocaleTimeString()
+              }}
             </span>
             <span v-else>No posts today</span>
           </div>
@@ -141,7 +154,7 @@ const networkIcons: Record<string, string> = {
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-1.5 text-xs text-text-muted">
             <HeartPulse class="h-3.5 w-3.5" />
-            Last check: {{ session.lastHealthCheck ?? 'never' }}
+            Last check: {{ session.lastHealthCheck ?? "never" }}
           </div>
           <Button variant="outline" size="sm" @click="healthCheck(session.account?.network ?? '')">
             <Globe class="h-3.5 w-3.5" />

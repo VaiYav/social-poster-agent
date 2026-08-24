@@ -5,18 +5,18 @@
  * instance that other modules use to emit and listen to domain events.
  * The SseEventListener bridges domain events to SSE for real-time UI updates.
  */
-import { Module } from '@nestjs/common';
-import { EventEmitterModule } from '@nestjs/event-emitter';
-import { ConfigModule } from '@nestjs/config';
-import { SseModule } from '../infrastructure/sse/sse.module';
-import { PrismaModule } from '../infrastructure/prisma/prisma.module';
-import { PostsModule } from '../modules/posts/posts.module';
-import { QueueModule as QueueInfraModule } from '../infrastructure/queue/queue.module';
-import { GenerationModule } from '../modules/generation/generation.module';
-import { SseEventListener } from './listeners/sse-event.listener';
-import { SocialPromoListener } from './listeners/social-promo.listener.js';
-import { IndexNowListener } from './listeners/indexnow.listener.js';
-import { IndexNowService } from '../infrastructure/indexnow/indexnow.service.js';
+import { Module } from "@nestjs/common";
+import { EventEmitterModule } from "@nestjs/event-emitter";
+import { ConfigModule } from "@nestjs/config";
+import { SseModule } from "../infrastructure/sse/sse.module.js";
+import { PrismaModule } from "../infrastructure/prisma/prisma.module.js";
+import { PostsModule } from "../modules/posts/posts.module.js";
+import { QueueInfraModule } from "../infrastructure/queue/queue.module.js";
+import { GenerationModule } from "../modules/generation/generation.module.js";
+import { SseEventListener } from "./listeners/sse-event.listener.js";
+import { SocialPromoListener } from "./listeners/social-promo.listener.js";
+import { IndexNowListener } from "./listeners/indexnow.listener.js";
+import { IndexNowService } from "../infrastructure/indexnow/indexnow.service.js";
 
 @Module({
   imports: [
@@ -24,7 +24,7 @@ import { IndexNowService } from '../infrastructure/indexnow/indexnow.service.js'
       // Enable wildcard events (allows listening to 'post.*' etc.)
       wildcard: true,
       // Use '.' as delimiter (e.g., 'post.approved')
-      delimiter: '.',
+      delimiter: ".",
       // Don't throw if no listeners — events are fire-and-forget
       ignoreErrors: true,
     }),

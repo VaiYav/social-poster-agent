@@ -1,13 +1,18 @@
-import { withTimeout } from '../../../infrastructure/util/with-timeout.js';
-import { parseGraphInsights, type InsightMapping } from './graph-insights.js';
-import type { FetchFn, IMetricsSource, PostMetricsData, PostMetricsRef } from './metrics-source.port.js';
+import { withTimeout } from "../../../infrastructure/util/with-timeout.js";
+import { parseGraphInsights, type InsightMapping } from "./graph-insights.js";
+import type {
+  FetchFn,
+  IMetricsSource,
+  PostMetricsData,
+  PostMetricsRef,
+} from "./metrics-source.port.js";
 
 // Threads Insights metric names → our PostMetricsData fields (research §2).
 const THREADS_MAPPING: InsightMapping = {
-  likes: 'likes',
-  comments: 'replies',
-  shares: 'reposts',
-  impressions: 'views',
+  likes: "likes",
+  comments: "replies",
+  shares: "reposts",
+  impressions: "views",
 };
 
 /**
@@ -19,13 +24,13 @@ const THREADS_MAPPING: InsightMapping = {
  * unit-tested core (graph-insights.ts).
  */
 export class ThreadsInsightsSource implements IMetricsSource {
-  readonly network = 'THREADS' as const;
+  readonly network = "THREADS" as const;
   readonly isHttpApi = true;
 
   constructor(
     private readonly accessToken: string,
     private readonly fetchFn: FetchFn = globalThis.fetch as unknown as FetchFn,
-    private readonly base = 'https://graph.threads.net/v1.0',
+    private readonly base = "https://graph.threads.net/v1.0",
     private readonly timeoutMs = 8000,
   ) {}
 
@@ -33,12 +38,12 @@ export class ThreadsInsightsSource implements IMetricsSource {
     const mediaId = this.resolveMediaId(post.postUrl);
     if (!mediaId) return null;
 
-    const metric = Array.from(new Set(Object.values(THREADS_MAPPING))).join(',');
+    const metric = Array.from(new Set(Object.values(THREADS_MAPPING))).join(",");
     const url =
       `${this.base}/${encodeURIComponent(mediaId)}/insights` +
       `?metric=${metric}&access_token=${encodeURIComponent(this.accessToken)}`;
 
-    const res = await withTimeout(this.fetchFn(url), this.timeoutMs, 'threads insights');
+    const res = await withTimeout(this.fetchFn(url), this.timeoutMs, "threads insights");
     if (!res.ok) return null;
     return parseGraphInsights(await res.json(), THREADS_MAPPING);
   }

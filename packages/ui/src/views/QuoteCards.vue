@@ -1,29 +1,29 @@
 <script setup lang="ts">
-import { ref } from 'vue';
-import { ImageIcon, Sparkles, Download } from '@lucide/vue';
-import { useApi } from '../composables/useApi';
-import { useToast } from '../composables/useToast';
-import { Card, Button, Input, Textarea, Select, SectionHeader } from '../components/ui';
-import LoadingSpinner from '../components/LoadingSpinner.vue';
+import { ref } from "vue";
+import { ImageIcon, Sparkles, Download } from "@lucide/vue";
+import { useApi } from "../composables/useApi";
+import { useToast } from "../composables/useToast";
+import { Card, Button, Input, Textarea, Select, SectionHeader } from "../components/ui";
+import LoadingSpinner from "../components/LoadingSpinner.vue";
 
 const api = useApi();
 const toast = useToast();
 
-const text = ref('');
-const author = ref('Cosmic Insights');
-const network = ref('X');
+const text = ref("");
+const author = ref("Cosmic Insights");
+const network = ref("X");
 const generating = ref(false);
 const generatedUrl = ref<string | null>(null);
 
 async function generate() {
   if (!text.value.trim()) {
-    toast.error('Please enter some text for the quote card');
+    toast.error("Please enter some text for the quote card");
     return;
   }
   generating.value = true;
   generatedUrl.value = null;
   try {
-    const res = await api.post<{ path: string | null; error?: string }>('/quote-cards/generate', {
+    const res = await api.post<{ path: string | null; error?: string }>("/quote-cards/generate", {
       text: text.value,
       author: author.value || undefined,
       network: network.value,
@@ -31,29 +31,29 @@ async function generate() {
     });
     if (res.data.path) {
       generatedUrl.value = res.data.path;
-      toast.success('Quote card generated!');
+      toast.success("Quote card generated!");
     } else if (res.data.error) {
       toast.error(res.data.error);
     } else {
-      toast.error('Quote cards are disabled (set QUOTE_CARDS_ENABLED=true)');
+      toast.error("Quote cards are disabled (set QUOTE_CARDS_ENABLED=true)");
     }
   } catch (err) {
-    toast.error((err as Error).message ?? 'Failed to generate quote card');
+    toast.error((err as Error).message ?? "Failed to generate quote card");
   } finally {
     generating.value = false;
   }
 }
 
 const networkOptions = [
-  { value: 'X', label: 'X' },
-  { value: 'THREADS', label: 'Threads' },
-  { value: 'FACEBOOK', label: 'Facebook' },
+  { value: "X", label: "X" },
+  { value: "THREADS", label: "Threads" },
+  { value: "FACEBOOK", label: "Facebook" },
 ];
 
 const gradients: Record<string, [string, string]> = {
-  X: ['#1a1a2e', '#16213e'],
-  THREADS: ['#0f0f23', '#1a1a3e'],
-  FACEBOOK: ['#1e3a8a', '#1e40af'],
+  X: ["#1a1a2e", "#16213e"],
+  THREADS: ["#0f0f23", "#1a1a3e"],
+  FACEBOOK: ["#1e3a8a", "#1e40af"],
 };
 </script>
 
@@ -92,18 +92,15 @@ const gradients: Record<string, [string, string]> = {
           </div>
 
           <div>
-            <label class="mb-1.5 block text-sm font-medium text-text-secondary">Network (affects gradient)</label>
+            <label class="mb-1.5 block text-sm font-medium text-text-secondary"
+              >Network (affects gradient)</label
+            >
             <Select v-model="network" :options="networkOptions" />
           </div>
 
-          <Button
-            :loading="generating"
-            :disabled="!text.trim()"
-            class="w-full"
-            @click="generate"
-          >
+          <Button :loading="generating" :disabled="!text.trim()" class="w-full" @click="generate">
             <Sparkles class="h-4 w-4" />
-            {{ generating ? 'Generating...' : 'Generate Quote Card' }}
+            {{ generating ? "Generating..." : "Generate Quote Card" }}
           </Button>
         </div>
       </Card>
@@ -145,10 +142,10 @@ const gradients: Record<string, [string, string]> = {
               minHeight: '300px',
             }"
           >
-            <p class="max-w-md text-xl font-semibold text-white" style="line-height: 1.4;">
-              {{ text || 'Your quote will appear here...' }}
+            <p class="max-w-md text-xl font-semibold text-white" style="line-height: 1.4">
+              {{ text || "Your quote will appear here..." }}
             </p>
-            <p class="mt-4 text-sm italic text-white/60">— {{ author || 'Author' }}</p>
+            <p class="mt-4 text-sm italic text-white/60">— {{ author || "Author" }}</p>
           </div>
         </div>
       </Card>

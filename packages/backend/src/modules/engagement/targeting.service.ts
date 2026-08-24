@@ -12,10 +12,10 @@
 //   4. explore — Explore / For You page
 //   5. notifications — check who interacted with us
 
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import type { SocialNetwork } from '@spa/shared';
-import type { EngagementSource } from '../../domain/ports/engagement-decision.port.js';
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import type { SocialNetwork } from "@spa/shared";
+import type { EngagementSource } from "../../domain/ports/engagement-decision.port.js";
 
 /**
  * A targeting source with its URL and metadata.
@@ -41,19 +41,30 @@ export class TargetingService {
   private readonly sourceWeights: Record<EngagementSource, number>;
 
   constructor(private readonly configService: ConfigService) {
-    this.hashtags = this.parseList(
-      this.configService.get<string>('ENGAGEMENT_HASHTAGS', ''),
-    );
-    this.competitors = this.parseList(
-      this.configService.get<string>('ENGAGEMENT_COMPETITORS', ''),
-    );
-    this.defaultSearchTerm = this.configService.get<string>('ENGAGEMENT_DEFAULT_SEARCH_TERM', '');
+    this.hashtags = this.parseList(this.configService.get<string>("ENGAGEMENT_HASHTAGS", ""));
+    this.competitors = this.parseList(this.configService.get<string>("ENGAGEMENT_COMPETITORS", ""));
+    this.defaultSearchTerm = this.configService.get<string>("ENGAGEMENT_DEFAULT_SEARCH_TERM", "");
     this.sourceWeights = {
-      'home-feed': this.parseNumber(this.configService.get<string>('ENGAGEMENT_WEIGHT_HOME_FEED', '40'), 40),
-      'hashtag': this.parseNumber(this.configService.get<string>('ENGAGEMENT_WEIGHT_HASHTAG', '25'), 25),
-      'competitor': this.parseNumber(this.configService.get<string>('ENGAGEMENT_WEIGHT_COMPETITOR', '15'), 15),
-      'explore': this.parseNumber(this.configService.get<string>('ENGAGEMENT_WEIGHT_EXPLORE', '10'), 10),
-      'notifications': this.parseNumber(this.configService.get<string>('ENGAGEMENT_WEIGHT_NOTIFICATIONS', '10'), 10),
+      "home-feed": this.parseNumber(
+        this.configService.get<string>("ENGAGEMENT_WEIGHT_HOME_FEED", "40"),
+        40,
+      ),
+      hashtag: this.parseNumber(
+        this.configService.get<string>("ENGAGEMENT_WEIGHT_HASHTAG", "25"),
+        25,
+      ),
+      competitor: this.parseNumber(
+        this.configService.get<string>("ENGAGEMENT_WEIGHT_COMPETITOR", "15"),
+        15,
+      ),
+      explore: this.parseNumber(
+        this.configService.get<string>("ENGAGEMENT_WEIGHT_EXPLORE", "10"),
+        10,
+      ),
+      notifications: this.parseNumber(
+        this.configService.get<string>("ENGAGEMENT_WEIGHT_NOTIFICATIONS", "10"),
+        10,
+      ),
     };
   }
 
@@ -71,16 +82,18 @@ export class TargetingService {
 
     const totalWeight = sources.reduce((sum, s) => {
       const base = this.sourceWeights[s.source];
-      const boost = s.source === 'notifications' ? conversationBoost : 1;
+      const boost = s.source === "notifications" ? conversationBoost : 1;
       return sum + base * boost;
     }, 0);
     let random = Math.random() * totalWeight;
 
     for (const source of sources) {
-      const boost = source.source === 'notifications' ? conversationBoost : 1;
+      const boost = source.source === "notifications" ? conversationBoost : 1;
       random -= this.sourceWeights[source.source] * boost;
       if (random <= 0) {
-        this.logger.debug(`Picked source: ${source.label} for ${network} (conversationReady=${conversationReady})`);
+        this.logger.debug(
+          `Picked source: ${source.label} for ${network} (conversationReady=${conversationReady})`,
+        );
         return source;
       }
     }
@@ -98,16 +111,16 @@ export class TargetingService {
 
     // Home feed — always available
     sources.push({
-      source: 'home-feed',
+      source: "home-feed",
       url: this.getHomeFeedUrl(network),
-      label: 'Home Feed',
+      label: "Home Feed",
     });
 
     // Hashtags — pick a random one for this session
     if (this.hashtags.length > 0) {
       const hashtag = this.hashtags[Math.floor(Math.random() * this.hashtags.length)]!;
       sources.push({
-        source: 'hashtag',
+        source: "hashtag",
         url: this.getHashtagUrl(network, hashtag),
         label: `Hashtag ${hashtag}`,
         hashtag,
@@ -118,7 +131,7 @@ export class TargetingService {
     if (this.competitors.length > 0) {
       const competitor = this.competitors[Math.floor(Math.random() * this.competitors.length)]!;
       sources.push({
-        source: 'competitor',
+        source: "competitor",
         url: this.getCompetitorUrl(network, competitor),
         label: `Competitor @${competitor}`,
         competitorHandle: competitor,
@@ -126,25 +139,25 @@ export class TargetingService {
     }
 
     // Explore / For You — X.com has Explore, Threads has search
-    if (network === 'X') {
+    if (network === "X") {
       sources.push({
-        source: 'explore',
-        url: 'https://x.com/explore',
-        label: 'X Explore',
+        source: "explore",
+        url: "https://x.com/explore",
+        label: "X Explore",
       });
-    } else if (network === 'THREADS') {
+    } else if (network === "THREADS") {
       sources.push({
-        source: 'explore',
+        source: "explore",
         url: this.getThreadsExploreUrl(),
-        label: 'Threads Search',
+        label: "Threads Search",
       });
     }
 
     // Notifications
     sources.push({
-      source: 'notifications',
+      source: "notifications",
       url: this.getNotificationsUrl(network),
-      label: 'Notifications',
+      label: "Notifications",
     });
 
     return sources;
@@ -168,56 +181,72 @@ export class TargetingService {
 
   private getHomeFeedUrl(network: SocialNetwork): string {
     switch (network) {
-      case 'X': return 'https://x.com/home';
-      case 'THREADS': return 'https://www.threads.com/';
-      case 'FACEBOOK': return ''; // FB uses page slug, resolved by engager
-      default: return '';
+      case "X":
+        return "https://x.com/home";
+      case "THREADS":
+        return "https://www.threads.com/";
+      case "FACEBOOK":
+        return ""; // FB uses page slug, resolved by engager
+      default:
+        return "";
     }
   }
 
   private getHashtagUrl(network: SocialNetwork, hashtag: string): string {
-    const tag = hashtag.replace('#', '');
+    const tag = hashtag.replace("#", "");
     switch (network) {
-      case 'X': return `https://x.com/search?q=${encodeURIComponent(`#${tag}`)}&f=top`;
-      case 'THREADS': return `https://www.threads.com/search?q=${encodeURIComponent(`#${tag}`)}`;
-      case 'FACEBOOK': return `https://www.facebook.com/hashtag/${tag}`;
-      default: return '';
+      case "X":
+        return `https://x.com/search?q=${encodeURIComponent(`#${tag}`)}&f=top`;
+      case "THREADS":
+        return `https://www.threads.com/search?q=${encodeURIComponent(`#${tag}`)}`;
+      case "FACEBOOK":
+        return `https://www.facebook.com/hashtag/${tag}`;
+      default:
+        return "";
     }
   }
 
   private getCompetitorUrl(network: SocialNetwork, handle: string): string {
     switch (network) {
-      case 'X': return `https://x.com/${handle}`;
-      case 'THREADS': return `https://www.threads.com/@${handle}`;
-      case 'FACEBOOK': return `https://www.facebook.com/${handle}`;
-      default: return '';
+      case "X":
+        return `https://x.com/${handle}`;
+      case "THREADS":
+        return `https://www.threads.com/@${handle}`;
+      case "FACEBOOK":
+        return `https://www.facebook.com/${handle}`;
+      default:
+        return "";
     }
   }
 
   private getNotificationsUrl(network: SocialNetwork): string {
     switch (network) {
-      case 'X': return 'https://x.com/notifications';
-      case 'THREADS': return 'https://www.threads.com/activity';
-      case 'FACEBOOK': return 'https://www.facebook.com/notifications';
-      default: return '';
+      case "X":
+        return "https://x.com/notifications";
+      case "THREADS":
+        return "https://www.threads.com/activity";
+      case "FACEBOOK":
+        return "https://www.facebook.com/notifications";
+      default:
+        return "";
     }
   }
 
   private getThreadsExploreUrl(): string {
     const firstTag = this.hashtags[0];
-    const term = firstTag ? firstTag.replace('#', '') : this.defaultSearchTerm;
+    const term = firstTag ? firstTag.replace("#", "") : this.defaultSearchTerm;
     return `https://www.threads.com/search?q=${encodeURIComponent(term)}`;
   }
 
   private parseList(value: string): string[] {
     return value
-      .split(',')
+      .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
   }
 
   private parseNumber(value: string | undefined, fallback: number): number {
-    if (value === undefined || value === '') return fallback;
+    if (value === undefined || value === "") return fallback;
     const parsed = Number(value);
     return Number.isNaN(parsed) ? fallback : parsed;
   }

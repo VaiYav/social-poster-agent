@@ -1,0 +1,93 @@
+[
+  {
+    "name": "Solar Eclipse (Aug 2026)",
+    "date": "2026-08-12",
+    "windowDays": 30,
+    "topic": "Solar Eclipse August 2026 — new beginnings and intentions",
+    "networks": ["X", "THREADS", "FACEBOOK"]
+  },
+  {
+    "name": "Lunar Eclipse (Dec 2026)",
+    "date": "2026-12-14",
+    "windowDays": 30,
+    "topic": "Lunar Eclipse December 2026 — emotional release and closure",
+    "networks": ["X", "THREADS", "FACEBOOK"]
+  },
+  {
+    "name": "Saturn enters Aries (Apr 2026)",
+    "date": "2026-04-12",
+    "windowDays": 30,
+    "topic": "Saturn in Aries — discipline meets initiative, a new 29-year cycle",
+    "networks": ["X", "THREADS"]
+  },
+  {
+    "name": "Jupiter enters Cancer (Jun 2026)",
+    "date": "2026-06-09",
+    "windowDays": 30,
+    "topic": "Jupiter in Cancer — growth through emotional security and home",
+    "networks": ["X", "THREADS", "FACEBOOK"]
+  },
+  {
+    "name": "Pluto enters Aquarius (Mar 2026)",
+    "date": "2026-03-23",
+    "windowDays": 30,
+    "topic": "Pluto in Aquarius — transformation of technology and collective ideals",
+    "networks": ["X", "THREADS"]
+  },
+  {
+    "name": "Jupiter enters Leo (Jul 2027)",
+    "date": "2027-07-22",
+    "windowDays": 30,
+    "topic": "Jupiter in Leo — bold self-expression and creative expansion",
+    "networks": ["X", "THREADS", "FACEBOOK"]
+  },
+  {
+    "name": "Solar Eclipse (Aug 2027)",
+    "date": "2027-08-02",
+    "windowDays": 30,
+    "topic": "Solar Eclipse August 2027 — a powerful new cycle of leadership",
+    "networks": ["X", "THREADS", "FACEBOOK"]
+  },
+  {
+    "name": "Mercury Retrograde (Feb 2026)",
+    "date": "2026-02-26",
+    "windowDays": 30,
+    "topic": "Mercury Retrograde February 2026 — slow down and review in Pisces",
+    "networks": ["X", "THREADS", "FACEBOOK"]
+  },
+  {
+    "name": "Mercury Retrograde (Jun 2026)",
+    "date": "2026-06-29",
+    "windowDays": 30,
+    "topic": "Mercury Retrograde June 2026 — rethink communication in Cancer",
+    "networks": ["X", "THREADS", "FACEBOOK"]
+  },
+  {
+    "name": "Mercury Retrograde (Oct 2026)",
+    "date": "2026-10-24",
+    "windowDays": 30,
+    "topic": "Mercury Retrograde October 2026 — review and reset in Scorpio",
+    "networks": ["X", "THREADS", "FACEBOOK"]
+  },
+  {
+    "name": "Mercury Retrograde (Feb 2027)",
+    "date": "2027-02-09",
+    "windowDays": 30,
+    "topic": "Mercury Retrograde February 2027 — revisit partnerships in Pisces/Aquarius",
+    "networks": ["X", "THREADS", "FACEBOOK"]
+  },
+  {
+    "name": "Mercury Retrograde (Jun 2027)",
+    "date": "2027-06-10",
+    "windowDays": 30,
+    "topic": "Mercury Retrograde June 2027 — check emotions and logistics in Cancer/Gemini",
+    "networks": ["X", "THREADS", "FACEBOOK"]
+  },
+  {
+    "name": "Mercury Retrograde (Oct 2027)",
+    "date": "2027-10-07",
+    "windowDays": 30,
+    "topic": "Mercury Retrograde October 2027 — slow down and renegotiate in Scorpio/Libra",
+    "networks": ["X", "THREADS", "FACEBOOK"]
+  }
+]

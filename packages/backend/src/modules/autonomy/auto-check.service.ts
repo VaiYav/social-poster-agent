@@ -19,12 +19,12 @@
  * band [reviewThreshold, approveThreshold) unreachable. AutoCheck is now a pure
  * binary content-safety gate; score grading is the gate's job, not AutoCheck's.
  */
-import { Injectable, Logger } from '@nestjs/common';
-import { SocialNetwork } from '@prisma/client';
-import { detectEngagementBait } from '../content-enhancements/engagement-bait.detector.js';
-import { simhash, isDuplicateHash } from '../generation/simhash.js';
-import { NETWORK_LIMITS } from '../posts/network-limits.js';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { Injectable, Logger } from "@nestjs/common";
+import { SocialNetwork } from "../../generated/prisma/client.js";
+import { detectEngagementBait } from "../content-enhancements/engagement-bait.detector.js";
+import { simhash, isDuplicateHash } from "../generation/simhash.js";
+import { NETWORK_LIMITS } from "../posts/network-limits.js";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
 
 export interface CheckResult {
   name: string;
@@ -63,37 +63,44 @@ export class AutoCheckService {
    *   and every post is rejected, blocking autonomy entirely.
    * @returns AutoCheckResult with per-check details
    */
-  async check(content: string, network: SocialNetwork, excludePostId?: string): Promise<AutoCheckResult> {
+  async check(
+    content: string,
+    network: SocialNetwork,
+    excludePostId?: string,
+  ): Promise<AutoCheckResult> {
     const checks: CheckResult[] = [];
 
     // 1. Engagement-bait check
     const baitMatches = detectEngagementBait(content);
     checks.push({
-      name: 'engagement_bait',
+      name: "engagement_bait",
       passed: baitMatches.length === 0,
-      reason: baitMatches.length > 0
-        ? `Bait patterns: ${baitMatches.map((m) => m.category).join(', ')}`
-        : undefined,
+      reason:
+        baitMatches.length > 0
+          ? `Bait patterns: ${baitMatches.map((m) => m.category).join(", ")}`
+          : undefined,
     });
 
     // 2. Character limit
     const limit = NETWORK_LIMITS[network] ?? 280;
     checks.push({
-      name: 'char_limit',
+      name: "char_limit",
       passed: content.length <= limit,
-      reason: content.length > limit
-        ? `Content ${content.length} chars exceeds ${network} limit ${limit}`
-        : undefined,
+      reason:
+        content.length > limit
+          ? `Content ${content.length} chars exceeds ${network} limit ${limit}`
+          : undefined,
     });
 
     // 3. Forbidden phrases
     const forbiddenMatches = FORBIDDEN_PATTERNS.filter((p) => p.test(content));
     checks.push({
-      name: 'forbidden_phrases',
+      name: "forbidden_phrases",
       passed: forbiddenMatches.length === 0,
-      reason: forbiddenMatches.length > 0
-        ? `Forbidden patterns matched: ${forbiddenMatches.length}`
-        : undefined,
+      reason:
+        forbiddenMatches.length > 0
+          ? `Forbidden patterns matched: ${forbiddenMatches.length}`
+          : undefined,
     });
 
     // 4. SimHash dedup (BUG-1: exclude the post being evaluated — it is already saved)
@@ -101,16 +108,17 @@ export class AutoCheckService {
     const recentHashes = await this.loadRecentHashes(network, excludePostId);
     const isDup = isDuplicateHash(candidateHash, recentHashes);
     checks.push({
-      name: 'simhash_dedup',
+      name: "simhash_dedup",
       passed: !isDup,
-      reason: isDup ? 'Near-duplicate of existing content (SimHash distance ≤ 8)' : undefined,
+      reason: isDup ? "Near-duplicate of existing content (SimHash distance ≤ 8)" : undefined,
     });
 
     const passed = checks.every((c) => c.passed);
     const failedChecks = checks.filter((c) => !c.passed);
-    const rejectionReason = failedChecks.length > 0
-      ? failedChecks.map((c) => `${c.name}: ${c.reason}`).join('; ')
-      : undefined;
+    const rejectionReason =
+      failedChecks.length > 0
+        ? failedChecks.map((c) => `${c.name}: ${c.reason}`).join("; ")
+        : undefined;
 
     if (!passed) {
       this.logger.warn(`AutoCheck FAILED for ${network}: ${rejectionReason}`);
@@ -124,7 +132,10 @@ export class AutoCheckService {
    * BUG-1: `excludePostId` removes the post under evaluation from the corpus so
    * it cannot self-match.
    */
-  private async loadRecentHashes(network: SocialNetwork, excludePostId?: string): Promise<string[]> {
+  private async loadRecentHashes(
+    network: SocialNetwork,
+    excludePostId?: string,
+  ): Promise<string[]> {
     const since = new Date();
     since.setDate(since.getDate() - 30);
 
@@ -132,16 +143,14 @@ export class AutoCheckService {
       where: {
         network,
         createdAt: { gte: since },
-        status: 'POSTED',
+        status: "POSTED",
         ...(excludePostId ? { id: { not: excludePostId } } : {}),
       },
       select: { simhash: true, content: true },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
       take: 200,
     });
 
-    return posts
-      .map((p) => p.simhash ?? simhash(p.content))
-      .filter(Boolean) as string[];
+    return posts.map((p) => p.simhash ?? simhash(p.content)).filter(Boolean) as string[];
   }
 }

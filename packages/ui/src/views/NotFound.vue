@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft } from '@lucide/vue';
+import { ArrowLeft } from "@lucide/vue";
 </script>
 
 <template>

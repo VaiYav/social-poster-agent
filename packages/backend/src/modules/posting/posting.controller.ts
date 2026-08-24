@@ -1,37 +1,39 @@
-import { Controller, Post, Param, HttpCode, HttpStatus } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
-import { PostingService } from './posting.service';
+import { Controller, Post, Param, HttpCode, HttpStatus } from "@nestjs/common";
+import { ApiTags, ApiOperation, ApiResponse, ApiParam } from "@nestjs/swagger";
+import { PostingService } from "./posting.service.js";
 
-@ApiTags('posting')
-@Controller('posting')
+@ApiTags("posting")
+@Controller("posting")
 export class PostingController {
   constructor(private readonly postingService: PostingService) {}
 
-  @Post(':postId')
+  @Post(":postId")
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Post a single approved post to its social network' })
-  @ApiParam({ name: 'postId', type: String })
-  @ApiResponse({ status: 200, description: 'Post result with success/url/error' })
-  @ApiResponse({ status: 404, description: 'Post not found or not approved' })
-  async postById(@Param('postId') postId: string) {
+  @ApiOperation({ summary: "Post a single approved post to its social network" })
+  @ApiParam({ name: "postId", type: String })
+  @ApiResponse({ status: 200, description: "Post result with success/url/error" })
+  @ApiResponse({ status: 404, description: "Post not found or not approved" })
+  async postById(@Param("postId") postId: string) {
     return this.postingService.postById(postId);
   }
 
-  @Post('batch/all-approved')
+  @Post("batch/all-approved")
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Post all approved posts in batch (with rate limiting + delays)' })
-  @ApiResponse({ status: 200, description: 'Batch result with posted/failed counts' })
+  @ApiOperation({ summary: "Post all approved posts in batch (with rate limiting + delays)" })
+  @ApiResponse({ status: 200, description: "Batch result with posted/failed counts" })
   async postAllApproved() {
     return this.postingService.postAllApproved();
   }
 
-  @Post('multi-stage/:rootPostId')
+  @Post("multi-stage/:rootPostId")
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'F2: Schedule multi-stage thread posting with delayed continuations (30min apart)' })
-  @ApiParam({ name: 'rootPostId', type: String, description: 'Root post ID (threadPosition=0)' })
-  @ApiResponse({ status: 200, description: 'Scheduling result with scheduled count' })
-  @ApiResponse({ status: 400, description: 'Post is not a thread root' })
-  async scheduleMultiStage(@Param('rootPostId') rootPostId: string) {
+  @ApiOperation({
+    summary: "F2: Schedule multi-stage thread posting with delayed continuations (30min apart)",
+  })
+  @ApiParam({ name: "rootPostId", type: String, description: "Root post ID (threadPosition=0)" })
+  @ApiResponse({ status: 200, description: "Scheduling result with scheduled count" })
+  @ApiResponse({ status: 400, description: "Post is not a thread root" })
+  async scheduleMultiStage(@Param("rootPostId") rootPostId: string) {
     return this.postingService.scheduleMultiStagePosting(rootPostId);
   }
 }

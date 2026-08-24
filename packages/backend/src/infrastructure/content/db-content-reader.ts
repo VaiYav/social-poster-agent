@@ -1,7 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
-import type { ContentTopic } from '@spa/shared';
-import { PrismaService } from '../prisma/prisma.service';
-import type { IContentAdapter } from './adapters/content-adapter.interface.js';
+import { Injectable, Logger } from "@nestjs/common";
+import type { ContentTopic } from "@spa/shared";
+import { PrismaService } from "../prisma/prisma.service.js";
+import type { IContentAdapter } from "./adapters/content-adapter.interface.js";
 
 /**
  * DB-backed content reader — implements IContentAdapter using the Topic table.
@@ -13,7 +13,7 @@ import type { IContentAdapter } from './adapters/content-adapter.interface.js';
  */
 @Injectable()
 export class DbContentReader implements IContentAdapter {
-  readonly sourceType = 'db';
+  readonly sourceType = "db";
   lastError: string | null = null;
 
   private readonly logger = new Logger(DbContentReader.name);
@@ -23,20 +23,20 @@ export class DbContentReader implements IContentAdapter {
   async getTopics(limit = 5): Promise<ContentTopic[]> {
     try {
       const rows = await this.prisma.topic.findMany({
-        where: { status: 'active' },
-        orderBy: [{ createdAt: 'desc' }],
+        where: { status: "active" },
+        orderBy: [{ createdAt: "desc" }],
         take: Number(limit) || 5,
       });
 
       const topics: ContentTopic[] = rows.map((r) => ({
-        sourceType: 'brief',
+        sourceType: "brief",
         path: `db:${r.id}`,
         topic: r.topic,
         keywords: (r.keywords as string[]) ?? [],
         facts: (r.facts as string[]) ?? [],
-        category: r.category ?? 'general',
+        category: r.category ?? "general",
         publishedAt: r.createdAt,
-        language: 'en',
+        language: "en",
       }));
 
       this.logger.log(`DB content reader: ${topics.length} topics from DB`);
@@ -62,28 +62,30 @@ export class DbContentReader implements IContentAdapter {
    */
   async markUsed(topic: ContentTopic): Promise<void> {
     const topicId = topic.path;
-    if (!topicId.startsWith('db:')) {
+    if (!topicId.startsWith("db:")) {
       // Not a DB-backed topic (e.g. synthetic recycle topic) — nothing to mark.
       return;
     }
     const id = topicId.slice(3);
-    await this.prisma.topic.update({
-      where: { id },
-      data: { status: 'used', usedAt: new Date() },
-    }).catch((err) => {
-      this.logger.debug(`Failed to mark topic ${id} as used: ${err.message}`);
-    });
+    await this.prisma.topic
+      .update({
+        where: { id },
+        data: { status: "used", usedAt: new Date() },
+      })
+      .catch((err) => {
+        this.logger.debug(`Failed to mark topic ${id} as used: ${err.message}`);
+      });
   }
 
   /**
    * Count active topics remaining in the pool.
    */
   async activeCount(): Promise<number> {
-    return this.prisma.topic.count({ where: { status: 'active' } });
+    return this.prisma.topic.count({ where: { status: "active" } });
   }
 
   canHandle(sourceType: string): boolean {
-    return sourceType === 'brief';
+    return sourceType === "brief";
   }
 
   async fetchTopics(limit = 5, since?: Date): Promise<ContentTopic[]> {
@@ -93,7 +95,7 @@ export class DbContentReader implements IContentAdapter {
 
   async healthCheck(): Promise<{ ok: boolean; error?: string }> {
     try {
-      await this.prisma.topic.count({ where: { status: 'active' } });
+      await this.prisma.topic.count({ where: { status: "active" } });
       return { ok: true };
     } catch (err) {
       this.lastError = (err as Error).message;

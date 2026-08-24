@@ -32,7 +32,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 26
+          node-version: 24.19.0
           cache: pnpm
 
       - name: Install dependencies
@@ -49,14 +49,33 @@ jobs:
         # test or lint runs.
         run: pnpm --filter @spa/shared build
 
+      - name: Validate planning documents
+        run: pnpm planning:check
+
       - name: Lint (oxlint)
         run: pnpm lint
 
       - name: Check for residual astrology/branding leaks
+        # Gate intent: the open-source repo stays domain-agnostic — no vertical
+        # (astrology/brand) content may leak into prompts, defaults or copy.
+        #
+        # Sanctioned carve-outs (each deliberate architecture, not leakage):
+        #   - src/generated/**          → build artifact; regenerate, never hand-edit.
+        #   - ZODIAC_* / zodiac-back / my-zodiac-ai.com / attribution-links /
+        #     infrastructure/link + modules/link-attribution + link.port +
+        #     cta-attribution + source-url.util
+        #                             → ADR-007 external attribution client: the
+        #                               provider's name IS the contract surface.
+        # Any hit outside these tokens is a real leak and fails the build.
         run: |
           pattern='my.?zodiac|my-zodiac|myzodiac|horoscope|astrolog|zodiac|natal chart|sun sign|moon sign'
-          if grep -R -i -E "$pattern" packages/brand-voice.example.md README.md LICENSE CONTRIBUTING.md .env.example packages/backend/src packages/ui/src packages/shared/src 2>/dev/null | grep -vi 'example'; then
+          if grep -R -i -n -E "$pattern" packages/brand-voice.example.md README.md LICENSE CONTRIBUTING.md .env.example packages/backend/src packages/ui/src packages/shared/src 2>/dev/null \
+            | grep -v '/src/generated/' \
+            | grep -vi 'example' \
+            | grep -v -i -E 'ZODIAC_|zodiac-back|my-zodiac-ai\.com|attribution-links|infrastructure/link/|modules/link-attribution/|ports/link\.port|cta-attribution|source-url\.util' ; then
             echo "Residual My Zodiac AI / astrology references found" >&2
+            echo "If the hit is intentional integration surface, extend the carve-out" >&2
+            echo "list above WITH a pointer to its ADR/task — do not silence blindly." >&2
             exit 1
           fi
 
@@ -71,4 +90,42 @@ jobs:
         # `pnpm test` -> `vitest run` in @spa/backend = the full layered suite.
         # External I/O (Prisma, Redis, browser) is mocked, so no Postgres/Redis
         # services and no secrets are required.
-        run: pnpm test
+        #
+        # HARDEN-001/CI-001: run with `--coverage` so the thresholds configured in
+        # vitest.config.mts (statements/functions/lines 80%, branches 75%) are
+        # actually ENFORCED here — before this change a coverage regression could
+        # pass CI silently because the thresholds were never evaluated.
+        run: pnpm --filter @spa/backend test:coverage
+
+  ui:
+    name: UI typecheck + vitest suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (vue-tsc)
+        # Mirrors the backend "vitest does not typecheck" rule: `vue-tsc --noEmit`
+        # is what `pnpm build` runs, so it must pass on its own.
+        run: pnpm --filter @spa/ui type-check
+
+      - name: UI test suite
+        # HARDEN-001/CI-001: the 24-file packages/ui suite (components, stores,
+        # views, composables) never ran in CI before; jsdom-based, fully mocked,
+        # no backend needed. Playwright e2e stays out of CI for now (needs
+        # browsers + Vite dev server) — tracked as a follow-up.
+        run: pnpm --filter @spa/ui test

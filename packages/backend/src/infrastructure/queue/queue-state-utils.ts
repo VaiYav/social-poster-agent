@@ -16,11 +16,11 @@
  * - 'delayed': job is scheduled for future execution
  */
 const IN_FLIGHT_STATES = new Set([
-  'active',
-  'waiting',
-  'prioritized',
-  'waiting-children',
-  'delayed',
+  "active",
+  "waiting",
+  "prioritized",
+  "waiting-children",
+  "delayed",
 ]);
 
 /**
@@ -39,7 +39,7 @@ export function isJobInFlight(state: string): boolean {
  * Note: 'paused' is a queue state, not a job state, so it is intentionally
  * NOT listed here — an individual job in a paused queue is still 'waiting'.
  */
-const TERMINAL_STATES = new Set(['completed', 'failed', 'unknown']);
+const TERMINAL_STATES = new Set(["completed", "failed", "unknown"]);
 
 /**
  * Check if a BullMQ job state string indicates the job is in a terminal state

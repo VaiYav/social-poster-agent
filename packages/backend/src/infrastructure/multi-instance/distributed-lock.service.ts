@@ -1,9 +1,9 @@
-import { Inject, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import type IORedis from 'ioredis';
-import { randomUUID } from 'node:crypto';
-import { SHARED_REDIS } from '../redis/redis.module.js';
+import { Inject, Injectable, Logger, OnModuleDestroy } from "@nestjs/common";
+import type IORedis from "ioredis";
+import { randomUUID } from "node:crypto";
+import { SHARED_REDIS } from "../redis/redis.module.js";
 
-export const DISTRIBUTED_LOCK_SERVICE = Symbol('DISTRIBUTED_LOCK_SERVICE');
+export const DISTRIBUTED_LOCK_SERVICE = Symbol("DISTRIBUTED_LOCK_SERVICE");
 
 export interface DistributedLock {
   release(): Promise<void>;
@@ -59,14 +59,12 @@ export class DistributedLockService implements OnModuleDestroy {
   private readonly logger = new Logger(DistributedLockService.name);
   private readonly activeLocks = new Set<RedisLock>();
 
-  constructor(
-    @Inject(SHARED_REDIS) private readonly redis: IORedis,
-  ) {}
+  constructor(@Inject(SHARED_REDIS) private readonly redis: IORedis) {}
 
   async tryAcquire(key: string, ttlMs: number): Promise<DistributedLock | null> {
     const token = randomUUID();
-    const result = await this.redis.set(key, token, 'PX', ttlMs, 'NX');
-    if (result !== 'OK') return null;
+    const result = await this.redis.set(key, token, "PX", ttlMs, "NX");
+    if (result !== "OK") return null;
 
     const lock = new RedisLock(this.redis, key, token, () => this.activeLocks.delete(lock));
     this.activeLocks.add(lock);

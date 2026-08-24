@@ -91,16 +91,16 @@ export async function withRetry<T>(
  * @param opts Navigation + retry options
  */
 export async function navigateWithRetry(
-  page: import('playwright-core').Page,
+  page: import("playwright-core").Page,
   url: string,
   opts: {
-    waitUntil?: 'networkidle' | 'domcontentloaded' | 'load';
+    waitUntil?: "networkidle" | "domcontentloaded" | "load";
     timeoutMs?: number;
     maxRetries?: number;
     onRetry?: (attempt: number, delayMs: number, err: unknown) => void | Promise<void>;
   } = {},
 ): Promise<void> {
-  const { waitUntil = 'domcontentloaded', timeoutMs = 30000, maxRetries = 3, onRetry } = opts;
+  const { waitUntil = "domcontentloaded", timeoutMs = 30000, maxRetries = 3, onRetry } = opts;
 
   await withRetry(
     async () => {
@@ -108,7 +108,7 @@ export async function navigateWithRetry(
       // a guaranteed "Target page, context or browser has been closed" error
       // and the wasted retry backoff on a dead page.
       if (page.isClosed?.()) {
-        throw new Error('Page is closed — cannot navigate');
+        throw new Error("Page is closed — cannot navigate");
       }
       await page.goto(url, { waitUntil, timeout: timeoutMs });
     },
@@ -120,17 +120,20 @@ export async function navigateWithRetry(
       retryable: (err) => {
         const msg = (err as Error).message ?? String(err);
         // Don't retry on a closed page — the context is dead, caller must acquire a new page
-        if (msg.includes('Page is closed') || msg.includes('Target page, context or browser has been closed')) {
+        if (
+          msg.includes("Page is closed") ||
+          msg.includes("Target page, context or browser has been closed")
+        ) {
           return false;
         }
         // Retry on timeout and network errors
         return (
-          msg.includes('Timeout') ||
-          msg.includes('net::ERR') ||
-          msg.includes('ECONNREFUSED') ||
-          msg.includes('ETIMEDOUT') ||
-          msg.includes('ERR_INTERNET_DISCONNECTED') ||
-          msg.includes('Navigation failed')
+          msg.includes("Timeout") ||
+          msg.includes("net::ERR") ||
+          msg.includes("ECONNREFUSED") ||
+          msg.includes("ETIMEDOUT") ||
+          msg.includes("ERR_INTERNET_DISCONNECTED") ||
+          msg.includes("Navigation failed")
         );
       },
       onRetry,

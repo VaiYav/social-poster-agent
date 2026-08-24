@@ -9,9 +9,9 @@
  * - Rotating proxy gateway (PROXY_GATEWAY_URL env var — single endpoint that rotates IPs server-side)
  * - Per-network sticky sessions (same IP for N minutes per network)
  */
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { parseBool } from '../config/parse-bool.js';
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { parseBool } from "../config/parse-bool.js";
 
 export interface ProxyConfig {
   server: string;
@@ -30,14 +30,17 @@ export class ProxyRotationService {
   private stickySessions = new Map<string, { proxy: ProxyConfig; assignedAt: number }>();
 
   constructor(private readonly configService: ConfigService) {
-    this.enabled = parseBool(this.configService.get<string>('PROXY_ROTATION_ENABLED', 'false'));
-    this.gatewayUrl = this.configService.get<string>('PROXY_GATEWAY_URL', '') || null;
-    this.stickyMinutes = this.configService.get<number>('PROXY_STICKY_MINUTES', 10);
+    this.enabled = parseBool(this.configService.get<string>("PROXY_ROTATION_ENABLED", "false"));
+    this.gatewayUrl = this.configService.get<string>("PROXY_GATEWAY_URL", "") || null;
+    this.stickyMinutes = this.configService.get<number>("PROXY_STICKY_MINUTES", 10);
 
     // Parse static proxy list: "http://user:pass@host:port,http://user:pass@host:port"
-    const proxyList = this.configService.get<string>('PROXY_LIST', '');
+    const proxyList = this.configService.get<string>("PROXY_LIST", "");
     if (proxyList) {
-      for (const entry of proxyList.split(',').map((s) => s.trim()).filter(Boolean)) {
+      for (const entry of proxyList
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)) {
         this.proxies.push(this.parseProxyUrl(entry));
       }
     }
@@ -48,7 +51,9 @@ export class ProxyRotationService {
       } else if (this.proxies.length > 0) {
         this.logger.log(`Proxy rotation enabled — static pool: ${this.proxies.length} proxies`);
       } else {
-        this.logger.warn('Proxy rotation enabled but no proxies configured (PROXY_LIST or PROXY_GATEWAY_URL)');
+        this.logger.warn(
+          "Proxy rotation enabled but no proxies configured (PROXY_LIST or PROXY_GATEWAY_URL)",
+        );
       }
     }
   }
@@ -72,7 +77,7 @@ export class ProxyRotationService {
     const now = Date.now();
     const stickyMs = this.stickyMinutes * 60 * 1000;
 
-    if (sticky && (now - sticky.assignedAt) < stickyMs) {
+    if (sticky && now - sticky.assignedAt < stickyMs) {
       return sticky.proxy;
     }
 

@@ -5,14 +5,14 @@
  * Distinct from the long-form article poster (linkedin.poster.ts) which posts
  * to https://www.linkedin.com/article/new.
  */
-import { Injectable, Logger, Inject } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { SocialNetwork } from '@prisma/client';
-import { z } from 'zod';
-import type { BrowserContext, Page } from '../../../domain/ports/browser-primitives.js';
-import { IBrowserPort } from '../../../domain/ports/browser.port.js';
-import { BasePoster, type PostResult } from './base.poster.js';
-import { checkContentLength } from '../../posts/network-limits.js';
+import { Injectable, Logger, Inject } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { SocialNetwork } from "../../../generated/prisma/client.js";
+import { z } from "zod";
+import type { BrowserContext, Page } from "../../../domain/ports/browser-primitives.js";
+import { IBrowserPort } from "../../../domain/ports/browser.port.js";
+import { BasePoster, type PostResult } from "./base.poster.js";
+import { checkContentLength } from "../../posts/network-limits.js";
 
 @Injectable()
 export class LinkedinSocialPoster extends BasePoster {
@@ -49,16 +49,16 @@ export class LinkedinSocialPoster extends BasePoster {
       await this.browser.suppressPageErrors(page);
       this.registerCrashHandler(page, context);
 
-      this.assertPageAlive(page, 'navigate to LinkedIn feed');
-      await this.navigate(page, 'https://www.linkedin.com/feed/', 'domcontentloaded');
+      this.assertPageAlive(page, "navigate to LinkedIn feed");
+      await this.navigate(page, "https://www.linkedin.com/feed/", "domcontentloaded");
 
       if (await this.isOnLoginPage(page)) {
-        this.logger.warn('LinkedIn session expired — login page detected');
-        return { error: 'Not logged in — session expired, relogin needed', retryable: true };
+        this.logger.warn("LinkedIn session expired — login page detected");
+        return { error: "Not logged in — session expired, relogin needed", retryable: true };
       }
 
       await this.detectShadowban(page);
-      await this.screenshot(page, 'before-compose');
+      await this.screenshot(page, "before-compose");
 
       // Step 1: Open the share box and type the content.
       const typeResult = await this.browser.act(
@@ -70,7 +70,7 @@ ${content}`,
       );
       if (!typeResult.success) {
         this.logger.warn(`LinkedIn act(type) failed: ${typeResult.error}`);
-        throw new Error(`Failed to type LinkedIn post: ${typeResult.error ?? 'unknown error'}`);
+        throw new Error(`Failed to type LinkedIn post: ${typeResult.error ?? "unknown error"}`);
       }
 
       // Step 2: Submit the post.
@@ -80,11 +80,11 @@ ${content}`,
       );
       if (!postResult.success) {
         this.logger.warn(`LinkedIn act(post) failed: ${postResult.error}`);
-        throw new Error(`Failed to submit LinkedIn post: ${postResult.error ?? 'unknown error'}`);
+        throw new Error(`Failed to submit LinkedIn post: ${postResult.error ?? "unknown error"}`);
       }
 
       await this.browser.randomDelay(4000, 8000);
-      await this.screenshot(page, 'after-submit');
+      await this.screenshot(page, "after-submit");
 
       // Step 3: Extract the published post URL.
       const urlSchema = z.object({ url: z.string().url() });
@@ -93,7 +93,8 @@ ${content}`,
 
       if (!url) {
         const currentUrl = page.url();
-        const linkedinPattern = /(?:linkedin\.com)?\/(?:feed\/update\/urn:li:(?:activity|share|ugcPost):\d+|posts\/[^/]+\/\d+)/;
+        const linkedinPattern =
+          /(?:linkedin\.com)?\/(?:feed\/update\/urn:li:(?:activity|share|ugcPost):\d+|posts\/[^/]+\/\d+)/;
         if (linkedinPattern.test(currentUrl)) {
           url = currentUrl;
           this.logger.log(`LinkedIn post URL from page URL: ${url}`);
@@ -101,7 +102,7 @@ ${content}`,
       }
 
       if (!url) {
-        throw new Error('Could not extract or determine LinkedIn post URL after publish');
+        throw new Error("Could not extract or determine LinkedIn post URL after publish");
       }
 
       this.logger.log(`LinkedIn post published: ${url}`);
@@ -114,10 +115,10 @@ ${content}`,
           async () => {
             throw err;
           },
-          'linkedin social post',
+          "linkedin social post",
         );
       }
-      const classified = await this.classifyError(err, null, 'linkedin social post');
+      const classified = await this.classifyError(err, null, "linkedin social post");
       return {
         error: classified.message,
         screenshotPath: classified.screenshotPath,

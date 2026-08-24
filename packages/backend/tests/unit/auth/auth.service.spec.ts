@@ -3,11 +3,11 @@
  *
  * Source: packages/backend/src/modules/auth/auth.service.ts
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { UnauthorizedException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
-import { AuthService } from '../../../src/modules/auth/auth.service';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { UnauthorizedException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { JwtService } from "@nestjs/jwt";
+import { AuthService } from "../../../src/modules/auth/auth.service.js";
 
 function cfg(values: Record<string, string>): ConfigService {
   return { get: vi.fn((k: string, d?: unknown) => values[k] ?? d) } as unknown as ConfigService;
@@ -15,8 +15,8 @@ function cfg(values: Record<string, string>): ConfigService {
 
 function mockJwt(): JwtService {
   return {
-    signAsync: vi.fn().mockResolvedValue('mock-jwt-token'),
-    verifyAsync: vi.fn().mockResolvedValue({ sub: 'admin-id', username: 'admin' }),
+    signAsync: vi.fn().mockResolvedValue("mock-jwt-token"),
+    verifyAsync: vi.fn().mockResolvedValue({ sub: "admin-id", username: "admin" }),
   } as unknown as JwtService;
 }
 
@@ -24,13 +24,13 @@ function mockPrisma(adminRow: { id: string; username: string; passwordHash: stri
   return {
     admin: {
       findUnique: vi.fn().mockResolvedValue(adminRow),
-      create: vi.fn().mockResolvedValue({ id: 'new-id', username: 'admin' }),
-      update: vi.fn().mockResolvedValue({ id: 'admin-id', username: 'admin' }),
+      create: vi.fn().mockResolvedValue({ id: "new-id", username: "admin" }),
+      update: vi.fn().mockResolvedValue({ id: "admin-id", username: "admin" }),
     },
   };
 }
 
-describe('AuthService', () => {
+describe("AuthService", () => {
   let service: AuthService;
   let prisma: ReturnType<typeof mockPrisma>;
   let jwt: JwtService;
@@ -40,7 +40,7 @@ describe('AuthService', () => {
   });
 
   function createService(
-    configValues: Record<string, string> = { ADMIN_USERNAME: 'admin', ADMIN_PASSWORD: 'test123' },
+    configValues: Record<string, string> = { ADMIN_USERNAME: "admin", ADMIN_PASSWORD: "test123" },
     adminRow: { id: string; username: string; passwordHash: string } | null = null,
   ): AuthService {
     prisma = mockPrisma(adminRow);
@@ -51,95 +51,111 @@ describe('AuthService', () => {
 
   // ── Password hashing ──────────────────────────────────────────
 
-  it('hashPassword produces a salt:hash string that differs per call', () => {
+  it("hashPassword produces a salt:hash string that differs per call", () => {
     createService();
-    const h1 = service.hashPassword('password');
-    const h2 = service.hashPassword('password');
+    const h1 = service.hashPassword("password");
+    const h2 = service.hashPassword("password");
     expect(h1).toMatch(/^[a-f0-9]+:[a-f0-9]+$/);
     expect(h1).not.toBe(h2); // different salts
   });
 
-  it('verifyPassword returns true for correct password', () => {
+  it("verifyPassword returns true for correct password", () => {
     createService();
-    const hash = service.hashPassword('my-secret');
-    expect(service.verifyPassword('my-secret', hash)).toBe(true);
+    const hash = service.hashPassword("my-secret");
+    expect(service.verifyPassword("my-secret", hash)).toBe(true);
   });
 
-  it('verifyPassword returns false for wrong password', () => {
+  it("verifyPassword returns false for wrong password", () => {
     createService();
-    const hash = service.hashPassword('correct');
-    expect(service.verifyPassword('wrong', hash)).toBe(false);
+    const hash = service.hashPassword("correct");
+    expect(service.verifyPassword("wrong", hash)).toBe(false);
   });
 
-  it('verifyPassword returns false for malformed hash', () => {
+  it("verifyPassword returns false for malformed hash", () => {
     createService();
-    expect(service.verifyPassword('pw', 'not-a-valid-hash')).toBe(false);
-    expect(service.verifyPassword('pw', '')).toBe(false);
-    expect(service.verifyPassword('pw', 'onlyonepart')).toBe(false);
+    expect(service.verifyPassword("pw", "not-a-valid-hash")).toBe(false);
+    expect(service.verifyPassword("pw", "")).toBe(false);
+    expect(service.verifyPassword("pw", "onlyonepart")).toBe(false);
   });
 
   // ── Login ─────────────────────────────────────────────────────
 
-  it('login succeeds with correct credentials and returns token + user', async () => {
-    const hash = require('node:crypto').scryptSync; // use real scrypt via service
+  it("login succeeds with correct credentials and returns token + user", async () => {
+    const hash = require("node:crypto").scryptSync; // use real scrypt via service
     createService(
-      { ADMIN_USERNAME: 'admin', ADMIN_PASSWORD: '' }, // skip bootstrap
-      { id: 'admin-1', username: 'admin', passwordHash: service.hashPassword('test123') },
+      { ADMIN_USERNAME: "admin", ADMIN_PASSWORD: "" }, // skip bootstrap
+      { id: "admin-1", username: "admin", passwordHash: service.hashPassword("test123") },
     );
     // Recreate with the hash we just generated
-    prisma.admin.findUnique.mockResolvedValue({ id: 'admin-1', username: 'admin', passwordHash: service.hashPassword('test123') });
+    prisma.admin.findUnique.mockResolvedValue({
+      id: "admin-1",
+      username: "admin",
+      passwordHash: service.hashPassword("test123"),
+    });
 
-    const result = await service.login('admin', 'test123');
-    expect(result.token).toBe('mock-jwt-token');
-    expect(result.user).toEqual({ id: 'admin-1', username: 'admin', role: 'admin' });
-    expect(jwt.signAsync).toHaveBeenCalledWith({ sub: 'admin-1', username: 'admin', role: 'admin' });
+    const result = await service.login("admin", "test123");
+    expect(result.token).toBe("mock-jwt-token");
+    expect(result.user).toEqual({ id: "admin-1", username: "admin", role: "admin" });
+    expect(jwt.signAsync).toHaveBeenCalledWith({
+      sub: "admin-1",
+      username: "admin",
+      role: "admin",
+    });
   });
 
-  it('login throws UnauthorizedException for wrong password', async () => {
+  it("login throws UnauthorizedException for wrong password", async () => {
     createService(
-      { ADMIN_USERNAME: 'admin', ADMIN_PASSWORD: '' },
-      { id: 'admin-1', username: 'admin', passwordHash: service.hashPassword('correct') },
+      { ADMIN_USERNAME: "admin", ADMIN_PASSWORD: "" },
+      { id: "admin-1", username: "admin", passwordHash: service.hashPassword("correct") },
     );
-    prisma.admin.findUnique.mockResolvedValue({ id: 'admin-1', username: 'admin', passwordHash: service.hashPassword('correct') });
+    prisma.admin.findUnique.mockResolvedValue({
+      id: "admin-1",
+      username: "admin",
+      passwordHash: service.hashPassword("correct"),
+    });
 
-    await expect(service.login('admin', 'wrong')).rejects.toThrow(UnauthorizedException);
+    await expect(service.login("admin", "wrong")).rejects.toThrow(UnauthorizedException);
   });
 
-  it('login throws UnauthorizedException for non-existent user', async () => {
-    createService({ ADMIN_USERNAME: 'admin', ADMIN_PASSWORD: '' });
+  it("login throws UnauthorizedException for non-existent user", async () => {
+    createService({ ADMIN_USERNAME: "admin", ADMIN_PASSWORD: "" });
     prisma.admin.findUnique.mockResolvedValue(null);
 
-    await expect(service.login('nobody', 'pw')).rejects.toThrow(UnauthorizedException);
+    await expect(service.login("nobody", "pw")).rejects.toThrow(UnauthorizedException);
   });
 
   // ── Bootstrap ─────────────────────────────────────────────────
 
-  it('bootstrap creates admin if not exists and ADMIN_PASSWORD is set', async () => {
-    createService({ ADMIN_USERNAME: 'admin', ADMIN_PASSWORD: 'secret123' });
+  it("bootstrap creates admin if not exists and ADMIN_PASSWORD is set", async () => {
+    createService({ ADMIN_USERNAME: "admin", ADMIN_PASSWORD: "secret123" });
     prisma.admin.findUnique.mockResolvedValue(null);
 
     await service.onModuleInit();
 
     expect(prisma.admin.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ username: 'admin', passwordHash: expect.any(String) }),
+      data: expect.objectContaining({ username: "admin", passwordHash: expect.any(String) }),
     });
   });
 
-  it('bootstrap updates password if env password differs from stored hash', async () => {
-    createService({ ADMIN_USERNAME: 'admin', ADMIN_PASSWORD: 'newpass' });
-    const oldHash = service.hashPassword('oldpass');
-    prisma.admin.findUnique.mockResolvedValue({ id: 'a1', username: 'admin', passwordHash: oldHash });
+  it("bootstrap updates password if env password differs from stored hash", async () => {
+    createService({ ADMIN_USERNAME: "admin", ADMIN_PASSWORD: "newpass" });
+    const oldHash = service.hashPassword("oldpass");
+    prisma.admin.findUnique.mockResolvedValue({
+      id: "a1",
+      username: "admin",
+      passwordHash: oldHash,
+    });
 
     await service.onModuleInit();
 
     expect(prisma.admin.update).toHaveBeenCalledWith({
-      where: { username: 'admin' },
+      where: { username: "admin" },
       data: { passwordHash: expect.any(String) },
     });
   });
 
-  it('bootstrap skips when ADMIN_PASSWORD is empty', async () => {
-    createService({ ADMIN_USERNAME: 'admin', ADMIN_PASSWORD: '' });
+  it("bootstrap skips when ADMIN_PASSWORD is empty", async () => {
+    createService({ ADMIN_USERNAME: "admin", ADMIN_PASSWORD: "" });
 
     await service.onModuleInit();
 
@@ -147,10 +163,14 @@ describe('AuthService', () => {
     expect(prisma.admin.create).not.toHaveBeenCalled();
   });
 
-  it('bootstrap does not update if env password matches stored hash', async () => {
-    createService({ ADMIN_USERNAME: 'admin', ADMIN_PASSWORD: 'samepass' });
-    const matchingHash = service.hashPassword('samepass');
-    prisma.admin.findUnique.mockResolvedValue({ id: 'a1', username: 'admin', passwordHash: matchingHash });
+  it("bootstrap does not update if env password matches stored hash", async () => {
+    createService({ ADMIN_USERNAME: "admin", ADMIN_PASSWORD: "samepass" });
+    const matchingHash = service.hashPassword("samepass");
+    prisma.admin.findUnique.mockResolvedValue({
+      id: "a1",
+      username: "admin",
+      passwordHash: matchingHash,
+    });
 
     await service.onModuleInit();
 
@@ -159,16 +179,16 @@ describe('AuthService', () => {
 
   // ── verifyToken ───────────────────────────────────────────────
 
-  it('verifyToken returns payload for valid token', async () => {
+  it("verifyToken returns payload for valid token", async () => {
     createService();
-    const payload = await service.verifyToken('valid-token');
-    expect(payload).toEqual({ sub: 'admin-id', username: 'admin' });
+    const payload = await service.verifyToken("valid-token");
+    expect(payload).toEqual({ sub: "admin-id", username: "admin" });
   });
 
-  it('verifyToken returns null for invalid token', async () => {
+  it("verifyToken returns null for invalid token", async () => {
     createService();
-    (jwt.verifyAsync as any).mockRejectedValue(new Error('invalid'));
-    const payload = await service.verifyToken('bad-token');
+    (jwt.verifyAsync as any).mockRejectedValue(new Error("invalid"));
+    const payload = await service.verifyToken("bad-token");
     expect(payload).toBeNull();
   });
 });

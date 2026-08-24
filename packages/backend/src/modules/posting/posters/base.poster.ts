@@ -5,16 +5,16 @@
 // Concrete posters (XPoster, ThreadsPoster, FacebookPoster) extend this class
 // and implement the network-specific posting and engagement logic.
 
-import { Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import type { BrowserContext, Locator, Page } from '../../../domain/ports/browser-primitives.js';
-import type { SocialNetwork } from '@spa/shared';
-import type { IBrowserPort, ScreenshotPhase } from '../../../domain/ports/browser.port.js';
+import { Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import type { BrowserContext, Locator, Page } from "../../../domain/ports/browser-primitives.js";
+import type { SocialNetwork } from "@spa/shared";
+import type { IBrowserPort, ScreenshotPhase } from "../../../domain/ports/browser.port.js";
 import {
   waitForSelector,
   type SelectorStrategy,
   type SelectorResolution,
-} from './selector-strategy.js';
+} from "./selector-strategy.js";
 import {
   SpaError,
   SelectorNotFoundError,
@@ -22,8 +22,10 @@ import {
   AccountRestrictedError,
   NetworkError,
   classifyPlaywrightError,
-} from '../../../domain/errors.js';
-import { navigateWithRetry } from '../../../domain/retry.js';
+} from "../../../domain/errors.js";
+import { navigateWithRetry } from "../../../domain/retry.js";
+import { stat } from "node:fs/promises";
+import { getNetworkProfile } from "../../../domain/network-profiles/network-profiles.js";
 
 /** Result of a posting operation. */
 export interface PostResult {
@@ -62,6 +64,40 @@ export abstract class BasePoster {
     protected readonly configService: ConfigService,
   ) {}
 
+  /**
+   * Best-effort native image upload. Upload failure is deliberately
+   * non-terminal: the text post remains publishable and the caller records
+   * the text-only degradation separately.
+   */
+  protected async attachImage(page: Page, imagePath?: string): Promise<boolean> {
+    if (!imagePath) return false;
+    try {
+      const file = await stat(imagePath);
+      if (!file.isFile() || file.size === 0) {
+        this.logger.warn(`Image path is not a non-empty file: ${imagePath}`);
+        return false;
+      }
+      const inputs = [
+        'input[data-testid="fileInput"]',
+        'input[name="file1"]',
+        'input[type="file"]',
+      ];
+      for (const selector of inputs) {
+        const input = page.locator(selector).first();
+        if ((await input.count().catch(() => 0)) === 0) continue;
+        await input.setInputFiles(imagePath);
+        this.logger.log(`Attached image using ${selector}`);
+        return true;
+      }
+      this.logger.warn(`No native image input found for ${this.network} — continuing text-only`);
+    } catch (error) {
+      this.logger.warn(
+        `Image upload failed for ${this.network} — continuing text-only: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return false;
+  }
+
   // ── Selector Resolution ────────────────────────────────────────
 
   /**
@@ -79,7 +115,7 @@ export abstract class BasePoster {
       this.logger.debug(`Selector resolved via ${result.method}: ${result.selector}`);
       return result;
     } catch {
-      const screenshotPath = await this.browser.screenshot(page, this.network, 'on-error');
+      const screenshotPath = await this.browser.screenshot(page, this.network, "on-error");
       throw new SelectorNotFoundError(this.network, context, { screenshotPath });
     }
   }
@@ -157,45 +193,47 @@ export abstract class BasePoster {
           if (page.isClosed?.()) return false;
 
           const char = chars[i]!;
-          const inserted = await locator.evaluate(
-            (el: HTMLElement, { value, isFirst }: { value: string; isFirst: boolean }) => {
-              if (!el.isContentEditable) return false;
-              el.focus();
+          const inserted = await locator
+            .evaluate(
+              (el: HTMLElement, { value, isFirst }: { value: string; isFirst: boolean }) => {
+                if (!el.isContentEditable) return false;
+                el.focus();
 
-              if (isFirst) {
-                const selection = window.getSelection();
-                const range = document.createRange();
-                range.selectNodeContents(el);
-                selection?.removeAllRanges();
-                selection?.addRange(range);
-              }
+                if (isFirst) {
+                  const selection = window.getSelection();
+                  const range = document.createRange();
+                  range.selectNodeContents(el);
+                  selection?.removeAllRanges();
+                  selection?.addRange(range);
+                }
 
-              // Camoufox (Firefox) does not fire beforeinput for page-script execCommand,
-              // so DraftJS never updates its React state. Dispatch beforeinput before
-              // the DOM mutation and input after it, per the W3C editing event order.
-              const beforeInput = new InputEvent('beforeinput', {
-                bubbles: true,
-                cancelable: true,
-                inputType: 'insertText',
-                data: value,
-                dataTransfer: null,
-                isComposing: false,
-              });
-              el.dispatchEvent(beforeInput);
+                // Camoufox (Firefox) does not fire beforeinput for page-script execCommand,
+                // so DraftJS never updates its React state. Dispatch beforeinput before
+                // the DOM mutation and input after it, per the W3C editing event order.
+                const beforeInput = new InputEvent("beforeinput", {
+                  bubbles: true,
+                  cancelable: true,
+                  inputType: "insertText",
+                  data: value,
+                  dataTransfer: null,
+                  isComposing: false,
+                });
+                el.dispatchEvent(beforeInput);
 
-              const ok = document.execCommand('insertText', false, value);
+                const ok = document.execCommand("insertText", false, value);
 
-              const input = new InputEvent('input', {
-                bubbles: true,
-                inputType: 'insertText',
-                data: value,
-              });
-              el.dispatchEvent(input);
+                const input = new InputEvent("input", {
+                  bubbles: true,
+                  inputType: "insertText",
+                  data: value,
+                });
+                el.dispatchEvent(input);
 
-              return ok || true;
-            },
-            { value: char, isFirst: i === 0 },
-          ).catch(() => false);
+                return ok || true;
+              },
+              { value: char, isFirst: i === 0 },
+            )
+            .catch(() => false);
 
           if (!inserted) {
             this.logger.debug(
@@ -209,7 +247,7 @@ export abstract class BasePoster {
           }
         }
 
-        const innerText = await locator.innerText().catch(() => '');
+        const innerText = await locator.innerText().catch(() => "");
         if (innerText.trim().length >= minLength) {
           return true;
         }
@@ -282,7 +320,7 @@ export abstract class BasePoster {
     await this.browser.randomDelay(3000, 6000);
 
     // Navigate to profile — use domcontentloaded (X/Threads never reach networkidle due to polling)
-    await page.goto(profileUrl, { waitUntil: 'domcontentloaded' });
+    await page.goto(profileUrl, { waitUntil: "domcontentloaded" });
     // Wait for post elements to load — network-specific selectors
     const postContentSelector = this.getProfilePostContentSelector();
     await page.waitForSelector(postContentSelector, { timeout: 15000 }).catch(() => {});
@@ -293,11 +331,11 @@ export abstract class BasePoster {
     await page.waitForTimeout(8000);
 
     // Take screenshot of profile for debugging
-    await this.screenshot(page, 'after-validate');
+    await this.screenshot(page, "after-validate");
 
     // Check if we're still logged in (not redirected to login)
-    if (page.url().includes('/login') || page.url().includes('/auth')) {
-      throw new ValidationError(this.network, 'Redirected to login during validation', {
+    if (page.url().includes("/login") || page.url().includes("/auth")) {
+      throw new ValidationError(this.network, "Redirected to login during validation", {
         actualUrl: page.url(),
       });
     }
@@ -305,8 +343,11 @@ export abstract class BasePoster {
     // Look for the posted content on the profile page
     // Use innerText (visible text only) — textContent includes <style> tags with CSS
     // Strip leading/trailing quotes — X may not display them
-    const contentSnippet = content.slice(0, 40).trim().replace(/^["']+|["']+$/g, '');
-    const pageText = await page.innerText('body').catch(() => '');
+    const contentSnippet = content
+      .slice(0, 40)
+      .trim()
+      .replace(/^["']+|["']+$/g, "");
+    const pageText = await page.innerText("body").catch(() => "");
 
     this.logger.log(
       `${this.network} validatePostOnProfile: pageText length=${pageText?.length ?? 0}, looking for snippet="${contentSnippet}"`,
@@ -318,28 +359,38 @@ export abstract class BasePoster {
       s
         .replace(/[\u2018\u2019\u201A\u201B]/g, "'") // smart single quotes → '
         .replace(/[\u201C\u201D\u201E\u201F]/g, '"') // smart double quotes → "
-        .replace(/[\u2013\u2014]/g, '-') // en/em dashes → -
-        .replace(/\u2026/g, '...') // ellipsis → ...
-        .replace(/\u00A0/g, ' ') // non-breaking space → space
-        .replace(/\s+/g, ' ')
+        .replace(/[\u2013\u2014]/g, "-") // en/em dashes → -
+        .replace(/\u2026/g, "...") // ellipsis → ...
+        .replace(/\u00A0/g, " ") // non-breaking space → space
+        .replace(/\s+/g, " ")
         .trim();
 
     const normalizedSnippet = normalize(contentSnippet);
-    const normalizedPageText = normalize(pageText ?? '');
+    const normalizedPageText = normalize(pageText ?? "");
 
     if (pageText && pageText.includes(contentSnippet)) {
       this.logger.log(`${this.network} content found on profile (exact match)`);
     } else if (normalizedPageText && normalizedPageText.includes(normalizedSnippet)) {
-      this.logger.log(`${this.network} content found on profile (normalized match): "${normalizedSnippet}"`);
+      this.logger.log(
+        `${this.network} content found on profile (normalized match): "${normalizedSnippet}"`,
+      );
     } else {
       // Try without quotes — X strips leading/trailing quotes
-      const noQuoteSnippet = content.replace(/^["']+|["']+$/g, '').slice(0, 30).trim();
+      const noQuoteSnippet = content
+        .replace(/^["']+|["']+$/g, "")
+        .slice(0, 30)
+        .trim();
       const normalizedNoQuote = normalize(noQuoteSnippet);
       if (normalizedPageText && normalizedPageText.includes(normalizedNoQuote)) {
-        this.logger.log(`${this.network} content found without quotes (normalized): "${normalizedNoQuote}"`);
+        this.logger.log(
+          `${this.network} content found without quotes (normalized): "${normalizedNoQuote}"`,
+        );
       } else {
         // Try searching in post text elements specifically (network-specific selectors)
-        const postTexts = await page.locator(postContentSelector).allInnerTexts().catch(() => []);
+        const postTexts = await page
+          .locator(postContentSelector)
+          .allInnerTexts()
+          .catch(() => []);
         this.logger.log(
           `${this.network} validatePostOnProfile: ${postTexts.length} post text elements on profile, searching for snippet`,
         );
@@ -353,18 +404,25 @@ export abstract class BasePoster {
           );
         });
         if (foundInPost) {
-          this.logger.log(`${this.network} content found in post text element: "${foundInPost.slice(0, 60)}..."`);
+          this.logger.log(
+            `${this.network} content found in post text element: "${foundInPost.slice(0, 60)}..."`,
+          );
         } else {
           // Retry: reload the profile page and check again — X can have a delayed render
           // where the post appears only after a second navigation
-          this.logger.warn(`${this.network} content not found on first check — reloading profile for retry`);
-          await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
+          this.logger.warn(
+            `${this.network} content not found on first check — reloading profile for retry`,
+          );
+          await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
           await page.waitForSelector(postContentSelector, { timeout: 15000 }).catch(() => {});
           await page.waitForTimeout(5000);
 
-          const retryPageText = await page.innerText('body').catch(() => '');
-          const retryNormalized = normalize(retryPageText ?? '');
-          const retryPostTexts = await page.locator(postContentSelector).allInnerTexts().catch(() => []);
+          const retryPageText = await page.innerText("body").catch(() => "");
+          const retryNormalized = normalize(retryPageText ?? "");
+          const retryPostTexts = await page
+            .locator(postContentSelector)
+            .allInnerTexts()
+            .catch(() => []);
           const retryFoundInPost = retryPostTexts.find((t) => {
             const nt = normalize(t);
             return (
@@ -375,19 +433,27 @@ export abstract class BasePoster {
             );
           });
 
-          if (retryFoundInPost || (retryNormalized && retryNormalized.includes(normalizedSnippet))) {
+          if (
+            retryFoundInPost ||
+            (retryNormalized && retryNormalized.includes(normalizedSnippet))
+          ) {
             this.logger.log(`${this.network} content found after profile reload (delayed render)`);
           } else {
             // Log first 3 post text elements to see what's actually on the profile
-            const preview = retryPostTexts.slice(0, 3).map((t) => `"${t.slice(0, 80)}"`).join(', ');
-            this.logger.warn(`${this.network} profile post text elements after reload (first 3): ${preview}`);
+            const preview = retryPostTexts
+              .slice(0, 3)
+              .map((t) => `"${t.slice(0, 80)}"`)
+              .join(", ");
             this.logger.warn(
-              `${this.network} content NOT found on profile after reload. Page text preview: "${(retryPageText ?? '').slice(0, 200)}"`,
+              `${this.network} profile post text elements after reload (first 3): ${preview}`,
+            );
+            this.logger.warn(
+              `${this.network} content NOT found on profile after reload. Page text preview: "${(retryPageText ?? "").slice(0, 200)}"`,
             );
             this.logger.warn(
               `${this.network} normalized snippet: "${normalizedSnippet}", normalized noQuote: "${normalizedNoQuote}"`,
             );
-            throw new ValidationError(this.network, 'Posted content not found on profile page', {
+            throw new ValidationError(this.network, "Posted content not found on profile page", {
               expectedPattern: contentSnippet,
               actualUrl: page.url(),
             });
@@ -400,9 +466,11 @@ export abstract class BasePoster {
     // Look for links matching the post URL pattern
     const links = await page.locator(`a[href]`).all();
     for (const link of links) {
-      const href = await link.getAttribute('href').catch(() => null);
+      const href = await link.getAttribute("href").catch(() => null);
       if (href && postUrlPattern.test(href)) {
-        const fullUrl = href.startsWith('http') ? href : `https://www.${this.network === 'X' ? 'x.com' : this.network === 'THREADS' ? 'threads.com' : 'facebook.com'}${href}`;
+        const fullUrl = href.startsWith("http")
+          ? href
+          : `https://www.${this.network === "X" ? "x.com" : this.network === "THREADS" ? "threads.com" : "facebook.com"}${href}`;
         this.logger.log(`Post validated on profile: ${fullUrl}`);
         return fullUrl;
       }
@@ -420,11 +488,11 @@ export abstract class BasePoster {
    */
   private getProfilePostContentSelector(): string {
     switch (this.network) {
-      case 'X':
+      case "X":
         return '[data-testid="tweetText"], article';
-      case 'THREADS':
+      case "THREADS":
         return 'div[data-contents="true"], div[dir="auto"], article, div[role="article"]';
-      case 'FACEBOOK':
+      case "FACEBOOK":
         return 'div[data-testid="post_message"], div[dir="auto"], article';
       default: {
         // New syndication networks (Dev.to, Hashnode, LinkedIn, etc.) use
@@ -465,7 +533,7 @@ export abstract class BasePoster {
 
     if (page) {
       try {
-        screenshotPath = await this.browser.screenshot(page, this.network, 'on-error');
+        screenshotPath = await this.browser.screenshot(page, this.network, "on-error");
         pageUrl = page.url();
       } catch {
         // Screenshot failed — continue without it
@@ -492,7 +560,11 @@ export abstract class BasePoster {
         return { error: err.message, screenshotPath: err.screenshotPath, retryable: err.retryable };
       }
       const classified = await this.classifyError(err, page, context);
-      return { error: classified.message, screenshotPath: classified.screenshotPath, retryable: classified.retryable };
+      return {
+        error: classified.message,
+        screenshotPath: classified.screenshotPath,
+        retryable: classified.retryable,
+      };
     }
   }
 
@@ -512,8 +584,8 @@ export abstract class BasePoster {
    * @param context - The browser context to close on crash (optional)
    */
   protected registerCrashHandler(page: Page, context?: BrowserContext): void {
-    if (typeof page.on !== 'function') return;
-    page.on('crash', () => {
+    if (typeof page.on !== "function") return;
+    page.on("crash", () => {
       this.logger.warn(
         `Page crashed during ${this.network} posting — closing context to prevent reuse of dead browser`,
       );
@@ -547,7 +619,11 @@ export abstract class BasePoster {
    * Uses navigateWithRetry for resilient page loading (retries on timeout/network errors).
    * Dismisses any dialogs/popups that might appear.
    */
-  protected async navigate(page: Page, url: string, waitUntil: 'networkidle' | 'domcontentloaded' = 'networkidle'): Promise<void> {
+  protected async navigate(
+    page: Page,
+    url: string,
+    waitUntil: "networkidle" | "domcontentloaded" = "networkidle",
+  ): Promise<void> {
     await navigateWithRetry(page, url, {
       waitUntil,
       timeoutMs: 30000,
@@ -571,7 +647,7 @@ export abstract class BasePoster {
    */
   protected async isOnLoginPage(page: Page): Promise<boolean> {
     const url = page.url();
-    if (url.includes('/login') || url.includes('/auth') || url.includes('/login.php')) {
+    if (url.includes("/login") || url.includes("/auth") || url.includes("/login.php")) {
       return true;
     }
     // X may show login overlay without URL change — check for login indicators in DOM
@@ -585,11 +661,14 @@ export abstract class BasePoster {
       'input[aria-label*="Username"]',
       'input[aria-label*="username"]',
       // Facebook login indicators
-      '#m_login_email',
+      "#m_login_email",
       'input[name="email"]',
     ];
     for (const selector of loginIndicators) {
-      const count = await page.locator(selector).count().catch(() => 0);
+      const count = await page
+        .locator(selector)
+        .count()
+        .catch(() => 0);
       if (count > 0) return true;
     }
     return false;
@@ -601,11 +680,11 @@ export abstract class BasePoster {
   protected isOnChallengePage(page: Page): boolean {
     const url = page.url();
     return (
-      url.includes('challenge') ||
-      url.includes('checkpoint') ||
-      url.includes('two_factor') ||
-      url.includes('2fa') ||
-      url.includes('captcha')
+      url.includes("challenge") ||
+      url.includes("checkpoint") ||
+      url.includes("two_factor") ||
+      url.includes("2fa") ||
+      url.includes("captcha")
     );
   }
 
@@ -625,7 +704,7 @@ export abstract class BasePoster {
    */
   protected async detectShadowban(page: Page): Promise<void> {
     const url = page.url();
-    const rawBodyText = (await page.textContent('body').catch(() => '')) ?? '';
+    const rawBodyText = (await page.textContent("body").catch(() => "")) ?? "";
     // The X compose page can ship a huge __INITIAL_STATE__ JSON block; we only need
     // the first ~200 KB for visible restriction indicators. Keeps the search fast
     // and avoids holding multi-megabyte textContent in memory.
@@ -634,35 +713,35 @@ export abstract class BasePoster {
     // Network-specific restriction indicators
     const restrictionIndicators: Record<string, string[]> = {
       X: [
-        'Account suspended',
-        'Account locked',
-        'Your account is temporarily limited',
-        'Your account is restricted',
-        'sensitive content',
-        'Your Tweet could not be sent',
+        "Account suspended",
+        "Account locked",
+        "Your account is temporarily limited",
+        "Your account is restricted",
+        "sensitive content",
+        "Your Tweet could not be sent",
         // X serves a noscript fallback when the main JS bundle fails to load or
         // the session is flagged by the WAF/graduated-access gate.
-        'JavaScript is not available',
-        'errorContainer',
-        '__SCRIPT_LOAD_FAILURE__',
-        'We blocked an attempt to access your account',
-        'graduated access',
-        'graduated-access',
+        "JavaScript is not available",
+        "errorContainer",
+        "__SCRIPT_LOAD_FAILURE__",
+        "We blocked an attempt to access your account",
+        "graduated access",
+        "graduated-access",
       ],
       THREADS: [
-        'Your account has been restricted',
-        'Action blocked',
-        'We restrict certain activity',
-        'Your account is temporarily blocked',
+        "Your account has been restricted",
+        "Action blocked",
+        "We restrict certain activity",
+        "Your account is temporarily blocked",
       ],
       FACEBOOK: [
-        'Your account is temporarily unavailable',
-        'You\'re temporarily restricted',
-        'We restricted this account',
-        'Your Page has been restricted',
-        'You can\'t post right now',
-        'You can not post right now',
-        'temporarily blocked from posting',
+        "Your account is temporarily unavailable",
+        "You're temporarily restricted",
+        "We restricted this account",
+        "Your Page has been restricted",
+        "You can't post right now",
+        "You can not post right now",
+        "temporarily blocked from posting",
       ],
     };
 
@@ -682,7 +761,11 @@ export abstract class BasePoster {
     // Case-sensitive check for the X graduated-access flag embedded in the JS
     // state. has_graduated_access appears on many X pages, but a false value is
     // the signal that the account has not completed the graduated-access flow.
-    if (this.network === 'X' && (bodyText.includes('has_graduated_access":false') || bodyText.includes('has_graduated_access&quot;:false'))) {
+    if (
+      this.network === "X" &&
+      (bodyText.includes('has_graduated_access":false') ||
+        bodyText.includes("has_graduated_access&quot;:false"))
+    ) {
       this.logger.error(`X graduated-access flag detected (has_graduated_access=false) on ${url}`);
       throw new AccountRestrictedError(
         this.network,
@@ -692,11 +775,11 @@ export abstract class BasePoster {
 
     // Check URL patterns for restriction pages
     if (
-      url.includes('/suspended') ||
-      url.includes('/restricted') ||
-      url.includes('/account-limited') ||
-      url.includes('/appeal') ||
-      url.includes('/graduated-access')
+      url.includes("/suspended") ||
+      url.includes("/restricted") ||
+      url.includes("/account-limited") ||
+      url.includes("/appeal") ||
+      url.includes("/graduated-access")
     ) {
       this.logger.error(`Restriction page detected on ${this.network}: ${url}`);
       throw new AccountRestrictedError(
@@ -714,26 +797,32 @@ export abstract class BasePoster {
    *
    * @returns true if the post appears to be shadowbanned, false otherwise.
    */
-  protected async detectPostShadowban(page: Page, postUrl: string, expectedContent: string): Promise<boolean> {
+  protected async detectPostShadowban(
+    page: Page,
+    postUrl: string,
+    expectedContent: string,
+  ): Promise<boolean> {
     try {
       // P2: X/Threads never reach networkidle (constant polling) — using it here always
       // times out at 15s. Use domcontentloaded + wait for the post body to render.
-      await page.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-      await page.waitForSelector(this.getProfilePostContentSelector(), { timeout: 8000 }).catch(() => {});
+      await page.goto(postUrl, { waitUntil: "domcontentloaded", timeout: 15000 });
+      await page
+        .waitForSelector(this.getProfilePostContentSelector(), { timeout: 8000 })
+        .catch(() => {});
       await this.browser.randomDelay(2000, 4000);
 
-      const bodyText = await page.textContent('body').catch(() => '');
+      const bodyText = await page.textContent("body").catch(() => "");
       if (!bodyText) return false;
 
       // Check for "post not found" / "content unavailable" indicators
       const notFoundIndicators = [
-        'post no longer available',
-        'this post is no longer available',
-        'content not available',
-        'this content is not available',
-        'post not found',
-        'this post was deleted',
-        'no longer exists',
+        "post no longer available",
+        "this post is no longer available",
+        "content not available",
+        "this content is not available",
+        "post not found",
+        "this post was deleted",
+        "no longer exists",
       ];
 
       const isNotFound = notFoundIndicators.some((indicator) =>
@@ -741,14 +830,18 @@ export abstract class BasePoster {
       );
 
       if (isNotFound) {
-        this.logger.warn(`Post may be shadowbanned on ${this.network}: content not visible at ${postUrl}`);
+        this.logger.warn(
+          `Post may be shadowbanned on ${this.network}: content not visible at ${postUrl}`,
+        );
         return true;
       }
 
       // Check if expected content is visible
       const contentSnippet = expectedContent.slice(0, 50).trim();
       if (contentSnippet && !bodyText.includes(contentSnippet)) {
-        this.logger.warn(`Post content not visible on ${this.network} at ${postUrl} — possible shadowban`);
+        this.logger.warn(
+          `Post content not visible on ${this.network} at ${postUrl} — possible shadowban`,
+        );
         return true;
       }
 
@@ -766,24 +859,32 @@ export abstract class BasePoster {
    * Navigates to the post URL and checks for content visibility.
    * Subclasses can override with network-specific selectors.
    */
-  protected async verifyPostVisible(page: Page, postUrl: string, expectedContent?: string): Promise<boolean> {
+  protected async verifyPostVisible(
+    page: Page,
+    postUrl: string,
+    expectedContent?: string,
+  ): Promise<boolean> {
     try {
       // P2: X/Threads never reach networkidle (constant polling) — using it here always
       // times out and falsely reports the post as not visible. Use domcontentloaded +
       // wait for the post body to render.
-      await page.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-      await page.waitForSelector(this.getProfilePostContentSelector(), { timeout: 10000 }).catch(() => {});
+      await page.goto(postUrl, { waitUntil: "domcontentloaded", timeout: 15000 });
+      await page
+        .waitForSelector(this.getProfilePostContentSelector(), { timeout: 10000 })
+        .catch(() => {});
       await this.browser.randomDelay(2000, 5000);
 
       // Generic check: page loaded and URL matches
       if (page.url() !== postUrl && !page.url().startsWith(postUrl)) {
-        this.logger.warn(`Post verification: URL mismatch (expected ${postUrl}, got ${page.url()})`);
+        this.logger.warn(
+          `Post verification: URL mismatch (expected ${postUrl}, got ${page.url()})`,
+        );
         return false;
       }
 
       // If content provided, check it appears on the page
       if (expectedContent) {
-        const pageText = await page.textContent('body').catch(() => '');
+        const pageText = await page.textContent("body").catch(() => "");
         if (!pageText?.includes(expectedContent.slice(0, 50))) {
           this.logger.warn(`Post verification: content not found on page`);
           return false;
@@ -854,7 +955,9 @@ export abstract class BasePoster {
   async verifyPosted(context: BrowserContext, content: string): Promise<string | null> {
     const profileUrl = this.getVerificationProfileUrl();
     if (!profileUrl) {
-      this.logger.warn(`verifyPosted: no profile URL configured for ${this.network} — cannot verify`);
+      this.logger.warn(
+        `verifyPosted: no profile URL configured for ${this.network} — cannot verify`,
+      );
       return null;
     }
     let page: Page | null = null;
@@ -865,7 +968,12 @@ export abstract class BasePoster {
       // of the post + the URL pattern. Profile pages are media-heavy (avatars,
       // embedded images) and accumulate renderer memory during the scan.
       await this.browser.applyResourceBlocking(page, { blockImages: true });
-      return await this.validatePostOnProfile(page, profileUrl, content, this.getVerificationUrlPattern());
+      return await this.validatePostOnProfile(
+        page,
+        profileUrl,
+        content,
+        this.getVerificationUrlPattern(),
+      );
     } catch {
       // Not found / not verifiable — treat as "not posted" (caller will re-post).
       return null;
@@ -877,16 +985,16 @@ export abstract class BasePoster {
   /** Resolve the account's public profile URL for verification (from config, per network). */
   private getVerificationProfileUrl(): string | null {
     switch (this.network) {
-      case 'X': {
-        const handle = this.configService.get<string>('SOCIAL_X_USERNAME', '');
+      case "X": {
+        const handle = this.configService.get<string>("SOCIAL_X_USERNAME", "");
         return handle ? `https://x.com/${handle}` : null;
       }
-      case 'THREADS': {
-        const handle = this.configService.get<string>('SOCIAL_THREADS_USERNAME', '');
+      case "THREADS": {
+        const handle = this.configService.get<string>("SOCIAL_THREADS_USERNAME", "");
         return handle ? `https://www.threads.com/@${handle}` : null;
       }
-      case 'FACEBOOK': {
-        const slug = this.configService.get<string>('SOCIAL_FACEBOOK_PAGE_SLUG', '');
+      case "FACEBOOK": {
+        const slug = this.configService.get<string>("SOCIAL_FACEBOOK_PAGE_SLUG", "");
         return slug ? `https://www.facebook.com/${slug}` : null;
       }
       default: {
@@ -899,18 +1007,7 @@ export abstract class BasePoster {
 
   /** Per-network regex that matches a real post URL (not a profile/home URL). */
   private getVerificationUrlPattern(): RegExp {
-    switch (this.network) {
-      case 'THREADS':
-        // Threads profile URLs use /post/, public short links use /t/
-        return /(?:\/@[^/]+\/post\/|\/t\/)[A-Za-z0-9_-]+/;
-      case 'FACEBOOK':
-        return /\/(posts|permalink|photos)\/\d+/;
-      case 'X':
-        return /\/status\/[A-Za-z0-9]+/;
-      default: {
-        // New syndication networks — URL pattern verification handled by LLM-in-the-loop
-        throw new Error(`Unhandled network for URL pattern: ${this.network}`);
-      }
-    }
+    return getNetworkProfile(this.network).verificationPattern;
   }
+
 }

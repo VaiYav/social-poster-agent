@@ -7,6 +7,37 @@
  * Result of compiling a chat prompt — system + user messages ready for
  * `ILlmPort.generateChat()`.
  */
+interface PromptReferenceBase {
+  /** Prompt-manager name used for this exact compilation. */
+  name: string;
+  /** Label that resolved (for example `production` or `latest`). */
+  label: string;
+}
+
+export type PromptReference = PromptReferenceBase &
+  (
+    | {
+        isFallback: false;
+        /** Concrete remote version when exposed by the provider client. */
+        version?: number;
+        fallbackDigest?: never;
+        /**
+         * Exact provider prompt client used by Langfuse's native trace-linking hook.
+         * This opaque handle is never copied into ordinary trace metadata.
+         */
+        nativePrompt?: object;
+      }
+    | {
+        /** SDK, intermediate-provider, and inline fallbacks are all explicit. */
+        isFallback: true;
+        version?: never;
+        /** SHA-256 of fallback template content; never the content itself. */
+        fallbackDigest: string;
+        /** Fallbacks never receive a native link or remote version. */
+        nativePrompt?: never;
+      }
+  );
+
 export interface CompiledChatPrompt {
   systemPrompt: string;
   userPrompt: string;
@@ -14,9 +45,11 @@ export interface CompiledChatPrompt {
   label?: string;
   /** Whether the content came from a fallback (inline or remote) instead of the requested label. */
   isFallback?: boolean;
+  /** Additive prompt identity used to link only the consuming generation. */
+  promptReference?: PromptReference;
 }
 
-export const IPromptPort = Symbol('IPromptPort');
+export const IPromptPort = Symbol("IPromptPort");
 
 /**
  * Optional intermediate fallback source for prompts.
@@ -32,14 +65,11 @@ export interface IPromptFallbackProvider {
     name: string,
     variables: Record<string, string>,
   ): Promise<CompiledChatPrompt | null>;
-  tryGetTextPrompt(
-    name: string,
-    variables: Record<string, string>,
-  ): Promise<string | null>;
+  tryGetTextPrompt(name: string, variables: Record<string, string>): Promise<string | null>;
 }
 
 /** DI token for the optional array of intermediate fallback providers. */
-export const PROMPT_FALLBACK_PROVIDERS = Symbol('PROMPT_FALLBACK_PROVIDERS');
+export const PROMPT_FALLBACK_PROVIDERS = Symbol("PROMPT_FALLBACK_PROVIDERS");
 
 /**
  * Port for fetching and compiling prompts from a prompt management system
@@ -81,6 +111,13 @@ export interface IPromptPort {
     fallback?: string,
     label?: string,
   ): Promise<string>;
+
+  /**
+   * Consume the exact reference registered for a compiled prompt pair.
+   * Ambient generation contexts take precedence; this optional adapter seam
+   * covers direct single-prompt callers without changing the string API.
+   */
+  consumePromptReference?(systemPrompt: string, userPrompt: string): PromptReference | undefined;
 
   /**
    * The active prompt version, sourced from PROMPT_VERSION env var.

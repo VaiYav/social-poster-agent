@@ -1,5 +1,5 @@
 /**
- * Sprint Q / F4: Replies Monitor Service — automated comment monitoring and reply posting.
+ * ENGAGE-101 / F4: Replies Monitor Service — automated comment monitoring and reply posting.
  *
  * This service runs on a cron (default: every 4 hours) and:
  *   1. Finds posts posted in the last 24h that have a postUrl
@@ -25,40 +25,40 @@
  * When all LLM providers fail, comments are skipped (stay NEW) and retried
  * in the next monitoring cycle when providers may have recovered.
  */
-import { Injectable, Logger, Optional, Inject, type OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { SchedulerRegistry } from '@nestjs/schedule';
-import { CronJob } from 'cron';
-import IORedis from 'ioredis';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { AccountsService } from '../accounts/accounts.service';
-import { SessionsService } from '../sessions/sessions.service';
-import { IBrowserPort } from '../../domain/ports/browser.port.js';
-import { buildCommentId } from './comment-id.js';
-import { detectSensitive, isLikelyTroll, isLowValueComment } from './sensitive-filter.js';
-import { ILlmPort } from '../../domain/ports/llm.port.js';
-import { sanitizeUntrustedInput } from '../../infrastructure/llm/sanitize-untrusted-input.js';
-import { DiscordNotificationService } from '../../infrastructure/notifications/discord-notification.service.js';
-import { SseService } from '../../infrastructure/sse/sse.service.js';
-import { EngagementService } from '../engagement/engagement.service.js';
-import { QueueFactory } from '../../infrastructure/queue/queue.factory.js';
-import { FlowControlService } from '../flow-control/flow-control.service.js';
-import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
-import { PostStatus, SocialNetwork, CommentStatus } from '@prisma/client';
-import type { IncomingComment } from '@prisma/client';
-import type { Locator, Page } from '../../domain/ports/browser-primitives.js';
-import { IPromptPort } from '../../domain/ports/prompt.port.js';
-import { parseBool } from '../../infrastructure/config/parse-bool.js';
-import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
-import { matchesScript, normalizeLanguage } from '../../infrastructure/util/script-check.js';
-import { detectLanguage } from '../../infrastructure/util/language-detector.js';
-import { getEnabledNetworks } from '../../domain/enabled-networks.js';
-import { DialogueService, type DialogueDecision } from './dialogue.service.js';
-import { QuestionClassifierService } from './question-classifier.service.js';
+import { Injectable, Logger, Optional, Inject, type OnModuleInit } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { SchedulerRegistry } from "@nestjs/schedule";
+import { CronJob } from "cron";
+import IORedis from "ioredis";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { AccountsService } from "../accounts/accounts.service.js";
+import { SessionsService } from "../sessions/sessions.service.js";
+import { IBrowserPort } from "../../domain/ports/browser.port.js";
+import { buildCommentId } from "./comment-id.js";
+import { detectSensitive, isLikelyTroll, isLowValueComment } from "./sensitive-filter.js";
+import { ILlmPort } from "../../domain/ports/llm.port.js";
+import { sanitizeUntrustedInput } from "../../infrastructure/llm/sanitize-untrusted-input.js";
+import { DiscordNotificationService } from "../../infrastructure/notifications/discord-notification.service.js";
+import { SseService } from "../../infrastructure/sse/sse.service.js";
+import { EngagementService } from "../engagement/engagement.service.js";
+import { QueueFactory } from "../../infrastructure/queue/queue.factory.js";
+import { FlowControlService } from "../flow-control/flow-control.service.js";
+import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
+import { PostStatus, SocialNetwork, CommentStatus } from "../../generated/prisma/client.js";
+import type { IncomingComment } from "../../generated/prisma/client.js";
+import type { Locator, Page } from "../../domain/ports/browser-primitives.js";
+import { IPromptPort } from "../../domain/ports/prompt.port.js";
+import { parseBool } from "../../infrastructure/config/parse-bool.js";
+import { isOrchestratorEnabled } from "../../domain/feature-flags.js";
+import { matchesScript, normalizeLanguage } from "../../infrastructure/util/script-check.js";
+import { detectLanguage } from "../../infrastructure/util/language-detector.js";
+import { getEnabledNetworks } from "../../domain/enabled-networks.js";
+import { DialogueService, type DialogueDecision } from "./dialogue.service.js";
+import { QuestionClassifierService } from "./question-classifier.service.js";
 import {
   CommentSafetyClassifierService,
   type CommentSafetyClassification,
-} from './comment-safety-classifier.service.js';
+} from "./comment-safety-classifier.service.js";
 
 const DAILY_REPLY_TTL_SECONDS = 2 * 24 * 60 * 60; // 2 days
 
@@ -116,7 +116,7 @@ export class RepliesMonitorService implements OnModuleInit {
   private readonly cronSchedule: string;
   private readonly maxRepliesPerPost: number;
   private readonly maxConversationDepth: number;
-  private readonly autoReplyComplexity: 'low' | 'medium' | 'high';
+  private readonly autoReplyComplexity: "low" | "medium" | "high";
   private readonly repliesTemperature: number;
   private readonly maxRepliesPerDay: number;
   private readonly failClosed: boolean;
@@ -137,39 +137,44 @@ export class RepliesMonitorService implements OnModuleInit {
     // blocking the cron with an inline setTimeout. Absent in unit tests (inline fallback).
     @Optional() private readonly queueFactory?: QueueFactory,
     @Optional() private readonly flowControl?: FlowControlService,
-    // Sprint P: versioned reply-decision prompt via PromptRegistry; absent in unit tests.
+    // EVAL-103: versioned reply-decision prompt via PromptRegistry; absent in unit tests.
     @Optional() @Inject(IPromptPort) private readonly promptPort?: IPromptPort,
     @Optional() private readonly commentSafetyClassifier?: CommentSafetyClassifierService,
     @Optional() @Inject(SHARED_REDIS) private readonly redis?: IORedis,
   ) {
-    this.enabled = parseBool(this.configService.get<string>('REPLIES_ENABLED', 'false'));
-    this.cronSchedule = this.configService.get<string>('REPLIES_CRON_SCHEDULE', '0 */4 * * *');
-    const rawMax = Number(this.configService.get<string>('REPLIES_MAX_PER_POST', '3'));
+    this.enabled = parseBool(this.configService.get<string>("REPLIES_ENABLED", "false"));
+    this.cronSchedule = this.configService.get<string>("REPLIES_CRON_SCHEDULE", "0 */4 * * *");
+    const rawMax = Number(this.configService.get<string>("REPLIES_MAX_PER_POST", "3"));
     this.maxRepliesPerPost = Number.isFinite(rawMax) && rawMax >= 0 ? Math.floor(rawMax) : 3;
-    const rawDepth = Number(this.configService.get<string>('REPLIES_MAX_CONVERSATION_DEPTH', '3'));
-    this.maxConversationDepth = Number.isFinite(rawDepth) && rawDepth > 0 ? Math.floor(rawDepth) : 3;
-    const rawComplexity = this.configService.get<string>('REPLIES_AUTO_REPLY_COMPLEXITY', 'medium');
-    this.autoReplyComplexity = rawComplexity === 'low' || rawComplexity === 'medium' || rawComplexity === 'high' ? rawComplexity : 'medium';
+    const rawDepth = Number(this.configService.get<string>("REPLIES_MAX_CONVERSATION_DEPTH", "3"));
+    this.maxConversationDepth =
+      Number.isFinite(rawDepth) && rawDepth > 0 ? Math.floor(rawDepth) : 3;
+    const rawComplexity = this.configService.get<string>("REPLIES_AUTO_REPLY_COMPLEXITY", "medium");
+    this.autoReplyComplexity =
+      rawComplexity === "low" || rawComplexity === "medium" || rawComplexity === "high"
+        ? rawComplexity
+        : "medium";
     // B1: read temperature from ConfigService (validated by Joi) instead of process.env at import time.
-    const rawTemp = Number(this.configService.get<string>('REPLIES_TEMPERATURE', '0.6'));
-    this.repliesTemperature = Number.isFinite(rawTemp) && rawTemp >= 0 && rawTemp <= 2 ? rawTemp : 0.6;
+    const rawTemp = Number(this.configService.get<string>("REPLIES_TEMPERATURE", "0.6"));
+    this.repliesTemperature =
+      Number.isFinite(rawTemp) && rawTemp >= 0 && rawTemp <= 2 ? rawTemp : 0.6;
 
     // F4: daily per-network reply budget. 0 means unlimited.
-    const rawDaily = Number(this.configService.get<string>('REPLIES_MAX_PER_DAY', '10'));
+    const rawDaily = Number(this.configService.get<string>("REPLIES_MAX_PER_DAY", "10"));
     this.maxRepliesPerDay = Number.isFinite(rawDaily) && rawDaily >= 0 ? Math.floor(rawDaily) : 10;
 
-    this.failClosed = parseBool(this.configService.get<string>('RATE_LIMIT_FAIL_CLOSED', 'false'));
+    this.failClosed = parseBool(this.configService.get<string>("RATE_LIMIT_FAIL_CLOSED", "false"));
   }
 
   onModuleInit(): void {
     if (!this.enabled) {
-      this.logger.log('Replies monitor disabled (REPLIES_ENABLED=false)');
+      this.logger.log("Replies monitor disabled (REPLIES_ENABLED=false)");
       return;
     }
 
     // Orchestrator mode: CHECK_REPLIES is handled by the orchestrator decision loop.
     if (isOrchestratorEnabled()) {
-      this.logger.log('Orchestrator is enabled — replies monitor cron NOT registered');
+      this.logger.log("Orchestrator is enabled — replies monitor cron NOT registered");
       return;
     }
 
@@ -178,11 +183,11 @@ export class RepliesMonitorService implements OnModuleInit {
     });
 
     try {
-      this.schedulerRegistry?.addCronJob('replies-monitor', job);
+      this.schedulerRegistry?.addCronJob("replies-monitor", job);
       job.start();
       this.logger.log(`Replies monitor cron registered: ${this.cronSchedule}`);
     } catch {
-      this.logger.warn('SchedulerRegistry not available — replies monitor cron will not run');
+      this.logger.warn("SchedulerRegistry not available — replies monitor cron will not run");
     }
   }
 
@@ -192,13 +197,25 @@ export class RepliesMonitorService implements OnModuleInit {
    * 2. Scrape comments from each post
    * 3. Process new comments (decide + reply/flag)
    */
-  async runMonitoringCycle(): Promise<{ postsChecked: number; commentsScraped: number; repliesPosted: number; repliesScheduled: number; humanReview: number }> {
-    this.logger.log('Replies monitoring cycle started');
-    const stats = { postsChecked: 0, commentsScraped: 0, repliesPosted: 0, repliesScheduled: 0, humanReview: 0 };
+  async runMonitoringCycle(): Promise<{
+    postsChecked: number;
+    commentsScraped: number;
+    repliesPosted: number;
+    repliesScheduled: number;
+    humanReview: number;
+  }> {
+    this.logger.log("Replies monitoring cycle started");
+    const stats = {
+      postsChecked: 0,
+      commentsScraped: 0,
+      repliesPosted: 0,
+      repliesScheduled: 0,
+      humanReview: 0,
+    };
 
     // 2.9.3: Respect flow control — skip cycle if replies flow is paused.
-    if (this.flowControl && (await this.flowControl.isPaused('replies'))) {
-      this.logger.warn('Replies flow is paused — skipping monitoring cycle');
+    if (this.flowControl && (await this.flowControl.isPaused("replies"))) {
+      this.logger.warn("Replies flow is paused — skipping monitoring cycle");
       return stats;
     }
 
@@ -221,7 +238,11 @@ export class RepliesMonitorService implements OnModuleInit {
           stats.commentsScraped += comments.length;
 
           // Save new comments to DB (dedup by commentId)
-          let newComments = await this.saveNewComments(post.id, post.network as SocialNetwork, comments);
+          let newComments = await this.saveNewComments(
+            post.id,
+            post.network as SocialNetwork,
+            comments,
+          );
 
           // 2. Scrape nested replies to already-posted agent replies. This opens the
           // reply permalink and looks for follow-up comments in the thread.
@@ -234,8 +255,13 @@ export class RepliesMonitorService implements OnModuleInit {
             // job) from an earlier cycle. The comment stays NEW until the job posts it,
             // so without this guard we would re-run the (costly) LLM decision every cycle.
             // jobId=commentId; the lookup is Redis-backed, so it survives restarts.
-            if (this.queueFactory && (await this.queueFactory.getEngagementJob(comment.commentId, post.network))) {
-              this.logger.debug(`Reply already scheduled for comment ${comment.commentId} — skipping re-decision`);
+            if (
+              this.queueFactory &&
+              (await this.queueFactory.getEngagementJob(comment.commentId, post.network))
+            ) {
+              this.logger.debug(
+                `Reply already scheduled for comment ${comment.commentId} — skipping re-decision`,
+              );
               continue;
             }
             const decision = await this.decideReply(post, comment);
@@ -252,14 +278,14 @@ export class RepliesMonitorService implements OnModuleInit {
 
       // SSE event for UI
       await this.sseService.publish({
-        type: 'replies_monitor',
+        type: "replies_monitor",
         ...stats,
       });
 
       // Discord summary if there are human review items
       if (stats.humanReview > 0) {
         await this.discord.warning(
-          'Comments Need Human Review',
+          "Comments Need Human Review",
           `${stats.humanReview} comment(s) require human review. Check the UI for details.`,
         );
       }
@@ -274,7 +300,9 @@ export class RepliesMonitorService implements OnModuleInit {
   /**
    * Get posts that are eligible for reply monitoring (posted in last 24h).
    */
-  private async getMonitorablePosts(): Promise<{ id: string; accountId: string; network: string; postUrl: string | null; content: string }[]> {
+  private async getMonitorablePosts(): Promise<
+    { id: string; accountId: string; network: string; postUrl: string | null; content: string }[]
+  > {
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     return this.prisma.post.findMany({
@@ -299,9 +327,13 @@ export class RepliesMonitorService implements OnModuleInit {
    * Only parents with depth < maxConversationDepth are eligible (the hard limit
    * protects against infinite reply loops). Returns all newly discovered nested comments.
    */
-  private async scrapeNestedReplies(
-    post: { id: string; accountId: string; network: string; postUrl: string | null; content: string },
-  ): Promise<IncomingComment[]> {
+  private async scrapeNestedReplies(post: {
+    id: string;
+    accountId: string;
+    network: string;
+    postUrl: string | null;
+    content: string;
+  }): Promise<IncomingComment[]> {
     const allNested: IncomingComment[] = [];
     if (!this.browser || !post.postUrl) return allNested;
 
@@ -314,7 +346,7 @@ export class RepliesMonitorService implements OnModuleInit {
         OR: [{ replyUrl: { not: null } }, { commentUrl: { not: null } }],
       },
       take: 10,
-      orderBy: { replyPostedAt: 'desc' },
+      orderBy: { replyPostedAt: "desc" },
     });
 
     for (const parent of parents) {
@@ -322,7 +354,7 @@ export class RepliesMonitorService implements OnModuleInit {
         const targetUrl = parent.replyUrl ?? parent.commentUrl;
         if (!targetUrl) continue;
 
-        const skipTexts = [post.content, parent.text, parent.replyText ?? ''];
+        const skipTexts = [post.content, parent.text, parent.replyText ?? ""];
         const scraped = await this.scrapeCommentsFromUrl(
           post.accountId,
           post.network as SocialNetwork,
@@ -338,7 +370,9 @@ export class RepliesMonitorService implements OnModuleInit {
         );
         allNested.push(...nested);
       } catch (err) {
-        this.logger.warn(`Failed to scrape nested replies for parent ${parent.id}: ${(err as Error).message}`);
+        this.logger.warn(
+          `Failed to scrape nested replies for parent ${parent.id}: ${(err as Error).message}`,
+        );
       }
     }
 
@@ -356,7 +390,7 @@ export class RepliesMonitorService implements OnModuleInit {
     skipTexts: string[],
   ): Promise<ScrapedComment[]> {
     if (!this.browser) {
-      this.logger.warn('Browser port not available — cannot scrape comments');
+      this.logger.warn("Browser port not available — cannot scrape comments");
       return [];
     }
 
@@ -392,7 +426,7 @@ export class RepliesMonitorService implements OnModuleInit {
       // scenario from camoufox#87. Blocking images prevents renderer memory blowup.
       await this.browser.applyResourceBlocking(page, { blockImages: true });
 
-      await page.goto(url, { waitUntil: 'networkidle', timeout: 30_000 });
+      await page.goto(url, { waitUntil: "networkidle", timeout: 30_000 });
       await page.waitForTimeout(3000); // Let comments load
 
       // Scroll to load more comments
@@ -442,7 +476,7 @@ export class RepliesMonitorService implements OnModuleInit {
     const selectors = this.getCommentSelectors(network);
     const comments: ScrapedComment[] = [];
 
-    const normalize = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
+    const normalize = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
     const normalizedSkipTexts = skipTexts.map((s) => normalize(s)).filter(Boolean);
 
     try {
@@ -451,8 +485,10 @@ export class RepliesMonitorService implements OnModuleInit {
       for (const el of commentElements.slice(0, 20)) {
         // Limit to 20 comments per post
         try {
-          const text = (await el.locator(selectors.commentText).first().textContent())?.trim() ?? '';
-          const author = (await el.locator(selectors.author).first().textContent())?.trim() ?? 'unknown';
+          const text =
+            (await el.locator(selectors.commentText).first().textContent())?.trim() ?? "";
+          const author =
+            (await el.locator(selectors.author).first().textContent())?.trim() ?? "unknown";
 
           if (!text || text.length < 2) continue;
 
@@ -469,7 +505,11 @@ export class RepliesMonitorService implements OnModuleInit {
 
           // Extract platform-native id and permalink where possible. This is required
           // for nested reply scraping and replying directly to a specific comment.
-          const { nativeId, commentUrl } = await this.extractNativeIdAndUrl(el, network, authorProfileUrl);
+          const { nativeId, commentUrl } = await this.extractNativeIdAndUrl(
+            el,
+            network,
+            authorProfileUrl,
+          );
 
           // RP2: stable, script-safe commentId — prefer the platform native id when available.
           const commentId = buildCommentId(author, text, nativeId);
@@ -497,7 +537,7 @@ export class RepliesMonitorService implements OnModuleInit {
   ): Promise<{ nativeId: string | null; commentUrl: string | null }> {
     try {
       if (network === SocialNetwork.X) {
-        const href = await el.locator('a[href*="/status/"]').first().getAttribute('href');
+        const href = await el.locator('a[href*="/status/"]').first().getAttribute("href");
         const match = href?.match(/^\/([^/]+)\/status\/(\d+)(?:\/|$)/);
         if (match?.[2]) {
           const nativeId = match[2];
@@ -508,17 +548,20 @@ export class RepliesMonitorService implements OnModuleInit {
       }
 
       if (network === SocialNetwork.THREADS) {
-        const href = await el.locator('a[href*="/post/"]').first().getAttribute('href');
+        const href = await el.locator('a[href*="/post/"]').first().getAttribute("href");
         const match = href?.match(/^\/(@[^/]+)\/post\/(\d+)(?:\/|$)/);
         if (match?.[2] && authorProfileUrl) {
           const nativeId = match[2];
-          return { nativeId, commentUrl: `https://www.threads.com${authorProfileUrl}/post/${nativeId}` };
+          return {
+            nativeId,
+            commentUrl: `https://www.threads.com${authorProfileUrl}/post/${nativeId}`,
+          };
         }
         return { nativeId: null, commentUrl: null };
       }
 
       if (network === SocialNetwork.FACEBOOK) {
-        const nativeId = await el.getAttribute('data-commentid');
+        const nativeId = await el.getAttribute("data-commentid");
         if (nativeId) {
           // Facebook comment permalinks need a page/post slug; we cannot build a full
           // URL from the element alone. Leave commentUrl null for the parent-post reply path.
@@ -536,15 +579,21 @@ export class RepliesMonitorService implements OnModuleInit {
    * 2.9.1: Extract the author's profile URL from a comment element.
    * This is more reliable than the display name for self-reply detection.
    */
-  private async extractAuthorProfileUrl(el: Locator, network: SocialNetwork): Promise<string | null> {
+  private async extractAuthorProfileUrl(
+    el: Locator,
+    network: SocialNetwork,
+  ): Promise<string | null> {
     try {
       switch (network) {
         case SocialNetwork.X:
-          return await el.locator('[data-testid="User-Name"] a[href^="/"]').first().getAttribute('href');
+          return await el
+            .locator('[data-testid="User-Name"] a[href^="/"]')
+            .first()
+            .getAttribute("href");
         case SocialNetwork.THREADS:
-          return await el.locator('a[href^="/@"]').first().getAttribute('href');
+          return await el.locator('a[href^="/@"]').first().getAttribute("href");
         case SocialNetwork.FACEBOOK:
-          return await el.locator('a[href*="/user/"]').first().getAttribute('href');
+          return await el.locator('a[href*="/user/"]').first().getAttribute("href");
         default:
           return null;
       }
@@ -581,7 +630,7 @@ export class RepliesMonitorService implements OnModuleInit {
           author: 'span a[href*="/user/"]',
         };
       default:
-        return { commentContainer: '', commentText: '', author: '' };
+        return { commentContainer: "", commentText: "", author: "" };
     }
   }
 
@@ -643,24 +692,27 @@ export class RepliesMonitorService implements OnModuleInit {
     post: { id: string; network: string; content: string },
     comment: Partial<IncomingComment>,
   ): Promise<ReplyDecision> {
-    const text = comment.text ?? '';
+    const text = comment.text ?? "";
 
     // 1. Skip spam/trolls (deterministic check first — free; word-boundary so "about" ≠ "bot")
     if (isLikelyTroll(text)) {
-      return { action: 'skip', reason: 'Potential troll/spam — skipped' };
+      return { action: "skip", reason: "Potential troll/spam — skipped" };
     }
 
-    // 2. Don't reply to our own comments — look up account by network, compare handle.
+    // 2. Don't reply to our own comments — compare against the handles of ALL
+    // active accounts on this network (M1.1 multi-account: a comment authored
+    // by our second account must also be recognized as self-reply).
     // 2.9.1: Prefer the author profile URL because display names can match other users.
     try {
-      const account = await this.accountsService.findFirstActiveByNetwork(post.network as SocialNetwork);
-      if (account?.handle) {
-        const ownHandle = account.handle.toLowerCase().trim();
-        const commentHandle = comment.authorProfileUrl
-          ? extractHandleFromProfileUrl(comment.authorProfileUrl)
-          : normalizeHandle(comment.author ?? '');
-        if (commentHandle && commentHandle === ownHandle) {
-          return { action: 'skip', reason: 'Self-reply skipped (own account)' };
+      const accounts = await this.accountsService.findByNetwork(post.network as SocialNetwork);
+      const commentHandle = comment.authorProfileUrl
+        ? extractHandleFromProfileUrl(comment.authorProfileUrl)
+        : normalizeHandle(comment.author ?? "");
+      if (commentHandle) {
+        const normalized = commentHandle.toLowerCase().trim();
+        const ownAccount = accounts.find((a) => a.handle.toLowerCase().trim() === normalized);
+        if (ownAccount) {
+          return { action: "skip", reason: "Self-reply skipped (own account)" };
         }
       }
     } catch {
@@ -669,10 +721,13 @@ export class RepliesMonitorService implements OnModuleInit {
 
     // 3. Check max replies per post
     const existingRepliesCount = await this.prisma.incomingComment.count({
-      where: { postId: post.id, status: { in: [CommentStatus.REPLIED, CommentStatus.REPLIED_MANUAL] } },
+      where: {
+        postId: post.id,
+        status: { in: [CommentStatus.REPLIED, CommentStatus.REPLIED_MANUAL] },
+      },
     });
     if (existingRepliesCount >= this.maxRepliesPerPost) {
-      return { action: 'skip', reason: `Max replies per post reached (${this.maxRepliesPerPost})` };
+      return { action: "skip", reason: `Max replies per post reached (${this.maxRepliesPerPost})` };
     }
 
     // RP3: deterministic sensitive-topic backstop — runs BEFORE the LLM so a misclassification
@@ -680,7 +735,7 @@ export class RepliesMonitorService implements OnModuleInit {
     const sensitive = detectSensitive(text);
     if (sensitive.sensitive) {
       return {
-        action: 'human_review',
+        action: "human_review",
         reason: `Sensitive topic (${sensitive.kind}) — requires human review`,
         reviewReason: sensitive.reason,
       };
@@ -691,7 +746,7 @@ export class RepliesMonitorService implements OnModuleInit {
     // Runs AFTER sensitive check so crisis/complaint comments still go to human_review.
     const lowValue = isLowValueComment(text);
     if (lowValue.lowValue) {
-      return { action: 'skip', reason: lowValue.reason ?? 'Low-value comment — skipped' };
+      return { action: "skip", reason: lowValue.reason ?? "Low-value comment — skipped" };
     }
 
     // 5. F4: LLM safety gate — detect prompt injection, spam, toxicity, and sensitive topics.
@@ -706,7 +761,7 @@ export class RepliesMonitorService implements OnModuleInit {
     const dailyBudgetAvailable = await this.checkDailyReplyBudget(post.network as SocialNetwork);
     if (!dailyBudgetAvailable) {
       return {
-        action: 'skip',
+        action: "skip",
         reason: `Daily reply budget reached for ${post.network} (${this.maxRepliesPerDay}/day)`,
       };
     }
@@ -715,26 +770,26 @@ export class RepliesMonitorService implements OnModuleInit {
     // context, and decide whether to reply / skip / escalate. The graph enforces
     // the hard depth limit and language/script validation.
     if (!this.llmService) {
-      this.logger.warn('LlmService not available — skipping comment (will retry next cycle)');
-      return { action: 'skip', reason: 'LLM service not available — will retry next cycle' };
+      this.logger.warn("LlmService not available — skipping comment (will retry next cycle)");
+      return { action: "skip", reason: "LLM service not available — will retry next cycle" };
     }
     if (!this.dialogueService) {
-      return { action: 'skip', reason: 'Dialogue service not available' };
+      return { action: "skip", reason: "Dialogue service not available" };
     }
 
     // Rehydrate a full IncomingComment from the passed projection. In production
     // this comes from saveNewComments; in tests it may be a partial stub.
     const fullComment: IncomingComment = {
-      id: comment.id ?? 'unknown',
+      id: comment.id ?? "unknown",
       postId: comment.postId ?? post.id,
       network: (comment.network ?? post.network) as SocialNetwork,
-      commentId: comment.commentId ?? 'unknown',
-      author: comment.author ?? 'unknown',
+      commentId: comment.commentId ?? "unknown",
+      author: comment.author ?? "unknown",
       text,
       authorProfileUrl: comment.authorProfileUrl ?? null,
       commentUrl: comment.commentUrl ?? null,
       parentId: comment.parentId ?? null,
-      conversationId: comment.conversationId ?? comment.commentId ?? 'unknown',
+      conversationId: comment.conversationId ?? comment.commentId ?? "unknown",
       depth: comment.depth ?? 0,
       isQuestion: comment.isQuestion ?? false,
       questionConfidence: comment.questionConfidence ?? null,
@@ -766,22 +821,24 @@ export class RepliesMonitorService implements OnModuleInit {
     const detectedLanguage = detectLanguage(text);
     const classification = await this.commentSafetyClassifier.classify(text, detectedLanguage);
 
-    if (classification.risk === 'none') {
+    if (classification.risk === "none") {
       return null;
     }
 
-    this.logger.log(`Safety gate: comment classified as ${classification.risk} (${classification.confidence.toFixed(2)}). ${classification.reason}`);
+    this.logger.log(
+      `Safety gate: comment classified as ${classification.risk} (${classification.confidence.toFixed(2)}). ${classification.reason}`,
+    );
 
     // Spam/injection are silently skipped. Toxic/sensitive are escalated for human review.
-    if (classification.risk === 'injection' || classification.risk === 'spam') {
+    if (classification.risk === "injection" || classification.risk === "spam") {
       return {
-        action: 'skip',
+        action: "skip",
         reason: `Safety gate: ${classification.risk} (${classification.reason})`,
       };
     }
 
     return {
-      action: 'human_review',
+      action: "human_review",
       reason: `Safety gate: ${classification.risk} — escalated to human review`,
       reviewReason: classification.reason,
     };
@@ -794,10 +851,16 @@ export class RepliesMonitorService implements OnModuleInit {
     post: { id: string; network: string; postUrl: string | null; content: string },
     comment: Partial<IncomingComment>,
     decision: ReplyDecision,
-    stats: { postsChecked: number; commentsScraped: number; repliesPosted: number; repliesScheduled: number; humanReview: number },
+    stats: {
+      postsChecked: number;
+      commentsScraped: number;
+      repliesPosted: number;
+      repliesScheduled: number;
+      humanReview: number;
+    },
   ): Promise<void> {
     switch (decision.action) {
-      case 'skip': {
+      case "skip": {
         await this.prisma.incomingComment.update({
           where: { id: comment.id! },
           data: { status: CommentStatus.SKIPPED },
@@ -806,7 +869,7 @@ export class RepliesMonitorService implements OnModuleInit {
         break;
       }
 
-      case 'human_review': {
+      case "human_review": {
         await this.prisma.incomingComment.update({
           where: { id: comment.id! },
           data: {
@@ -817,11 +880,13 @@ export class RepliesMonitorService implements OnModuleInit {
           },
         });
         stats.humanReview++;
-        this.logger.log(`Comment ${comment.commentId} flagged for human review: ${decision.reviewReason ?? decision.reason}`);
+        this.logger.log(
+          `Comment ${comment.commentId} flagged for human review: ${decision.reviewReason ?? decision.reason}`,
+        );
         break;
       }
 
-      case 'auto_reply': {
+      case "auto_reply": {
         if (!decision.replyText) {
           this.logger.warn(`Auto-reply decision has no replyText — skipping`);
           return;
@@ -829,9 +894,11 @@ export class RepliesMonitorService implements OnModuleInit {
 
         // Reply directly to the comment's permalink when available; fall back to the post URL.
         // This enables nested conversation threads (reply-to-reply) on X/Threads.
-        const targetCommentUrl = (comment.commentUrl ?? post.postUrl) ?? '';
+        const targetCommentUrl = comment.commentUrl ?? post.postUrl ?? "";
         if (!targetCommentUrl) {
-          this.logger.warn(`Auto-reply for comment ${comment.commentId} has no target URL — cannot reply`);
+          this.logger.warn(
+            `Auto-reply for comment ${comment.commentId} has no target URL — cannot reply`,
+          );
           return;
         }
 
@@ -846,7 +913,7 @@ export class RepliesMonitorService implements OnModuleInit {
           await this.queueFactory.enqueueEngagement(
             comment.commentId!,
             post.network,
-            'reply',
+            "reply",
             {
               commentDbId: comment.id!,
               commentId: comment.commentId!,
@@ -886,7 +953,9 @@ export class RepliesMonitorService implements OnModuleInit {
             });
             stats.repliesPosted++;
           } catch (err) {
-            this.logger.warn(`Reply posting error for comment ${comment.commentId}: ${(err as Error).message}`);
+            this.logger.warn(
+              `Reply posting error for comment ${comment.commentId}: ${(err as Error).message}`,
+            );
             // Comment stays NEW for a future cycle to retry.
           }
         } else {
@@ -909,8 +978,8 @@ export class RepliesMonitorService implements OnModuleInit {
    * Defaults: 5 min … 30 min. Robust against malformed env values.
    */
   private computeReplyDelayMs(): number {
-    const rawMin = Number(this.configService.get<string>('REPLIES_AUTO_DELAY_MIN_MS', '300000'));
-    const rawMax = Number(this.configService.get<string>('REPLIES_AUTO_DELAY_MAX_MS', '1800000'));
+    const rawMin = Number(this.configService.get<string>("REPLIES_AUTO_DELAY_MIN_MS", "300000"));
+    const rawMax = Number(this.configService.get<string>("REPLIES_AUTO_DELAY_MAX_MS", "1800000"));
     const min = Number.isFinite(rawMin) && rawMin >= 0 ? rawMin : 300000;
     const max = Number.isFinite(rawMax) && rawMax > min ? rawMax : min + 1;
     return min + Math.floor(Math.random() * (max - min));
@@ -1010,13 +1079,16 @@ export class RepliesMonitorService implements OnModuleInit {
     replyText: string;
   }): Promise<void> {
     if (!this.engagementService) {
-      throw new Error('EngagementService not available — cannot post reply');
+      throw new Error("EngagementService not available — cannot post reply");
     }
 
     // Re-check the per-post cap at execution time: multiple replies can be scheduled in
     // one cycle before any is posted, so the live count may now exceed the limit.
     const alreadyReplied = await this.prisma.incomingComment.count({
-      where: { postId: data.postId, status: { in: [CommentStatus.REPLIED, CommentStatus.REPLIED_MANUAL] } },
+      where: {
+        postId: data.postId,
+        status: { in: [CommentStatus.REPLIED, CommentStatus.REPLIED_MANUAL] },
+      },
     });
     if (alreadyReplied >= this.maxRepliesPerPost) {
       this.logger.warn(
@@ -1040,10 +1112,10 @@ export class RepliesMonitorService implements OnModuleInit {
       return;
     }
 
-    const targetUrl = data.targetCommentUrl ?? data.postUrl ?? '';
+    const targetUrl = data.targetCommentUrl ?? data.postUrl ?? "";
     if (!targetUrl) {
       await this.releaseDailyReplySlot(data.network as SocialNetwork);
-      throw new Error('No target URL for reply');
+      throw new Error("No target URL for reply");
     }
 
     let result: Awaited<ReturnType<typeof this.engagementService.reply>>;
@@ -1061,7 +1133,7 @@ export class RepliesMonitorService implements OnModuleInit {
     if (!result.success) {
       // Throw → BullMQ retries (and DLQ-alerts on exhaustion). Comment stays NEW.
       await this.releaseDailyReplySlot(data.network as SocialNetwork);
-      throw new Error(result.error ?? 'Reply posting failed');
+      throw new Error(result.error ?? "Reply posting failed");
     }
 
     await this.prisma.incomingComment.update({
@@ -1076,7 +1148,7 @@ export class RepliesMonitorService implements OnModuleInit {
     this.logger.log(`Auto-replied to comment ${data.commentId} on post ${data.postId}`);
 
     await this.sseService.publish({
-      type: 'reply_posted',
+      type: "reply_posted",
       postId: data.postId,
       commentId: data.commentId,
       network: data.network,
@@ -1086,7 +1158,18 @@ export class RepliesMonitorService implements OnModuleInit {
   /**
    * Get comments pending human review (for UI).
    */
-  async getPendingHumanReview(): Promise<{ id: string; postId: string; network: string; author: string; text: string; humanReviewReason: string | null; replyText: string | null; scrapedAt: Date }[]> {
+  async getPendingHumanReview(): Promise<
+    {
+      id: string;
+      postId: string;
+      network: string;
+      author: string;
+      text: string;
+      humanReviewReason: string | null;
+      replyText: string | null;
+      scrapedAt: Date;
+    }[]
+  > {
     return this.prisma.incomingComment.findMany({
       where: { status: CommentStatus.HUMAN_REVIEW },
       select: {
@@ -1099,29 +1182,32 @@ export class RepliesMonitorService implements OnModuleInit {
         replyText: true,
         scrapedAt: true,
       },
-      orderBy: { scrapedAt: 'desc' },
+      orderBy: { scrapedAt: "desc" },
     });
   }
 
   /**
    * Manually approve and post a reply for a human-review comment (from UI).
    */
-  async manualReply(commentId: string, replyText: string): Promise<{ success: boolean; error?: string }> {
+  async manualReply(
+    commentId: string,
+    replyText: string,
+  ): Promise<{ success: boolean; error?: string }> {
     const comment = await this.prisma.incomingComment.findUnique({
       where: { id: commentId },
       include: { post: { select: { postUrl: true, network: true } } },
     });
 
     if (!comment) {
-      return { success: false, error: 'Comment not found' };
+      return { success: false, error: "Comment not found" };
     }
 
     if (!comment.post || !comment.post.postUrl) {
-      return { success: false, error: 'Post has no URL' };
+      return { success: false, error: "Post has no URL" };
     }
 
     if (!this.engagementService) {
-      return { success: false, error: 'Engagement service not available' };
+      return { success: false, error: "Engagement service not available" };
     }
 
     const slotReserved = await this.reserveDailyReplySlot(comment.post.network as SocialNetwork);
@@ -1130,17 +1216,13 @@ export class RepliesMonitorService implements OnModuleInit {
     }
 
     try {
-      const targetUrl = (comment.commentUrl ?? comment.post.postUrl) ?? '';
+      const targetUrl = comment.commentUrl ?? comment.post.postUrl ?? "";
       if (!targetUrl) {
         await this.releaseDailyReplySlot(comment.post.network as SocialNetwork);
-        return { success: false, error: 'No target URL for reply' };
+        return { success: false, error: "No target URL for reply" };
       }
 
-      const result = await this.engagementService.reply(
-        comment.post.network,
-        targetUrl,
-        replyText,
-      );
+      const result = await this.engagementService.reply(comment.post.network, targetUrl, replyText);
 
       if (!result.success) {
         await this.releaseDailyReplySlot(comment.post.network as SocialNetwork);
@@ -1180,23 +1262,23 @@ export class RepliesMonitorService implements OnModuleInit {
 
 /** 2.9.1: Normalize a social handle for comparison. */
 function normalizeHandle(handle: string): string {
-  return handle.toLowerCase().replace(/^@+/, '').trim();
+  return handle.toLowerCase().replace(/^@+/, "").trim();
 }
 
 /** 2.9.1: Extract a comparable handle from an author profile URL. */
 function extractHandleFromProfileUrl(url: string): string | null {
   if (!url) return null;
-  const path = url.split('?')[0] ?? '';
-  const segments = path.split('/').filter((s) => s.length > 0);
+  const path = url.split("?")[0] ?? "";
+  const segments = path.split("/").filter((s) => s.length > 0);
   const first = segments[0];
   if (!first) return null;
 
   // X: /handle or /handle/status/...; Threads: /@handle or /@handle/post/...; Facebook: /user/123
-  if (first === 'user') {
+  if (first === "user") {
     const second = segments[1];
     return second ? decodeURIComponent(second).toLowerCase() : null;
   }
-  if (first.startsWith('@')) {
+  if (first.startsWith("@")) {
     return normalizeHandle(first);
   }
   return normalizeHandle(first);

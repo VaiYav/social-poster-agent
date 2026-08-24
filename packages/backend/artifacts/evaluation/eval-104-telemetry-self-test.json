@@ -1,0 +1,308 @@
+{
+  "schema_version": 1,
+  "task_id": "EVAL-104",
+  "passed": true,
+  "source": {
+    "sha": "f95ff84a4359f209461371d2038d6647bc3ae09c",
+    "working_tree": "dirty",
+    "dirty_path_count": 119
+  },
+  "evidence_boundary": {
+    "classification": "LOCAL_SYNTHETIC_NO_SECRET",
+    "provider_calls": "NOT_RUN",
+    "langfuse_hosted_mutations": "NOT_RUN",
+    "external": "NOT_RUN",
+    "manual": "NOT_RUN",
+    "staging": "NOT_RUN",
+    "production": "NOT_RUN"
+  },
+  "coverage": {
+    "attempt_attribution": {
+      "total": 2,
+      "covered": 2,
+      "unknown": 0,
+      "coverage": 1,
+      "required": 1,
+      "passed": true
+    },
+    "multi_provider_fallback": {
+      "total": 2,
+      "covered": 2,
+      "unknown": 0,
+      "coverage": 1,
+      "required": 1,
+      "passed": true
+    },
+    "prompt_native_linkage": {
+      "total": 1,
+      "covered": 1,
+      "unknown": 0,
+      "coverage": 1,
+      "required": 1,
+      "passed": true
+    },
+    "prompt_fallback_identity": {
+      "total": 1,
+      "covered": 1,
+      "unknown": 0,
+      "coverage": 1,
+      "required": 1,
+      "passed": true
+    },
+    "usage_accounting": {
+      "total": 2,
+      "covered": 2,
+      "unknown": 1,
+      "coverage": 1,
+      "required": 1,
+      "passed": true
+    },
+    "cost_accounting": {
+      "total": 2,
+      "covered": 2,
+      "unknown": 1,
+      "coverage": 1,
+      "required": 1,
+      "passed": true
+    },
+    "latency": {
+      "total": 2,
+      "covered": 2,
+      "unknown": 0,
+      "coverage": 1,
+      "required": 1,
+      "passed": true
+    },
+    "normalized_errors": {
+      "total": 2,
+      "covered": 2,
+      "unknown": 0,
+      "coverage": 1,
+      "required": 1,
+      "passed": true
+    },
+    "disabled_path": {
+      "total": 1,
+      "covered": 1,
+      "unknown": 0,
+      "coverage": 1,
+      "required": 1,
+      "passed": true
+    },
+    "redaction_injection": {
+      "total": 24,
+      "covered": 24,
+      "unknown": 0,
+      "coverage": 1,
+      "required": 1,
+      "passed": true
+    }
+  },
+  "redaction": {
+    "canary_ids": [
+      "api_key",
+      "cookie",
+      "password",
+      "bearer_token",
+      "proxy_credentials",
+      "private_source_text"
+    ],
+    "surfaces": [
+      {
+        "surface": "callback_metadata",
+        "injected": 6,
+        "expected": 6,
+        "leaks_found": 0,
+        "passed": true
+      },
+      {
+        "surface": "prompt_references",
+        "injected": 6,
+        "expected": 6,
+        "leaks_found": 0,
+        "passed": true
+      },
+      {
+        "surface": "telemetry_records",
+        "injected": 6,
+        "expected": 6,
+        "leaks_found": 0,
+        "passed": true
+      },
+      {
+        "surface": "errors",
+        "injected": 6,
+        "expected": 6,
+        "leaks_found": 0,
+        "passed": true
+      },
+      {
+        "surface": "generated_report",
+        "injected": 6,
+        "expected": 6,
+        "leaks_found": 0,
+        "passed": true
+      }
+    ]
+  },
+  "disabled_path": {
+    "is_enabled": false,
+    "handler_created": false,
+    "operation_calls": 1,
+    "operation_result_matches": true
+  },
+  "failures": [],
+  "exported_surfaces": {
+    "attempts": [
+      {
+        "provider_requested": "groq",
+        "provider_actual": "groq",
+        "model_requested": "llama-4-scout",
+        "model_actual": "llama-4-scout",
+        "model_snapshot_or_alias": "llama-4-scout",
+        "fallback_policy": "role_chain_then_fallback",
+        "fallback_depth": 0,
+        "attempt_index": 0,
+        "cache_hit": false,
+        "rate_limit_retry": false,
+        "outcome": "error",
+        "normalized_error_category": "rate_limit",
+        "usage_status": "unknown",
+        "cost_source": "unknown",
+        "latency_ms": 19,
+        "prompt_name": "research-extract",
+        "prompt_label": "production",
+        "prompt_version": 7,
+        "prompt_is_fallback": false
+      },
+      {
+        "provider_requested": "groq",
+        "provider_actual": "openai",
+        "model_requested": "llama-4-scout",
+        "model_actual": "gpt-5-nano-2026-08-01",
+        "model_snapshot_or_alias": "gpt-5-nano-2026-08-01",
+        "fallback_policy": "role_chain_then_fallback",
+        "fallback_depth": 1,
+        "attempt_index": 1,
+        "cache_hit": false,
+        "rate_limit_retry": false,
+        "outcome": "success",
+        "normalized_error_category": "none",
+        "usage_status": "known",
+        "cost_source": "provider",
+        "latency_ms": 43,
+        "input_tokens": 120,
+        "output_tokens": 34,
+        "reasoning_tokens": 8,
+        "cached_input_tokens": 16,
+        "total_tokens": 162,
+        "cost_usd": 0.000042,
+        "time_to_first_token_ms": 12,
+        "prompt_name": "research-extract",
+        "prompt_label": "production",
+        "prompt_version": 7,
+        "prompt_is_fallback": false
+      }
+    ],
+    "callback_metadata": [
+      {
+        "apiKey": "[REDACTED]",
+        "authorization": "[REDACTED]",
+        "cookie": "[REDACTED]",
+        "environment": "test",
+        "execution_mode": "eval",
+        "feature": "generation",
+        "nested_untrusted_value": "[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED]",
+        "password": "[REDACTED]",
+        "privateSource": "[REDACTED]",
+        "proxyUrl": "[REDACTED]"
+      }
+    ],
+    "prompt_references": [
+      {
+        "observation_name": "generation.research_extract",
+        "prompt_name": "research-extract",
+        "prompt_label": "production",
+        "prompt_is_fallback": false,
+        "native_linked": true,
+        "prompt_version": 7
+      },
+      {
+        "observation_name": "generation.draft.X",
+        "prompt_name": "draft-post",
+        "prompt_label": "production",
+        "prompt_is_fallback": true,
+        "native_linked": false,
+        "prompt_fallback_digest": "bdb068a8030e4176119b751a6c1f370851b3b30af217c9b17c23dfc064c628a2"
+      }
+    ],
+    "telemetry_records": [
+      {
+        "attempt_index": 0,
+        "cache_hit": false,
+        "cost_source": "unknown",
+        "error_status_code": 429,
+        "fallback_depth": 0,
+        "fallback_policy": "role_chain_then_fallback",
+        "latency_ms": 19,
+        "llm_role": "facts",
+        "max_output_tokens": 256,
+        "model_actual": "llama-4-scout",
+        "model_requested": "llama-4-scout",
+        "model_snapshot_or_alias": "llama-4-scout",
+        "normalized_error_category": "rate_limit",
+        "outcome": "error",
+        "prompt_is_fallback": false,
+        "prompt_label": "production",
+        "prompt_name": "research-extract",
+        "prompt_version": 7,
+        "provider_actual": "groq",
+        "provider_debug_context": "[REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED] | [REDACTED]",
+        "provider_requested": "groq",
+        "rate_limit_retry": false,
+        "reasoning_effort": "not_sent",
+        "request_headers": {
+          "authorization": "[REDACTED]",
+          "cookie": "[REDACTED]"
+        }
+      },
+      {
+        "attempt_index": 1,
+        "cache_hit": false,
+        "cached_input_tokens": 16,
+        "cost_source": "provider",
+        "cost_usd": 0.000042,
+        "fallback_depth": 1,
+        "fallback_policy": "role_chain_then_fallback",
+        "input_tokens": 120,
+        "latency_ms": 43,
+        "llm_role": "facts",
+        "max_output_tokens": 256,
+        "model_actual": "gpt-5-nano-2026-08-01",
+        "model_requested": "llama-4-scout",
+        "model_snapshot_or_alias": "gpt-5-nano-2026-08-01",
+        "normalized_error_category": "none",
+        "outcome": "success",
+        "output_tokens": 34,
+        "private_source_text": "[REDACTED]",
+        "prompt_is_fallback": false,
+        "prompt_label": "production",
+        "prompt_name": "research-extract",
+        "prompt_version": 7,
+        "provider_actual": "openai",
+        "provider_requested": "groq"
+      }
+    ],
+    "errors": [
+      {
+        "normalized_error_category": "timeout",
+        "error_status_code": 504
+      }
+    ]
+  },
+  "serialization": {
+    "max_bytes": 32768,
+    "max_surface_samples": 8,
+    "truncated_samples": 0
+  }
+}

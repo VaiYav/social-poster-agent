@@ -2,21 +2,27 @@
 // Backend: NestJS pipes validate input against these
 // UI: axios responses typed via z.infer
 
-import { z } from 'zod';
+import { z } from "zod";
+
+// Zod 4's built-in .uuid() enforces RFC 4122 version bits, which rejects the
+// deterministic test fixtures used throughout the suite. This permissive regex
+// still validates 128-bit UUID shape while accepting any hex version nibble.
+const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const uuid = () => z.string().regex(UUID_REGEX, "Invalid UUID");
 
 // ============================================================
 // Post schemas
 // ============================================================
 
 export const CreatePostDtoSchema = z.object({
-  accountId: z.string().uuid(),
-  network: z.enum(['X', 'THREADS', 'FACEBOOK']),
+  accountId: uuid(),
+  network: z.enum(["X", "THREADS", "FACEBOOK"]),
   content: z.string().min(1).max(5000),
-  threadId: z.string().uuid().optional(),
+  threadId: uuid().optional(),
   threadPosition: z.number().int().min(0).default(0),
   sourceRef: z
     .object({
-      type: z.enum(['brief', 'article', 'topic', 'create_run', 'recycle', 'review']),
+      type: z.enum(["brief", "article", "topic", "create_run", "recycle", "review"]),
       path: z.string(),
       topic: z.string().optional(),
       factIndex: z.number().int().optional(),
@@ -29,22 +35,100 @@ export const CreatePostDtoSchema = z.object({
 });
 export type CreatePostDto = z.infer<typeof CreatePostDtoSchema>;
 
+export const ReviewReasonCodeSchema = z.enum([
+  "FACT_UNSUPPORTED",
+  "FACT_INCORRECT",
+  "VOICE_AI_GENERIC",
+  "HOOK_WEAK",
+  "PLATFORM_MISMATCH",
+  "LANGUAGE_QUALITY",
+  "POLICY_RISK",
+  "CTA_INVALID",
+  "TOO_LONG",
+  "DUPLICATE",
+  "OTHER_REVIEWED",
+]);
+export type ReviewReasonCode = z.infer<typeof ReviewReasonCodeSchema>;
+
+const RubricScoreSchema = z.union([z.literal(0), z.literal(1), z.literal(2)]);
+
+export const PostReviewRubricSchema = z.object({
+  publishability: RubricScoreSchema,
+  factualSupport: RubricScoreSchema,
+  humanVoice: RubricScoreSchema,
+  hookStrength: RubricScoreSchema,
+  platformFit: RubricScoreSchema,
+});
+export type PostReviewRubric = z.infer<typeof PostReviewRubricSchema>;
+
+export const PostReviewFeedbackSchema = z
+  .object({
+    reasonCodes: z.array(ReviewReasonCodeSchema).max(11).optional(),
+    rubric: PostReviewRubricSchema.optional(),
+    comment: z.string().trim().max(500).optional(),
+  })
+  .superRefine((feedback, ctx) => {
+    if (!feedback.reasonCodes) return;
+    if (new Set(feedback.reasonCodes).size !== feedback.reasonCodes.length) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["reasonCodes"],
+        message: "reasonCodes must not contain duplicates",
+      });
+    }
+  });
+export type PostReviewFeedback = z.infer<typeof PostReviewFeedbackSchema>;
+
 export const ApprovePostDtoSchema = z.object({
   editedContent: z.string().min(1).max(5000).optional(),
+  feedback: PostReviewFeedbackSchema.optional(),
 });
 export type ApprovePostDto = z.infer<typeof ApprovePostDtoSchema>;
 
+export const RejectPostDtoSchema = z.object({
+  feedback: PostReviewFeedbackSchema.optional(),
+});
+export type RejectPostDto = z.infer<typeof RejectPostDtoSchema>;
+
 export const UpdatePostStatusDtoSchema = z.object({
-  status: z.enum(['DRAFT', 'APPROVED', 'POSTING', 'POSTED', 'FAILED', 'REJECTED', 'JUDGED', 'VERIFIED']),
+  status: z.enum([
+    "DRAFT",
+    "APPROVED",
+    "POSTING",
+    "POSTED",
+    "FAILED",
+    "REJECTED",
+    "JUDGED",
+    "VERIFIED",
+  ]),
   postUrl: z.string().url().optional(),
   errorMessage: z.string().optional(),
 });
 export type UpdatePostStatusDto = z.infer<typeof UpdatePostStatusDtoSchema>;
 
 export const PostQueryDtoSchema = z.object({
-  status: z.enum(['DRAFT', 'APPROVED', 'POSTING', 'POSTED', 'FAILED', 'REJECTED', 'JUDGED', 'VERIFIED']).optional(),
-  network: z.enum(['X', 'THREADS', 'FACEBOOK', 'DEVTO', 'HASHNODE', 'LINKEDIN', 'BLUESKY', 'MASTODON', 'TELEGRAM', 'MEDIUM', 'SUBSTACK', 'REDDIT', 'QUORA', 'PINTEREST']).optional(),
-  accountId: z.string().uuid().optional(),
+  status: z
+    .enum(["DRAFT", "APPROVED", "POSTING", "POSTED", "FAILED", "REJECTED", "JUDGED", "VERIFIED"])
+    .optional(),
+  network: z
+    .enum([
+      "X",
+      "THREADS",
+      "FACEBOOK",
+      "DEVTO",
+      "HASHNODE",
+      "LINKEDIN",
+      "BLUESKY",
+      "MASTODON",
+      "TELEGRAM",
+      "MEDIUM",
+      "SUBSTACK",
+      "REDDIT",
+      "QUORA",
+      "PINTEREST",
+    ])
+    .optional(),
+  accountId: uuid().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });
@@ -53,8 +137,27 @@ export type PostQueryDto = z.infer<typeof PostQueryDtoSchema>;
 export const CalendarQueryDtoSchema = z.object({
   from: z.coerce.date(),
   to: z.coerce.date(),
-  status: z.enum(['DRAFT', 'APPROVED', 'POSTING', 'POSTED', 'FAILED', 'REJECTED', 'JUDGED', 'VERIFIED']).optional(),
-  network: z.enum(['X', 'THREADS', 'FACEBOOK', 'DEVTO', 'HASHNODE', 'LINKEDIN', 'BLUESKY', 'MASTODON', 'TELEGRAM', 'MEDIUM', 'SUBSTACK', 'REDDIT', 'QUORA', 'PINTEREST']).optional(),
+  status: z
+    .enum(["DRAFT", "APPROVED", "POSTING", "POSTED", "FAILED", "REJECTED", "JUDGED", "VERIFIED"])
+    .optional(),
+  network: z
+    .enum([
+      "X",
+      "THREADS",
+      "FACEBOOK",
+      "DEVTO",
+      "HASHNODE",
+      "LINKEDIN",
+      "BLUESKY",
+      "MASTODON",
+      "TELEGRAM",
+      "MEDIUM",
+      "SUBSTACK",
+      "REDDIT",
+      "QUORA",
+      "PINTEREST",
+    ])
+    .optional(),
 });
 export type CalendarQueryDto = z.infer<typeof CalendarQueryDtoSchema>;
 
@@ -63,16 +166,32 @@ export const SchedulePostDtoSchema = z.object({
 });
 export type SchedulePostDto = z.infer<typeof SchedulePostDtoSchema>;
 
+export {
+  PersonaAssignmentSchema,
+  PersonaContentPillarSchema,
+  PersonaNetworkAdapterSchema,
+  PersonaProfileSchema,
+  PersonaVoiceModeSchema,
+  CreatePersonaSchema,
+  CreatePersonaRevisionSchema,
+  type PersonaAssignment,
+  type PersonaContentPillar,
+  type PersonaProfile,
+  type PersonaVoiceMode,
+  type CreatePersona,
+  type CreatePersonaRevision,
+} from "./persona.js";
+
 // ============================================================
 // Generation schemas
 // ============================================================
 
 export const GeneratePostsDtoSchema = z.object({
   count: z.number().int().min(1).max(10).default(3),
-  networks: z.array(z.enum(['X', 'THREADS', 'FACEBOOK'])).optional(),
+  networks: z.array(z.enum(["X", "THREADS", "FACEBOOK"])).optional(),
   /** Optional explicit target accounts. When omitted, one account per network is selected by rotation. */
-  accountIds: z.array(z.string().uuid()).min(1).max(100).optional(),
-  sourceType: z.enum(['brief', 'article', 'topic', 'create_run']).optional(),
+  accountIds: z.array(uuid()).min(1).max(100).optional(),
+  sourceType: z.enum(["brief", "article", "topic", "create_run"]).optional(),
   multiStage: z.boolean().optional().default(false), // F2: hook + continuation thread
   model: z.string().optional(), // F3: explicit provider/model override (e.g. "openai/gpt-5-nano")
 });
@@ -83,8 +202,8 @@ export type GeneratePostsDto = z.infer<typeof GeneratePostsDtoSchema>;
 // ============================================================
 
 export const HealthCheckResultSchema = z.object({
-  sessionId: z.string().uuid(),
-  status: z.enum(['ACTIVE', 'EXPIRED', 'ERROR', 'WARMUP', 'BANNED']),
+  sessionId: uuid(),
+  status: z.enum(["ACTIVE", "EXPIRED", "ERROR", "WARMUP", "BANNED"]),
   message: z.string().optional(),
 });
 export type HealthCheckResult = z.infer<typeof HealthCheckResultSchema>;
@@ -94,12 +213,12 @@ export type HealthCheckResult = z.infer<typeof HealthCheckResultSchema>;
 // ============================================================
 
 export const PostNowDtoSchema = z.object({
-  postId: z.string().uuid(),
+  postId: uuid(),
 });
 export type PostNowDto = z.infer<typeof PostNowDtoSchema>;
 
 export const BatchPostDtoSchema = z.object({
-  postIds: z.array(z.string().uuid()).min(1).max(20),
+  postIds: z.array(uuid()).min(1).max(20),
 });
 export type BatchPostDto = z.infer<typeof BatchPostDtoSchema>;
 
@@ -133,7 +252,7 @@ export const LoginDtoSchema = z.object({
 export type LoginDto = z.infer<typeof LoginDtoSchema>;
 
 export const AuthUserSchema = z.object({
-  id: z.string().uuid(),
+  id: uuid(),
   username: z.string(),
 });
 export type AuthUser = z.infer<typeof AuthUserSchema>;
@@ -149,26 +268,26 @@ export type LoginResponse = z.infer<typeof LoginResponseSchema>;
 
 export const SseEventSchema = z.object({
   type: z.enum([
-    'connected',
-    'post_status',
-    'health_alert',
-    'generation_started',
-    'generation_progress',
-    'generation_completed',
-    'generation_failed',
-    'generation_paused',
-    'generation_resumed',
-    'queue_update',
-    'session_status',
-    'reply_escalation',
-    'reconciliation_requeue',
+    "connected",
+    "post_status",
+    "health_alert",
+    "generation_started",
+    "generation_progress",
+    "generation_completed",
+    "generation_failed",
+    "generation_paused",
+    "generation_resumed",
+    "queue_update",
+    "session_status",
+    "reply_escalation",
+    "reconciliation_requeue",
   ]),
   postId: z.string().optional(),
   status: z.string().optional(),
   network: z.string().optional(),
   url: z.string().optional(),
   error: z.string().optional(),
-  severity: z.enum(['critical', 'warning', 'info']).optional(),
+  severity: z.enum(["critical", "warning", "info"]).optional(),
   runId: z.string().optional(),
   node: z.string().optional(),
   topic: z.string().optional(),
@@ -185,7 +304,7 @@ export type SseEvent = z.infer<typeof SseEventSchema>;
 
 export const ABTestQuerySchema = z.object({
   days: z.coerce.number().int().min(1).max(365).default(30),
-  network: z.enum(['X', 'THREADS', 'FACEBOOK']).optional(),
+  network: z.enum(["X", "THREADS", "FACEBOOK"]).optional(),
   minSampleSize: z.coerce.number().int().min(0).default(0),
 });
 export type ABTestQuery = z.infer<typeof ABTestQuerySchema>;

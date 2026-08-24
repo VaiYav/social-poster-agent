@@ -6,12 +6,12 @@
  * summary metrics, and action buttons. Action execution dispatches to the relevant
  * backend endpoints.
  */
-import { defineStore } from 'pinia';
-import { ref, computed, type Component } from 'vue';
-import { isMetricsSnapshot, type MonitoringSnapshot, type AgentState } from '../types/monitoring';
-import api from '../composables/useApi';
-import type { SSEvent } from '@spa/shared';
-import { useToast } from '../composables/useToast';
+import { defineStore } from "pinia";
+import { ref, computed, type Component } from "vue";
+import { isMetricsSnapshot, type MonitoringSnapshot, type AgentState } from "../types/monitoring";
+import api from "../composables/useApi";
+import type { SSEvent } from "@spa/shared";
+import { useToast } from "../composables/useToast";
 import {
   Activity,
   BarChart3,
@@ -29,9 +29,9 @@ import {
   Sparkles,
   TrendingUp,
   Zap,
-} from '@lucide/vue';
+} from "@lucide/vue";
 
-export type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'destructive';
+export type ButtonVariant = "primary" | "secondary" | "outline" | "ghost" | "destructive";
 
 export interface AgentAction {
   id: string;
@@ -50,7 +50,7 @@ export interface AgentViewModel {
   id: string;
   title: string;
   icon: Component;
-  status: AgentState['status'];
+  status: AgentState["status"];
   statusLabel: string;
   summary: AgentMetricItem[];
   message?: string;
@@ -59,15 +59,15 @@ export interface AgentViewModel {
   raw: AgentState;
 }
 
-const NETWORKS = ['X', 'THREADS', 'FACEBOOK'] as const;
+const NETWORKS = ["X", "THREADS", "FACEBOOK"] as const;
 
 function fmt(value: unknown): string | number {
-  if (value === null || value === undefined) return '—';
-  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-  if (typeof value === 'number') return value;
-  if (typeof value === 'string') return value;
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "number") return value;
+  if (typeof value === "string") return value;
   if (value instanceof Date) return value.toLocaleString();
-  return '—';
+  return "—";
 }
 
 function metric(label: string, value: unknown): AgentMetricItem {
@@ -85,386 +85,387 @@ interface AgentDefinition {
 
 const agentDefinitions: Record<string, AgentDefinition> = {
   health: {
-    title: 'Health Monitor',
+    title: "Health Monitor",
     icon: Activity,
     buildSummary: (metrics) => [
-      metric('Alerts', metrics.totalAlerts ?? metrics.critical ?? 0),
-      metric('Critical', metrics.critical ?? 0),
-      metric('Healthy sessions', metrics.healthySessions ?? 0),
-      metric('Banned sessions', metrics.bannedSessions ?? 0),
+      metric("Alerts", metrics.totalAlerts ?? metrics.critical ?? 0),
+      metric("Critical", metrics.critical ?? 0),
+      metric("Healthy sessions", metrics.healthySessions ?? 0),
+      metric("Banned sessions", metrics.bannedSessions ?? 0),
     ],
     actions: [
       {
-        id: 'health.check',
-        label: 'Health check',
-        variant: 'secondary',
+        id: "health.check",
+        label: "Health check",
+        variant: "secondary",
         icon: Activity,
         handler: async () => {
-          await api.post('/health-monitor/check');
-          return 'Health check started';
+          await api.post("/health-monitor/check");
+          return "Health check started";
         },
       },
       {
-        id: 'health.reconcile',
-        label: 'Reconcile',
-        variant: 'outline',
+        id: "health.reconcile",
+        label: "Reconcile",
+        variant: "outline",
         icon: RefreshCw,
         handler: async () => {
-          await api.post('/health-monitor/reconcile');
-          return 'Reconciliation started';
+          await api.post("/health-monitor/reconcile");
+          return "Reconciliation started";
         },
       },
     ],
   },
   queue: {
-    title: 'BullMQ Posting Queue',
+    title: "BullMQ Posting Queue",
     icon: ListChecks,
     buildSummary: (metrics) => [
-      metric('Failed', metrics.totalFailed ?? 0),
-      metric('Waiting', metrics.totalWaiting ?? 0),
-      metric('Active', metrics.totalActive ?? 0),
-      metric('Paused', metrics.pausedCount ?? 0),
+      metric("Failed", metrics.totalFailed ?? 0),
+      metric("Waiting", metrics.totalWaiting ?? 0),
+      metric("Active", metrics.totalActive ?? 0),
+      metric("Paused", metrics.pausedCount ?? 0),
     ],
     actions: [
       {
-        id: 'queue.pause-all',
-        label: 'Pause all',
-        variant: 'outline',
+        id: "queue.pause-all",
+        label: "Pause all",
+        variant: "outline",
         handler: async () => {
           await Promise.all(NETWORKS.map((network) => api.post(`/queue/${network}/pause`)));
-          return 'All queues paused';
+          return "All queues paused";
         },
       },
       {
-        id: 'queue.resume-all',
-        label: 'Resume all',
-        variant: 'secondary',
+        id: "queue.resume-all",
+        label: "Resume all",
+        variant: "secondary",
         handler: async () => {
           await Promise.all(NETWORKS.map((network) => api.post(`/queue/${network}/resume`)));
-          return 'All queues resumed';
+          return "All queues resumed";
         },
       },
       {
-        id: 'queue.retry-all-failed',
-        label: 'Retry failed',
-        variant: 'secondary',
+        id: "queue.retry-all-failed",
+        label: "Retry failed",
+        variant: "secondary",
         handler: async () => {
           await Promise.all(NETWORKS.map((network) => api.post(`/queue/${network}/retry-failed`)));
-          return 'Retrying failed jobs across all queues';
+          return "Retrying failed jobs across all queues";
         },
       },
       {
-        id: 'queue.clear-all-completed',
-        label: 'Clear completed',
-        variant: 'ghost',
+        id: "queue.clear-all-completed",
+        label: "Clear completed",
+        variant: "ghost",
         handler: async () => {
-          await Promise.all(NETWORKS.map((network) => api.post(`/queue/${network}/clear-completed`)));
-          return 'Completed jobs cleared';
+          await Promise.all(
+            NETWORKS.map((network) => api.post(`/queue/${network}/clear-completed`)),
+          );
+          return "Completed jobs cleared";
         },
       },
     ],
   },
   sessions: {
-    title: 'Browser Sessions',
+    title: "Browser Sessions",
     icon: Globe,
     buildSummary: (metrics) => [
-      metric('Total', metrics.total ?? 0),
-      metric('Active', (metrics.counts as Record<string, number> | undefined)?.ACTIVE ?? 0),
-      metric('Expired', (metrics.counts as Record<string, number> | undefined)?.EXPIRED ?? 0),
-      metric('Banned', (metrics.counts as Record<string, number> | undefined)?.BANNED ?? 0),
+      metric("Total", metrics.total ?? 0),
+      metric("Active", (metrics.counts as Record<string, number> | undefined)?.ACTIVE ?? 0),
+      metric("Expired", (metrics.counts as Record<string, number> | undefined)?.EXPIRED ?? 0),
+      metric("Banned", (metrics.counts as Record<string, number> | undefined)?.BANNED ?? 0),
     ],
     actions: [
       {
-        id: 'sessions.health-check-all',
-        label: 'Health check all',
-        variant: 'secondary',
+        id: "sessions.health-check-all",
+        label: "Health check all",
+        variant: "secondary",
         icon: Activity,
         handler: async () => {
           await Promise.all(
             NETWORKS.map((network) =>
-              api.post('/sessions/health-check', undefined, { params: { network } }),
+              api.post("/sessions/health-check", undefined, { params: { network } }),
             ),
           );
-          return 'Session health checks triggered';
+          return "Session health checks triggered";
         },
       },
     ],
   },
   rateLimits: {
-    title: 'Rate Limits',
+    title: "Rate Limits",
     icon: Gauge,
-    buildSummary: (metrics) => [metric('Exceeded', metrics.exceededCount ?? 0)],
+    buildSummary: (metrics) => [metric("Exceeded", metrics.exceededCount ?? 0)],
     actions: [],
   },
   analytics: {
-    title: 'Analytics',
+    title: "Analytics",
     icon: BarChart3,
     buildSummary: (metrics) => [
-      metric('Total posts', metrics.totalPosts ?? 0),
-      metric('Posted', metrics.posted ?? 0),
-      metric('Failed', metrics.failed ?? 0),
-      metric('Success rate', `${metrics.successRate ?? 0}%`),
+      metric("Total posts", metrics.totalPosts ?? 0),
+      metric("Posted", metrics.posted ?? 0),
+      metric("Failed", metrics.failed ?? 0),
+      metric("Success rate", `${metrics.successRate ?? 0}%`),
     ],
     actions: [
       {
-        id: 'analytics.scrape',
-        label: 'Scrape metrics',
-        variant: 'secondary',
+        id: "analytics.scrape",
+        label: "Scrape metrics",
+        variant: "secondary",
         icon: RefreshCw,
         handler: async () => {
-          await api.post('/analytics/scrape');
-          return 'Metrics scrape triggered';
+          await api.post("/analytics/scrape");
+          return "Metrics scrape triggered";
         },
       },
       {
-        id: 'analytics.aggregate-hooks',
-        label: 'Aggregate hooks',
-        variant: 'outline',
+        id: "analytics.aggregate-hooks",
+        label: "Aggregate hooks",
+        variant: "outline",
         icon: Brain,
         handler: async () => {
-          await api.post('/analytics/hook-performance/aggregate');
-          return 'Hook performance aggregation triggered';
+          await api.post("/analytics/hook-performance/aggregate");
+          return "Hook performance aggregation triggered";
         },
       },
     ],
   },
   trending: {
-    title: 'Trending Scraper',
+    title: "Trending Scraper",
     icon: TrendingUp,
     buildSummary: (metrics) => [
       metric(
-        'Google cached',
+        "Google cached",
         ((metrics.googleTrends as Record<string, unknown> | undefined)?.cached as boolean) ?? false,
       ),
       metric(
-        'X cached',
+        "X cached",
         ((metrics.xTrends as Record<string, unknown> | undefined)?.cached as boolean) ?? false,
       ),
     ],
     actions: [
       {
-        id: 'trending.refresh',
-        label: 'Refresh X + Google',
-        variant: 'secondary',
+        id: "trending.refresh",
+        label: "Refresh X + Google",
+        variant: "secondary",
         icon: RefreshCw,
         handler: async () => {
-          await api.get('/trending/merged');
-          return 'Trending refresh triggered';
+          await api.get("/trending/merged");
+          return "Trending refresh triggered";
         },
       },
     ],
   },
   llm: {
-    title: 'LLM Providers',
+    title: "LLM Providers",
     icon: BrainCircuit,
     buildSummary: (metrics) => [
-      metric('Providers', metrics.providerCount ?? 0),
-      metric('Open circuits', metrics.openCircuits ?? 0),
-      metric('Rate limited', metrics.rateLimited ?? 0),
+      metric("Providers", metrics.providerCount ?? 0),
+      metric("Open circuits", metrics.openCircuits ?? 0),
+      metric("Rate limited", metrics.rateLimited ?? 0),
     ],
     actions: [
       {
-        id: 'llm.reset-circuit-breakers',
-        label: 'Reset breakers',
-        variant: 'outline',
+        id: "llm.reset-circuit-breakers",
+        label: "Reset breakers",
+        variant: "outline",
         icon: RefreshCw,
         handler: async () => {
-          await api.post('/generation/reset-circuit-breakers');
-          return 'Circuit breakers reset';
+          await api.post("/generation/reset-circuit-breakers");
+          return "Circuit breakers reset";
         },
       },
     ],
   },
   flowControl: {
-    title: 'Flow Control',
+    title: "Flow Control",
     icon: ShieldAlert,
     buildSummary: (metrics) => [
-      metric('Crisis mode', metrics.pauseAll ?? false),
+      metric("Crisis mode", metrics.pauseAll ?? false),
       metric(
-        'Generation paused',
+        "Generation paused",
         (metrics.flows as Record<string, boolean> | undefined)?.generation ?? false,
       ),
       metric(
-        'Posting paused',
+        "Posting paused",
         (metrics.flows as Record<string, boolean> | undefined)?.posting ?? false,
       ),
       metric(
-        'Engagement paused',
+        "Engagement paused",
         (metrics.flows as Record<string, boolean> | undefined)?.engagement ?? false,
       ),
     ],
     actions: [
       {
-        id: 'flow-control.pause-all',
-        label: 'Pause all flows',
-        variant: 'destructive',
+        id: "flow-control.pause-all",
+        label: "Pause all flows",
+        variant: "destructive",
         handler: async () => {
-          await api.post('/flow-control/pause-all', {
-            reason: 'Operator paused all flows from dashboard',
+          await api.post("/flow-control/pause-all", {
+            reason: "Operator paused all flows from dashboard",
           });
-          return 'All flows paused';
+          return "All flows paused";
         },
       },
       {
-        id: 'flow-control.resume-all',
-        label: 'Resume all flows',
-        variant: 'primary',
+        id: "flow-control.resume-all",
+        label: "Resume all flows",
+        variant: "primary",
         handler: async () => {
-          await api.post('/flow-control/resume-all');
-          return 'All flows resumed';
+          await api.post("/flow-control/resume-all");
+          return "All flows resumed";
         },
       },
     ],
   },
   orchestrator: {
-    title: 'Orchestrator',
+    title: "Orchestrator",
     icon: Bot,
     buildSummary: (metrics) => [
-      metric('Enabled', metrics.enabled ?? false),
-      metric('Running', metrics.running ?? false),
-      metric('Cycle', metrics.cycle ?? 0),
+      metric("Enabled", metrics.enabled ?? false),
+      metric("Running", metrics.running ?? false),
+      metric("Cycle", metrics.cycle ?? 0),
       metric(
-        'Heartbeat age',
-        metrics.heartbeatAgeMs != null ? `${Math.round((metrics.heartbeatAgeMs as number) / 1000)}s` : '—',
+        "Heartbeat age",
+        metrics.heartbeatAgeMs != null
+          ? `${Math.round((metrics.heartbeatAgeMs as number) / 1000)}s`
+          : "—",
       ),
     ],
     actions: [
       {
-        id: 'orchestrator.pause',
-        label: 'Pause',
-        variant: 'outline',
+        id: "orchestrator.pause",
+        label: "Pause",
+        variant: "outline",
         handler: async () => {
-          await api.post('/orchestrator/pause');
-          return 'Orchestrator paused';
+          await api.post("/orchestrator/pause");
+          return "Orchestrator paused";
         },
       },
       {
-        id: 'orchestrator.resume',
-        label: 'Resume',
-        variant: 'secondary',
+        id: "orchestrator.resume",
+        label: "Resume",
+        variant: "secondary",
         handler: async () => {
-          await api.post('/orchestrator/resume');
-          return 'Orchestrator resumed';
+          await api.post("/orchestrator/resume");
+          return "Orchestrator resumed";
         },
       },
       {
-        id: 'orchestrator.restart',
-        label: 'Restart',
-        variant: 'primary',
+        id: "orchestrator.restart",
+        label: "Restart",
+        variant: "primary",
         handler: async () => {
-          await api.post('/orchestrator/restart');
-          return 'Orchestrator restart requested';
+          await api.post("/orchestrator/restart");
+          return "Orchestrator restart requested";
         },
       },
       {
-        id: 'orchestrator.reset',
-        label: 'Reset checkpoint',
-        variant: 'ghost',
+        id: "orchestrator.reset",
+        label: "Reset checkpoint",
+        variant: "ghost",
         handler: async () => {
-          await api.post('/orchestrator/reset');
-          return 'Orchestrator checkpoint reset';
+          await api.post("/orchestrator/reset");
+          return "Orchestrator checkpoint reset";
         },
       },
     ],
   },
   engagement: {
-    title: 'Engagement',
+    title: "Engagement",
     icon: Heart,
     buildSummary: (metrics) => [
-      metric('Total interactions', metrics.total ?? 0),
-      metric('Completed', metrics.completed ?? 0),
-      metric('Active browsing', metrics.activeBrowsing ?? 0),
+      metric("Total interactions", metrics.total ?? 0),
+      metric("Completed", metrics.completed ?? 0),
+      metric("Active browsing", metrics.activeBrowsing ?? 0),
     ],
     actions: [],
   },
   replies: {
-    title: 'Replies Monitor',
+    title: "Replies Monitor",
     icon: MessageSquare,
     buildSummary: (metrics) => [
-      metric('Total comments', metrics.total ?? 0),
-      metric('Human review', metrics.humanReview ?? 0),
-      metric(
-        'Replied',
-        (metrics.counts as Record<string, number> | undefined)?.REPLIED ?? 0,
-      ),
+      metric("Total comments", metrics.total ?? 0),
+      metric("Human review", metrics.humanReview ?? 0),
+      metric("Replied", (metrics.counts as Record<string, number> | undefined)?.REPLIED ?? 0),
     ],
     actions: [
       {
-        id: 'replies.run-cycle',
-        label: 'Run cycle',
-        variant: 'secondary',
+        id: "replies.run-cycle",
+        label: "Run cycle",
+        variant: "secondary",
         icon: RefreshCw,
         handler: async () => {
-          await api.post('/replies/run');
-          return 'Replies cycle triggered';
+          await api.post("/replies/run");
+          return "Replies cycle triggered";
         },
       },
     ],
   },
   generation: {
-    title: 'Generation',
+    title: "Generation",
     icon: Sparkles,
     buildSummary: (metrics) => [
-      metric('Total runs', metrics.total ?? 0),
-      metric('Running', metrics.running ?? 0),
-      metric('Completed', metrics.completed ?? 0),
-      metric('Failed', metrics.failed ?? 0),
+      metric("Total runs", metrics.total ?? 0),
+      metric("Running", metrics.running ?? 0),
+      metric("Completed", metrics.completed ?? 0),
+      metric("Failed", metrics.failed ?? 0),
     ],
     actions: [
       {
-        id: 'generation.trigger',
-        label: 'Trigger run',
-        variant: 'primary',
+        id: "generation.trigger",
+        label: "Trigger run",
+        variant: "primary",
         icon: Zap,
         handler: async () => {
-          await api.post('/generation/run', { count: 3 });
-          return 'Generation run triggered';
+          await api.post("/generation/run", { count: 3 });
+          return "Generation run triggered";
         },
       },
       {
-        id: 'generation.reset-circuit-breakers',
-        label: 'Reset breakers',
-        variant: 'outline',
+        id: "generation.reset-circuit-breakers",
+        label: "Reset breakers",
+        variant: "outline",
         icon: RefreshCw,
         handler: async () => {
-          await api.post('/generation/reset-circuit-breakers');
-          return 'Circuit breakers reset';
+          await api.post("/generation/reset-circuit-breakers");
+          return "Circuit breakers reset";
         },
       },
     ],
   },
   posting: {
-    title: 'Posting',
+    title: "Posting",
     icon: Send,
     buildSummary: (metrics) => [
-      metric('Approved', metrics.approved ?? 0),
-      metric('Posting', metrics.posting ?? 0),
-      metric('Failed', metrics.failed ?? 0),
-      metric('Completed', metrics.completed ?? 0),
+      metric("Approved", metrics.approved ?? 0),
+      metric("Posting", metrics.posting ?? 0),
+      metric("Failed", metrics.failed ?? 0),
+      metric("Completed", metrics.completed ?? 0),
     ],
     actions: [
       {
-        id: 'posting.post-all-approved',
-        label: 'Post all approved',
-        variant: 'primary',
+        id: "posting.post-all-approved",
+        label: "Post all approved",
+        variant: "primary",
         icon: Send,
         handler: async () => {
-          await api.post('/posting/batch/all-approved');
-          return 'Posting all approved posts';
+          await api.post("/posting/batch/all-approved");
+          return "Posting all approved posts";
         },
       },
     ],
   },
 };
 
-const statusLabels: Record<AgentState['status'], string> = {
-  running: 'Running',
-  paused: 'Paused',
-  idle: 'Idle',
-  error: 'Error',
-  warning: 'Warning',
-  disabled: 'Disabled',
-  unknown: 'Unknown',
+const statusLabels: Record<AgentState["status"], string> = {
+  running: "Running",
+  paused: "Paused",
+  idle: "Idle",
+  error: "Error",
+  warning: "Warning",
+  disabled: "Disabled",
+  unknown: "Unknown",
 };
 
 function defaultSummary(metrics: Record<string, unknown>): AgentMetricItem[] {
@@ -482,7 +483,7 @@ Object.values(agentDefinitions).forEach((def) => {
   });
 });
 
-export const useAgentsStore = defineStore('agents', () => {
+export const useAgentsStore = defineStore("agents", () => {
   const toast = useToast();
 
   const snapshot = ref<MonitoringSnapshot | null>(null);
@@ -525,7 +526,7 @@ export const useAgentsStore = defineStore('agents', () => {
     loading.value = true;
     error.value = null;
     try {
-      const { data } = await api.get<MonitoringSnapshot>('/monitoring/snapshot');
+      const { data } = await api.get<MonitoringSnapshot>("/monitoring/snapshot");
       snapshot.value = data;
     } catch (err) {
       error.value = (err as Error).message;

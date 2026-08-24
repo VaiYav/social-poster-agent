@@ -13,13 +13,13 @@
  * no hardcoded selectors. The LLM sees a screenshot + accessibility tree
  * and decides what to click/type.
  */
-import { Logger } from '@nestjs/common';
-import type { BrowserContext, Page } from '../../../domain/ports/browser-primitives.js';
-import type { IBrowserPort } from '../../../domain/ports/browser.port.js';
-import type { BrowserAgentService } from '../../browser-agent/browser-agent.service.js';
-import type { ArticleContent } from '@spa/shared';
-import { SocialNetwork } from '@prisma/client';
-import type { CanonicalUrlService } from '../../canonical/canonical-url.service.js';
+import { Logger } from "@nestjs/common";
+import type { BrowserContext, Page } from "../../../domain/ports/browser-primitives.js";
+import type { IBrowserPort } from "../../../domain/ports/browser.port.js";
+import type { BrowserAgentService } from "../../browser-agent/browser-agent.service.js";
+import type { ArticleContent } from "@spa/shared";
+import { SocialNetwork } from "../../../generated/prisma/client.js";
+import type { CanonicalUrlService } from "../../canonical/canonical-url.service.js";
 
 export interface ArticlePostResult {
   url?: string;
@@ -80,13 +80,19 @@ export abstract class ArticleBasePoster {
   ): Promise<ArticlePostResult> {
     const platform = this.getPlatformName();
     this.logger.log(`Posting article "${article.title}" to ${platform}`);
+    if (!canonicalUrl || !URL.canParse(canonicalUrl)) {
+      return { success: false, error: "A valid canonical URL is required for article publishing" };
+    }
+    if (!article.title.trim() || !article.bodyMarkdown.trim() || !article.slug.trim()) {
+      return { success: false, error: "Article content is malformed" };
+    }
 
     let page: Page | null = null;
     try {
       // Step 1: Open a new page and navigate to the editor
       page = await context.newPage();
       const editorUrl = this.getEditorUrl();
-      await page.goto(editorUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.goto(editorUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
       await page.waitForTimeout(2000); // Let SPA render
 
       // Step 2: LLM fills the title
@@ -111,7 +117,7 @@ export abstract class ArticleBasePoster {
       if (article.tags.length > 0) {
         const tagsResult = await this.deps.browserAgent.act(
           page as never,
-          `Find the tags input field and type these tags (comma-separated): ${article.tags.join(', ')}`,
+          `Find the tags input field and type these tags (comma-separated): ${article.tags.join(", ")}`,
         );
         // Tags are optional — don't fail if not found
         if (!tagsResult.success) {
@@ -141,18 +147,10 @@ export abstract class ArticleBasePoster {
       await page.waitForTimeout(3000); // Let publish complete
 
       const urlSchema = z.object({ url: z.string().url() });
-      const extracted = await this.deps.browserAgent.extract(
-        page as never,
-        urlSchema,
-      );
+      const extracted = await this.deps.browserAgent.extract(page as never, urlSchema);
 
-      if (!extracted || !extracted.url) {
-        this.logger.warn('Could not extract published URL — article may still be published');
-        return {
-          success: true,
-          canonicalUrl,
-          url: page.url(), // Fallback to current page URL
-        };
+      if (!extracted?.url || !URL.canParse(extracted.url)) {
+        return { success: false, error: "Published article URL could not be validated" };
       }
 
       // Step 8: Record syndicated URL
@@ -180,23 +178,47 @@ export abstract class ArticleBasePoster {
    * is visible, and returns the URL on success. Returns null if verification fails
    * (e.g. 404, login wall, or LLM cannot confirm publication).
    */
-  async verifyPosted(context: BrowserContext, url: string): Promise<string | null> {
+  async verifyPosted(
+    context: BrowserContext,
+    url: string,
+    expectedCanonicalUrl?: string,
+  ): Promise<string | null> {
     let page: Page | null = null;
     try {
       page = await context.newPage();
       await this.browserPort.suppressPageErrors(page);
       await this.browserPort.applyResourceBlocking(page, { blockImages: true });
 
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
       await page.waitForTimeout(2000);
 
       const confirmed = await this.deps.browserAgent.verify(
         page as never,
-        'Is the article published and visible on this page?',
+        "Is the article published and visible on this page?",
       );
 
       if (!confirmed) {
-        this.logger.warn(`${this.getPlatformName()} verify failed: article not confirmed at ${url}`);
+        this.logger.warn(
+          `${this.getPlatformName()} verify failed: article not confirmed at ${url}`,
+        );
+        return null;
+      }
+
+      if (!expectedCanonicalUrl) {
+        this.logger.warn(
+          `${this.getPlatformName()} verify failed: expected canonical URL is missing`,
+        );
+        return null;
+      }
+
+      const canonicalMatches = await this.deps.canonicalService.verifyCanonical(
+        url,
+        expectedCanonicalUrl,
+      );
+      if (!canonicalMatches) {
+        this.logger.warn(
+          `${this.getPlatformName()} verify failed: canonical URL does not match at ${url}`,
+        );
         return null;
       }
 
@@ -215,4 +237,4 @@ export abstract class ArticleBasePoster {
 }
 
 // Inline z import to avoid circular dependency issues
-import { z } from 'zod';
+import { z } from "zod";

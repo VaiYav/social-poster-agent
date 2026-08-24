@@ -9,10 +9,10 @@
  *   5. Dummy locators in reply mode are no-ops
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { DryRunBrowserPort } from '../../../src/dry-run/dry-run.browser-port';
-import type { IBrowserPort } from '../../../src/domain/ports/browser.port';
-import type { BrowserContext, Locator, Page } from 'playwright-core';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { DryRunBrowserPort } from "../../../src/dry-run/dry-run.browser-port.js";
+import type { IBrowserPort } from "../../../src/domain/ports/browser.port.js";
+import type { BrowserContext, Locator, Page } from "playwright-core";
 
 // ── Helpers ──
 
@@ -31,7 +31,7 @@ function createMockLocatorWithPage(page: Page): Locator {
     last: vi.fn().mockReturnValue(this),
     nth: vi.fn().mockReturnValue(this),
     getAttribute: vi.fn().mockResolvedValue(null),
-    textContent: vi.fn().mockResolvedValue(''),
+    textContent: vi.fn().mockResolvedValue(""),
     scrollIntoViewIfNeeded: vi.fn().mockResolvedValue(undefined),
   };
   // Make first/last/nth return self
@@ -52,8 +52,8 @@ function createMockPage(url: string): Page {
     getByTestId: vi.fn(() => createMockLocatorWithPage(page as unknown as Page)),
     getByLabel: vi.fn(() => createMockLocatorWithPage(page as unknown as Page)),
     getByText: vi.fn(() => createMockLocatorWithPage(page as unknown as Page)),
-    screenshot: vi.fn().mockResolvedValue('/tmp/mock.png'),
-    textContent: vi.fn().mockResolvedValue(''),
+    screenshot: vi.fn().mockResolvedValue("/tmp/mock.png"),
+    textContent: vi.fn().mockResolvedValue(""),
     evaluate: vi.fn().mockResolvedValue(undefined),
     keyboard: { type: vi.fn(), press: vi.fn() },
   };
@@ -76,15 +76,15 @@ function createMockRealFactory(context: BrowserContext): IBrowserPort {
     createContext: vi.fn().mockResolvedValue(context),
     acquireContext: vi.fn().mockResolvedValue(context),
     releaseContext: vi.fn(),
-    saveStorageState: vi.fn().mockResolvedValue('{}'),
+    saveStorageState: vi.fn().mockResolvedValue("{}"),
     randomDelay: vi.fn().mockResolvedValue(undefined),
     humanType: vi.fn().mockResolvedValue(undefined),
     typeHuman: vi.fn().mockResolvedValue(undefined),
     humanClick: vi.fn().mockResolvedValue(undefined),
     scrollPage: vi.fn().mockResolvedValue(undefined),
     scrollToElement: vi.fn().mockResolvedValue(undefined),
-    screenshot: vi.fn().mockResolvedValue('/tmp/mock-screenshot.png'),
-    extractText: vi.fn().mockResolvedValue(''),
+    screenshot: vi.fn().mockResolvedValue("/tmp/mock-screenshot.png"),
+    extractText: vi.fn().mockResolvedValue(""),
     waitForStable: vi.fn().mockResolvedValue(undefined),
     dismissDialogs: vi.fn().mockResolvedValue(undefined),
     suppressPageErrors: vi.fn().mockResolvedValue(undefined),
@@ -94,56 +94,56 @@ function createMockRealFactory(context: BrowserContext): IBrowserPort {
 
 // ── Tests ──
 
-describe('DryRunBrowserPort', () => {
+describe("DryRunBrowserPort", () => {
   let dryRunPort: DryRunBrowserPort;
   let realFactory: IBrowserPort;
   let mockPage: Page;
   let mockContext: BrowserContext;
 
   beforeEach(() => {
-    mockPage = createMockPage('https://x.com/compose/post');
+    mockPage = createMockPage("https://x.com/compose/post");
     mockContext = createMockContext(mockPage);
     realFactory = createMockRealFactory(mockContext);
     dryRunPort = new DryRunBrowserPort(realFactory as unknown as never);
   });
 
-  describe('createContext', () => {
-    it('should wrap the context and return a proxy', async () => {
-      const context = await dryRunPort.createContext('X' as never);
+  describe("createContext", () => {
+    it("should wrap the context and return a proxy", async () => {
+      const context = await dryRunPort.createContext("X" as never);
       expect(context).toBeDefined();
       // newPage should be wrapped — returns a proxy page
       const page = await context.newPage();
       expect(page).toBeDefined();
       // The wrapped page's url() should return the real URL initially
-      expect(page.url()).toBe('https://x.com/compose/post');
+      expect(page.url()).toBe("https://x.com/compose/post");
     });
 
-    it('should delegate saveStorageState to real factory', async () => {
-      const context = await dryRunPort.createContext('X' as never);
+    it("should delegate saveStorageState to real factory", async () => {
+      const context = await dryRunPort.createContext("X" as never);
       const result = await dryRunPort.saveStorageState(context);
       expect(realFactory.saveStorageState).toHaveBeenCalled();
-      expect(result).toBe('{}');
+      expect(result).toBe("{}");
     });
   });
 
-  describe('humanType', () => {
-    it('should delegate to real humanType', async () => {
-      const context = await dryRunPort.createContext('X' as never);
+  describe("humanType", () => {
+    it("should delegate to real humanType", async () => {
+      const context = await dryRunPort.createContext("X" as never);
       const page = await context.newPage();
       const locator = page.locator('div[contenteditable="true"]');
-      await dryRunPort.humanType(locator, 'test content');
-      expect(realFactory.humanType).toHaveBeenCalledWith(locator, 'test content', undefined);
+      await dryRunPort.humanType(locator, "test content");
+      expect(realFactory.humanType).toHaveBeenCalledWith(locator, "test content", undefined);
     });
   });
 
-  describe('humanClick — submit interception', () => {
-    it('should intercept submit click after typing on compose page', async () => {
-      const context = await dryRunPort.createContext('X' as never);
+  describe("humanClick — submit interception", () => {
+    it("should intercept submit click after typing on compose page", async () => {
+      const context = await dryRunPort.createContext("X" as never);
       const page = await context.newPage();
       const locator = page.locator('button[data-testid="tweetButton"]');
 
       // Step 1: Type content (marks typedOnPage = true)
-      await dryRunPort.humanType(locator, 'Workflow Trends is coming!');
+      await dryRunPort.humanType(locator, "Workflow Trends is coming!");
       expect(realFactory.humanType).toHaveBeenCalled();
 
       // Step 2: Click submit — should be intercepted
@@ -157,12 +157,12 @@ describe('DryRunBrowserPort', () => {
 
       // page.url() should now return synthetic URL
       const url = page.url();
-      expect(url).toContain('dryrun');
+      expect(url).toContain("dryrun");
       expect(url).toMatch(/\/status\/\d+/);
     });
 
-    it('should NOT intercept clicks before typing (e.g., compose button click)', async () => {
-      const context = await dryRunPort.createContext('X' as never);
+    it("should NOT intercept clicks before typing (e.g., compose button click)", async () => {
+      const context = await dryRunPort.createContext("X" as never);
       const page = await context.newPage();
       const locator = page.locator('button[data-testid="tweetButton"]');
 
@@ -171,32 +171,32 @@ describe('DryRunBrowserPort', () => {
       expect(realFactory.humanClick).toHaveBeenCalledWith(locator, undefined);
     });
 
-    it('should NOT intercept clicks on login pages', async () => {
+    it("should NOT intercept clicks on login pages", async () => {
       // Create a page on a login URL
-      const loginPage = createMockPage('https://x.com/i/flow/login');
+      const loginPage = createMockPage("https://x.com/i/flow/login");
       const loginContext = createMockContext(loginPage);
       const loginFactory = createMockRealFactory(loginContext);
       const port = new DryRunBrowserPort(loginFactory as unknown as never);
 
-      const context = await port.createContext('X' as never);
+      const context = await port.createContext("X" as never);
       const page = await context.newPage();
       const locator = page.locator('button[type="submit"]');
 
       // Type on login page (username/password)
-      await port.humanType(locator, 'myusername');
+      await port.humanType(locator, "myusername");
       // Click login submit — should NOT be intercepted (login page)
       await port.humanClick(locator);
 
       expect(loginFactory.humanClick).toHaveBeenCalledWith(locator, undefined);
     });
 
-    it('should only intercept the first submit (not subsequent clicks)', async () => {
-      const context = await dryRunPort.createContext('X' as never);
+    it("should only intercept the first submit (not subsequent clicks)", async () => {
+      const context = await dryRunPort.createContext("X" as never);
       const page = await context.newPage();
       const locator = page.locator('button[data-testid="tweetButton"]');
 
       // Type + click (intercepted)
-      await dryRunPort.humanType(locator, 'content');
+      await dryRunPort.humanType(locator, "content");
       await dryRunPort.humanClick(locator);
       expect(realFactory.humanClick).not.toHaveBeenCalled();
 
@@ -207,47 +207,47 @@ describe('DryRunBrowserPort', () => {
     });
   });
 
-  describe('synthetic URL generation', () => {
-    it('should generate X-compatible synthetic URL', async () => {
-      const context = await dryRunPort.createContext('X' as never);
+  describe("synthetic URL generation", () => {
+    it("should generate X-compatible synthetic URL", async () => {
+      const context = await dryRunPort.createContext("X" as never);
       const page = await context.newPage();
-      const locator = page.locator('#test');
+      const locator = page.locator("#test");
 
-      await dryRunPort.humanType(locator, 'test');
+      await dryRunPort.humanType(locator, "test");
       await dryRunPort.humanClick(locator);
 
       const url = page.url();
       expect(url).toMatch(/^https:\/\/x\.com\/dryrun\/status\/\d+$/);
     });
 
-    it('should generate Threads-compatible synthetic URL', async () => {
-      const threadsPage = createMockPage('https://www.threads.com/');
+    it("should generate Threads-compatible synthetic URL", async () => {
+      const threadsPage = createMockPage("https://www.threads.com/");
       const threadsContext = createMockContext(threadsPage);
       const threadsFactory = createMockRealFactory(threadsContext);
       const port = new DryRunBrowserPort(threadsFactory as unknown as never);
 
-      const context = await port.createContext('THREADS' as never);
+      const context = await port.createContext("THREADS" as never);
       const page = await context.newPage();
-      const locator = page.locator('#test');
+      const locator = page.locator("#test");
 
-      await port.humanType(locator, 'test');
+      await port.humanType(locator, "test");
       await port.humanClick(locator);
 
       const url = page.url();
       expect(url).toMatch(/^https:\/\/www\.threads\.com\/@dryrun\/post\/\d+$/);
     });
 
-    it('should generate Facebook-compatible synthetic URL', async () => {
-      const fbPage = createMockPage('https://www.facebook.com/exampleco/');
+    it("should generate Facebook-compatible synthetic URL", async () => {
+      const fbPage = createMockPage("https://www.facebook.com/exampleco/");
       const fbContext = createMockContext(fbPage);
       const fbFactory = createMockRealFactory(fbContext);
       const port = new DryRunBrowserPort(fbFactory as unknown as never);
 
-      const context = await port.createContext('FACEBOOK' as never);
+      const context = await port.createContext("FACEBOOK" as never);
       const page = await context.newPage();
-      const locator = page.locator('#test');
+      const locator = page.locator("#test");
 
-      await port.humanType(locator, 'test');
+      await port.humanType(locator, "test");
       await port.humanClick(locator);
 
       const url = page.url();
@@ -255,18 +255,18 @@ describe('DryRunBrowserPort', () => {
     });
   });
 
-  describe('thread reply mode', () => {
-    it('should skip navigation to synthetic URL and enter reply mode', async () => {
-      const context = await dryRunPort.createContext('X' as never);
+  describe("thread reply mode", () => {
+    it("should skip navigation to synthetic URL and enter reply mode", async () => {
+      const context = await dryRunPort.createContext("X" as never);
       const page = await context.newPage();
-      const locator = page.locator('#test');
+      const locator = page.locator("#test");
 
       // Submit the root post
-      await dryRunPort.humanType(locator, 'root post content');
+      await dryRunPort.humanType(locator, "root post content");
       await dryRunPort.humanClick(locator);
 
       const syntheticUrl = page.url();
-      expect(syntheticUrl).toContain('dryrun');
+      expect(syntheticUrl).toContain("dryrun");
 
       // Navigate to synthetic URL (thread reply) — should be skipped
       await page.goto(syntheticUrl);
@@ -276,35 +276,37 @@ describe('DryRunBrowserPort', () => {
       // The key test: subsequent locator calls return dummy locators (reply mode)
       const replyLocator = page.locator('button[data-testid="reply"]');
       // Dummy locator's isVisible should resolve to true
-      const isVisible = await (replyLocator as unknown as { isVisible: () => Promise<boolean> }).isVisible();
+      const isVisible = await (
+        replyLocator as unknown as { isVisible: () => Promise<boolean> }
+      ).isVisible();
       expect(isVisible).toBe(true);
     });
   });
 
-  describe('delegation to real factory', () => {
-    it('should delegate randomDelay to real', async () => {
+  describe("delegation to real factory", () => {
+    it("should delegate randomDelay to real", async () => {
       await dryRunPort.randomDelay(1000, 2000);
       expect(realFactory.randomDelay).toHaveBeenCalledWith(1000, 2000);
     });
 
-    it('should delegate screenshot to real', async () => {
-      const context = await dryRunPort.createContext('X' as never);
+    it("should delegate screenshot to real", async () => {
+      const context = await dryRunPort.createContext("X" as never);
       const page = await context.newPage();
-      await dryRunPort.screenshot(page, 'X' as never, 'after-submit');
+      await dryRunPort.screenshot(page, "X" as never, "after-submit");
       expect(realFactory.screenshot).toHaveBeenCalled();
     });
 
-    it('should delegate dismissDialogs to real', async () => {
-      const context = await dryRunPort.createContext('X' as never);
+    it("should delegate dismissDialogs to real", async () => {
+      const context = await dryRunPort.createContext("X" as never);
       const page = await context.newPage();
       await dryRunPort.dismissDialogs(page);
       expect(realFactory.dismissDialogs).toHaveBeenCalledWith(page);
     });
 
-    it('should delegate waitForStable to real', async () => {
-      const context = await dryRunPort.createContext('X' as never);
+    it("should delegate waitForStable to real", async () => {
+      const context = await dryRunPort.createContext("X" as never);
       const page = await context.newPage();
-      const locator = page.locator('#test');
+      const locator = page.locator("#test");
       await dryRunPort.waitForStable(locator, { timeoutMs: 5000 });
       expect(realFactory.waitForStable).toHaveBeenCalledWith(locator, { timeoutMs: 5000 });
     });

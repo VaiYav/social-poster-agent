@@ -1,7 +1,7 @@
-import { Module } from '@nestjs/common';
-import { ContentModule } from '../../infrastructure/content/content.module';
-import { ContentSourceService } from './content-source.service';
-import { ContentSourceController } from './content-source.controller';
+import { Module } from "@nestjs/common";
+import { ContentModule } from "../../infrastructure/content/content.module.js";
+import { ContentSourceService } from "./content-source.service.js";
+import { ContentSourceController } from "./content-source.controller.js";
 
 @Module({
   imports: [ContentModule],

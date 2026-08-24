@@ -1,5 +1,10 @@
 # Tasks: LangGraph Orchestrator
 
+> **FROZEN LEGACY BREAKDOWN.** The unchecked boxes below predate the current runtime
+> and are not canonical status. Reconcile them through `ORCH-101` in
+> [`docs/planning/BACKLOG.md`](../../docs/planning/BACKLOG.md); new work uses stable
+> canonical task IDs.
+
 > All tasks reference MASTER-PLAN.md work streams (WS-1 through WS-8)
 > V-Model tasks are tagged [V] and have corresponding spec files
 

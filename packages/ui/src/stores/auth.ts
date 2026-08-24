@@ -1,7 +1,7 @@
-import { defineStore } from 'pinia';
-import { ref } from 'vue';
-import api from '../composables/useApi';
-import type { AuthUser } from '@spa/shared';
+import { defineStore } from "pinia";
+import { ref } from "vue";
+import api from "../composables/useApi";
+import type { AuthUser } from "@spa/shared";
 
 /**
  * Auth store — JWT cookie-based authentication for the UI.
@@ -13,7 +13,7 @@ import type { AuthUser } from '@spa/shared';
  * On store init, `fetchMe()` is called to restore the session from the existing cookie
  * (if any). The router guard checks `isAuthenticated` to protect routes.
  */
-export const useAuthStore = defineStore('auth', () => {
+export const useAuthStore = defineStore("auth", () => {
   const user = ref<AuthUser | null>(null);
   const loading = ref(false);
   const error = ref<string | null>(null);
@@ -28,13 +28,13 @@ export const useAuthStore = defineStore('auth', () => {
     loading.value = true;
     error.value = null;
     try {
-      const res = await api.post('/auth/login', { username, password });
+      const res = await api.post("/auth/login", { username, password });
       user.value = res.data.user;
       isAuthenticated.value = true;
       return true;
     } catch (e: unknown) {
       const err = e as { response?: { status?: number; data?: { message?: string } } };
-      error.value = err.response?.data?.message ?? 'Login failed';
+      error.value = err.response?.data?.message ?? "Login failed";
       isAuthenticated.value = false;
       return false;
     } finally {
@@ -47,7 +47,7 @@ export const useAuthStore = defineStore('auth', () => {
    */
   async function logout(): Promise<void> {
     try {
-      await api.post('/auth/logout');
+      await api.post("/auth/logout");
     } catch {
       // ignore — cookie may already be gone
     }
@@ -62,7 +62,7 @@ export const useAuthStore = defineStore('auth', () => {
    */
   async function fetchMe(): Promise<boolean> {
     try {
-      const res = await api.get('/auth/me');
+      const res = await api.get("/auth/me");
       user.value = res.data.user;
       isAuthenticated.value = true;
       return true;

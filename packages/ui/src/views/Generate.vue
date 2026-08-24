@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from 'vue';
+import { ref, onMounted, watch, computed } from "vue";
 import {
   Sparkles,
   Recycle,
@@ -9,23 +9,36 @@ import {
   Play,
   Pause,
   RefreshCw,
-} from '@lucide/vue';
-import { useStatsStore } from '../stores/stats';
-import { useToast } from '../composables/useToast';
-import { useSSE } from '../composables/useSSE';
-import type { SSEvent } from '@spa/shared';
-import { Card, Button, Input, Select, Checkbox, ProgressBar, Badge, SectionHeader } from '../components/ui';
-import LoadingSpinner from '../components/LoadingSpinner.vue';
-import ErrorState from '../components/ErrorState.vue';
-import EmptyState from '../components/EmptyState.vue';
+} from "@lucide/vue";
+import { useStatsStore } from "../stores/stats";
+import { useToast } from "../composables/useToast";
+import { useSSE } from "../composables/useSSE";
+import { useApi } from "../composables/useApi";
+import type { SSEvent } from "@spa/shared";
+import {
+  Card,
+  Button,
+  Input,
+  Select,
+  Checkbox,
+  ProgressBar,
+  Badge,
+  SectionHeader,
+} from "../components/ui";
+import LoadingSpinner from "../components/LoadingSpinner.vue";
+import ErrorState from "../components/ErrorState.vue";
+import EmptyState from "../components/EmptyState.vue";
 
 const statsStore = useStatsStore();
 const toast = useToast();
+// REFACTOR-100: all requests go through the shared axios instance (auth cookie,
+// correlation ID, normalized errors) — no raw fetch() bypassing interceptors.
+const api = useApi();
 
 const count = ref(3);
-const networks = ref<string[]>(['X', 'THREADS', 'FACEBOOK']);
-const sourceType = ref<'brief' | 'article' | 'topic' | 'create_run'>('brief');
-const selectedModel = ref<string>('');
+const networks = ref<string[]>(["X", "THREADS", "FACEBOOK"]);
+const sourceType = ref<"brief" | "article" | "topic" | "create_run">("brief");
+const selectedModel = ref<string>("");
 const multiStage = ref(false);
 const repurposing = ref(false);
 const recycling = ref(false);
@@ -33,7 +46,12 @@ const generating = ref(false);
 const result = ref<string | null>(null);
 const resultError = ref<string | null>(null);
 
-interface ProgressEvent { node: string; topic: string; postsCount: number; error: string | null }
+interface ProgressEvent {
+  node: string;
+  topic: string;
+  postsCount: number;
+  error: string | null;
+}
 const progressEvents = ref<ProgressEvent[]>([]);
 const activeRunId = ref<string | null>(null);
 const progressPct = computed(() => {
@@ -43,38 +61,38 @@ const progressPct = computed(() => {
 });
 
 // Use shared SSE composable (exponential backoff, jitter, cleanup on unmount)
-const apiBase = import.meta.env.VITE_API_URL ?? '/api/v1';
+const apiBase = import.meta.env.VITE_API_URL ?? "/api/v1";
 const { data: sseData } = useSSE(`${apiBase}/events/sse`, { maxRetries: 50 });
 
 watch(sseData, (data: SSEvent | null) => {
   if (!data) return;
-  if (data.type === 'generation_started') {
+  if (data.type === "generation_started") {
     activeRunId.value = data.runId ?? null;
     progressEvents.value = [];
-  } else if (data.type === 'generation_progress') {
+  } else if (data.type === "generation_progress") {
     progressEvents.value.push({
-      node: data.node ?? '',
-      topic: data.topic ?? '',
+      node: data.node ?? "",
+      topic: data.topic ?? "",
       postsCount: data.postsCount ?? 0,
       error: data.error ?? null,
     });
-  } else if (data.type === 'generation_completed') {
+  } else if (data.type === "generation_completed") {
     activeRunId.value = null;
     generating.value = false;
     toast.success(`Generation completed: ${data.postCount} posts created`);
     statsStore.fetchRuns();
-  } else if (data.type === 'generation_failed') {
+  } else if (data.type === "generation_failed") {
     activeRunId.value = null;
     generating.value = false;
     toast.error(`Generation failed: ${data.error}`);
-  } else if (data.type === 'generation_paused') {
+  } else if (data.type === "generation_paused") {
     activeRunId.value = null;
     generating.value = false;
-    toast.warning('Generation paused');
-  } else if (data.type === 'generation_resumed') {
+    toast.warning("Generation paused");
+  } else if (data.type === "generation_resumed") {
     activeRunId.value = data.runId ?? null;
     generating.value = true;
-    toast.success('Generation resumed');
+    toast.success("Generation resumed");
   }
 });
 
@@ -90,10 +108,16 @@ async function generate() {
   resultError.value = null;
   progressEvents.value = [];
   try {
-    const data = await statsStore.triggerGeneration(count.value, networks.value, sourceType.value, multiStage.value, selectedModel.value || undefined);
-    result.value = `Generation started: ${data.runId ?? 'ok'}`;
+    const data = await statsStore.triggerGeneration(
+      count.value,
+      networks.value,
+      sourceType.value,
+      multiStage.value,
+      selectedModel.value || undefined,
+    );
+    result.value = `Generation started: ${data.runId ?? "ok"}`;
     activeRunId.value = data.runId ?? null;
-    toast.success(`Generation started (run ${data.runId?.slice(0, 8) ?? 'ok'})`);
+    toast.success(`Generation started (run ${data.runId?.slice(0, 8) ?? "ok"})`);
   } catch (e: unknown) {
     resultError.value = (e as Error).message;
     toast.error(`Generation failed: ${(e as Error).message}`);
@@ -107,8 +131,8 @@ async function repurpose() {
   resultError.value = null;
   try {
     const data = await statsStore.repurposeArticles(2, networks.value);
-    result.value = `Repurposing started: ${data.runId ?? 'ok'}`;
-    toast.success(`Repurposing started (run ${data.runId?.slice(0, 8) ?? 'ok'})`);
+    result.value = `Repurposing started: ${data.runId ?? "ok"}`;
+    toast.success(`Repurposing started (run ${data.runId?.slice(0, 8) ?? "ok"})`);
   } catch (e: unknown) {
     resultError.value = (e as Error).message;
     toast.error(`Repurposing failed: ${(e as Error).message}`);
@@ -122,15 +146,14 @@ async function recycle() {
   result.value = null;
   resultError.value = null;
   try {
-    const res = await fetch('/api/v1/generation/recycle', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ minAgeDays: 30, postCount: 3, networks: networks.value }),
+    const res = await api.post<{ runId: string }>("/generation/recycle", {
+      minAgeDays: 30,
+      postCount: 3,
+      networks: networks.value,
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json() as { runId: string };
-    result.value = `Recycling started: ${data.runId ?? 'ok'}`;
-    toast.success(`Recycling started (run ${data.runId?.slice(0, 8) ?? 'ok'})`);
+    const data = res.data;
+    result.value = `Recycling started: ${data.runId ?? "ok"}`;
+    toast.success(`Recycling started (run ${data.runId?.slice(0, 8) ?? "ok"})`);
   } catch (e: unknown) {
     resultError.value = (e as Error).message;
     toast.error(`Recycling failed: ${(e as Error).message}`);
@@ -142,7 +165,7 @@ async function recycle() {
 async function pauseRun() {
   if (!activeRunId.value) return;
   try {
-    await fetch(`/api/v1/generation/runs/${activeRunId.value}/pause`, { method: 'POST' });
+    await api.post(`/generation/runs/${activeRunId.value}/pause`);
   } catch (e) {
     toast.error(`Pause failed: ${(e as Error).message}`);
   }
@@ -150,7 +173,7 @@ async function pauseRun() {
 
 async function resumeRun(runId: string) {
   try {
-    await fetch(`/api/v1/generation/runs/${runId}/resume`, { method: 'POST' });
+    await api.post(`/generation/runs/${runId}/resume`);
     generating.value = true;
     activeRunId.value = runId;
   } catch (e) {
@@ -159,22 +182,22 @@ async function resumeRun(runId: string) {
 }
 
 const sourceTypeOptions = [
-  { value: 'brief', label: 'Brief' },
-  { value: 'article', label: 'Article' },
-  { value: 'topic', label: 'Topic' },
-  { value: 'create_run', label: 'Create Run' },
+  { value: "brief", label: "Brief" },
+  { value: "article", label: "Article" },
+  { value: "topic", label: "Topic" },
+  { value: "create_run", label: "Create Run" },
 ];
 
 const networkConfig: Record<string, { icon: string; color: string }> = {
-  X: { icon: '𝕏', color: 'text-text-primary' },
-  THREADS: { icon: '🧵', color: 'text-secondary' },
-  FACEBOOK: { icon: '📘', color: 'text-info' },
+  X: { icon: "𝕏", color: "text-text-primary" },
+  THREADS: { icon: "🧵", color: "text-secondary" },
+  FACEBOOK: { icon: "📘", color: "text-info" },
 };
 
-const statusBadge: Record<string, 'success' | 'warning' | 'error' | 'info' | 'neutral'> = {
-  COMPLETED: 'success',
-  RUNNING: 'info',
-  FAILED: 'error',
+const statusBadge: Record<string, "success" | "warning" | "error" | "info" | "neutral"> = {
+  COMPLETED: "success",
+  RUNNING: "info",
+  FAILED: "error",
 };
 </script>
 
@@ -187,7 +210,7 @@ const statusBadge: Record<string, 'success' | 'warning' | 'error' | 'info' | 'ne
 
     <!-- Trending / Upcoming -->
     <div class="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <Card v-if="statsStore.trending.filter(t => t.trending).length > 0" glow="primary">
+      <Card v-if="statsStore.trending.filter((t) => t.trending).length > 0" glow="primary">
         <template #header>
           <div class="flex items-center gap-2">
             <TrendingUp class="h-4 w-4 text-primary" />
@@ -196,20 +219,31 @@ const statusBadge: Record<string, 'success' | 'warning' | 'error' | 'info' | 'ne
         </template>
         <div class="space-y-3">
           <div
-            v-for="t in statsStore.trending.filter(t => t.trending)"
+            v-for="t in statsStore.trending.filter((t) => t.trending)"
             :key="t.event"
             class="rounded-lg bg-primary-subtle p-3"
           >
             <div class="font-medium text-text-primary">{{ t.event }}</div>
             <div class="text-sm text-text-secondary">{{ t.topic }}</div>
             <div class="mt-1 text-xs text-primary">
-              {{ t.daysUntil === 0 ? 'today' : t.daysUntil > 0 ? `in ${t.daysUntil}d` : `${Math.abs(t.daysUntil)}d ago` }}
+              {{
+                t.daysUntil === 0
+                  ? "today"
+                  : t.daysUntil > 0
+                    ? `in ${t.daysUntil}d`
+                    : `${Math.abs(t.daysUntil)}d ago`
+              }}
             </div>
           </div>
         </div>
       </Card>
 
-      <Card v-if="statsStore.trending.filter(t => !t.trending && t.daysUntil > 0 && t.daysUntil <= 14).length > 0">
+      <Card
+        v-if="
+          statsStore.trending.filter((t) => !t.trending && t.daysUntil > 0 && t.daysUntil <= 14)
+            .length > 0
+        "
+      >
         <template #header>
           <div class="flex items-center gap-2">
             <Calendar class="h-4 w-4 text-info" />
@@ -218,7 +252,9 @@ const statusBadge: Record<string, 'success' | 'warning' | 'error' | 'info' | 'ne
         </template>
         <div class="space-y-2">
           <div
-            v-for="t in statsStore.trending.filter(t => !t.trending && t.daysUntil > 0 && t.daysUntil <= 14)"
+            v-for="t in statsStore.trending.filter(
+              (t) => !t.trending && t.daysUntil > 0 && t.daysUntil <= 14,
+            )"
             :key="t.event"
             class="flex items-center justify-between text-sm"
           >
@@ -252,14 +288,20 @@ const statusBadge: Record<string, 'success' | 'warning' | 'error' | 'info' | 'ne
 
           <div v-if="statsStore.models.length > 0">
             <label class="mb-1.5 block text-sm font-medium text-text-secondary">LLM Model</label>
-            <Select v-model="selectedModel" :options="[
-              { value: '', label: 'Auto (provider chain)' },
-              ...statsStore.models.map(m => ({
-                value: `${m.provider}/${m.model}`,
-                label: `${m.provider} / ${m.model}${m.free ? ' (FREE)' : ''}`,
-              })),
-            ]" />
-            <p class="mt-1.5 text-xs text-text-muted">Auto uses the configured fallback chain. A selected model is tried first and falls back on failure.</p>
+            <Select
+              v-model="selectedModel"
+              :options="[
+                { value: '', label: 'Auto (provider chain)' },
+                ...statsStore.models.map((m) => ({
+                  value: `${m.provider}/${m.model}`,
+                  label: `${m.provider} / ${m.model}${m.free ? ' (FREE)' : ''}`,
+                })),
+              ]"
+            />
+            <p class="mt-1.5 text-xs text-text-muted">
+              Auto uses the configured fallback chain. A selected model is tried first and falls
+              back on failure.
+            </p>
           </div>
 
           <div>
@@ -270,16 +312,25 @@ const statusBadge: Record<string, 'success' | 'warning' | 'error' | 'info' | 'ne
                 :key="net"
                 class="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-surface-elevated px-3 py-2 transition-colors hover:border-border-strong"
               >
-                <Checkbox :model-value="networks.includes(net)" @update:model-value="(checked) => {
-                  if (checked) networks.push(net);
-                  else networks = networks.filter(n => n !== net);
-                }" />
-                <span class="text-sm" :class="networkConfig[net]?.color">{{ networkConfig[net]?.icon }} {{ net }}</span>
+                <Checkbox
+                  :model-value="networks.includes(net)"
+                  @update:model-value="
+                    (checked) => {
+                      if (checked) networks.push(net);
+                      else networks = networks.filter((n) => n !== net);
+                    }
+                  "
+                />
+                <span class="text-sm" :class="networkConfig[net]?.color"
+                  >{{ networkConfig[net]?.icon }} {{ net }}</span
+                >
               </label>
             </div>
           </div>
 
-          <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-border bg-surface-elevated p-3 transition-colors hover:border-border-strong">
+          <label
+            class="flex cursor-pointer items-center gap-3 rounded-lg border border-border bg-surface-elevated p-3 transition-colors hover:border-border-strong"
+          >
             <Checkbox v-model="multiStage" id="multiStage" />
             <div>
               <div class="text-sm font-medium text-text-primary">Multi-Stage Thread</div>
@@ -294,7 +345,7 @@ const statusBadge: Record<string, 'success' | 'warning' | 'error' | 'info' | 'ne
             @click="generate"
           >
             <Sparkles class="h-4 w-4" />
-            {{ generating ? 'Generating...' : 'Generate' }}
+            {{ generating ? "Generating..." : "Generate" }}
           </Button>
 
           <div class="grid grid-cols-2 gap-3">
@@ -352,8 +403,10 @@ const statusBadge: Record<string, 'success' | 'warning' | 'error' | 'info' | 'ne
             >
               <span class="font-mono text-xs text-text-muted">{{ ev.node }}</span>
               <span class="mx-2 text-border-strong">·</span>
-              {{ ev.topic.slice(0, 45) }}{{ ev.topic.length > 45 ? '…' : '' }}
-              <span v-if="ev.error" class="ml-2 text-xs text-error">⚠ {{ ev.error.slice(0, 40) }}</span>
+              {{ ev.topic.slice(0, 45) }}{{ ev.topic.length > 45 ? "…" : "" }}
+              <span v-if="ev.error" class="ml-2 text-xs text-error"
+                >⚠ {{ ev.error.slice(0, 40) }}</span
+              >
             </div>
           </div>
         </Card>
@@ -384,7 +437,9 @@ const statusBadge: Record<string, 'success' | 'warning' | 'error' | 'info' | 'ne
                 <div class="mt-1 text-xs text-text-muted">
                   {{ run._count.posts }} posts · {{ new Date(run.startedAt).toLocaleString() }}
                 </div>
-                <p v-if="run.errorMessage" class="mt-1 text-xs text-error">{{ run.errorMessage }}</p>
+                <p v-if="run.errorMessage" class="mt-1 text-xs text-error">
+                  {{ run.errorMessage }}
+                </p>
               </div>
               <Button
                 v-if="run.status === 'FAILED'"

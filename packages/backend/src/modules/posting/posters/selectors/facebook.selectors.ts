@@ -3,46 +3,54 @@
 // Primary: getByLabel/getByRole (accessibility tree).
 // Fallbacks: legacy IDs (#email, #pass), then aria-label CSS, then text.
 
-import type { SelectorStrategy } from '../selector-strategy.js';
+import type { SelectorStrategy } from "../selector-strategy.js";
 
 export const FACEBOOK_SELECTORS = {
   // ── Login ──────────────────────────────────────────────────────
   login: {
     // Use mbasic.facebook.com (basic mobile) for login — simplest HTML, stable IDs,
     // least anti-automation detection. Cookies work on www.facebook.com (same domain).
-    url: 'https://mbasic.facebook.com/login',
+    url: "https://mbasic.facebook.com/login",
     // Facebook's new login page uses labeled textboxes, not input#email
     email: {
       // Mobile login uses #m_login_email; desktop uses input[name="email"]
-      label: { label: 'Phone or email' },
+      label: { label: "Phone or email" },
       css: [
-        '#m_login_email',
+        "#m_login_email",
         'input[name="email"]',
-        'input#email',
+        "input#email",
         'input[aria-label*="Email"]',
         'input[aria-label*="email"]',
         'input[placeholder*="Email"]',
       ],
     } satisfies SelectorStrategy,
     password: {
-      label: { label: 'Password' },
+      label: { label: "Password" },
       css: [
-        '#m_login_password',
+        "#m_login_password",
         'input[name="pass"]',
-        'input#pass',
+        "input#pass",
         'input[aria-label*="Password"]',
         'input[type="password"]',
       ],
     } satisfies SelectorStrategy,
     submit: {
-      role: { role: 'button', name: 'Log in' },
-      text: { text: 'Log in', exact: true },
+      role: { role: "button", name: "Log in" },
+      text: { text: "Log in", exact: true },
       // mbasic uses <input type="submit" value="Log In">; mobile uses <button value="Log In">
-      css: ['input[value="Log In"]', 'button[value="Log In"]', 'div[aria-label="Log In"]', 'div[role="button"][aria-label="Log In"]', 'button:has-text("Log in")', 'button[name="login"]', 'button[type="submit"]'],
+      css: [
+        'input[value="Log In"]',
+        'button[value="Log In"]',
+        'div[aria-label="Log In"]',
+        'div[role="button"][aria-label="Log In"]',
+        'button:has-text("Log in")',
+        'button[name="login"]',
+        'button[type="submit"]',
+      ],
     } satisfies SelectorStrategy,
     // After login, Facebook shows the main navigation bar
     successIndicator: {
-      role: { role: 'navigation' },
+      role: { role: "navigation" },
       css: ['[role="navigation"]', '[role="banner"]', 'div[role="navigation"]'],
     } satisfies SelectorStrategy,
   },
@@ -54,8 +62,8 @@ export const FACEBOOK_SELECTORS = {
     pageUrlPattern: /^https:\/\/www\.facebook\.com\/([^/]+)\/?$/,
     // "Create post" button on the page
     createPostButton: {
-      role: { role: 'button', name: 'Create post' },
-      text: { text: 'Create post', exact: false },
+      role: { role: "button", name: "Create post" },
+      text: { text: "Create post", exact: false },
       css: [
         'div[role="button"]:has-text("Create post")',
         'div[role="button"]:has-text("What\'s on your mind")',
@@ -65,7 +73,7 @@ export const FACEBOOK_SELECTORS = {
     } satisfies SelectorStrategy,
     // Compose dialog textarea — contenteditable div
     textarea: {
-      role: { role: 'textbox' },
+      role: { role: "textbox" },
       css: [
         'div[role="dialog"] div[contenteditable="true"]',
         'div[contenteditable="true"][aria-label*="post"]',
@@ -75,8 +83,8 @@ export const FACEBOOK_SELECTORS = {
     } satisfies SelectorStrategy,
     // Publish button
     publishButton: {
-      role: { role: 'button', name: 'Publish' },
-      text: { text: 'Publish', exact: true },
+      role: { role: "button", name: "Publish" },
+      text: { text: "Publish", exact: true },
       css: [
         'div[role="dialog"] div[role="button"]:has-text("Publish")',
         'div[role="button"]:has-text("Publish")',
@@ -92,7 +100,7 @@ export const FACEBOOK_SELECTORS = {
   // ── Engagement ─────────────────────────────────────────────────
   engagement: {
     like: {
-      role: { role: 'button', name: 'Like' },
+      role: { role: "button", name: "Like" },
       css: [
         'div[role="button"][aria-label*="Like"]',
         'div[role="button"]:has(svg[aria-label*="Like"])',
@@ -100,14 +108,14 @@ export const FACEBOOK_SELECTORS = {
       ],
     } satisfies SelectorStrategy,
     unlike: {
-      role: { role: 'button', name: 'Remove Like' },
+      role: { role: "button", name: "Remove Like" },
       css: [
         'div[role="button"][aria-label*="Remove Like"]',
         'div[role="button"][aria-label*="Liked"]',
       ],
     } satisfies SelectorStrategy,
     comment: {
-      role: { role: 'button', name: 'Comment' },
+      role: { role: "button", name: "Comment" },
       css: [
         'div[role="button"][aria-label*="Comment"]',
         'div[role="button"]:has(svg[aria-label*="Comment"])',
@@ -116,7 +124,7 @@ export const FACEBOOK_SELECTORS = {
     } satisfies SelectorStrategy,
     // Comment input field
     commentInput: {
-      role: { role: 'textbox' },
+      role: { role: "textbox" },
       css: [
         'div[role="dialog"] div[contenteditable="true"]',
         'div[contenteditable="true"][aria-label*="comment"]',
@@ -127,8 +135,8 @@ export const FACEBOOK_SELECTORS = {
     } satisfies SelectorStrategy,
     // Comment submit button
     commentSubmit: {
-      role: { role: 'button', name: 'Comment' },
-      text: { text: 'Comment', exact: true },
+      role: { role: "button", name: "Comment" },
+      text: { text: "Comment", exact: true },
       css: [
         'div[role="dialog"] div[role="button"]:has-text("Comment")',
         'div[role="button"]:has-text("Comment")',
@@ -136,8 +144,8 @@ export const FACEBOOK_SELECTORS = {
       ],
     } satisfies SelectorStrategy,
     follow: {
-      role: { role: 'button', name: 'Subscribe' },
-      text: { text: 'Subscribe', exact: true },
+      role: { role: "button", name: "Subscribe" },
+      text: { text: "Subscribe", exact: true },
       css: [
         'div[role="button"]:has-text("Subscribe")',
         'div[role="button"]:has-text("Follow")',
@@ -153,7 +161,7 @@ export const FACEBOOK_SELECTORS = {
     url: (pageSlug: string) => `https://www.facebook.com/${pageSlug}/`,
     // Individual post articles in the feed
     postArticle: {
-      css: ['div[role="article"]', 'article'],
+      css: ['div[role="article"]', "article"],
     } satisfies SelectorStrategy,
     // Post link (for extracting post URL)
     postLink: {
@@ -167,7 +175,7 @@ export const FACEBOOK_SELECTORS = {
     urlPattern: /^https:\/\/www\.facebook\.com\/([^/]+)\/?$/,
     // Latest post on page
     latestPost: {
-      css: ['div[role="article"]', 'article'],
+      css: ['div[role="article"]', "article"],
     } satisfies SelectorStrategy,
     // Post text content within an article
     postText: {

@@ -17,7 +17,7 @@
  * brand's audience) is preserved.
  */
 // oxlint-disable-next-line no-control-regex -- intentionally matching C0/C1 control chars
-const CONTROL_CHARS = new RegExp('[\\x00-\\x1F\\x7F]+', 'g');
+const CONTROL_CHARS = new RegExp("[\\x00-\\x1F\\x7F]+", "g");
 const OVERRIDE_PHRASE =
   /\b(?:ignore|disregard|forget|override)\b[^.\n]{0,40}\b(?:previous|above|prior|earlier|all|the)\b[^.\n]{0,24}\b(?:instructions?|prompts?|rules?|context|messages?)\b/gi;
 const ROLE_MARKER = /\b(?:system|assistant|user|developer)\s*:/gi;
@@ -25,12 +25,12 @@ const REPROGRAM = /\b(?:you are now|new instructions?|act as|pretend to be|from 
 const SMART_OR_STRAIGHT_QUOTE = /["“”]/g;
 
 export function sanitizeUntrustedInput(text: string | null | undefined, maxLen = 500): string {
-  if (!text) return '';
-  let s = text.replace(CONTROL_CHARS, ' ').replace(/\s+/g, ' ').trim();
+  if (!text) return "";
+  let s = text.replace(CONTROL_CHARS, " ").replace(/\s+/g, " ").trim();
 
-  s = s.replace(OVERRIDE_PHRASE, '[filtered]');
-  s = s.replace(ROLE_MARKER, '[filtered] ');
-  s = s.replace(REPROGRAM, '[filtered]');
+  s = s.replace(OVERRIDE_PHRASE, "[filtered]");
+  s = s.replace(ROLE_MARKER, "[filtered] ");
+  s = s.replace(REPROGRAM, "[filtered]");
   s = s.replace(SMART_OR_STRAIGHT_QUOTE, "'"); // can't break out of a "…" delimiter
 
   if (s.length > maxLen) s = `${s.slice(0, maxLen)}…`;

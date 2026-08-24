@@ -1,22 +1,22 @@
 // Verify if a tweet was posted by checking the profile page.
 // Run from packages/backend: npx tsx scripts/verify-x-post.ts <post-id>
 
-import 'reflect-metadata';
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from '../src/app.module';
-import { SessionsService } from '../src/modules/sessions/sessions.service';
-import { IBrowserPort } from '../src/domain/ports/browser.port';
-import { SocialNetwork } from '@prisma/client';
-import { PostsService } from '../src/modules/posts/posts.service';
+import "reflect-metadata";
+import { NestFactory } from "@nestjs/core";
+import { AppModule } from "../src/app.module.js";
+import { SessionsService } from "../src/modules/sessions/sessions.service.js";
+import { IBrowserPort } from "../src/domain/ports/browser.port.js";
+import { SocialNetwork } from "../src/generated/prisma/client.js";
+import { PostsService } from "../src/modules/posts/posts.service.js";
 
 async function main() {
   const postId = process.argv[2];
   if (!postId) {
-    console.error('Usage: npx tsx scripts/verify-x-post.ts <post-id>');
+    console.error("Usage: npx tsx scripts/verify-x-post.ts <post-id>");
     process.exit(1);
   }
 
-  const app = await NestFactory.create(AppModule, { logger: ['error', 'warn', 'log'] });
+  const app = await NestFactory.create(AppModule, { logger: ["error", "warn", "log"] });
   await app.init();
 
   const posts = app.get(PostsService);
@@ -27,8 +27,8 @@ async function main() {
   console.log(`Post: network=${post.network} status=${post.status}`);
   console.log(`Content: ${post.content.slice(0, 80)}...`);
 
-  if (post.network !== 'X') {
-    console.log('Not an X post');
+  if (post.network !== "X") {
+    console.log("Not an X post");
     await app.close();
     process.exit(0);
   }
@@ -36,7 +36,7 @@ async function main() {
   // Get X session
   const session = await sessions.getOrCreateSession(SocialNetwork.X);
   if (!session) {
-    console.log('No X session');
+    console.log("No X session");
     await app.close();
     process.exit(1);
   }
@@ -45,15 +45,15 @@ async function main() {
   const page = await context.newPage();
 
   // Suppress page errors to avoid the TypeError crash
-  page.on('pageerror', (err) => {
+  page.on("pageerror", (err) => {
     console.log(`[pageerror suppressed]: ${err.message}`);
   });
 
   try {
     // Navigate to profile
-    const handle = 'mzai_soulwise';
+    const handle = "mzai_soulwise";
     console.log(`\nNavigating to https://x.com/${handle}...`);
-    await page.goto(`https://x.com/${handle}`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto(`https://x.com/${handle}`, { waitUntil: "domcontentloaded", timeout: 30000 });
     await page.waitForTimeout(5000);
 
     // Check for the tweet content on the profile page
@@ -61,7 +61,7 @@ async function main() {
     const found = await page.evaluate((searchText: string) => {
       const tweets = document.querySelectorAll('[data-testid="tweetText"]');
       for (const tweet of tweets) {
-        const text = tweet.textContent || '';
+        const text = tweet.textContent || "";
         if (text.includes(searchText.slice(0, 30))) {
           return { found: true, text: text.slice(0, 100) };
         }
@@ -78,9 +78,9 @@ async function main() {
         const tweets = document.querySelectorAll('article[data-testid="tweet"]');
         for (const tweet of tweets) {
           const textEl = tweet.querySelector('[data-testid="tweetText"]');
-          if (textEl && (textEl.textContent || '').includes(searchText.slice(0, 30))) {
-            const timeEl = tweet.querySelector('time');
-            const link = timeEl?.closest('a')?.href;
+          if (textEl && (textEl.textContent || "").includes(searchText.slice(0, 30))) {
+            const timeEl = tweet.querySelector("time");
+            const link = timeEl?.closest("a")?.href;
             return link || null;
           }
         }
@@ -90,13 +90,13 @@ async function main() {
       if (tweetUrl) {
         console.log(`  URL: ${tweetUrl}`);
         // Update post status to POSTED
-        await posts.updateStatus(postId, 'POSTED', { postUrl: tweetUrl, postedAt: new Date() });
+        await posts.updateStatus(postId, "POSTED", { postUrl: tweetUrl, postedAt: new Date() });
         console.log(`  ✓ Post status updated to POSTED`);
       } else {
         console.log(`  URL not found, but tweet text is on profile`);
         // Construct URL manually
         const url = `https://x.com/${handle}/status/${Date.now()}`;
-        await posts.updateStatus(postId, 'POSTED', { postUrl: url, postedAt: new Date() });
+        await posts.updateStatus(postId, "POSTED", { postUrl: url, postedAt: new Date() });
         console.log(`  ✓ Post status updated to POSTED (URL approximate)`);
       }
     } else {
@@ -106,7 +106,7 @@ async function main() {
       // List all tweet texts on the page for debugging
       const allTweets = await page.evaluate(() => {
         const tweets = document.querySelectorAll('[data-testid="tweetText"]');
-        return Array.from(tweets).map((t) => (t.textContent || '').slice(0, 80));
+        return Array.from(tweets).map((t) => (t.textContent || "").slice(0, 80));
       });
       console.log(`  Tweets on profile (${allTweets.length}):`);
       allTweets.forEach((t, i) => console.log(`    ${i}: ${t}`));
@@ -120,4 +120,7 @@ async function main() {
   }
 }
 
-main().catch((e) => { console.error('Fatal:', e); process.exit(1); });
+main().catch((e) => {
+  console.error("Fatal:", e);
+  process.exit(1);
+});

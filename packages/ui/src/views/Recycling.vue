@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { Recycle, Play, Clock, RefreshCw } from '@lucide/vue';
-import { useApi } from '../composables/useApi';
-import { useToast } from '../composables/useToast';
-import { Card, Button, SectionHeader, Badge } from '../components/ui';
-import LoadingSpinner from '../components/LoadingSpinner.vue';
+import { ref, onMounted } from "vue";
+import { Recycle, Play, Clock, RefreshCw } from "@lucide/vue";
+import { useApi } from "../composables/useApi";
+import { useToast } from "../composables/useToast";
+import { Card, Button, SectionHeader, Badge } from "../components/ui";
+import LoadingSpinner from "../components/LoadingSpinner.vue";
 
 interface RecyclingCandidate {
   id: string;
@@ -41,13 +41,13 @@ async function loadCandidates() {
   loading.value = true;
   try {
     const [candidatesRes, configRes] = await Promise.all([
-      api.get<RecyclingCandidate[]>('/recycling/candidates'),
-      api.get<RecyclingConfig>('/recycling/config'),
+      api.get<RecyclingCandidate[]>("/recycling/candidates"),
+      api.get<RecyclingConfig>("/recycling/config"),
     ]);
     candidates.value = candidatesRes.data;
     config.value = configRes.data;
   } catch (err) {
-    toast.error((err as Error).message ?? 'Failed to load recycling candidates');
+    toast.error((err as Error).message ?? "Failed to load recycling candidates");
   } finally {
     loading.value = false;
   }
@@ -56,11 +56,11 @@ async function loadCandidates() {
 async function runRecycling() {
   running.value = true;
   try {
-    const res = await api.post<RecyclingResult>('/recycling/run', null, { params: { limit: 10 } });
+    const res = await api.post<RecyclingResult>("/recycling/run", null, { params: { limit: 10 } });
     toast.success(`Recycling complete: ${res.data.recycled} recycled, ${res.data.skipped} skipped`);
     await loadCandidates();
   } catch (err) {
-    toast.error((err as Error).message ?? 'Failed to run recycling');
+    toast.error((err as Error).message ?? "Failed to run recycling");
   } finally {
     running.value = false;
   }
@@ -73,7 +73,7 @@ async function recycleOne(postId: string) {
     toast.success(`Recycled into new draft: ${res.data.id}`);
     await loadCandidates();
   } catch (err) {
-    toast.error((err as Error).message ?? 'Failed to recycle post');
+    toast.error((err as Error).message ?? "Failed to recycle post");
   } finally {
     recyclingIds.value.delete(postId);
   }
@@ -107,12 +107,7 @@ onMounted(() => {
         </template>
 
         <div class="space-y-4">
-          <Button
-            :loading="running"
-            :disabled="running"
-            class="w-full"
-            @click="runRecycling"
-          >
+          <Button :loading="running" :disabled="running" class="w-full" @click="runRecycling">
             <Play class="h-4 w-4" />
             Run Recycling Now
           </Button>
@@ -124,7 +119,7 @@ onMounted(() => {
             <Clock class="h-4 w-4 text-text-muted" />
             <span class="text-text-secondary">Scheduled cron:</span>
             <Badge :variant="config.enabled ? 'success' : 'default'">
-              {{ config.enabled ? 'On' : 'Off' }}
+              {{ config.enabled ? "On" : "Off" }}
             </Badge>
             <span v-if="config.enabled" class="ml-auto font-mono text-xs text-text-muted">
               {{ config.schedule }}
@@ -158,7 +153,10 @@ onMounted(() => {
 
         <div v-else-if="candidates.length === 0" class="py-8 text-center text-text-muted">
           No posts eligible for recycling yet.
-          <p class="mt-1 text-sm">Candidates are posted posts older than 30 days that are not duplicates of recent content.</p>
+          <p class="mt-1 text-sm">
+            Candidates are posted posts older than 30 days that are not duplicates of recent
+            content.
+          </p>
         </div>
 
         <div v-else class="space-y-3">

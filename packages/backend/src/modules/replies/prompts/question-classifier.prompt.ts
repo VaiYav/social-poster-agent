@@ -16,7 +16,7 @@ export const QUESTION_CLASSIFIER_PROMPT = `You are a fast intent classifier for 
 
 LANGUAGE — CRITICAL:
 - The comment language has already been detected: {detectedLanguage}.
-- Think in this language. Do not translate.
+- Think in the detected language to understand the comment, but the "reason" field in your JSON must be written in English only.
 
 WHAT COUNTS AS A QUESTION:
 - A direct question asking for information, advice, or clarification about your topic area, product, service, or related concepts.

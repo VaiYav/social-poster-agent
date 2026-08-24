@@ -1,9 +1,9 @@
-import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import type IORedis from 'ioredis';
-import { randomUUID } from 'node:crypto';
-import { hostname } from 'node:os';
-import { SHARED_REDIS } from '../redis/redis.module.js';
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import type IORedis from "ioredis";
+import { randomUUID } from "node:crypto";
+import { hostname } from "node:os";
+import { SHARED_REDIS } from "../redis/redis.module.js";
 
 @Injectable()
 export class InstanceHeartbeatService implements OnModuleInit, OnModuleDestroy {
@@ -20,9 +20,9 @@ export class InstanceHeartbeatService implements OnModuleInit, OnModuleDestroy {
     private readonly configService: ConfigService,
     @Inject(SHARED_REDIS) private readonly redis: IORedis,
   ) {
-    this.instanceId = this.configService.get<string>('INSTANCE_ID', '').trim() || randomUUID();
-    this.ttlMs = this.configService.get<number>('INSTANCE_HEARTBEAT_TTL_MS', 30_000);
-    this.intervalMs = this.configService.get<number>('INSTANCE_HEARTBEAT_INTERVAL_MS', 10_000);
+    this.instanceId = this.configService.get<string>("INSTANCE_ID", "").trim() || randomUUID();
+    this.ttlMs = this.configService.get<number>("INSTANCE_HEARTBEAT_TTL_MS", 30_000);
+    this.intervalMs = this.configService.get<number>("INSTANCE_HEARTBEAT_INTERVAL_MS", 10_000);
     this.key = `spa:instance:${this.instanceId}`;
   }
 
@@ -42,7 +42,9 @@ export class InstanceHeartbeatService implements OnModuleInit, OnModuleDestroy {
       await this.redis.del(this.key);
       this.logger.log(`Instance heartbeat removed: ${this.instanceId}`);
     } catch (err) {
-      this.logger.warn(`Failed to delete instance heartbeat ${this.key}: ${(err as Error).message}`);
+      this.logger.warn(
+        `Failed to delete instance heartbeat ${this.key}: ${(err as Error).message}`,
+      );
     }
   }
 
@@ -56,7 +58,7 @@ export class InstanceHeartbeatService implements OnModuleInit, OnModuleDestroy {
         pid: process.pid,
         beatAt: Date.now(),
       });
-      await this.redis.set(this.key, payload, 'PX', this.ttlMs);
+      await this.redis.set(this.key, payload, "PX", this.ttlMs);
     } catch (err) {
       this.logger.warn(`Instance heartbeat failed: ${(err as Error).message}`);
     } finally {

@@ -7,11 +7,11 @@
  * Traces to: REQ-020, REQ-032, REQ-033, REQ-035
  * Hazards: HAZ-014, HAZ-015
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-import { ConfigService } from '@nestjs/config';
-import { SseService } from '../../../src/infrastructure/sse/sse.service';
-import { createMockRedis } from '../../mocks/index.js';
+import { ConfigService } from "@nestjs/config";
+import { SseService } from "../../../src/infrastructure/sse/sse.service.js";
+import { createMockRedis } from "../../mocks/index.js";
 
 // ── Helpers ──
 
@@ -35,7 +35,7 @@ function createMockResponse() {
 
 // ── Tests ──
 
-describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
+describe("SseService (MOD-05 — Infrastructure Adapters)", () => {
   let service: SseService;
   let configService: ConfigService;
   let mockRedis: ReturnType<typeof createMockRedis>;
@@ -46,8 +46,8 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
     mockRedis = createMockRedis();
     mockPublisher = createMockRedis();
     configService = createMockConfigService({
-      REDIS_URL: 'redis://localhost:6380',
-      SSE_CHANNEL: 'spa:sse',
+      REDIS_URL: "redis://localhost:6380",
+      SSE_CHANNEL: "spa:sse",
       SSE_MAX_CONNECTIONS_PER_IP: 2,
       SSE_IDLE_TIMEOUT_MS: 50,
     });
@@ -60,7 +60,7 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
   });
 
   // ── UTC-089 ──
-  it('UTC-089: addClient() generates unique clientId, stores response, sends connected event', () => {
+  it("UTC-089: addClient() generates unique clientId, stores response, sends connected event", () => {
     const mockRes = createMockResponse();
     const clientId = service.addClient(mockRes);
 
@@ -70,9 +70,9 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
     // Initial heartbeat (connected event) sent via res.write
     expect(mockRes.write).toHaveBeenCalledOnce();
     const writtenData = mockRes.write.mock.calls[0]![0] as string;
-    expect(writtenData).toContain('data: ');
-    const parsed = JSON.parse(writtenData.replace(/^data: /, '').replace(/\n\n$/, ''));
-    expect(parsed.type).toBe('connected');
+    expect(writtenData).toContain("data: ");
+    const parsed = JSON.parse(writtenData.replace(/^data: /, "").replace(/\n\n$/, ""));
+    expect(parsed.type).toBe("connected");
     expect(parsed.clientId).toBe(clientId);
 
     // Client is stored in the map
@@ -80,7 +80,7 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
   });
 
   // ── UTC-090 ──
-  it('UTC-090: addClient() generates unique IDs for multiple clients', () => {
+  it("UTC-090: addClient() generates unique IDs for multiple clients", () => {
     const mockRes1 = createMockResponse();
     const mockRes2 = createMockResponse();
 
@@ -92,14 +92,14 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
   });
 
   // ── UTC-090a ──
-  it('UTC-090a: addClient() rejects new connections once per-IP limit is reached', () => {
+  it("UTC-090a: addClient() rejects new connections once per-IP limit is reached", () => {
     const res1 = createMockResponse();
     const res2 = createMockResponse();
     const res3 = createMockResponse();
 
-    const id1 = service.addClient(res1, '1.1.1.1');
-    const id2 = service.addClient(res2, '1.1.1.1');
-    const id3 = service.addClient(res3, '1.1.1.1');
+    const id1 = service.addClient(res1, "1.1.1.1");
+    const id2 = service.addClient(res2, "1.1.1.1");
+    const id3 = service.addClient(res3, "1.1.1.1");
 
     expect(id1).toMatch(/^sse-/);
     expect(id2).toMatch(/^sse-/);
@@ -109,8 +109,8 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
   });
 
   // ── UTC-090b ──
-  it('UTC-090b: addClient() returns null when per-IP limit is reached', () => {
-    const ip = '1.1.1.1';
+  it("UTC-090b: addClient() returns null when per-IP limit is reached", () => {
+    const ip = "1.1.1.1";
     service.addClient(createMockResponse(), ip);
     service.addClient(createMockResponse(), ip);
 
@@ -120,10 +120,10 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
   });
 
   // ── UTC-090c ──
-  it('UTC-090c: idle timeout closes stale SSE connections', () => {
+  it("UTC-090c: idle timeout closes stale SSE connections", () => {
     vi.useFakeTimers();
     const mockRes = createMockResponse();
-    service.addClient(mockRes, '1.1.1.1');
+    service.addClient(mockRes, "1.1.1.1");
     expect(service.getConnectedCount()).toBe(1);
 
     vi.advanceTimersByTime(100);
@@ -134,7 +134,7 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
   });
 
   // ── UTC-091 ──
-  it('UTC-091: removeClient() removes client from map', () => {
+  it("UTC-091: removeClient() removes client from map", () => {
     const mockRes = createMockResponse();
     const clientId = service.addClient(mockRes);
     expect(service.getConnectedCount()).toBe(1);
@@ -145,50 +145,50 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
   });
 
   // ── UTC-092 ──
-  it('UTC-092: removeClient() is safe when clientId not in map (no throw)', () => {
-    expect(() => service.removeClient('nonexistent')).not.toThrow();
+  it("UTC-092: removeClient() is safe when clientId not in map (no throw)", () => {
+    expect(() => service.removeClient("nonexistent")).not.toThrow();
     expect(service.getConnectedCount()).toBe(0);
   });
 
   // ── UTC-093 ──
-  it('UTC-093: publish() publishes JSON event to Redis channel when connected', async () => {
+  it("UTC-093: publish() publishes JSON event to Redis channel when connected", async () => {
     const event = {
-      type: 'post_status',
-      postId: 'p1',
-      status: 'POSTED',
-      network: 'X',
-      url: 'https://x.com/1',
+      type: "post_status",
+      postId: "p1",
+      status: "POSTED",
+      network: "X",
+      url: "https://x.com/1",
     };
 
     await service.publish(event);
 
     // Sprint L: publish() uses this.publisher (separate connection)
     expect(mockPublisher.publish).toHaveBeenCalledOnce();
-    expect(mockPublisher.publish).toHaveBeenCalledWith('spa:sse', JSON.stringify(event));
+    expect(mockPublisher.publish).toHaveBeenCalledWith("spa:sse", JSON.stringify(event));
   });
 
   // ── UTC-093a ──
-  it('UTC-093a: publish() swallows Redis PUBLISH errors and logs them', async () => {
-    const error = new Error('Redis unavailable');
+  it("UTC-093a: publish() swallows Redis PUBLISH errors and logs them", async () => {
+    const error = new Error("Redis unavailable");
     mockPublisher.publish.mockRejectedValue(error);
 
     await expect(
-      service.publish({ type: 'post_status', postId: 'p2', status: 'FAILED', network: 'X' }),
+      service.publish({ type: "post_status", postId: "p2", status: "FAILED", network: "X" }),
     ).resolves.toBeUndefined();
     expect(mockPublisher.publish).toHaveBeenCalledOnce();
   });
 
   // ── UTC-094 ──
-  it('UTC-094: publish() does nothing when Redis not connected', async () => {
+  it("UTC-094: publish() does nothing when Redis not connected", async () => {
     (service as unknown).publisher = null;
 
-    await service.publish({ type: 'post_status', postId: 'p3', status: 'POSTED', network: 'X' });
+    await service.publish({ type: "post_status", postId: "p3", status: "POSTED", network: "X" });
 
     expect(mockPublisher.publish).not.toHaveBeenCalled();
   });
 
   // ── UTC-095 ──
-  it('UTC-095: broadcast() writes message to all connected clients', () => {
+  it("UTC-095: broadcast() writes message to all connected clients", () => {
     const mockRes1 = createMockResponse();
     const mockRes2 = createMockResponse();
     service.addClient(mockRes1);
@@ -199,20 +199,20 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
     mockRes2.write.mockClear();
 
     // broadcast is private — invoke directly
-    (service as unknown).broadcast('test-event');
+    (service as unknown).broadcast("test-event");
 
-    expect(mockRes1.write).toHaveBeenCalledWith('data: test-event\n\n');
-    expect(mockRes2.write).toHaveBeenCalledWith('data: test-event\n\n');
+    expect(mockRes1.write).toHaveBeenCalledWith("data: test-event\n\n");
+    expect(mockRes2.write).toHaveBeenCalledWith("data: test-event\n\n");
   });
 
   // ── UTC-096 ──
-  it('UTC-096: broadcast() removes client on write error (disconnected client cleanup)', () => {
+  it("UTC-096: broadcast() removes client on write error (disconnected client cleanup)", () => {
     const failingRes = createMockResponse();
     // First write (initial heartbeat in addClient) succeeds; subsequent writes fail
     failingRes.write
       .mockImplementationOnce(() => true)
       .mockImplementation(() => {
-        throw new Error('write EPIPE');
+        throw new Error("write EPIPE");
       });
     const successRes = createMockResponse();
 
@@ -224,15 +224,15 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
     successRes.write.mockClear();
 
     // Trigger broadcast — failing client should be removed
-    (service as unknown).broadcast('test-event');
+    (service as unknown).broadcast("test-event");
 
     // Failing client removed; succeeding client retained
     expect(service.getConnectedCount()).toBe(1);
-    expect(successRes.write).toHaveBeenCalledWith('data: test-event\n\n');
+    expect(successRes.write).toHaveBeenCalledWith("data: test-event\n\n");
   });
 
   // ── UTC-097 ──
-  it('UTC-097: getConnectedCount() returns current client map size', () => {
+  it("UTC-097: getConnectedCount() returns current client map size", () => {
     service.addClient(createMockResponse());
     service.addClient(createMockResponse());
     service.addClient(createMockResponse());
@@ -241,7 +241,7 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
   });
 
   // ── UTC-098 ──
-  it('UTC-098: init() subscribes to Redis channel and sets up message listener', async () => {
+  it("UTC-098: init() subscribes to Redis channel and sets up message listener", async () => {
     // Sprint L: SseService now receives Redis connections via DI
     const initMockRedis = createMockRedis();
     const initMockPublisher = createMockRedis();
@@ -249,11 +249,11 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
 
     await freshService.init();
 
-    expect(initMockRedis.subscribe).toHaveBeenCalledWith('spa:sse');
-    expect(initMockRedis.on).toHaveBeenCalledWith('message', expect.any(Function));
+    expect(initMockRedis.subscribe).toHaveBeenCalledWith("spa:sse");
+    expect(initMockRedis.on).toHaveBeenCalledWith("message", expect.any(Function));
 
     // Verify the message handler forwards to broadcast
-    const onCall = initMockRedis.on.mock.calls.find((c) => c[0] === 'message');
+    const onCall = initMockRedis.on.mock.calls.find((c) => c[0] === "message");
     expect(onCall).toBeDefined();
     const messageHandler = onCall![1];
 
@@ -262,7 +262,7 @@ describe('SseService (MOD-05 — Infrastructure Adapters)', () => {
     freshService.addClient(mockRes);
     mockRes.write.mockClear(); // clear connected event
 
-    messageHandler('spa:sse', 'redis-payload');
-    expect(mockRes.write).toHaveBeenCalledWith('data: redis-payload\n\n');
+    messageHandler("spa:sse", "redis-payload");
+    expect(mockRes.write).toHaveBeenCalledWith("data: redis-payload\n\n");
   });
 });

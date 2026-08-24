@@ -23,18 +23,18 @@
  * Env-gated: only active when AB_VARIANTS_ENABLED=true.
  * When disabled, the graph produces a single refined post (original behavior).
  */
-import { Injectable, Logger, Optional } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import type { ILlmPort } from '../../domain/ports/llm.port.js';
-import { SocialNetwork } from '@prisma/client';
-import { parseBool } from '../../infrastructure/config/parse-bool.js';
-import { NETWORK_LIMITS } from '../posts/network-limits.js';
+import { Injectable, Logger, Optional } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import type { ILlmPort } from "../../domain/ports/llm.port.js";
+import { SocialNetwork } from "../../generated/prisma/client.js";
+import { parseBool } from "../../infrastructure/config/parse-bool.js";
+import { NETWORK_LIMITS } from "../posts/network-limits.js";
 
 export interface GenerateVariantsOptions {
   /** Topic string used for logging and prior-winner lookup. */
   topic?: string;
   /** Historical winner for this topic, if known. */
-  priorWinner?: 'a' | 'b' | null;
+  priorWinner?: "a" | "b" | null;
 }
 
 /**
@@ -42,7 +42,7 @@ export interface GenerateVariantsOptions {
  */
 export interface PostVariant {
   /** Variant label — "a" (minimal) or "b" (expressive). */
-  label: 'a' | 'b';
+  label: "a" | "b";
   /** Post text. */
   content: string;
   /** Number of emojis in the variant. */
@@ -60,7 +60,7 @@ export interface ABVariantPair {
   /** Rich emoji variant. */
   b: PostVariant;
   /** Which variant won (null until metrics are collected). */
-  winner: 'a' | 'b' | null;
+  winner: "a" | "b" | null;
 }
 
 @Injectable()
@@ -72,7 +72,7 @@ export class ABVariantGenerator {
     private readonly configService: ConfigService,
     @Optional() private readonly llm?: ILlmPort,
   ) {
-    this.enabled = parseBool(this.configService.get<string>('AB_VARIANTS_ENABLED', 'false'));
+    this.enabled = parseBool(this.configService.get<string>("AB_VARIANTS_ENABLED", "false"));
   }
 
   isEnabled(): boolean {
@@ -104,7 +104,7 @@ export class ABVariantGenerator {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         this.logger.debug(
-          `P7: LLM variant generation failed for ${options?.topic ?? 'unknown'}: ${message} — using heuristic`,
+          `P7: LLM variant generation failed for ${options?.topic ?? "unknown"}: ${message} — using heuristic`,
         );
       }
     }
@@ -120,15 +120,15 @@ export class ABVariantGenerator {
     network: SocialNetwork,
     options?: GenerateVariantsOptions,
   ): Promise<ABVariantPair> {
-    if (!this.llm) throw new Error('LLM unavailable');
+    if (!this.llm) throw new Error("LLM unavailable");
 
     const charLimit = NETWORK_LIMITS[network];
     const priorWinner = options?.priorWinner;
 
-    let winnerHint = '';
-    if (priorWinner === 'a') {
+    let winnerHint = "";
+    if (priorWinner === "a") {
       winnerHint = `\nPrior winner for this topic is the "Clean/Minimal" style. Lean the baseline slightly toward that style while still producing a valid variant B.`;
-    } else if (priorWinner === 'b') {
+    } else if (priorWinner === "b") {
       winnerHint = `\nPrior winner for this topic is the "Expressive/Rich" style. Lean the baseline slightly toward that style while still producing a valid variant A.`;
     }
 
@@ -159,7 +159,7 @@ Return ONLY the two variants in this format:
 A: <variant A text>
 B: <variant B text>`;
 
-    const userPrompt = `Topic: ${options?.topic ?? 'general'}
+    const userPrompt = `Topic: ${options?.topic ?? "general"}
 Base post:
 "${content}"
 
@@ -169,22 +169,22 @@ Generate A/B variants:`;
       temperature: 0.6,
     });
 
-    const lines = response.content.split('\n');
-    let variantA = '';
-    let variantB = '';
-    let parsing = 'a';
+    const lines = response.content.split("\n");
+    let variantA = "";
+    let variantB = "";
+    let parsing = "a";
 
     for (const line of lines) {
       const trimmed = line.trim();
       if (/^a[:\)]\s*/i.test(trimmed)) {
-        parsing = 'a';
-        variantA += trimmed.replace(/^a[:\)]\s*/i, '') + '\n';
+        parsing = "a";
+        variantA += trimmed.replace(/^a[:\)]\s*/i, "") + "\n";
       } else if (/^b[:\)]\s*/i.test(trimmed)) {
-        parsing = 'b';
-        variantB += trimmed.replace(/^b[:\)]\s*/i, '') + '\n';
+        parsing = "b";
+        variantB += trimmed.replace(/^b[:\)]\s*/i, "") + "\n";
       } else if (trimmed) {
-        if (parsing === 'a') variantA += trimmed + '\n';
-        else variantB += trimmed + '\n';
+        if (parsing === "a") variantA += trimmed + "\n";
+        else variantB += trimmed + "\n";
       }
     }
 
@@ -193,13 +193,13 @@ Generate A/B variants:`;
 
     return {
       a: {
-        label: 'a',
+        label: "a",
         content: variantA,
         emojiCount: countEmojis(variantA),
         hashtagCount: countHashtags(variantA),
       },
       b: {
-        label: 'b',
+        label: "b",
         content: variantB,
         emojiCount: countEmojis(variantB),
         hashtagCount: countHashtags(variantB),
@@ -217,15 +217,18 @@ Generate A/B variants:`;
     const priorWinner = options?.priorWinner;
 
     const variantA = content
-      .replace(/(\s*#[\p{L}\p{N}_]+\s*)/gu, ' ')
-      .replace(/(\s*[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]+\s*)/gu, ' ')
-      .replace(/\s+/g, ' ')
+      .replace(/(\s*#[\p{L}\p{N}_]+\s*)/gu, " ")
+      .replace(/(\s*[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]+\s*)/gu, " ")
+      .replace(/\s+/g, " ")
       .trim();
 
-    const themedEmojis = [' \u2728', ' \uD83D\uDCA1', ' \uD83C\uDFAF'];
-    let variantB = content.replace(/(\s*#[\p{L}\p{N}_]+\s*)/gu, ' ').replace(/\s+/g, ' ').trim();
+    const themedEmojis = [" \u2728", " \uD83D\uDCA1", " \uD83C\uDFAF"];
+    let variantB = content
+      .replace(/(\s*#[\p{L}\p{N}_]+\s*)/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim();
 
-    const minBEmojis = priorWinner === 'b' ? 3 : 2;
+    const minBEmojis = priorWinner === "b" ? 3 : 2;
     if (countEmojis(variantB) < minBEmojis) {
       const sentences = variantB.split(/(?<=[.!?])\s/);
       const slots = Math.min(sentences.length - 1, minBEmojis - countEmojis(variantB));
@@ -233,18 +236,18 @@ Generate A/B variants:`;
         const emojiIdx = i % themedEmojis.length;
         sentences[i] = sentences[i]!.trimEnd() + themedEmojis[emojiIdx]!;
       }
-      variantB = sentences.join(' ');
+      variantB = sentences.join(" ");
     }
 
     return {
       a: {
-        label: 'a',
+        label: "a",
         content: variantA,
         emojiCount: countEmojis(variantA),
         hashtagCount: countHashtags(variantA),
       },
       b: {
-        label: 'b',
+        label: "b",
         content: variantB,
         emojiCount: countEmojis(variantB),
         hashtagCount: countHashtags(variantB),
@@ -258,7 +261,8 @@ Generate A/B variants:`;
  * Count emojis in a string (Unicode emoji ranges).
  */
 function countEmojis(text: string): number {
-  const emojiRegex = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{1F000}-\u{1F02F}\u{1F0A0}-\u{1F0FF}]/gu;
+  const emojiRegex =
+    /[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{1F000}-\u{1F02F}\u{1F0A0}-\u{1F0FF}]/gu;
   const matches = text.match(emojiRegex);
   return matches?.length ?? 0;
 }

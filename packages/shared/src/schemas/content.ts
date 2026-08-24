@@ -3,7 +3,7 @@
 // and the blog frontmatter format. Moved from infrastructure/content/
 // to shared so any adapter can use them without circular deps.
 
-import { z } from 'zod';
+import { z } from "zod";
 
 // ============================================================
 // CAP run artifacts
@@ -11,9 +11,9 @@ import { z } from 'zod';
 
 export const BriefSchema = z.object({
   topic: z.string(),
-  source_locale: z.string().default('en'),
+  source_locale: z.string().default("en"),
   target_queries: z.array(z.string()).default([]),
-  intent: z.string().default('informational'),
+  intent: z.string().default("informational"),
   outline: z
     .array(
       z.object({
@@ -37,14 +37,14 @@ export type TopicQueueEntry = z.infer<typeof TopicQueueEntrySchema>;
 
 // topic-queue.json — ranked topic clusters from CAP
 export const TopicQueueSchema = z.object({
-  locale: z.string().default('en'),
+  locale: z.string().default("en"),
   seeds: z.array(z.string()).default([]),
   clusters: z
     .array(
       z.object({
         representative: z.string(),
         members: z.number().default(1),
-        status: z.string().default('new'),
+        status: z.string().default("new"),
         score: z.number().default(0),
       }),
     )
@@ -70,24 +70,24 @@ export type CreateRunReport = z.infer<typeof CreateRunReportSchema>;
 
 export const ArticleFrontmatterSchema = z.object({
   title: z.string(),
-  description: z.string().default(''),
+  description: z.string().default(""),
   date: z.string().optional(),
   category: z.string().optional(),
   // F10: tags may be written as a comma-separated YAML string (common in Jekyll/Hugo).
-  tags: z
-    .preprocess(
-      (val) => {
-        if (Array.isArray(val)) return val;
-        if (typeof val === 'string') return val.split(',').map((s) => s.trim()).filter(Boolean);
-        return [];
-      },
-      z.array(z.string()).default([]),
-    ),
+  tags: z.preprocess((val) => {
+    if (Array.isArray(val)) return val;
+    if (typeof val === "string")
+      return val
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    return [];
+  }, z.array(z.string()).default([])),
   // F10: answerCapsule may be a plain string (legacy CAP output) or the full object.
   answerCapsule: z
     .preprocess(
       (val) => {
-        if (typeof val === 'string') return { answer: val };
+        if (typeof val === "string") return { answer: val };
         return val;
       },
       z
@@ -95,15 +95,15 @@ export const ArticleFrontmatterSchema = z.object({
           question: z.string().optional(),
           answer: z.string().optional(),
           // F10: keyPoints may also be a comma/semicolon-separated string.
-          keyPoints: z
-            .preprocess(
-              (val) => {
-                if (Array.isArray(val)) return val;
-                if (typeof val === 'string') return val.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
-                return [];
-              },
-              z.array(z.string()).default([]),
-            ),
+          keyPoints: z.preprocess((val) => {
+            if (Array.isArray(val)) return val;
+            if (typeof val === "string")
+              return val
+                .split(/[,;]/)
+                .map((s) => s.trim())
+                .filter(Boolean);
+            return [];
+          }, z.array(z.string()).default([])),
         })
         .optional()
         .nullable(),
@@ -115,7 +115,15 @@ export const ArticleFrontmatterSchema = z.object({
       title: z.string().optional(),
       description: z.string().optional(),
       keywords: z
-        .union([z.array(z.string()), z.string().transform((s) => s.split(',').map((k) => k.trim()).filter(Boolean))])
+        .union([
+          z.array(z.string()),
+          z.string().transform((s) =>
+            s
+              .split(",")
+              .map((k) => k.trim())
+              .filter(Boolean),
+          ),
+        ])
         .default([]),
     })
     .optional(),
@@ -127,7 +135,7 @@ export type ArticleFrontmatter = z.infer<typeof ArticleFrontmatterSchema>;
 // ============================================================
 
 export const ContentTopicSchema = z.object({
-  sourceType: z.enum(['brief', 'article', 'topic', 'create_run']),
+  sourceType: z.enum(["brief", "article", "topic", "create_run"]),
   path: z.string(),
   topic: z.string(),
   keywords: z.array(z.string()).default([]),
@@ -144,7 +152,7 @@ export const ContentTopicSchema = z.object({
   category: z.string().optional(),
   publishedAt: z.coerce.date().optional(),
   // Language code (ISO 639-1): en, ru, uk, es, it — used for multilingual generation
-  language: z.string().default('en'),
+  language: z.string().default("en"),
   // P2-04: social promo trigger — track the original published post this topic was derived from
   originalPostId: z.string().optional(),
   originalTopic: z.string().optional(),
@@ -161,7 +169,7 @@ export const ContentSourceConfigSchema = z.object({
   name: z.string().optional(),
   enabled: z.boolean().default(true),
   priority: z.number().optional(),
-  config: z.record(z.unknown()).default({}),
+  config: z.record(z.string(), z.unknown()).default({}),
 });
 export type ContentSourceConfig = z.infer<typeof ContentSourceConfigSchema>;
 

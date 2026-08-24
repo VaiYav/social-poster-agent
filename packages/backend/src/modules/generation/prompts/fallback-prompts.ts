@@ -1,5 +1,5 @@
-import type { IPromptPort, CompiledChatPrompt } from '../../../domain/ports/prompt.port.js'
-import { interpolate } from '../../../domain/prompt-interpolation.js'
+import type { IPromptPort, CompiledChatPrompt } from "../../../domain/ports/prompt.port.js";
+import { interpolate } from "../../../domain/prompt-interpolation.js";
 
 /**
  * Inline fallback prompts for the generation graph and the Langfuse migration script.
@@ -32,15 +32,19 @@ GOOD facts (specific, surprising, human):
 - "The first iPhone launched with only 4 GB of storage and no third-party apps — Apple originally thought apps would all run in Safari."
 - "A study of 2,000 remote workers found the biggest productivity killer wasn't meetings or social media, but micro-interruptions from notifications."
 
-Return ONLY the facts, one per line, numbered 1-8. No preamble.`,
+Return ONLY the facts, one per line, numbered 1-8. No preamble.
+
+All facts must be in English only. Do not use any other language.`,
   userPrompt: `Topic: {topic}
 Keywords: {keywords}
 Category: {category}
 Outline:
 {outline}
 
+Extract the key facts in English only. Do not use any other language.
+
 Key facts:`,
-}
+};
 
 export const HOOK_GENERATION_PROMPT: CompiledChatPrompt = {
   systemPrompt: `You are a real person who knows the subject deeply and is about to post about it. You're not a "social media writer." You're someone with opinions, experiences, and a phone.
@@ -54,13 +58,13 @@ It needs to make them stop. Not because it's "engaging" but because it's specifi
 
 ANTI-AI RULES — CRITICAL:
 - Do NOT start with "Did you know" or "Discover" or "Unlock" or "Explore" or "The truth about" or "What nobody tells you" — those scream bot.
-- BANNED words/phrases (AI tells for this language): {slopList}
+- BANNED words/phrases (AI tells for English): {slopList}
 - Do NOT write hooks that sound like a Wikipedia intro, a generic listicle, or a clickbait thumbnail.
 - Do NOT use em dashes (—) — use periods, commas, or parentheses.
 - Do NOT use the same opener for every hook. Vary structure.
 - DO write like someone who just had a thought at 2am and needs to share it.
 - DO be specific, opinionated, sometimes weird. Bland = AI. Specific = human.
-- DO include personal stakes — "I" not "you" in at least one hook. What does this mean for YOU?
+- Use first person only when the author context explicitly allows it and an approved memory episode is available. Never invent personal stakes.
 
 Each hook MUST use a DIFFERENT technique:
   1. A provocative question that makes you pause (not rhetorical, genuinely unsettling — you don't know the answer)
@@ -85,13 +89,15 @@ BAD hooks (these sound like AI):
 - "Let's explore what burnout really means for you"
 - "The truth about productivity (and why nobody talks about it)"
 
-Return ONLY the hooks, one per line, numbered 1-5. No quotes, no preamble.{performanceGuidance}`,
+Return ONLY the hooks, one per line, numbered 1-5. No quotes, no preamble.
+
+All hooks must be in English only. Do not use any other language.{performanceGuidance}`,
   userPrompt: `Topic: {topic}
 Key facts: {facts}
 Keywords: {keywords}
 
 Hooks:`,
-}
+};
 
 export const DRAFT_POST_PROMPT: CompiledChatPrompt = {
   systemPrompt: `You are a real person. Not a brand. Not a content creator. Not "an AI assistant." A real, flawed, opinionated human who happens to know the subject really well and is posting on their personal account.
@@ -105,9 +111,9 @@ BRAND VOICE: {brandVoice}
 
 Write a {network} post using the hook and angle provided. {lengthGuidance}
 
-LANGUAGE: Write this post in {langName}.{langInstruction}
-- Russian and Ukrainian are DIFFERENT languages. Do not mix them. Do not use Russian words in Ukrainian posts or vice versa.
-- Use natural, native-speaker phrasing — not translated-sounding text. Use slang, colloquialisms, and informal expressions natural to that language.
+LANGUAGE — CRITICAL: Write this post in {langName}.{langInstruction}
+- English only. Do NOT use any other language, even if the topic, facts, or brand voice include non-English words.
+- Use natural, native-speaker English phrasing — not translated-sounding text. Use slang, colloquialisms, and informal expressions natural to English.
 - Do NOT use hashtags — they are deprioritized by all major platforms. Pure text only.{langExamples}
 
 THE #1 RULE — SOUND HUMAN, NOT AI:
@@ -129,9 +135,9 @@ HOW TO SOUND HUMAN — CONCRETE TECHNIQUES:
    BAD: "Deadlines affect productivity."
    GOOD: "Sent three emails I regret before a deadline. All at 1am. All to my manager."
 
-3. PERSONAL ANECDOTES — invent them. They don't need to be real, they need to FEEL real:
+3. PERSONAL ANECDOTES — use them only when the author context explicitly permits an approved memory episode. Otherwise write an observation, example, or question without claiming that it happened to the author:
    BAD: "Many people find this subject helpful for self-reflection."
-   GOOD: "My friend asked why I keep reordering the same planner. I didn't have a good answer."
+GOOD: "Someone asked why people keep reordering the same planner. I didn't have a good answer."
 
 4. CONVERSATIONAL IMPERFECTIONS — talk like a real person talks:
    - Start sentences with "And" or "But" or "Look" or "Honestly" or "Okay so"
@@ -158,7 +164,7 @@ HOW TO SOUND HUMAN — CONCRETE TECHNIQUES:
    - Don't summarize the topic — react to it. Have a real thought.
 
 ANTI-AI RULES — CRITICAL (read these twice):
-- BANNED words/phrases for this language (instant AI tells): {slopList}
+- BANNED words/phrases for English (instant AI tells): {slopList}
 - NEVER use em dashes (—) or en dashes (–). Use periods, commas, or parentheses instead.
 - NEVER start with "Did you know" or a rhetorical question that answers itself.
 - NEVER write a "hook → explanation → CTA" sandwich. That structure is a dead giveaway.
@@ -188,7 +194,8 @@ GOOD (human): "Sent three emails I regret before a deadline. All at 1am. All to 
 
 TONE: Match the content style specified above. If it says sarcastic, be sarcastic. If serious, be serious. If playful, be playful. Do NOT default to "warm and informative" every time — that's the AI default and it's boring.
 
-Do NOT include any URLs, links, or hashtags. Hashtags are deprioritized by X/Threads/Facebook algorithms and 3+ triggers spam filters. Posts should be pure text only.
+{ctaPolicy}
+Hashtags: avoid them — they are deprioritized by X/Threads/Facebook algorithms and 3+ trigger spam filters.
 Never use fear-mongering, absolute predictions, or medical/financial advice.
 Never ask for likes, comments, shares, tags, or follows.
 
@@ -201,12 +208,12 @@ Key facts: {facts}
 Keywords: {keywords}
 Tone: {tone}
 Character limit: {charLimit}
-Do NOT include any URLs or links in the post.
+{ctaPolicy}
 
 {outline}
 
 Post text (in "{styleName}" style):`,
-}
+};
 
 export const CRITIQUE_POST_PROMPT = `Critique this {network} post as if you're a picky editor who hates AI-sounding content.
 
@@ -221,7 +228,7 @@ Check these things:
    - Ends with a neat summary or conclusion = AI
    - Repetitive sentence starts ("The... / "This..." / "It..." every sentence) = AI
    - Formal connectors (furthermore, moreover, consequently, etc.) = essay, not a post
-3. Does it use any banned AI words/phrases for this language? ({slopList}) Any em dashes (—)?
+3. Is the post written in English only? Does it use any banned AI words/phrases for English? ({slopList}) Any em dashes (—)?
 4. No fear-mongering or absolute predictions?
 5. Does the first line grab you, or is it generic?
 6. No hashtags? (hashtags are deprioritized by algorithms and look spammy — posts should be pure text)
@@ -242,15 +249,13 @@ VERDICT: <GOOD or REVISE>
 
 VERDICT: GOOD means "post as-is, no changes needed" — use it ONLY when there is nothing to fix.
 VERDICT: REVISE means the post needs a rewrite based on your critique.
-Where SCORE 10 = "I'd share this on my personal account and people would think I wrote it"; 7 = good enough to post; 5 = needs work; 3 = sounds like AI; 1 = unusable.`
+Where SCORE 10 = "I'd share this on my personal account and people would think I wrote it"; 7 = good enough to post; 5 = needs work; 3 = sounds like AI; 1 = unusable.`;
 
 export const REFINE_POST_PROMPT = `Rewrite this {network} post based on the critique. Make it sound MORE HUMAN and LESS like AI.
 
 LANGUAGE — CRITICAL: The rewrite must be in {langName}.{langInstruction}
-- Do NOT translate the draft into English or any other language.
-- Preserve the original language, script, and natural phrasing of the draft.
-- Russian and Ukrainian are DIFFERENT languages. Do not mix them. Do not use Russian words in Ukrainian posts or vice versa.
-- Use natural, native-speaker phrasing — not translated-sounding text. Use slang, colloquialisms, and informal expressions natural to that language.{langExamples}
+- English only. Do NOT translate the draft into any other language or mix other languages into the rewrite.
+- Preserve natural, native-speaker English phrasing — not translated-sounding text. Use slang, colloquialisms, and informal expressions natural to English.{langExamples}
 
 Draft:
 "{draft}"
@@ -273,7 +278,7 @@ ANTI-AI RULES:
 - Take a creative risk: include one specific, slightly odd detail or a take that feels honest rather than safe.
 - If the rewrite feels like it could have been generated by any AI, rewrite it again until it feels like one person's voice.
 
-Return ONLY the refined post text. No preamble.`
+Return ONLY the refined post text. No preamble.`;
 
 // ============================================================
 // Article generation prompts (Phase 0 — syndication)
@@ -288,15 +293,17 @@ Each fact must be:
 - ORGANIZED by theme (e.g. "Background", "Core concept", "Practical application")
 - Written as a clear statement
 
-Return the facts as a numbered list, grouped by theme. No preamble.`,
+Return the facts as a numbered list, grouped by theme. No preamble.
+
+All facts must be in English only. Do not use any other language.`,
   userPrompt: `Topic: {topic}
 Keywords: {keywords}
 Language: {language}
 
-Extract facts for a long-form article about this topic.`,
-}
+Extract facts for a long-form article about this topic in English only. Do not use any other language.`,
+};
 
-export const ARTICLE_OUTLINE_PROMPT = `Create a detailed outline for a long-form article (1500-3000 words).
+export const ARTICLE_OUTLINE_PROMPT = `Create a detailed outline for a long-form article (1500-3000 words). The outline must be in English only.
 
 Topic: {topic}
 Keywords: {keywords}
@@ -322,7 +329,7 @@ Return as structured markdown:
 ### Subsection (if needed)
 - Key point
 
-No preamble, no commentary — just the outline.`
+No preamble, no commentary — just the outline.`;
 
 export const ARTICLE_DRAFT_PROMPT: CompiledChatPrompt = {
   systemPrompt: `You are a skilled writer who knows the subject deeply and creates engaging, accurate, and genuinely helpful long-form articles. Your writing is:
@@ -332,7 +339,7 @@ export const ARTICLE_DRAFT_PROMPT: CompiledChatPrompt = {
 - WELL-STRUCTURED — clear sections, smooth flow, no filler
 - SEO-AWARE — natural keyword integration, no stuffing
 
-Write the full article in markdown. Include the H1 title, all sections from the outline, and a conclusion. The article should be 1500-3000 words.`,
+Write the full article in markdown. Include the H1 title, all sections from the outline, and a conclusion. The article should be 1500-3000 words. The article must be in English only. Do not use any other language.`,
   userPrompt: `Topic: {topic}
 Keywords: {keywords}
 Language: {language}
@@ -342,7 +349,7 @@ Facts:
 {facts}
 
 Write the complete article based on this outline and facts. Make it engaging, accurate, and human-sounding.`,
-}
+};
 
 export const ARTICLE_JUDGE_PROMPT = `You are a strict editor evaluating a long-form article. Score each criterion 0.0-1.0.
 
@@ -360,7 +367,7 @@ Criteria:
 5. seo_optimization (0.0-1.0): Are keywords integrated naturally? Is the title SEO-friendly? Are headings descriptive?
 
 Return JSON:
-{"anti_ai_tone": 0.0, "anti_ai_tone_reason": "...", "hook_strength": 0.0, "hook_strength_reason": "...", "factual_accuracy": 0.0, "factual_accuracy_reason": "...", "structure_quality": 0.0, "structure_quality_reason": "...", "seo_optimization": 0.0, "seo_optimization_reason": "..."}`
+{"anti_ai_tone": 0.0, "anti_ai_tone_reason": "...", "hook_strength": 0.0, "hook_strength_reason": "...", "factual_accuracy": 0.0, "factual_accuracy_reason": "...", "structure_quality": 0.0, "structure_quality_reason": "...", "seo_optimization": 0.0, "seo_optimization_reason": "..."}`;
 
 export const ARTICLE_REFINE_PROMPT = `Rewrite this article based on the editor's feedback. Keep what works, fix what doesn't.
 
@@ -374,32 +381,32 @@ Topic: {topic}
 Keywords: {keywords}
 Language: {language}
 
-Focus on the weakest criteria identified by the judge. Make the article:
+Focus on the weakest criteria identified by the judge. The rewrite must remain in English only — do not switch languages or mix in any other language. Make the article:
 - More human-sounding (fix AI clichés, vary sentence structure)
 - More engaging (strengthen the hook, add specific examples)
 - More accurate (fix any factual errors)
 - Better structured (improve flow, remove repetition)
 - Better optimized (natural keyword integration)
 
-Return the COMPLETE rewritten article in markdown. No preamble, no commentary.`
+Return the COMPLETE rewritten article in markdown. No preamble, no commentary.`;
 
 const CHAT_FALLBACKS: Record<string, CompiledChatPrompt> = {
-  'research-extract': RESEARCH_EXTRACT_PROMPT,
-  'hook-generation': HOOK_GENERATION_PROMPT,
-  'draft-post': DRAFT_POST_PROMPT,
+  "research-extract": RESEARCH_EXTRACT_PROMPT,
+  "hook-generation": HOOK_GENERATION_PROMPT,
+  "draft-post": DRAFT_POST_PROMPT,
   // Article prompts (Phase 0 — syndication)
-  'article-research-extract': ARTICLE_RESEARCH_EXTRACT_PROMPT,
-  'article-draft': ARTICLE_DRAFT_PROMPT,
-}
+  "article-research-extract": ARTICLE_RESEARCH_EXTRACT_PROMPT,
+  "article-draft": ARTICLE_DRAFT_PROMPT,
+};
 
 const TEXT_FALLBACKS: Record<string, string> = {
-  'critique-post': CRITIQUE_POST_PROMPT,
-  'refine-post': REFINE_POST_PROMPT,
+  "critique-post": CRITIQUE_POST_PROMPT,
+  "refine-post": REFINE_POST_PROMPT,
   // Article prompts (Phase 0 — syndication)
-  'article-outline': ARTICLE_OUTLINE_PROMPT,
-  'article-judge': ARTICLE_JUDGE_PROMPT,
-  'article-refine': ARTICLE_REFINE_PROMPT,
-}
+  "article-outline": ARTICLE_OUTLINE_PROMPT,
+  "article-judge": ARTICLE_JUDGE_PROMPT,
+  "article-refine": ARTICLE_REFINE_PROMPT,
+};
 
 /**
  * Local fallback implementation of `IPromptPort` used by graph unit tests and by
@@ -412,16 +419,16 @@ export const localPromptPort: IPromptPort = {
     variables: Record<string, string>,
     fallback?: CompiledChatPrompt,
   ): Promise<CompiledChatPrompt> {
-    const prompt = fallback ?? CHAT_FALLBACKS[name]
+    const prompt = fallback ?? CHAT_FALLBACKS[name];
     if (!prompt) {
-      throw new Error(`No chat fallback prompt configured for "${name}"`)
+      throw new Error(`No chat fallback prompt configured for "${name}"`);
     }
     return {
       systemPrompt: interpolate(prompt.systemPrompt, variables),
       userPrompt: interpolate(prompt.userPrompt, variables),
-      label: 'local',
+      label: "local",
       isFallback: true,
-    }
+    };
   },
 
   async getCompiledText(
@@ -429,14 +436,14 @@ export const localPromptPort: IPromptPort = {
     variables: Record<string, string>,
     fallback?: string,
   ): Promise<string> {
-    const prompt = fallback ?? TEXT_FALLBACKS[name]
+    const prompt = fallback ?? TEXT_FALLBACKS[name];
     if (prompt === undefined) {
-      throw new Error(`No text fallback prompt configured for "${name}"`)
+      throw new Error(`No text fallback prompt configured for "${name}"`);
     }
-    return interpolate(prompt, variables)
+    return interpolate(prompt, variables);
   },
 
   getCurrentVersion(): string {
-    return 'local'
+    return "local";
   },
-}
+};

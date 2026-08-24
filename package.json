@@ -16,6 +16,7 @@
     "format": "oxfmt '**/*.ts' '**/*.vue'",
     "format:check": "oxfmt --check '**/*.ts' '**/*.vue'",
     "format:write": "oxfmt --write '**/*.ts' '**/*.vue'",
+    "planning:check": "node scripts/validate-planning-docs.mjs",
     "test": "pnpm --filter @spa/backend test",
     "test:watch": "pnpm --filter @spa/backend test:watch",
     "test:unit": "pnpm --filter @spa/backend test:unit && pnpm --filter @spa/ui test",
@@ -32,20 +33,20 @@
     "infra:up": "docker compose -f infra/docker-compose.yml up -d",
     "infra:down": "docker compose -f infra/docker-compose.yml down",
     "dry-run": "pnpm --filter @spa/backend dry-run",
-    "sentry:sourcemaps": "sentry-cli sourcemaps inject ./packages/backend/dist/ && sentry-cli sourcemaps upload ./packages/backend/dist/"
+    "sentry:sourcemaps": "if [ -z \"$SENTRY_PROJECT\" ]; then echo 'Sentry sourcemap upload skipped (SENTRY_PROJECT not set)'; else sentry-cli sourcemaps inject ./packages/backend/dist/ && sentry-cli sourcemaps upload ./packages/backend/dist/; fi"
   },
   "devDependencies": {
-    "concurrently": "^9.0.0",
-    "oxfmt": "^0.10.0",
-    "oxlint": "^1.0.0",
-    "typescript": "^5.7.0"
+    "concurrently": "^10.0.5",
+    "oxfmt": "^0.64.0",
+    "oxlint": "^1.79.0",
+    "typescript": "^7.0.2"
   },
   "engines": {
-    "node": ">=26.0.0",
+    "node": ">=24.0.0 <25.0.0",
     "pnpm": ">=11.0.0"
   },
   "dependencies": {
-    "@sentry/cli": "^2.58.6"
+    "@sentry/cli": "^3.6.2"
   },
   "packageManager": "pnpm@11.21.0"
 }

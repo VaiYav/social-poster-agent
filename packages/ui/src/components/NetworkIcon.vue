@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { cn } from '../lib/utils';
+import { cn } from "../lib/utils";
 
 const props = defineProps<{
   network: string;
@@ -7,15 +7,15 @@ const props = defineProps<{
 }>();
 
 const networkConfig: Record<string, { icon: string; label: string; color: string }> = {
-  X: { icon: '𝕏', label: 'X.com', color: 'text-text-primary' },
-  THREADS: { icon: '🧵', label: 'Threads', color: 'text-secondary' },
-  FACEBOOK: { icon: '📘', label: 'Facebook', color: 'text-info' },
+  X: { icon: "𝕏", label: "X.com", color: "text-text-primary" },
+  THREADS: { icon: "🧵", label: "Threads", color: "text-secondary" },
+  FACEBOOK: { icon: "📘", label: "Facebook", color: "text-info" },
 };
 
 const config = networkConfig[props.network] ?? {
-  icon: '?',
+  icon: "?",
   label: props.network,
-  color: 'text-text-muted',
+  color: "text-text-muted",
 };
 </script>
 

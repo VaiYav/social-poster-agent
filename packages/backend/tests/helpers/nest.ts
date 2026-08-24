@@ -12,9 +12,9 @@
  *   const service = module.get(GenerationService);
  */
 
-import { Test } from '@nestjs/testing';
-import type { TestingModule } from '@nestjs/testing';
-import type { Provider, Type } from '@nestjs/common';
+import { Test } from "@nestjs/testing";
+import type { TestingModule } from "@nestjs/testing";
+import type { Provider, Type } from "@nestjs/common";
 
 export interface TestModuleOptions {
   providers?: Provider[];
@@ -22,9 +22,7 @@ export interface TestModuleOptions {
   controllers?: Type<unknown>[];
 }
 
-export async function createTestingModule(
-  options: TestModuleOptions,
-): Promise<TestingModule> {
+export async function createTestingModule(options: TestModuleOptions): Promise<TestingModule> {
   const builder = Test.createTestingModule({
     imports: options.imports ?? [],
     providers: options.providers ?? [],

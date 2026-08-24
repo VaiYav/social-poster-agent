@@ -1,7 +1,7 @@
-import { Injectable, Logger, Inject, type OnModuleDestroy } from '@nestjs/common';
-import type { Response } from 'express';
-import { ConfigService } from '@nestjs/config';
-import IORedis from 'ioredis';
+import { Injectable, Logger, Inject, type OnModuleDestroy } from "@nestjs/common";
+import type { Response } from "express";
+import { ConfigService } from "@nestjs/config";
+import IORedis from "ioredis";
 import {
   SSEventSchema,
   type SSEvent,
@@ -25,8 +25,8 @@ import {
   type SseAutonomousCycleEvent,
   type SseOrchestratorCycleEndEvent,
   type SseFlowControlEvent,
-} from '@spa/shared';
-import { SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER } from '../redis/redis.module.js';
+} from "@spa/shared";
+import { SHARED_REDIS_SUBSCRIBER, SHARED_REDIS_PUBLISHER } from "../redis/redis.module.js";
 
 // Re-export SSE event types and schema from the shared package for backend consumers.
 export type {
@@ -83,16 +83,16 @@ export class SseService implements OnModuleDestroy {
     @Inject(SHARED_REDIS_SUBSCRIBER) private readonly redis: IORedis,
     @Inject(SHARED_REDIS_PUBLISHER) private readonly publisher: IORedis,
   ) {
-    this.channel = this.configService.get<string>('SSE_CHANNEL', 'spa:sse');
-    this.maxConnectionsPerIp = this.configService.get<number>('SSE_MAX_CONNECTIONS_PER_IP', 10);
-    this.idleTimeoutMs = this.configService.get<number>('SSE_IDLE_TIMEOUT_MS', 5 * 60 * 1000);
+    this.channel = this.configService.get<string>("SSE_CHANNEL", "spa:sse");
+    this.maxConnectionsPerIp = this.configService.get<number>("SSE_MAX_CONNECTIONS_PER_IP", 10);
+    this.idleTimeoutMs = this.configService.get<number>("SSE_IDLE_TIMEOUT_MS", 5 * 60 * 1000);
   }
 
   async init(): Promise<void> {
     // Subscriber connection — enters subscriber mode, cannot publish
     // Sprint L: Uses shared subscriber connection from RedisModule
     await this.redis.subscribe(this.channel);
-    this.redis.on('message', (_channel, message) => {
+    this.redis.on("message", (_channel, message) => {
       this.broadcast(message);
     });
 
@@ -107,8 +107,14 @@ export class SseService implements OnModuleDestroy {
     if (ip) {
       const countForIp = Array.from(this.clientIps.values()).filter((v) => v === ip).length;
       if (countForIp >= this.maxConnectionsPerIp) {
-        this.logger.warn(`SSE per-IP limit (${this.maxConnectionsPerIp}) reached for ${ip} — rejecting connection`);
-        try { res.end(); } catch { /* ignore */ }
+        this.logger.warn(
+          `SSE per-IP limit (${this.maxConnectionsPerIp}) reached for ${ip} — rejecting connection`,
+        );
+        try {
+          res.end();
+        } catch {
+          /* ignore */
+        }
         return null;
       }
     }
@@ -120,7 +126,7 @@ export class SseService implements OnModuleDestroy {
     this.logger.debug(`SSE client connected: ${clientId} (total: ${this.clients.size})`);
 
     // Send initial heartbeat
-    res.write(`data: ${JSON.stringify({ type: 'connected', clientId })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: "connected", clientId })}\n\n`);
 
     return clientId;
   }
@@ -152,7 +158,11 @@ export class SseService implements OnModuleDestroy {
     const timer = setTimeout(() => {
       this.logger.warn(`SSE client ${clientId} idle for ${this.idleTimeoutMs}ms — closing`);
       this.removeClient(clientId);
-      try { res.end(); } catch { /* ignore */ }
+      try {
+        res.end();
+      } catch {
+        /* ignore */
+      }
     }, this.idleTimeoutMs);
 
     this.idleTimers.set(clientId, timer);
@@ -177,7 +187,7 @@ export class SseService implements OnModuleDestroy {
         if (!canWrite) {
           // Backpressure — buffer is full, wait for drain
           this.logger.debug(`Backpressure on client ${clientId} — waiting for drain`);
-          res.once('drain', () => {
+          res.once("drain", () => {
             // Client recovered — no action needed
           });
           // Set a timeout to remove the client if it doesn't drain within 5s
@@ -185,7 +195,11 @@ export class SseService implements OnModuleDestroy {
             if (!res.destroyed && !res.writableEnded) {
               this.logger.warn(`Client ${clientId} stalled (backpressure timeout) — removing`);
               this.removeClient(clientId);
-              try { res.end(); } catch { /* ignore */ }
+              try {
+                res.end();
+              } catch {
+                /* ignore */
+              }
             }
           }, 5000);
         }
@@ -242,6 +256,6 @@ export class SseService implements OnModuleDestroy {
     // Sprint L: Redis connections are managed by RedisModule — don't close here
     // Just unsubscribe from the channel
     this.redis?.unsubscribe(this.channel).catch(() => {});
-    this.logger.log('SSE service shut down — unsubscribed from Redis channel');
+    this.logger.log("SSE service shut down — unsubscribed from Redis channel");
   }
 }

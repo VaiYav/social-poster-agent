@@ -9,12 +9,12 @@
  *   (the admin must be created/managed another way — e.g. a future CLI).
  * - JWT: signed with JWT_SECRET, expires in 24h, payload `{ sub, username }`.
  */
-import { Injectable, Logger, type OnModuleInit, UnauthorizedException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
-import type { AuthUser } from '@spa/shared';
+import { Injectable, Logger, type OnModuleInit, UnauthorizedException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { JwtService } from "@nestjs/jwt";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { scryptSync, randomBytes, timingSafeEqual } from "node:crypto";
+import type { AuthUser } from "@spa/shared";
 
 const SCRYPT_KEYLEN = 64;
 const SCRYPT_SALTLEN = 64;
@@ -22,7 +22,7 @@ const SCRYPT_SALTLEN = 64;
 export interface JwtPayload {
   sub: string;
   username: string;
-  role: 'admin';
+  role: "admin";
 }
 
 @Injectable()
@@ -36,8 +36,8 @@ export class AuthService implements OnModuleInit {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
   ) {
-    this.adminUsername = this.configService.get<string>('ADMIN_USERNAME', 'admin') ?? 'admin';
-    this.adminPassword = this.configService.get<string>('ADMIN_PASSWORD', '') ?? '';
+    this.adminUsername = this.configService.get<string>("ADMIN_USERNAME", "admin") ?? "admin";
+    this.adminPassword = this.configService.get<string>("ADMIN_PASSWORD", "") ?? "";
   }
 
   async onModuleInit(): Promise<void> {
@@ -53,7 +53,7 @@ export class AuthService implements OnModuleInit {
   private async bootstrapAdmin(): Promise<void> {
     if (!this.adminPassword) {
       this.logger.warn(
-        'ADMIN_PASSWORD not set — admin account will not be bootstrapped. Set ADMIN_USERNAME/ADMIN_PASSWORD in .env to enable UI login.',
+        "ADMIN_PASSWORD not set — admin account will not be bootstrapped. Set ADMIN_USERNAME/ADMIN_PASSWORD in .env to enable UI login.",
       );
       return;
     }
@@ -89,10 +89,10 @@ export class AuthService implements OnModuleInit {
   async login(username: string, password: string): Promise<{ token: string; user: AuthUser }> {
     const admin = await this.prisma.admin.findUnique({ where: { username } });
     if (!admin || !this.verifyPassword(password, admin.passwordHash)) {
-      throw new UnauthorizedException('Invalid username or password');
+      throw new UnauthorizedException("Invalid username or password");
     }
 
-    const payload: JwtPayload = { sub: admin.id, username: admin.username, role: 'admin' };
+    const payload: JwtPayload = { sub: admin.id, username: admin.username, role: "admin" };
     let token: string;
     try {
       token = await this.jwtService.signAsync(payload);
@@ -102,12 +102,12 @@ export class AuthService implements OnModuleInit {
       this.logger.error(
         `Failed to sign JWT: ${(err as Error).message}. Set JWT_SECRET (≥32 chars) to enable login.`,
       );
-      throw new UnauthorizedException('Authentication is misconfigured');
+      throw new UnauthorizedException("Authentication is misconfigured");
     }
 
     return {
       token,
-      user: { id: admin.id, username: admin.username, role: 'admin' } as AuthUser,
+      user: { id: admin.id, username: admin.username, role: "admin" } as AuthUser,
     };
   }
 
@@ -128,7 +128,7 @@ export class AuthService implements OnModuleInit {
   async getAdminById(id: string): Promise<AuthUser | null> {
     const admin = await this.prisma.admin.findUnique({ where: { id } });
     if (!admin) return null;
-    return { id: admin.id, username: admin.username, role: 'admin' } as AuthUser;
+    return { id: admin.id, username: admin.username, role: "admin" } as AuthUser;
   }
 
   // ── Password hashing (scrypt) ──────────────────────────────────
@@ -136,16 +136,16 @@ export class AuthService implements OnModuleInit {
   hashPassword(password: string): string {
     const salt = randomBytes(SCRYPT_SALTLEN);
     const hash = scryptSync(password, salt, SCRYPT_KEYLEN);
-    return `${salt.toString('hex')}:${hash.toString('hex')}`;
+    return `${salt.toString("hex")}:${hash.toString("hex")}`;
   }
 
   verifyPassword(password: string, stored: string): boolean {
-    const [saltHex, hashHex] = stored.split(':');
+    const [saltHex, hashHex] = stored.split(":");
     if (!saltHex || !hashHex) return false;
 
     try {
-      const salt = Buffer.from(saltHex, 'hex');
-      const expectedHash = Buffer.from(hashHex, 'hex');
+      const salt = Buffer.from(saltHex, "hex");
+      const expectedHash = Buffer.from(hashHex, "hex");
       const actualHash = scryptSync(password, salt, SCRYPT_KEYLEN);
 
       if (actualHash.length !== expectedHash.length) return false;

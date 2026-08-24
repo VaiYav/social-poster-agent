@@ -1,4 +1,4 @@
-import { SocialNetwork } from '@prisma/client';
+import { SocialNetwork } from "../generated/prisma/client.js";
 
 /**
  * Returns the list of enabled social networks.
@@ -19,14 +19,14 @@ export function getEnabledNetworks(): SocialNetwork[] {
   for (const network of Object.values(SocialNetwork)) {
     const flag = process.env[`SOCIAL_${network}_ACTIVE`];
     if (flag !== undefined) {
-      if (flag.trim().toLowerCase() === 'true') {
+      if (flag.trim().toLowerCase() === "true") {
         activeByFlag.push(network);
       }
       continue;
     }
     // No per-network flag — fall back to ENABLED_NETWORKS CSV.
-    const csv = process.env.ENABLED_NETWORKS ?? 'X,THREADS';
-    for (const raw of csv.split(',')) {
+    const csv = process.env.ENABLED_NETWORKS ?? "X,THREADS";
+    for (const raw of csv.split(",")) {
       const token = raw.trim().toUpperCase();
       if (token === network) {
         activeByFlag.push(network);

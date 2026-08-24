@@ -1,27 +1,27 @@
-import { Injectable, Optional } from '@nestjs/common';
-import { AgentState, IMetricsCollector } from './metrics-collector.js';
-import { HealthMonitorService } from '../health-monitor/health-monitor.service';
-import { QueueService } from '../queue/queue.service';
-import { SessionsService } from '../sessions/sessions.service';
-import { RateLimitService } from '../rate-limit/rate-limit.service';
-import { AnalyticsService } from '../analytics/analytics.service';
-import { TrendingScraperService } from '../trending/trending-scraper.service';
-import { LlmService } from '../../infrastructure/llm/llm.service';
-import { FlowControlService } from '../flow-control/flow-control.service';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { OrchestratorService } from '../orchestrator/orchestrator.service.js';
-import { getEnabledNetworks } from '../../domain/enabled-networks.js';
+import { Injectable, Optional } from "@nestjs/common";
+import { AgentState, IMetricsCollector } from "./metrics-collector.js";
+import { HealthMonitorService } from "../health-monitor/health-monitor.service.js";
+import { QueueService } from "../queue/queue.service.js";
+import { SessionsService } from "../sessions/sessions.service.js";
+import { RateLimitService } from "../rate-limit/rate-limit.service.js";
+import { AnalyticsService } from "../analytics/analytics.service.js";
+import { TrendingScraperService } from "../trending/trending-scraper.service.js";
+import { ILlmPort } from "../../domain/ports/llm.port.js";
+import { FlowControlService } from "../flow-control/flow-control.service.js";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { OrchestratorService } from "../orchestrator/orchestrator.service.js";
+import { getEnabledNetworks } from "../../domain/enabled-networks.js";
 import {
   SocialNetwork,
   CommentStatus,
   BrowsingSessionStatus,
   InteractionStatus,
   SessionStatus,
-} from '@prisma/client';
+} from "../../generated/prisma/client.js";
 
 @Injectable()
 export class HealthMetricsCollector implements IMetricsCollector {
-  public readonly id = 'health';
+  public readonly id = "health";
 
   constructor(private readonly healthMonitorService: HealthMonitorService) {}
 
@@ -30,9 +30,9 @@ export class HealthMetricsCollector implements IMetricsCollector {
       const dashboard = await this.healthMonitorService.getDashboard();
       const critical = dashboard.summary?.criticalAlerts ?? 0;
       const warning = dashboard.summary?.warningAlerts ?? 0;
-      let status: AgentState['status'] = 'running';
-      if (critical > 0) status = 'error';
-      else if (warning > 0) status = 'warning';
+      let status: AgentState["status"] = "running";
+      if (critical > 0) status = "error";
+      else if (warning > 0) status = "warning";
       return {
         status,
         metrics: {
@@ -45,14 +45,14 @@ export class HealthMetricsCollector implements IMetricsCollector {
         },
       };
     } catch (err) {
-      return { status: 'unknown', metrics: {}, message: (err as Error).message };
+      return { status: "unknown", metrics: {}, message: (err as Error).message };
     }
   }
 }
 
 @Injectable()
 export class QueueMetricsCollector implements IMetricsCollector {
-  public readonly id = 'queue';
+  public readonly id = "queue";
 
   constructor(private readonly queueService: QueueService) {}
 
@@ -83,14 +83,14 @@ export class QueueMetricsCollector implements IMetricsCollector {
     }
 
     if (!anyQueue) {
-      return { status: 'disabled', metrics: { perNetwork } };
+      return { status: "disabled", metrics: { perNetwork } };
     }
 
-    let status: AgentState['status'] = 'idle';
-    if (pausedCount > 0) status = 'paused';
-    else if (totalFailed > 0) status = 'error';
-    else if (totalActive > 0) status = 'running';
-    else if (totalWaiting > 0) status = 'warning';
+    let status: AgentState["status"] = "idle";
+    if (pausedCount > 0) status = "paused";
+    else if (totalFailed > 0) status = "error";
+    else if (totalActive > 0) status = "running";
+    else if (totalWaiting > 0) status = "warning";
 
     return {
       status,
@@ -107,7 +107,7 @@ export class QueueMetricsCollector implements IMetricsCollector {
 
 @Injectable()
 export class SessionsMetricsCollector implements IMetricsCollector {
-  public readonly id = 'sessions';
+  public readonly id = "sessions";
 
   constructor(private readonly sessionsService: SessionsService) {}
 
@@ -122,23 +122,24 @@ export class SessionsMetricsCollector implements IMetricsCollector {
         counts[session.status] = (counts[session.status] ?? 0) + 1;
       }
 
-      const banned = counts['BANNED'] ?? 0;
-      const expired = counts['EXPIRED'] ?? 0;
-      const active = counts['ACTIVE'] ?? 0;
-      const status = banned > 0 ? 'error' : expired > 0 ? 'warning' : active > 0 ? 'running' : 'idle';
+      const banned = counts["BANNED"] ?? 0;
+      const expired = counts["EXPIRED"] ?? 0;
+      const active = counts["ACTIVE"] ?? 0;
+      const status =
+        banned > 0 ? "error" : expired > 0 ? "warning" : active > 0 ? "running" : "idle";
       return {
         status,
         metrics: { total: sessions.length, counts },
       };
     } catch (err) {
-      return { status: 'unknown', metrics: {}, message: (err as Error).message };
+      return { status: "unknown", metrics: {}, message: (err as Error).message };
     }
   }
 }
 
 @Injectable()
 export class RateLimitsMetricsCollector implements IMetricsCollector {
-  public readonly id = 'rateLimits';
+  public readonly id = "rateLimits";
 
   constructor(private readonly rateLimitService: RateLimitService) {}
 
@@ -162,7 +163,7 @@ export class RateLimitsMetricsCollector implements IMetricsCollector {
     }
 
     return {
-      status: anyLimit ? (exceededCount > 0 ? 'error' : 'running') : 'disabled',
+      status: anyLimit ? (exceededCount > 0 ? "error" : "running") : "disabled",
       metrics: { exceededCount, perNetwork },
     };
   }
@@ -170,14 +171,14 @@ export class RateLimitsMetricsCollector implements IMetricsCollector {
 
 @Injectable()
 export class AnalyticsMetricsCollector implements IMetricsCollector {
-  public readonly id = 'analytics';
+  public readonly id = "analytics";
 
   constructor(private readonly analyticsService: AnalyticsService) {}
 
   async collect(): Promise<AgentState> {
     try {
       const summary = await this.analyticsService.getSummary();
-      const status = summary.failed > 0 ? 'warning' : summary.posted > 0 ? 'running' : 'idle';
+      const status = summary.failed > 0 ? "warning" : summary.posted > 0 ? "running" : "idle";
       return {
         status,
         metrics: {
@@ -189,14 +190,14 @@ export class AnalyticsMetricsCollector implements IMetricsCollector {
         },
       };
     } catch (err) {
-      return { status: 'unknown', metrics: {}, message: (err as Error).message };
+      return { status: "unknown", metrics: {}, message: (err as Error).message };
     }
   }
 }
 
 @Injectable()
 export class TrendingMetricsCollector implements IMetricsCollector {
-  public readonly id = 'trending';
+  public readonly id = "trending";
 
   constructor(private readonly trendingScraperService: TrendingScraperService) {}
 
@@ -204,9 +205,13 @@ export class TrendingMetricsCollector implements IMetricsCollector {
     try {
       const cache = this.trendingScraperService.getCacheStatus();
       const now = Date.now();
-      const googleExpired = !cache.googleTrends.cached || (cache.googleTrends.expiresAt && cache.googleTrends.expiresAt.getTime() < now);
-      const xExpired = !cache.xTrends.cached || (cache.xTrends.expiresAt && cache.xTrends.expiresAt.getTime() < now);
-      const status = googleExpired || xExpired ? 'warning' : 'running';
+      const googleExpired =
+        !cache.googleTrends.cached ||
+        (cache.googleTrends.expiresAt && cache.googleTrends.expiresAt.getTime() < now);
+      const xExpired =
+        !cache.xTrends.cached ||
+        (cache.xTrends.expiresAt && cache.xTrends.expiresAt.getTime() < now);
+      const status = googleExpired || xExpired ? "warning" : "running";
       return {
         status,
         metrics: {
@@ -215,23 +220,34 @@ export class TrendingMetricsCollector implements IMetricsCollector {
         },
       };
     } catch (err) {
-      return { status: 'unknown', metrics: {}, message: (err as Error).message };
+      return { status: "unknown", metrics: {}, message: (err as Error).message };
     }
   }
 }
 
 @Injectable()
 export class LlmMetricsCollector implements IMetricsCollector {
-  public readonly id = 'llm';
+  public readonly id = "llm";
 
-  constructor(private readonly llmService: LlmService) {}
+  /**
+   * REFACTOR-100: depends on the `ILlmPort` symbol like every other consumer,
+   * not the concrete `LlmService` class. `getProviderStatus` is optional on the
+   * port, so a reduced adapter degrades to an `unknown` agent state instead of
+   * breaking collection.
+   */
+  constructor(@Optional() private readonly llmService?: ILlmPort) {}
 
   async collect(): Promise<AgentState> {
+    if (!this.llmService?.getProviderStatus) {
+      return { status: "unknown", metrics: {}, message: "ILlmPort unavailable" };
+    }
     try {
       const providers = this.llmService.getProviderStatus();
       const openCircuits = providers.filter((p) => p.circuitOpen).length;
-      const rateLimited = providers.filter((p) => p.rateLimitUntil && p.rateLimitUntil > Date.now()).length;
-      const status = openCircuits > 0 ? 'error' : rateLimited > 0 ? 'warning' : 'running';
+      const rateLimited = providers.filter(
+        (p) => p.rateLimitUntil && p.rateLimitUntil > Date.now(),
+      ).length;
+      const status = openCircuits > 0 ? "error" : rateLimited > 0 ? "warning" : "running";
       return {
         status,
         metrics: {
@@ -242,14 +258,14 @@ export class LlmMetricsCollector implements IMetricsCollector {
         },
       };
     } catch (err) {
-      return { status: 'unknown', metrics: {}, message: (err as Error).message };
+      return { status: "unknown", metrics: {}, message: (err as Error).message };
     }
   }
 }
 
 @Injectable()
 export class FlowControlMetricsCollector implements IMetricsCollector {
-  public readonly id = 'flowControl';
+  public readonly id = "flowControl";
 
   constructor(private readonly flowControlService: FlowControlService) {}
 
@@ -258,35 +274,33 @@ export class FlowControlMetricsCollector implements IMetricsCollector {
       const status = await this.flowControlService.getStatus();
       const anyPaused = Object.values(status.flows).some(Boolean);
       return {
-        status: status.pauseAll ? 'paused' : anyPaused ? 'warning' : 'running',
+        status: status.pauseAll ? "paused" : anyPaused ? "warning" : "running",
         metrics: status,
       };
     } catch (err) {
-      return { status: 'unknown', metrics: {}, message: (err as Error).message };
+      return { status: "unknown", metrics: {}, message: (err as Error).message };
     }
   }
 }
 
 @Injectable()
 export class OrchestratorMetricsCollector implements IMetricsCollector {
-  public readonly id = 'orchestrator';
+  public readonly id = "orchestrator";
 
-  constructor(
-    @Optional() private readonly orchestratorService?: OrchestratorService,
-  ) {}
+  constructor(@Optional() private readonly orchestratorService?: OrchestratorService) {}
 
   async collect(): Promise<AgentState> {
     if (!this.orchestratorService) {
-      return { status: 'disabled', metrics: { enabled: false } };
+      return { status: "disabled", metrics: { enabled: false } };
     }
     try {
       const status = await this.orchestratorService.getStatus();
       const heartbeatAge = status.heartbeatAgeMs ?? 0;
       const staleThreshold = 5 * 60 * 1000; // 5 minutes
-      let agentStatus: AgentState['status'] = 'idle';
-      if (status.enabled && status.running) agentStatus = 'running';
-      else if (status.enabled) agentStatus = 'idle';
-      if (status.enabled && heartbeatAge > staleThreshold) agentStatus = 'error';
+      let agentStatus: AgentState["status"] = "idle";
+      if (status.enabled && status.running) agentStatus = "running";
+      else if (status.enabled) agentStatus = "idle";
+      if (status.enabled && heartbeatAge > staleThreshold) agentStatus = "error";
       return {
         status: agentStatus,
         metrics: {
@@ -298,14 +312,14 @@ export class OrchestratorMetricsCollector implements IMetricsCollector {
         },
       };
     } catch (err) {
-      return { status: 'unknown', metrics: {}, message: (err as Error).message };
+      return { status: "unknown", metrics: {}, message: (err as Error).message };
     }
   }
 }
 
 @Injectable()
 export class EngagementMetricsCollector implements IMetricsCollector {
-  public readonly id = 'engagement';
+  public readonly id = "engagement";
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -315,8 +329,8 @@ export class EngagementMetricsCollector implements IMetricsCollector {
         this.prisma.interaction.count(),
         this.prisma.interaction.count({ where: { status: InteractionStatus.COMPLETED } }),
         this.prisma.interaction.count({ where: { status: InteractionStatus.FAILED } }),
-        this.prisma.interaction.groupBy({ by: ['type'], _count: true }),
-        this.prisma.browsingSession.groupBy({ by: ['status'], _count: true }),
+        this.prisma.interaction.groupBy({ by: ["type"], _count: true }),
+        this.prisma.browsingSession.groupBy({ by: ["status"], _count: true }),
       ]);
 
       const byType: Record<string, number> = {};
@@ -324,8 +338,9 @@ export class EngagementMetricsCollector implements IMetricsCollector {
         byType[item.type] = item._count;
       }
 
-      const activeBrowsing = browsing.find((b) => b.status === BrowsingSessionStatus.ACTIVE)?._count ?? 0;
-      const status = activeBrowsing > 0 ? 'running' : total > 0 ? 'idle' : 'disabled';
+      const activeBrowsing =
+        browsing.find((b) => b.status === BrowsingSessionStatus.ACTIVE)?._count ?? 0;
+      const status = activeBrowsing > 0 ? "running" : total > 0 ? "idle" : "disabled";
 
       return {
         status,
@@ -338,21 +353,23 @@ export class EngagementMetricsCollector implements IMetricsCollector {
         },
       };
     } catch (err) {
-      return { status: 'unknown', metrics: {}, message: (err as Error).message };
+      return { status: "unknown", metrics: {}, message: (err as Error).message };
     }
   }
 }
 
 @Injectable()
 export class RepliesMetricsCollector implements IMetricsCollector {
-  public readonly id = 'replies';
+  public readonly id = "replies";
 
   constructor(private readonly prisma: PrismaService) {}
 
   async collect(): Promise<AgentState> {
     try {
       const [newCount, replied, skipped, humanReview, repliedManual] = await Promise.all(
-        Object.values(CommentStatus).map((status) => this.prisma.incomingComment.count({ where: { status } })),
+        Object.values(CommentStatus).map((status) =>
+          this.prisma.incomingComment.count({ where: { status } }),
+        ),
       );
       const statuses = Object.values(CommentStatus);
       const counts: Record<string, number> = {};
@@ -363,18 +380,18 @@ export class RepliesMetricsCollector implements IMetricsCollector {
 
       const total = Object.values(counts).reduce((a, b) => a + b, 0);
       return {
-        status: total > 0 ? 'running' : 'disabled',
+        status: total > 0 ? "running" : "disabled",
         metrics: { total, counts, humanReview },
       };
     } catch (err) {
-      return { status: 'unknown', metrics: {}, message: (err as Error).message };
+      return { status: "unknown", metrics: {}, message: (err as Error).message };
     }
   }
 }
 
 @Injectable()
 export class GenerationMetricsCollector implements IMetricsCollector {
-  public readonly id = 'generation';
+  public readonly id = "generation";
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -382,42 +399,44 @@ export class GenerationMetricsCollector implements IMetricsCollector {
     try {
       const [total, running, completed, failed] = await Promise.all([
         this.prisma.generationRun.count(),
-        this.prisma.generationRun.count({ where: { status: 'RUNNING' } }),
-        this.prisma.generationRun.count({ where: { status: 'COMPLETED' } }),
-        this.prisma.generationRun.count({ where: { status: 'FAILED' } }),
+        this.prisma.generationRun.count({ where: { status: "RUNNING" } }),
+        this.prisma.generationRun.count({ where: { status: "COMPLETED" } }),
+        this.prisma.generationRun.count({ where: { status: "FAILED" } }),
       ]);
-      const status = running > 0 ? 'running' : failed > 0 ? 'warning' : total > 0 ? 'idle' : 'disabled';
+      const status =
+        running > 0 ? "running" : failed > 0 ? "warning" : total > 0 ? "idle" : "disabled";
       return {
         status,
         metrics: { total, running, completed, failed },
       };
     } catch (err) {
-      return { status: 'unknown', metrics: {}, message: (err as Error).message };
+      return { status: "unknown", metrics: {}, message: (err as Error).message };
     }
   }
 }
 
 @Injectable()
 export class PostingMetricsCollector implements IMetricsCollector {
-  public readonly id = 'posting';
+  public readonly id = "posting";
 
   constructor(private readonly prisma: PrismaService) {}
 
   async collect(): Promise<AgentState> {
     try {
       const [approved, posting, failed, completed] = await Promise.all([
-        this.prisma.post.count({ where: { status: 'APPROVED' } }),
-        this.prisma.post.count({ where: { status: 'POSTING' } }),
-        this.prisma.post.count({ where: { status: 'FAILED' } }),
-        this.prisma.post.count({ where: { status: 'POSTED' } }),
+        this.prisma.post.count({ where: { status: "APPROVED" } }),
+        this.prisma.post.count({ where: { status: "POSTING" } }),
+        this.prisma.post.count({ where: { status: "FAILED" } }),
+        this.prisma.post.count({ where: { status: "POSTED" } }),
       ]);
-      const status = posting > 0 ? 'running' : failed > 0 ? 'error' : approved > 0 ? 'warning' : 'idle';
+      const status =
+        posting > 0 ? "running" : failed > 0 ? "error" : approved > 0 ? "warning" : "idle";
       return {
         status,
         metrics: { approved, posting, failed, completed },
       };
     } catch (err) {
-      return { status: 'unknown', metrics: {}, message: (err as Error).message };
+      return { status: "unknown", metrics: {}, message: (err as Error).message };
     }
   }
 }

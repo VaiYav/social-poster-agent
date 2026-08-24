@@ -9,17 +9,17 @@
  *   npx tsx --env-file=../../.env scripts/calibrate-judge.ts
  *   npx tsx --env-file=../../.env scripts/calibrate-judge.ts --since=7d --json
  */
-import { PrismaClient, PostStatus, Prisma } from '@prisma/client';
-import type { JudgeScores } from '@spa/shared';
+import { PrismaClient, PostStatus, Prisma } from "../src/generated/prisma/client.js";
+import type { JudgeScores } from "@spa/shared";
 
 const JUDGE_DIMENSIONS: Array<keyof JudgeScores> = [
-  'anti_ai_tone',
-  'factual_accuracy',
-  'hook_strength',
-  'character_limit',
+  "anti_ai_tone",
+  "factual_accuracy",
+  "hook_strength",
+  "character_limit",
 ];
 
-type DecisionLabel = 'approved' | 'rejected' | 'human_review' | 'other';
+type DecisionLabel = "approved" | "rejected" | "human_review" | "other";
 
 interface CalibrationOptions {
   since?: string;
@@ -30,9 +30,9 @@ interface CalibrationOptions {
 function parseArgs(): CalibrationOptions {
   const opts: CalibrationOptions = {};
   for (const arg of process.argv.slice(2)) {
-    if (arg === '--json') opts.json = true;
-    if (arg.startsWith('--since=')) opts.since = arg.split('=')[1];
-    if (arg.startsWith('--status=')) opts.status = arg.split('=')[1];
+    if (arg === "--json") opts.json = true;
+    if (arg.startsWith("--since=")) opts.since = arg.split("=")[1];
+    if (arg.startsWith("--status=")) opts.status = arg.split("=")[1];
   }
   return opts;
 }
@@ -46,19 +46,27 @@ function parseSince(since?: string): Date | undefined {
   const now = Date.now();
   let ms = 0;
   switch (unit) {
-    case 'm': ms = amount * 60 * 1000; break;
-    case 'h': ms = amount * 60 * 60 * 1000; break;
-    case 'd': ms = amount * 24 * 60 * 60 * 1000; break;
-    case 'w': ms = amount * 7 * 24 * 60 * 60 * 1000; break;
+    case "m":
+      ms = amount * 60 * 1000;
+      break;
+    case "h":
+      ms = amount * 60 * 60 * 1000;
+      break;
+    case "d":
+      ms = amount * 24 * 60 * 60 * 1000;
+      break;
+    case "w":
+      ms = amount * 7 * 24 * 60 * 60 * 1000;
+      break;
   }
   return new Date(now - ms);
 }
 
 function classify(status: PostStatus): DecisionLabel {
-  if (['APPROVED', 'POSTED', 'POSTING', 'SCHEDULED'].includes(status)) return 'approved';
-  if (status === 'REJECTED') return 'rejected';
-  if (status === 'HUMAN_REVIEW') return 'human_review';
-  return 'other';
+  if (["APPROVED", "POSTED", "POSTING", "SCHEDULED"].includes(status)) return "approved";
+  if (status === "REJECTED") return "rejected";
+  if (status === "HUMAN_REVIEW") return "human_review";
+  return "other";
 }
 
 function average(values: number[]): number {
@@ -88,8 +96,16 @@ interface CalibrationReport {
   dimensions: DimensionStats[];
 }
 
-function computeStats(postIds: string[], rows: { label: DecisionLabel; scores: JudgeScores }[]): CalibrationReport {
-  const byLabel: Record<DecisionLabel, number> = { approved: 0, rejected: 0, human_review: 0, other: 0 };
+function computeStats(
+  postIds: string[],
+  rows: { label: DecisionLabel; scores: JudgeScores }[],
+): CalibrationReport {
+  const byLabel: Record<DecisionLabel, number> = {
+    approved: 0,
+    rejected: 0,
+    human_review: 0,
+    other: 0,
+  };
   const approvedValues: Record<string, number[]> = {};
   const rejectedValues: Record<string, number[]> = {};
 
@@ -97,10 +113,10 @@ function computeStats(postIds: string[], rows: { label: DecisionLabel; scores: J
     byLabel[row.label] = (byLabel[row.label] ?? 0) + 1;
     for (const dim of JUDGE_DIMENSIONS) {
       const value = row.scores[dim];
-      if (typeof value !== 'number') continue;
-      if (row.label === 'approved') {
+      if (typeof value !== "number") continue;
+      if (row.label === "approved") {
         (approvedValues[dim] ??= []).push(value);
-      } else if (row.label === 'rejected') {
+      } else if (row.label === "rejected") {
         (rejectedValues[dim] ??= []).push(value);
       }
     }
@@ -174,7 +190,10 @@ async function main() {
       }
     }
 
-    const report = computeStats(posts.map((p) => p.id), rows);
+    const report = computeStats(
+      posts.map((p) => p.id),
+      rows,
+    );
 
     if (opts.json) {
       console.log(JSON.stringify(report, null, 2));
@@ -182,7 +201,7 @@ async function main() {
       console.error(`\n=== Judge Calibration Report ===`);
       console.error(`Posts analyzed: ${posts.length}`);
       console.error(`Variant-decisions analyzed: ${rows.length}`);
-      console.error('\nBy outcome:');
+      console.error("\nBy outcome:");
       for (const [label, count] of Object.entries(report.byLabel)) {
         console.error(`  ${label}: ${count}`);
       }

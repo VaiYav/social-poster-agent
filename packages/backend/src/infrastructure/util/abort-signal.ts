@@ -30,15 +30,15 @@ export function combineSignals(...signals: (AbortSignal | undefined)[]): AbortSi
   const abort = () => controller.abort();
 
   for (const s of defined) {
-    s.addEventListener('abort', abort, { once: true });
+    s.addEventListener("abort", abort, { once: true });
   }
 
   // Clean up input listeners as soon as the combined signal aborts.
   controller.signal.addEventListener(
-    'abort',
+    "abort",
     () => {
       for (const s of defined) {
-        s.removeEventListener('abort', abort);
+        s.removeEventListener("abort", abort);
       }
     },
     { once: true },
@@ -53,9 +53,9 @@ export function combineSignals(...signals: (AbortSignal | undefined)[]): AbortSi
  */
 export function signalToPromise(signal: AbortSignal): Promise<never> {
   if (signal.aborted) {
-    return Promise.reject(new Error('Abort'));
+    return Promise.reject(new Error("Abort"));
   }
   return new Promise((_, reject) => {
-    signal.addEventListener('abort', () => reject(new Error('Abort')), { once: true });
+    signal.addEventListener("abort", () => reject(new Error("Abort")), { once: true });
   });
 }

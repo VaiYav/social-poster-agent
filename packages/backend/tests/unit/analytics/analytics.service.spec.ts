@@ -3,12 +3,12 @@
  *
  * Source: packages/backend/src/modules/analytics/analytics.service.ts
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { PostStatus, SocialNetwork } from '@prisma/client';
-import { AnalyticsService } from '../../../src/modules/analytics/analytics.service';
-import { createMockPrismaService } from '../../mocks/index.js';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { PostStatus, SocialNetwork } from "../../../src/generated/prisma/client.js";
+import { AnalyticsService } from "../../../src/modules/analytics/analytics.service.js";
+import { createMockPrismaService } from "../../mocks/index.js";
 
-describe('AnalyticsService', () => {
+describe("AnalyticsService", () => {
   let service: AnalyticsService;
   let prisma: ReturnType<typeof createMockPrismaService>;
 
@@ -17,14 +17,52 @@ describe('AnalyticsService', () => {
     service = new AnalyticsService(prisma as never);
   });
 
-  describe('getAutonomousStats', () => {
-    it('returns judge score averages overall and by decision', async () => {
+  it("aggregates durable LLM usage by account, provider and day", async () => {
+    prisma.llmUsageEvent.findMany.mockResolvedValue([
+      {
+        accountId: "account-1",
+        provider: "openai",
+        tokensIn: 100,
+        tokensOut: 40,
+        costUsd: "0.0012",
+        cached: false,
+        createdAt: new Date("2026-08-23T10:00:00Z"),
+      },
+      {
+        accountId: null,
+        provider: "groq",
+        tokensIn: 20,
+        tokensOut: 10,
+        costUsd: 0,
+        cached: true,
+        createdAt: new Date("2026-08-24T10:00:00Z"),
+      },
+    ]);
+
+    await expect(
+      service.getCostAnalytics({
+        from: new Date("2026-08-23T00:00:00Z"),
+        to: new Date("2026-08-24T23:59:59Z"),
+      }),
+    ).resolves.toMatchObject({
+      events: 2,
+      totalCostUsd: 0.0012,
+      totalTokensIn: 120,
+      totalTokensOut: 50,
+      cacheHits: 1,
+      byAccount: { "account-1": { events: 1, costUsd: 0.0012 }, unattributed: { events: 1 } },
+      byProvider: { openai: { costUsd: 0.0012 }, groq: { events: 1 } },
+    });
+  });
+
+  describe("getAutonomousStats", () => {
+    it("returns judge score averages overall and by decision", async () => {
       (prisma.post.count as ReturnType<typeof vi.fn>).mockResolvedValue(10);
       (prisma.$queryRaw as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce([{ autoApproved: 4, rejected: 2, humanReview: 1 }])
-        .mockResolvedValueOnce([{ avgScore: '0.82' }])
-        .mockResolvedValueOnce([{ score: '0.8', count: 3 }])
-        .mockResolvedValueOnce([{ reason: 'low quality', count: 2 }])
+        .mockResolvedValueOnce([{ avgScore: "0.82" }])
+        .mockResolvedValueOnce([{ score: "0.8", count: 3 }])
+        .mockResolvedValueOnce([{ reason: "low quality", count: 2 }])
         .mockResolvedValueOnce([
           {
             antiAiTone: 0.75,
@@ -36,7 +74,7 @@ describe('AnalyticsService', () => {
         ])
         .mockResolvedValueOnce([
           {
-            decision: 'AUTO_APPROVE',
+            decision: "AUTO_APPROVE",
             antiAiTone: 0.8,
             hookStrength: 0.9,
             factualAccuracy: 0.95,
@@ -44,7 +82,7 @@ describe('AnalyticsService', () => {
             count: 4,
           },
           {
-            decision: 'REJECT',
+            decision: "REJECT",
             antiAiTone: 0.6,
             hookStrength: 0.7,
             factualAccuracy: 0.75,
@@ -78,7 +116,7 @@ describe('AnalyticsService', () => {
       });
     });
 
-    it('returns null averages when no judge scores exist', async () => {
+    it("returns null averages when no judge scores exist", async () => {
       (prisma.post.count as ReturnType<typeof vi.fn>).mockResolvedValue(0);
       (prisma.$queryRaw as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce([{ autoApproved: 0, rejected: 0, humanReview: 0 }])
@@ -101,19 +139,104 @@ describe('AnalyticsService', () => {
     });
   });
 
-  describe('generateReport', () => {
-    it('aggregates judge scores by dimension and decision', async () => {
-      const postedAt = new Date('2026-07-01T12:00:00Z');
+  describe("getReviewCalibration", () => {
+    it("summarizes durable review, sync and preliminary judge-human evidence", async () => {
+      prisma.postReviewDecision.findMany.mockResolvedValue([
+        {
+          decision: "APPROVE_EDITED",
+          reasonCodes: ["VOICE_AI_GENERIC"],
+          rubric: {
+            publishability: 2,
+            factualSupport: 2,
+            humanVoice: 0,
+            hookStrength: 2,
+            platformFit: 2,
+          },
+          syncStatus: "SYNCED",
+          normalizedEditDistance: 0.25,
+          originalContentHash: "original",
+          finalContentHash: "final",
+          langfuseTraceId: "trace-1",
+          langfuseObservationId: null,
+          post: {
+            judgeScores: {
+              anti_ai_tone: 0.8,
+              hook_strength: 0.9,
+              factual_accuracy: 0.9,
+              character_limit: 0.9,
+            },
+          },
+        },
+        {
+          decision: "REJECT",
+          reasonCodes: [],
+          rubric: null,
+          syncStatus: "PENDING",
+          normalizedEditDistance: null,
+          originalContentHash: "original-2",
+          finalContentHash: null,
+          langfuseTraceId: null,
+          langfuseObservationId: null,
+          post: { judgeScores: null },
+        },
+      ]);
+
+      const report = await service.getReviewCalibration(30);
+
+      expect(report.totalDecisions).toBe(2);
+      expect(report.byDecision).toEqual({ APPROVE_EDITED: 1, REJECT: 1 });
+      expect(report.syncStatus).toEqual({ SYNCED: 1, PENDING: 1 });
+      expect(report.averageEditDistance).toBe(0.25);
+      expect(report.evidenceCoverage).toEqual({
+        reasonCodes: 0.5,
+        rubric: 0.5,
+        trace: 0.5,
+        contentHashes: 1,
+      });
+      expect(report.calibration).toEqual({
+        pairedSamples: 4,
+        agreementRate: 0.75,
+        kappa: 0,
+        precision: 0.75,
+        recall: 1,
+        tpr: 1,
+        tnr: 0,
+        status: "INSUFFICIENT_SAMPLE",
+      });
+    });
+
+    it("clamps invalid windows and returns explicit insufficient evidence", async () => {
+      prisma.postReviewDecision.findMany.mockResolvedValue([]);
+
+      await expect(service.getReviewCalibration(0)).resolves.toMatchObject({
+        windowDays: 30,
+        totalDecisions: 0,
+        averageEditDistance: null,
+        calibration: {
+          pairedSamples: 0,
+          agreementRate: null,
+          status: "INSUFFICIENT_SAMPLE",
+        },
+      });
+      expect(prisma.postReviewDecision.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ take: 10_000 }),
+      );
+    });
+  });
+
+  describe("generateReport", () => {
+    it("aggregates judge scores by dimension and decision", async () => {
+      const postedAt = new Date("2026-07-01T12:00:00Z");
       const posts = [
         {
-          id: 'p-1',
+          id: "p-1",
           network: SocialNetwork.X,
           status: PostStatus.POSTED,
-          content: 'Post 1',
+          content: "Post 1",
           createdAt: postedAt,
           postedAt,
           llmMetadata: {
-            autoApproveDecision: 'AUTO_APPROVE',
+            autoApproveDecision: "AUTO_APPROVE",
             qualityScore: 8.5,
             judgeScores: {
               anti_ai_tone: 0.9,
@@ -122,17 +245,17 @@ describe('AnalyticsService', () => {
               character_limit: 1.0,
             },
           },
-          generationRun: { triggeredBy: 'SCHEDULE' },
+          generationRun: { triggeredBy: "SCHEDULE" },
         },
         {
-          id: 'p-2',
+          id: "p-2",
           network: SocialNetwork.THREADS,
           status: PostStatus.REJECTED,
-          content: 'Post 2',
+          content: "Post 2",
           createdAt: postedAt,
           postedAt: null,
           llmMetadata: {
-            autoApproveDecision: 'REJECT',
+            autoApproveDecision: "REJECT",
             qualityScore: 4.0,
             judgeScores: {
               anti_ai_tone: 0.3,
@@ -141,13 +264,13 @@ describe('AnalyticsService', () => {
               character_limit: 0.6,
             },
           },
-          generationRun: { triggeredBy: 'MANUAL' },
+          generationRun: { triggeredBy: "MANUAL" },
         },
       ];
 
       (prisma.post.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(posts);
 
-      const report = await service.generateReport('30d');
+      const report = await service.generateReport("30d");
 
       expect(report.judgeStats.overall).toMatchObject({
         antiAiTone: 0.6, // (0.9 + 0.3) / 2
@@ -174,13 +297,13 @@ describe('AnalyticsService', () => {
       });
     });
 
-    it('ignores judge score posts with no numeric dimensions', async () => {
+    it("ignores judge score posts with no numeric dimensions", async () => {
       (prisma.post.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
         {
-          id: 'p-1',
+          id: "p-1",
           network: SocialNetwork.X,
           status: PostStatus.POSTED,
-          content: 'No judge',
+          content: "No judge",
           createdAt: new Date(),
           postedAt: new Date(),
           llmMetadata: {},
@@ -188,7 +311,7 @@ describe('AnalyticsService', () => {
         },
       ]);
 
-      const report = await service.generateReport('30d');
+      const report = await service.generateReport("30d");
 
       expect(report.judgeStats.overall.count).toBe(0);
     });

@@ -1,0 +1,60 @@
+[
+  {
+    "label": "astrology",
+    "keywords": [
+      "astro", "zodiac", "horoscope", "moon", "sun sign", "star sign", "mercury",
+      "retrograde", "eclipse", "planet", "natal", "birth chart", "cosmic", "celestial",
+      "solstice", "equinox", "full moon", "new moon", "lunar", "solar", "jupiter",
+      "saturn", "venus", "mars", "pluto", "neptune", "uranus", "chiron", "midheaven",
+      "rising sign", "moon sign", "venus retrograde", "mercury retrograde"
+    ]
+  },
+  {
+    "label": "wellness",
+    "keywords": [
+      "wellness", "self-care", "self care", "meditation", "mindfulness", "yoga",
+      "breathwork", "journaling", "gratitude", "manifest", "manifestation",
+      "crystal", "tarot", "oracle", "ritual", "affirmation", "healing", "energy",
+      "chakra", "aura", "cleanse", "detox", "wellbeing", "well-being"
+    ]
+  },
+  {
+    "label": "women's cycles",
+    "keywords": [
+      "cycle", "menstrual", "period", "feminine", "divine feminine", "womb",
+      "luteal", "follicular", "ovulation", "menopause", "hormone", "cycle syncing"
+    ]
+  },
+  {
+    "label": "relationships",
+    "keywords": [
+      "love", "relationship", "dating", "partner", "romance", "soulmate",
+      "twin flame", "breakup", "heartbreak", "attachment", "intimacy", "marriage",
+      "couple", "compatibility", "synastry", "venus in"
+    ]
+  },
+  {
+    "label": "business",
+    "keywords": [
+      "business", "entrepreneur", "mindset", "productivity", "goal", "success",
+      "leadership", "career", "purpose", "abundance", "wealth", "money mindset",
+      "discipline", "habit", "routine", "focus", "manifest money", "side hustle"
+    ]
+  },
+  {
+    "label": "mental health",
+    "keywords": [
+      "anxiety", "stress", "burnout", "depression", "mental health", "therapy",
+      "emotional", "trauma", "self-love", "self love", "confidence", "boundaries",
+      "overthinking", "people pleaser", "inner child", "shadow work"
+    ]
+  },
+  {
+    "label": "spirituality",
+    "keywords": [
+      "spiritual", "spirituality", "soul", "purpose", "awakening", "intuition",
+      "universe", "synchronicity", "sign from the universe", "higher self",
+      "manifestation", "law of attraction", "vibration", "frequency"
+    ]
+  }
+]

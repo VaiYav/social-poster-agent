@@ -11,12 +11,12 @@
  * V-Model: WS-5 (critical — the main loop that replaces all crons)
  */
 
-import { StateGraph, END, START, Annotation } from '@langchain/langgraph';
-import type { RunnableConfig } from '@langchain/core/runnables';
-import type { StateCollectorService } from './state-collector.service.js';
-import type { DecisionEngineService } from './decision-engine.service.js';
-import type { ActionExecutorService } from './action-executor.service.js';
-import type { WorldState, Action, ActionResult } from './types.js';
+import { StateGraph, END, START, Annotation } from "@langchain/langgraph";
+import type { RunnableConfig } from "@langchain/core/runnables";
+import type { StateCollectorService } from "./state-collector.service.js";
+import type { DecisionEngineService } from "./decision-engine.service.js";
+import type { ActionExecutorService } from "./action-executor.service.js";
+import type { WorldState, Action, ActionResult } from "./types.js";
 
 // ── State Definition ───────────────────────────────────────────────────────
 
@@ -115,7 +115,9 @@ function decideNode(deps: OrchestratorGraphDeps) {
   ): Promise<Partial<OrchestratorStateType>> => {
     if (!state.world) {
       // Observe failed catastrophically — return WAIT to retry next cycle
-      return { action: { type: 'WAIT', reason: 'No world state (observe failed)', source: 'hard_rule' } };
+      return {
+        action: { type: "WAIT", reason: "No world state (observe failed)", source: "hard_rule" },
+      };
     }
     const action = await deps.decisionEngine.decide(state.world, config.signal);
     return { action };
@@ -128,38 +130,39 @@ function decideNode(deps: OrchestratorGraphDeps) {
  */
 function getActionTimeoutMs(
   action: Action,
-  timeoutConfig?: OrchestratorGraphDeps['timeoutConfig'],
+  timeoutConfig?: OrchestratorGraphDeps["timeoutConfig"],
 ): number {
   const browseSessionMinutes = timeoutConfig?.f1BrowsingSessionMinutes ?? 15;
   const browseSessionSec = browseSessionMinutes * 60;
   const browseTimeoutMs = browseSessionSec * 1000 + 180_000 + 10_000;
   // Number() does not parse numeric-literal underscores, so strip them first.
   const rawGenerateTimeout = String(timeoutConfig?.orchestratorGenerateTimeoutMs ?? 1_200_000);
-  const parsedGenerateTimeout = Number(rawGenerateTimeout.replaceAll('_', '').trim());
-  const generateTimeoutMs = Number.isFinite(parsedGenerateTimeout) && parsedGenerateTimeout > 0
-    ? parsedGenerateTimeout
-    : 1_200_000;
+  const parsedGenerateTimeout = Number(rawGenerateTimeout.replaceAll("_", "").trim());
+  const generateTimeoutMs =
+    Number.isFinite(parsedGenerateTimeout) && parsedGenerateTimeout > 0
+      ? parsedGenerateTimeout
+      : 1_200_000;
 
   switch (action.type) {
-    case 'BROWSE':
+    case "BROWSE":
       return browseTimeoutMs;
-    case 'GENERATE_POSTS':
+    case "GENERATE_POSTS":
       return generateTimeoutMs;
-    case 'CHECK_REPLIES':
-    case 'RECONCILE':
+    case "CHECK_REPLIES":
+    case "RECONCILE":
       return 300_000;
-    case 'RECYCLE_CONTENT':
-    case 'GENERATE_TOPICS':
+    case "RECYCLE_CONTENT":
+    case "GENERATE_TOPICS":
       return 600_000;
-    case 'REFRESH_TRENDS':
-    case 'SCRAPE_METRICS':
-    case 'HEALTH_CHECK':
-    case 'RECOVER_SESSION':
+    case "REFRESH_TRENDS":
+    case "SCRAPE_METRICS":
+    case "HEALTH_CHECK":
+    case "RECOVER_SESSION":
       return 180_000;
-    case 'POST':
-    case 'AGGREGATE_HOOKS':
+    case "POST":
+    case "AGGREGATE_HOOKS":
       return 120_000;
-    case 'WAIT':
+    case "WAIT":
       return 0;
     default:
       return 120_000;
@@ -167,12 +170,17 @@ function getActionTimeoutMs(
 }
 
 function executeNode(deps: OrchestratorGraphDeps) {
-  return async (state: OrchestratorStateType, config: RunnableConfig): Promise<Partial<OrchestratorStateType>> => {
+  return async (
+    state: OrchestratorStateType,
+    config: RunnableConfig,
+  ): Promise<Partial<OrchestratorStateType>> => {
     if (!state.action) {
-      return { result: { success: false, type: 'WAIT', duration: 0, error: 'No action to execute' } };
+      return {
+        result: { success: false, type: "WAIT", duration: 0, error: "No action to execute" },
+      };
     }
-    if (state.action.type === 'WAIT') {
-      return { result: { success: true, type: 'WAIT', duration: 0 } };
+    if (state.action.type === "WAIT") {
+      return { result: { success: true, type: "WAIT", duration: 0 } };
     }
 
     // Write heartbeat before executing — long-running actions (BROWSE, up to 15 min)
@@ -204,7 +212,7 @@ function executeNode(deps: OrchestratorGraphDeps) {
 
     const onGraphAbort = () => timeoutCtrl.abort();
     if (config.signal) {
-      config.signal.addEventListener('abort', onGraphAbort, { once: true });
+      config.signal.addEventListener("abort", onGraphAbort, { once: true });
       if (config.signal.aborted) timeoutCtrl.abort();
     }
 
@@ -228,7 +236,7 @@ function executeNode(deps: OrchestratorGraphDeps) {
       }
       timeoutReject = undefined;
       if (config.signal) {
-        config.signal.removeEventListener('abort', onGraphAbort);
+        config.signal.removeEventListener("abort", onGraphAbort);
       }
     }
   };
@@ -239,7 +247,11 @@ function executeNode(deps: OrchestratorGraphDeps) {
  */
 function evaluateNode(deps: OrchestratorGraphDeps) {
   return async (state: OrchestratorStateType): Promise<Partial<OrchestratorStateType>> => {
-    const action = state.action ?? { type: 'WAIT' as const, reason: 'No action', source: 'hard_rule' as const };
+    const action = state.action ?? {
+      type: "WAIT" as const,
+      reason: "No action",
+      source: "hard_rule" as const,
+    };
     const world = state.world;
     const sleepMs = world ? calculateAdaptiveSleep(action, world) : 60_000;
 
@@ -272,12 +284,12 @@ function calculateAdaptiveSleep(action: Action, world: WorldState): number {
   // Only network-scoped actions (POST, BROWSE, RECOVER_SESSION) should be blocked
   // by the target network's circuit. Global actions like GENERATE_TOPICS are not.
   const targetNetwork = action.network;
-  if (targetNetwork && world.sessions[targetNetwork]?.circuitBreaker === 'open') {
+  if (targetNetwork && world.sessions[targetNetwork]?.circuitBreaker === "open") {
     return 60_000;
   }
 
   // RECOVER_SESSION → quick check if recovery worked
-  if (action.type === 'RECOVER_SESSION') {
+  if (action.type === "RECOVER_SESSION") {
     return 15_000;
   }
 
@@ -294,7 +306,7 @@ function calculateAdaptiveSleep(action: Action, world: WorldState): number {
   }
 
   // Non-WAIT action → active mode
-  if (action.type !== 'WAIT') {
+  if (action.type !== "WAIT") {
     return 60_000;
   }
 
@@ -315,19 +327,19 @@ function calculateAdaptiveSleep(action: Action, world: WorldState): number {
  */
 export function buildOrchestratorGraph(deps: OrchestratorGraphDeps) {
   const graph = new StateGraph(OrchestratorState)
-    .addNode('observe', observeNode(deps))
-    .addNode('decide', decideNode(deps))
-    .addNode('execute', executeNode(deps))
-    .addNode('evaluate', evaluateNode(deps));
+    .addNode("observe", observeNode(deps))
+    .addNode("decide", decideNode(deps))
+    .addNode("execute", executeNode(deps))
+    .addNode("evaluate", evaluateNode(deps));
 
   // Edges: linear cycle — each invoke runs exactly ONE cycle (4 nodes).
   // The outer while loop in OrchestratorService handles repetition.
   // This avoids LangGraph recursion limit issues and gives better lifecycle control.
-  graph.addEdge(START, 'observe');
-  graph.addEdge('observe', 'decide');
-  graph.addEdge('decide', 'execute');
-  graph.addEdge('execute', 'evaluate');
-  graph.addEdge('evaluate', END);
+  graph.addEdge(START, "observe");
+  graph.addEdge("observe", "decide");
+  graph.addEdge("decide", "execute");
+  graph.addEdge("execute", "evaluate");
+  graph.addEdge("evaluate", END);
 
   return graph;
 }

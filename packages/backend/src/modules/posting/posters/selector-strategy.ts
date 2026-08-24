@@ -17,9 +17,9 @@
 //   };
 //   const locator = await resolveSelector(page, strategy);
 
-import type { Locator, Page } from '../../../domain/ports/browser-primitives.js';
-import type { SocialNetwork } from '@spa/shared';
-import type { SelectorHealthService } from '../../../infrastructure/browser/selector-health.service.js';
+import type { Locator, Page } from "../../../domain/ports/browser-primitives.js";
+import type { SocialNetwork } from "@spa/shared";
+import type { SelectorHealthService } from "../../../infrastructure/browser/selector-health.service.js";
 
 /** Selector strategy — multiple approaches to find the same element. */
 export interface SelectorStrategy {
@@ -38,7 +38,7 @@ export interface SelectorStrategy {
 /** Result of selector resolution. */
 export interface SelectorResolution {
   locator: Locator;
-  method: 'testId' | 'role' | 'label' | 'css' | 'text';
+  method: "testId" | "role" | "label" | "css" | "text";
   selector: string;
 }
 
@@ -54,7 +54,11 @@ export interface SelectorResolution {
 export async function resolveSelector(
   page: Page,
   strategy: SelectorStrategy,
-  healthTracking?: { network: SocialNetwork; selectorKey: string; healthService: SelectorHealthService },
+  healthTracking?: {
+    network: SocialNetwork;
+    selectorKey: string;
+    healthService: SelectorHealthService;
+  },
 ): Promise<SelectorResolution> {
   let result: SelectorResolution | null = null;
   try {
@@ -63,9 +67,15 @@ export async function resolveSelector(
   } finally {
     if (healthTracking) {
       if (result) {
-        healthTracking.healthService.recordSuccess(healthTracking.network, healthTracking.selectorKey);
+        healthTracking.healthService.recordSuccess(
+          healthTracking.network,
+          healthTracking.selectorKey,
+        );
       } else {
-        healthTracking.healthService.recordFailure(healthTracking.network, healthTracking.selectorKey);
+        healthTracking.healthService.recordFailure(
+          healthTracking.network,
+          healthTracking.selectorKey,
+        );
       }
     }
   }
@@ -80,7 +90,7 @@ async function resolveSelectorInner(
   if (strategy.testId) {
     const locator = page.locator(`[data-testid="${strategy.testId}"]`).first();
     if (await isVisible(locator)) {
-      return { locator, method: 'testId', selector: `[data-testid="${strategy.testId}"]` };
+      return { locator, method: "testId", selector: `[data-testid="${strategy.testId}"]` };
     }
   }
 
@@ -95,8 +105,8 @@ async function resolveSelectorInner(
     if (await isVisible(locator)) {
       return {
         locator,
-        method: 'role',
-        selector: `getByRole(${strategy.role.role}, name=${strategy.role.name ?? '*'})`,
+        method: "role",
+        selector: `getByRole(${strategy.role.role}, name=${strategy.role.name ?? "*"})`,
       };
     }
   }
@@ -109,7 +119,7 @@ async function resolveSelectorInner(
     if (await isVisible(locator)) {
       return {
         locator,
-        method: 'label',
+        method: "label",
         selector: `getByLabel(${strategy.label.label})`,
       };
     }
@@ -120,7 +130,7 @@ async function resolveSelectorInner(
     for (const css of strategy.css) {
       const locator = page.locator(css).first();
       if (await isVisible(locator)) {
-        return { locator, method: 'css', selector: css };
+        return { locator, method: "css", selector: css };
       }
     }
   }
@@ -133,7 +143,7 @@ async function resolveSelectorInner(
     if (await isVisible(locator)) {
       return {
         locator,
-        method: 'text',
+        method: "text",
         selector: `getByText(${strategy.text.text})`,
       };
     }
@@ -142,11 +152,11 @@ async function resolveSelectorInner(
   // Nothing found — throw with details for debugging
   const tried: string[] = [];
   if (strategy.testId) tried.push(`testId=${strategy.testId}`);
-  if (strategy.role) tried.push(`role=${strategy.role.role}/${strategy.role.name ?? '*'}`);
+  if (strategy.role) tried.push(`role=${strategy.role.role}/${strategy.role.name ?? "*"}`);
   if (strategy.label) tried.push(`label=${strategy.label.label}`);
-  if (strategy.css) tried.push(`css=${strategy.css.join(' | ')}`);
+  if (strategy.css) tried.push(`css=${strategy.css.join(" | ")}`);
   if (strategy.text) tried.push(`text=${strategy.text.text}`);
-  throw new Error(`No selector matched. Tried: ${tried.join(', ')}`);
+  throw new Error(`No selector matched. Tried: ${tried.join(", ")}`);
 }
 
 /**
@@ -157,7 +167,11 @@ export async function waitForSelector(
   page: Page,
   strategy: SelectorStrategy,
   timeoutMs = 15000,
-  healthTracking?: { network: SocialNetwork; selectorKey: string; healthService: SelectorHealthService },
+  healthTracking?: {
+    network: SocialNetwork;
+    selectorKey: string;
+    healthService: SelectorHealthService;
+  },
 ): Promise<SelectorResolution> {
   const startTime = Date.now();
 

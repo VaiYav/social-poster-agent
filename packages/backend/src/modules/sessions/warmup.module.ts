@@ -1,5 +1,5 @@
-import { Module } from '@nestjs/common';
-import { WarmupService } from './warmup.service';
+import { Module } from "@nestjs/common";
+import { WarmupService } from "./warmup.service.js";
 
 /**
  * WarmupModule — standalone module for F20 Session Warm-up Mode.

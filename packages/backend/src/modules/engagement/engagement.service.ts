@@ -1,30 +1,35 @@
 // Engagement service — orchestrates individual engagement actions (like, comment, follow).
 // Unlike browsing sessions (which are autonomous), these are explicit API-triggered actions.
 
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service.js';
-import { SessionsService } from '../sessions/sessions.service.js';
-import { WarmupService } from '../sessions/warmup.service.js';
-import { AccountsService } from '../accounts/accounts.service.js';
-import { IBrowserPort } from '../../domain/ports/browser.port.js';
-import { SseService } from '../../infrastructure/sse/sse.service.js';
-import { RateLimitService } from '../rate-limit/rate-limit.service.js';
-import { FlowControlService } from '../flow-control/flow-control.service.js';
-import { EngagementSafetyService } from './engagement-safety.service.js';
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { SessionsService } from "../sessions/sessions.service.js";
+import { WarmupService } from "../sessions/warmup.service.js";
+import { AccountsService } from "../accounts/accounts.service.js";
+import { IBrowserPort } from "../../domain/ports/browser.port.js";
+import { SseService } from "../../infrastructure/sse/sse.service.js";
+import { RateLimitService } from "../rate-limit/rate-limit.service.js";
+import { FlowControlService } from "../flow-control/flow-control.service.js";
+import { EngagementSafetyService } from "./engagement-safety.service.js";
 import {
   InteractionStatus,
   InteractionType,
   SocialNetwork,
   type Prisma,
-} from '@prisma/client';
-import type { Page } from '../../domain/ports/browser-primitives.js';
-import type { BaseEngager } from './engagers/base.engager.js';
-import { XEngager } from './engagers/x.engager.js';
-import { ThreadsEngager } from './engagers/threads.engager.js';
-import { FacebookEngager } from './engagers/facebook.engager.js';
-import type { EngagementResult } from '../posting/posters/base.poster.js';
-import { isNetworkEnabled } from '../../domain/enabled-networks.js';
-import type { IEngagementPort } from '../orchestrator/ports.js';
+} from "../../generated/prisma/client.js";
+import type { Page } from "../../domain/ports/browser-primitives.js";
+import type { BaseEngager } from "./engagers/base.engager.js";
+import { XEngager } from "./engagers/x.engager.js";
+import { ThreadsEngager } from "./engagers/threads.engager.js";
+import { FacebookEngager } from "./engagers/facebook.engager.js";
+import type { EngagementResult } from "../posting/posters/base.poster.js";
+import { isNetworkEnabled } from "../../domain/enabled-networks.js";
+import type { IEngagementPort } from "../orchestrator/ports.js";
+import {
+  IRuntimeActionAuthorizer,
+  type AuthorizePlatformActionParams,
+  type PlatformAuthorizationDecision,
+} from "../policy/policy.types.js";
 
 @Injectable()
 export class EngagementService implements IEngagementPort {
@@ -43,14 +48,30 @@ export class EngagementService implements IEngagementPort {
     @Optional() private readonly accountsService?: AccountsService,
     @Optional() private readonly warmupService?: WarmupService,
     private readonly engagementSafetyService: EngagementSafetyService = new EngagementSafetyService(),
+    @Optional()
+    @Inject(IRuntimeActionAuthorizer)
+    private readonly actionAuthorizer?: {
+      authorize(params: AuthorizePlatformActionParams): Promise<PlatformAuthorizationDecision>;
+      reauthorize(
+        params: AuthorizePlatformActionParams,
+        expectedPolicyHash: string,
+      ): Promise<PlatformAuthorizationDecision>;
+    },
   ) {}
 
   /**
    * Like a post on the given network.
    */
-  async like(network: SocialNetwork, postUrl: string): Promise<EngagementResult & { interactionId: string }> {
-    return this.performInteraction(network, InteractionType.LIKE, postUrl, undefined, (engager, page) =>
-      engager.like(page, postUrl),
+  async like(
+    network: SocialNetwork,
+    postUrl: string,
+  ): Promise<EngagementResult & { interactionId: string }> {
+    return this.performInteraction(
+      network,
+      InteractionType.LIKE,
+      postUrl,
+      undefined,
+      (engager, page) => engager.like(page, postUrl),
     );
   }
 
@@ -96,12 +117,8 @@ export class EngagementService implements IEngagementPort {
     postUrl: string,
     text: string,
   ): Promise<EngagementResult & { interactionId: string }> {
-    return this.performInteraction(
-      network,
-      InteractionType.REPLY,
-      postUrl,
-      text,
-      (engager, page) => engager.reply(page, postUrl, text),
+    return this.performInteraction(network, InteractionType.REPLY, postUrl, text, (engager, page) =>
+      engager.reply(page, postUrl, text),
     );
   }
 
@@ -129,12 +146,8 @@ export class EngagementService implements IEngagementPort {
     postUrl: string,
     text: string,
   ): Promise<EngagementResult & { interactionId: string }> {
-    return this.performInteraction(
-      network,
-      InteractionType.QUOTE,
-      postUrl,
-      text,
-      (engager, page) => engager.quote(page, postUrl, text),
+    return this.performInteraction(network, InteractionType.QUOTE, postUrl, text, (engager, page) =>
+      engager.quote(page, postUrl, text),
     );
   }
 
@@ -147,22 +160,29 @@ export class EngagementService implements IEngagementPort {
     type: InteractionType,
     targetUrl: string | undefined,
     content: string | undefined,
-    performAction: (engager: BaseEngager, page: import('playwright-core').Page) => Promise<EngagementResult>,
+    performAction: (
+      engager: BaseEngager,
+      page: import("playwright-core").Page,
+    ) => Promise<EngagementResult>,
     targetHandle?: string,
   ): Promise<EngagementResult & { interactionId: string }> {
     if (!isNetworkEnabled(network)) {
       this.logger.warn(`Interaction ${type} requested for disabled network ${network} — skipping`);
-      return { success: false, error: `Network ${network as string} is disabled`, interactionId: '' };
+      return {
+        success: false,
+        error: `Network ${network as string} is disabled`,
+        interactionId: "",
+      };
     }
 
     // ADR-006: respect flow control — direct API actions should also pause when
     // engagement is paused, so an operator can stop all engagement without restarting.
-    if (await this.flowControlService.isPaused('engagement')) {
+    if (await this.flowControlService.isPaused("engagement")) {
       this.logger.warn(`Engagement flow paused — skipping ${type} on ${network}`);
       return {
         success: false,
-        error: 'Engagement flow paused',
-        interactionId: '',
+        error: "Engagement flow paused",
+        interactionId: "",
       };
     }
 
@@ -171,14 +191,14 @@ export class EngagementService implements IEngagementPort {
       const urlCheck = this.engagementSafetyService.validateUrl(network, targetUrl);
       if (!urlCheck.allowed) {
         this.logger.warn(`Engagement safety: ${urlCheck.reason}`);
-        return { success: false, error: urlCheck.reason, interactionId: '' };
+        return { success: false, error: urlCheck.reason, interactionId: "" };
       }
     }
-    if (targetHandle && targetHandle.toLowerCase().startsWith('http')) {
+    if (targetHandle && targetHandle.toLowerCase().startsWith("http")) {
       const urlCheck = this.engagementSafetyService.validateUrl(network, targetHandle);
       if (!urlCheck.allowed) {
         this.logger.warn(`Engagement safety: ${urlCheck.reason}`);
-        return { success: false, error: urlCheck.reason, interactionId: '' };
+        return { success: false, error: urlCheck.reason, interactionId: "" };
       }
     }
 
@@ -187,7 +207,7 @@ export class EngagementService implements IEngagementPort {
       const contentCheck = this.engagementSafetyService.checkContentSafety(content);
       if (!contentCheck.safe) {
         this.logger.warn(`Engagement safety: ${contentCheck.reason}`);
-        return { success: false, error: contentCheck.reason, interactionId: '' };
+        return { success: false, error: contentCheck.reason, interactionId: "" };
       }
     }
 
@@ -198,16 +218,59 @@ export class EngagementService implements IEngagementPort {
       accountId = account?.id;
     }
 
+    if (accountId && (await this.flowControlService.isPaused("engagement", accountId))) {
+      this.logger.warn(`Engagement flow paused for account ${accountId} — skipping ${type}`);
+      return { success: false, error: "Engagement flow paused for account", interactionId: "" };
+    }
+
+    const policyAction = type === InteractionType.COMMENT ? "REPLY" : (type as string);
+    const policyParams: AuthorizePlatformActionParams | undefined = accountId
+      ? {
+          accountId,
+          network,
+          action: policyAction as AuthorizePlatformActionParams["action"],
+          transport: "BROWSER",
+          targetRelationship: "UNKNOWN",
+          contentRiskTier: "LOW",
+          requestedMode: "APPROVED_AUTOMATION",
+        }
+      : undefined;
+    let policyDecision: PlatformAuthorizationDecision | undefined;
+    if (this.actionAuthorizer) {
+      if (!policyParams) {
+        return {
+          success: false,
+          error: "Policy authorization requires a selected account",
+          interactionId: "",
+        };
+      }
+      policyDecision = await this.actionAuthorizer.authorize(policyParams);
+      if (policyDecision.allowedMode !== "APPROVED_AUTOMATION") {
+        this.logger.warn(
+          `Policy blocked ${type} on ${network}: ${policyDecision.blockReasons.join("; ")}`,
+        );
+        return {
+          success: false,
+          error: `Policy mode ${policyDecision.allowedMode}: ${policyDecision.blockReasons.join("; ")}`,
+          interactionId: "",
+        };
+      }
+    }
+
     // Rate limit check — per network, account, and action so multi-account
     // setups don't share a single counter.
     const action = type.toLowerCase();
-    const rateCheck = await this.rateLimitService.checkRateLimit(network as string, accountId, action);
+    const rateCheck = await this.rateLimitService.checkRateLimit(
+      network as string,
+      accountId,
+      action,
+    );
     if (!rateCheck.allowed) {
       this.logger.warn(`Rate limited for ${network} ${action}: ${rateCheck.reason}`);
       return {
         success: false,
         error: `Rate limited: ${rateCheck.reason}`,
-        interactionId: '',
+        interactionId: "",
       };
     }
 
@@ -218,17 +281,19 @@ export class EngagementService implements IEngagementPort {
       return {
         success: false,
         error: `No active session for ${network} — auto-login failed`,
-        interactionId: '',
+        interactionId: "",
       };
     }
 
     // Warm-up gating — API-triggered actions must respect the account's interaction phase.
     if (this.warmupService && !(await this.warmupService.canInteract(session.accountId))) {
-      this.logger.warn(`Account ${session.accountId} is in browse-only warm-up — skipping ${type} on ${network}`);
+      this.logger.warn(
+        `Account ${session.accountId} is in browse-only warm-up — skipping ${type} on ${network}`,
+      );
       return {
         success: false,
-        error: 'Account is in warm-up browse-only phase',
-        interactionId: '',
+        error: "Account is in warm-up browse-only phase",
+        interactionId: "",
       };
     }
 
@@ -246,7 +311,7 @@ export class EngagementService implements IEngagementPort {
 
     // SSE event
     await this.sseService.publish({
-      type: 'interaction_started',
+      type: "interaction_started",
       interactionId: interaction.id,
       interactionType: type,
       network: network as string,
@@ -260,7 +325,7 @@ export class EngagementService implements IEngagementPort {
       ? this.sessionsService.decryptStorageState(session)
       : undefined;
 
-    let context: Awaited<ReturnType<IBrowserPort['acquireContext']>> | null = null;
+    let context: Awaited<ReturnType<IBrowserPort["acquireContext"]>> | null = null;
     let page: Page | null = null;
     let result: EngagementResult | null = null;
 
@@ -268,8 +333,25 @@ export class EngagementService implements IEngagementPort {
       context = await this.browser.acquireContext(network, storageState, accountId);
       page = await context.newPage();
 
-      // Perform the engagement action
-      result = await performAction(engager, page);
+      // ADR-012: reauthorize immediately before the browser side effect. A
+      // source expiry, operator pause or policy revision must win a cached
+      // decision and fail closed.
+      if (this.actionAuthorizer && policyParams && policyDecision) {
+        const current = await this.actionAuthorizer.reauthorize(
+          policyParams,
+          policyDecision.policyHash,
+        );
+        if (current.allowedMode !== "APPROVED_AUTOMATION") {
+          result = {
+            success: false,
+            error: `Policy changed before side effect: ${current.blockReasons.join("; ")}`,
+          };
+        } else {
+          result = await performAction(engager, page);
+        }
+      } else {
+        result = await performAction(engager, page);
+      }
 
       // Save updated session state
       const updatedState = await this.browser.saveStorageState(context);
@@ -308,7 +390,7 @@ export class EngagementService implements IEngagementPort {
 
       // SSE event
       await this.sseService.publish({
-        type: result.success ? 'interaction_completed' : 'interaction_failed',
+        type: result.success ? "interaction_completed" : "interaction_failed",
         interactionId: interaction.id,
         interactionType: type,
         network: network as string,
@@ -317,14 +399,14 @@ export class EngagementService implements IEngagementPort {
       });
 
       this.logger.log(
-        `Interaction ${type} on ${network}: ${result.success ? 'success' : 'failed'}`,
+        `Interaction ${type} on ${network}: ${result.success ? "success" : "failed"}`,
       );
 
       return { ...result, interactionId: interaction.id };
     }
 
     // Defensive fallback (should never reach here)
-    return { success: false, error: 'Unknown interaction error', interactionId: interaction.id };
+    return { success: false, error: "Unknown interaction error", interactionId: interaction.id };
   }
 
   /**
@@ -362,7 +444,7 @@ export class EngagementService implements IEngagementPort {
       this.prisma.interaction.count({ where: { ...where, status: InteractionStatus.COMPLETED } }),
       this.prisma.interaction.count({ where: { ...where, status: InteractionStatus.FAILED } }),
       this.prisma.interaction.groupBy({
-        by: ['type'],
+        by: ["type"],
         where,
         _count: true,
       }),

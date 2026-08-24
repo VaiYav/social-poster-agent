@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { Inbox } from '@lucide/vue';
+import { Inbox } from "@lucide/vue";
 
-withDefaults(defineProps<{
-  message?: string;
-}>(), {
-  message: 'No data found.',
-});
+withDefaults(
+  defineProps<{
+    message?: string;
+  }>(),
+  {
+    message: "No data found.",
+  },
+);
 </script>
 
 <template>

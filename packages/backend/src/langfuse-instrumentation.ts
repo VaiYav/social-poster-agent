@@ -42,16 +42,18 @@
 //   - https://langfuse.com/docs/observability/sdk/overview
 //   - @langfuse/tracing src/tracerProvider.ts (setLangfuseTracerProvider)
 //   - Sentry OTel init: @sentry/node build/esm/sdk/initOtel.js
-import { BasicTracerProvider } from '@opentelemetry/sdk-trace-base';
-import { LangfuseSpanProcessor } from '@langfuse/otel';
-import { setLangfuseTracerProvider } from '@langfuse/tracing';
+import { BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
+import { context } from "@opentelemetry/api";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
+import { LangfuseSpanProcessor } from "@langfuse/otel";
+import { setLangfuseTracerProvider } from "@langfuse/tracing";
 
 // Use console directly — @nestjs/common Logger is not yet initialised when
 // this file runs (it's imported before NestFactory.create()).
-const log = (level: 'log' | 'warn' | 'debug', msg: string): void => {
-  const prefix = '\x1b[32m[LangfuseInstrumentation]\x1b[39m';
-  if (level === 'warn') console.warn(`\x1b[33m[LangfuseInstrumentation]\x1b[39m ${msg}`);
-  else if (level === 'debug') console.debug(`${prefix} ${msg}`);
+const log = (level: "log" | "warn" | "debug", msg: string): void => {
+  const prefix = "\x1b[32m[LangfuseInstrumentation]\x1b[39m";
+  if (level === "warn") console.warn(`\x1b[33m[LangfuseInstrumentation]\x1b[39m ${msg}`);
+  else if (level === "debug") console.debug(`${prefix} ${msg}`);
   else console.log(`${prefix} ${msg}`);
 };
 
@@ -64,11 +66,14 @@ let langfuseProcessor: LangfuseSpanProcessor | undefined;
 /** The isolated TracerProvider — kept for graceful shutdown. */
 let langfuseProvider: BasicTracerProvider | undefined;
 
+/** Context manager installed only when no application OTel manager exists. */
+let langfuseContextManager: AsyncLocalStorageContextManager | undefined;
+
 if (langfuseEnabled) {
   try {
     // Default to US cloud (matches .env.example) and ensure the env var is set
     // so the Langfuse SDK/SpanProcessor use the same endpoint.
-    const baseUrl = process.env.LANGFUSE_BASE_URL || 'https://us.cloud.langfuse.com';
+    const baseUrl = process.env.LANGFUSE_BASE_URL || "https://us.cloud.langfuse.com";
     process.env.LANGFUSE_BASE_URL = baseUrl;
 
     langfuseProcessor = new LangfuseSpanProcessor();
@@ -80,23 +85,34 @@ if (langfuseEnabled) {
       spanProcessors: [langfuseProcessor],
     });
 
+    // `startActiveObservation()` relies on async context propagation to keep
+    // graph/model observations under the logical root. Sentry normally owns a
+    // context manager when enabled; with Sentry disabled, install the standard
+    // Node manager so Langfuse still preserves parent/child hierarchy.
+    const contextManager = new AsyncLocalStorageContextManager().enable();
+    if (context.setGlobalContextManager(contextManager)) {
+      langfuseContextManager = contextManager;
+    } else {
+      contextManager.disable();
+    }
+
     // Register as the isolated Langfuse tracer provider.
     // @langfuse/tracing getLangfuseTracerProvider() will now return this
     // provider instead of falling back to the global (Sentry) one.
     setLangfuseTracerProvider(langfuseProvider);
 
-    log('log', `Langfuse tracing enabled — exporting to ${baseUrl}`);
+    log("log", `Langfuse tracing enabled — exporting to ${baseUrl}`);
   } catch (err) {
     // SDK errors are non-fatal — the app must still boot. Langfuse SDK is
     // designed to never break the host application (errors are caught + logged).
-    log('warn',
-      `Langfuse OTel SDK failed to start — tracing disabled: ${(err as Error).message}`,
-    );
+    log("warn", `Langfuse OTel SDK failed to start — tracing disabled: ${(err as Error).message}`);
     langfuseProcessor = undefined;
     langfuseProvider = undefined;
+    langfuseContextManager?.disable();
+    langfuseContextManager = undefined;
   }
 } else {
-  log('debug', 'Langfuse tracing disabled — LANGFUSE_PUBLIC_KEY not set');
+  log("debug", "Langfuse tracing disabled — LANGFUSE_PUBLIC_KEY not set");
 }
 
 /**
@@ -108,9 +124,11 @@ export async function shutdownLangfuse(): Promise<void> {
   if (langfuseProcessor) {
     try {
       await langfuseProcessor.shutdown();
-      log('debug', 'Langfuse span processor shut down — traces flushed');
+      log("debug", "Langfuse span processor shut down — traces flushed");
     } catch (err) {
-      log('warn', `Langfuse shutdown error: ${(err as Error).message}`);
+      log("warn", `Langfuse shutdown error: ${(err as Error).message}`);
     }
   }
+  langfuseContextManager?.disable();
+  langfuseContextManager = undefined;
 }

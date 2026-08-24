@@ -1,5 +1,10 @@
 # Master Plan: LangGraph Orchestrator
 
+> **Planning boundary:** this is a workstream design document. Canonical feature/task
+> status is `ORCH-001`/`ORCH-101..102` in
+> [`docs/planning`](../../docs/planning/README.md). Do not infer current completion from
+> checklists or the historical status below.
+
 > Status: DRAFT | Version: 1.0 | Date: 2026-07-01
 > Feature: `orchestrator` | Size: Large | Mode: V-Model (critical features) + Standard (rest)
 >

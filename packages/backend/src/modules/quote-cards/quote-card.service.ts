@@ -6,11 +6,11 @@
  *
  * Env-gated: only active when QUOTE_CARDS_ENABLED=true.
  */
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { promises as fs } from 'fs';
-import { join } from 'path';
-import { parseBool } from '../../infrastructure/config/parse-bool.js';
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { promises as fs } from "fs";
+import { join } from "path";
+import { parseBool } from "../../infrastructure/config/parse-bool.js";
 
 @Injectable()
 export class QuoteCardService {
@@ -21,15 +21,18 @@ export class QuoteCardService {
   private readonly height: number;
   // QC1: Satori requires real font data (it does NOT fall back to system fonts).
   // Lazily load + cache the bundled Inter subset (latin) once per process.
-  private fontsCache:
-    | Array<{ name: 'Inter'; data: Buffer; weight: 400 | 600; style: 'normal' | 'italic' }>
-    | null = null;
+  private fontsCache: Array<{
+    name: "Inter";
+    data: Buffer;
+    weight: 400 | 600;
+    style: "normal" | "italic";
+  }> | null = null;
 
   constructor(private readonly configService: ConfigService) {
-    this.enabled = parseBool(this.configService.get<string>('QUOTE_CARDS_ENABLED', 'false'));
-    this.outputDir = this.configService.get<string>('QUOTE_CARDS_DIR', '/app/quote-cards');
-    this.width = this.configService.get<number>('QUOTE_CARD_WIDTH', 1200);
-    this.height = this.configService.get<number>('QUOTE_CARD_HEIGHT', 675);
+    this.enabled = parseBool(this.configService.get<string>("QUOTE_CARDS_ENABLED", "false"));
+    this.outputDir = this.configService.get<string>("QUOTE_CARDS_DIR", "/app/quote-cards");
+    this.width = this.configService.get<number>("QUOTE_CARD_WIDTH", 1200);
+    this.height = this.configService.get<number>("QUOTE_CARD_HEIGHT", 675);
   }
 
   /**
@@ -39,20 +42,20 @@ export class QuoteCardService {
    * Docker). Cached after first use.
    */
   private async loadFonts(): Promise<
-    Array<{ name: 'Inter'; data: Buffer; weight: 400 | 600; style: 'normal' | 'italic' }>
+    Array<{ name: "Inter"; data: Buffer; weight: 400 | 600; style: "normal" | "italic" }>
   > {
     if (this.fontsCache) return this.fontsCache;
     const read = (file: string): Promise<Buffer> =>
       fs.readFile(require.resolve(`@fontsource/inter/files/${file}`));
     const [normal, semibold, italic] = await Promise.all([
-      read('inter-latin-400-normal.woff'),
-      read('inter-latin-600-normal.woff'),
-      read('inter-latin-400-italic.woff'),
+      read("inter-latin-400-normal.woff"),
+      read("inter-latin-600-normal.woff"),
+      read("inter-latin-400-italic.woff"),
     ]);
     this.fontsCache = [
-      { name: 'Inter', data: normal, weight: 400, style: 'normal' },
-      { name: 'Inter', data: semibold, weight: 600, style: 'normal' },
-      { name: 'Inter', data: italic, weight: 400, style: 'italic' },
+      { name: "Inter", data: normal, weight: 400, style: "normal" },
+      { name: "Inter", data: semibold, weight: 600, style: "normal" },
+      { name: "Inter", data: italic, weight: 400, style: "italic" },
     ];
     return this.fontsCache;
   }
@@ -66,77 +69,78 @@ export class QuoteCardService {
     options?: { author?: string; network?: string; bgGradient?: [string, string] },
   ): Promise<string | null> {
     if (!this.enabled) {
-      this.logger.debug('Quote cards disabled — skipping');
+      this.logger.debug("Quote cards disabled — skipping");
       return null;
     }
 
     try {
       // Dynamic import to avoid loading Satori if not enabled
-      const { default: satori } = await import('satori');
-      const { Resvg } = await import('@resvg/resvg-js');
+      const { default: satori } = await import("satori");
+      const { Resvg } = await import("@resvg/resvg-js");
 
       // Ensure output directory exists
       await fs.mkdir(this.outputDir, { recursive: true });
 
       // Build the SVG via Satori
-      const bg = options?.bgGradient ?? ['#1a1a2e', '#16213e'];
-      const author = options?.author ?? 'Cosmic Insights';
+      const bg = options?.bgGradient ?? ["#1a1a2e", "#16213e"];
+      const author = options?.author ?? "Cosmic Insights";
 
-      const svg = await satori(
-        {
-          type: 'div',
-          props: {
-            style: {
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: '100%',
-              height: '100%',
-              background: `linear-gradient(135deg, ${bg[0]}, ${bg[1]})`,
-              padding: 60,
-              fontFamily: 'Inter',
-            },
-            children: [
-              {
-                type: 'div',
-                props: {
-                  style: {
-                    fontSize: 42,
-                    color: '#ffffff',
-                    textAlign: 'center',
-                    lineHeight: 1.4,
-                    maxWidth: '90%',
-                    fontWeight: 600,
-                  },
-                  children: this.truncateForCard(text),
-                },
-              },
-              {
-                type: 'div',
-                props: {
-                  style: {
-                    marginTop: 30,
-                    fontSize: 24,
-                    color: 'rgba(255,255,255,0.6)',
-                    fontStyle: 'italic',
-                  },
-                  children: `— ${author}`,
-                },
-              },
-            ],
+      // Satori 0.33+ types expect a JSX-compatible node; the JSON element
+      // representation is runtime-compatible, so we cast to the expected type.
+      const quoteCard: unknown = {
+        type: "div",
+        props: {
+          style: {
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "100%",
+            height: "100%",
+            background: `linear-gradient(135deg, ${bg[0]}, ${bg[1]})`,
+            padding: 60,
+            fontFamily: "Inter",
           },
+          children: [
+            {
+              type: "div",
+              props: {
+                style: {
+                  fontSize: 42,
+                  color: "#ffffff",
+                  textAlign: "center",
+                  lineHeight: 1.4,
+                  maxWidth: "90%",
+                  fontWeight: 600,
+                },
+                children: this.truncateForCard(text),
+              },
+            },
+            {
+              type: "div",
+              props: {
+                style: {
+                  marginTop: 30,
+                  fontSize: 24,
+                  color: "rgba(255,255,255,0.6)",
+                  fontStyle: "italic",
+                },
+                children: `— ${author}`,
+              },
+            },
+          ],
         },
-        {
-          width: this.width,
-          height: this.height,
-          fonts: await this.loadFonts(),
-        },
-      );
+      };
+
+      const svg = await satori(quoteCard as unknown as Parameters<typeof satori>[0], {
+        width: this.width,
+        height: this.height,
+        fonts: await this.loadFonts(),
+      });
 
       // Convert SVG to PNG
       const resvg = new Resvg(svg, {
-        fitTo: { mode: 'width', value: this.width },
+        fitTo: { mode: "width", value: this.width },
       });
       const pngBuffer = resvg.render().asPng();
 
@@ -162,9 +166,9 @@ export class QuoteCardService {
    * Truncate text to fit on a quote card (max ~200 chars).
    */
   private truncateForCard(text: string): string {
-    const clean = text.replace(/\n/g, ' ').trim();
+    const clean = text.replace(/\n/g, " ").trim();
     if (clean.length <= 200) return clean;
-    return clean.slice(0, 197) + '...';
+    return clean.slice(0, 197) + "...";
   }
 
   isEnabled(): boolean {
@@ -186,7 +190,7 @@ export class QuoteCardService {
       const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
 
       for (const file of files) {
-        if (!file.endsWith('.png')) continue;
+        if (!file.endsWith(".png")) continue;
         const filepath = join(this.outputDir, file);
         const stat = await fs.stat(filepath);
         if (now - stat.mtimeMs > maxAgeMs) {

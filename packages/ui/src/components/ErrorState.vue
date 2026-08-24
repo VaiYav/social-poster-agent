@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { AlertCircle } from '@lucide/vue';
+import { AlertCircle } from "@lucide/vue";
 
-withDefaults(defineProps<{
-  message?: string;
-}>(), {
-  message: 'Something went wrong.',
-});
+withDefaults(
+  defineProps<{
+    message?: string;
+  }>(),
+  {
+    message: "Something went wrong.",
+  },
+);
 </script>
 
 <template>

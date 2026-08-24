@@ -13,10 +13,10 @@
  *
  * Source: packages/backend/src/modules/replies/replies-monitor.service.ts
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ConfigService } from '@nestjs/config';
-import { CommentStatus } from '@prisma/client';
-import { RepliesMonitorService } from '../../../src/modules/replies/replies-monitor.service';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { ConfigService } from "@nestjs/config";
+import { CommentStatus } from "../../../src/generated/prisma/client.js";
+import { RepliesMonitorService } from "../../../src/modules/replies/replies-monitor.service.js";
 
 function mockConfig(values: Record<string, string> = {}): ConfigService {
   return {
@@ -63,7 +63,7 @@ interface Deps {
 }
 
 function mockDialogueService() {
-  return { processComment: vi.fn().mockResolvedValue({ action: 'skip', reason: 'test' }) };
+  return { processComment: vi.fn().mockResolvedValue({ action: "skip", reason: "test" }) };
 }
 
 function makeService(overrides: Partial<Deps> = {}): { svc: any; deps: Deps } {
@@ -71,11 +71,11 @@ function makeService(overrides: Partial<Deps> = {}): { svc: any; deps: Deps } {
     prisma: overrides.prisma ?? mockPrisma(),
     sse: overrides.sse ?? mockSse(),
     engagement: overrides.engagement ?? mockEngagement(),
-    queue: 'queue' in overrides ? overrides.queue : mockQueue(),
+    queue: "queue" in overrides ? overrides.queue : mockQueue(),
   };
   const service = new RepliesMonitorService(
     deps.prisma as any,
-    mockConfig({ REPLIES_ENABLED: 'true', REPLIES_MAX_PER_POST: '3' }),
+    mockConfig({ REPLIES_ENABLED: "true", REPLIES_MAX_PER_POST: "3" }),
     {} as any, // accountsService
     {} as any, // sessionsService
     { addCronJob: vi.fn() } as any, // schedulerRegistry
@@ -90,35 +90,56 @@ function makeService(overrides: Partial<Deps> = {}): { svc: any; deps: Deps } {
   return { svc: service, deps };
 }
 
-const POST = { id: 'p1', network: 'X', postUrl: 'https://x.com/u/status/1', content: 'About Workflow' };
-const COMMENT = { id: 'c-db', commentId: 'cid-1', author: '@stranger', text: 'How does this work?' };
-const DECISION = { action: 'auto_reply' as const, reason: 'question', replyText: 'Great question ✨' };
+const POST = {
+  id: "p1",
+  network: "X",
+  postUrl: "https://x.com/u/status/1",
+  content: "About Workflow",
+};
+const COMMENT = {
+  id: "c-db",
+  commentId: "cid-1",
+  author: "@stranger",
+  text: "How does this work?",
+};
+const DECISION = {
+  action: "auto_reply" as const,
+  reason: "question",
+  replyText: "Great question ✨",
+};
 
 function freshStats() {
-  return { postsChecked: 0, commentsScraped: 0, repliesPosted: 0, repliesScheduled: 0, humanReview: 0 };
+  return {
+    postsChecked: 0,
+    commentsScraped: 0,
+    repliesPosted: 0,
+    repliesScheduled: 0,
+    humanReview: 0,
+  };
 }
 
-describe('RP1 — delayed auto-reply jobs', () => {
+describe("RP1 — delayed auto-reply jobs", () => {
   let env: ReturnType<typeof makeService>;
 
   beforeEach(() => {
     env = makeService();
   });
 
-  it('RP1-001: auto_reply enqueues a delayed engagement job (jobId=commentId) and does not post inline', async () => {
+  it("RP1-001: auto_reply enqueues a delayed engagement job (jobId=commentId) and does not post inline", async () => {
     const stats = freshStats();
     await env.svc.executeDecision(POST, COMMENT, DECISION, stats);
 
     expect(env.deps.queue!.enqueueEngagement).toHaveBeenCalledTimes(1);
-    const [interactionId, network, action, payload, opts] = env.deps.queue!.enqueueEngagement.mock.calls[0];
-    expect(interactionId).toBe('cid-1'); // jobId=commentId → idempotent
-    expect(network).toBe('X');
-    expect(action).toBe('reply');
+    const [interactionId, network, action, payload, opts] =
+      env.deps.queue!.enqueueEngagement.mock.calls[0];
+    expect(interactionId).toBe("cid-1"); // jobId=commentId → idempotent
+    expect(network).toBe("X");
+    expect(action).toBe("reply");
     expect(payload).toMatchObject({
-      commentDbId: 'c-db',
-      postId: 'p1',
-      postUrl: 'https://x.com/u/status/1',
-      replyText: 'Great question ✨',
+      commentDbId: "c-db",
+      postId: "p1",
+      postUrl: "https://x.com/u/status/1",
+      replyText: "Great question ✨",
     });
     expect(opts.delay).toBeGreaterThan(0);
 
@@ -130,57 +151,67 @@ describe('RP1 — delayed auto-reply jobs', () => {
     expect(env.deps.prisma.incomingComment.update).toHaveBeenCalled();
   });
 
-  it('RP1-002: delay is bounded by the configured min/max window', async () => {
+  it("RP1-002: delay is bounded by the configured min/max window", async () => {
     const svc2 = makeService();
     // force the random factor extremes by stubbing Math.random
-    const r = vi.spyOn(Math, 'random').mockReturnValue(0);
+    const r = vi.spyOn(Math, "random").mockReturnValue(0);
     await svc2.svc.executeDecision(POST, COMMENT, DECISION, freshStats());
     const minDelay = svc2.deps.queue!.enqueueEngagement.mock.calls[0][4].delay;
     expect(minDelay).toBe(300000); // default REPLIES_AUTO_DELAY_MIN_MS
     r.mockRestore();
   });
 
-  it('RP1-003: without a queue wired, falls back to posting inline (no 5-30min block)', async () => {
+  it("RP1-003: without a queue wired, falls back to posting inline (no 5-30min block)", async () => {
     const noQueue = makeService({ queue: undefined });
     const stats = freshStats();
     await noQueue.svc.executeDecision(POST, COMMENT, DECISION, stats);
 
-    expect(noQueue.deps.engagement.reply).toHaveBeenCalledWith('X', 'https://x.com/u/status/1', 'Great question ✨');
+    expect(noQueue.deps.engagement.reply).toHaveBeenCalledWith(
+      "X",
+      "https://x.com/u/status/1",
+      "Great question ✨",
+    );
     expect(stats.repliesPosted).toBe(1);
   });
 
-  it('RP1-004: postScheduledReply posts, marks REPLIED and emits SSE', async () => {
+  it("RP1-004: postScheduledReply posts, marks REPLIED and emits SSE", async () => {
     await env.svc.postScheduledReply({
-      commentDbId: 'c-db',
-      commentId: 'cid-1',
-      postId: 'p1',
-      network: 'X',
-      postUrl: 'https://x.com/u/status/1',
-      replyText: 'Hi ✨',
+      commentDbId: "c-db",
+      commentId: "cid-1",
+      postId: "p1",
+      network: "X",
+      postUrl: "https://x.com/u/status/1",
+      replyText: "Hi ✨",
     });
 
-    expect(env.deps.engagement.reply).toHaveBeenCalledWith('X', 'https://x.com/u/status/1', 'Hi ✨');
+    expect(env.deps.engagement.reply).toHaveBeenCalledWith(
+      "X",
+      "https://x.com/u/status/1",
+      "Hi ✨",
+    );
     expect(env.deps.prisma.incomingComment.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'c-db' },
+        where: { id: "c-db" },
         data: expect.objectContaining({ status: CommentStatus.REPLIED }),
       }),
     );
-    expect(env.deps.sse.publish).toHaveBeenCalledWith(expect.objectContaining({ type: 'reply_posted', commentId: 'cid-1' }));
+    expect(env.deps.sse.publish).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "reply_posted", commentId: "cid-1" }),
+    );
   });
 
-  it('RP1-005: postScheduledReply re-checks the per-post cap and drops (SKIPPED) when reached', async () => {
+  it("RP1-005: postScheduledReply re-checks the per-post cap and drops (SKIPPED) when reached", async () => {
     const prisma = mockPrisma();
     prisma.incomingComment.count.mockResolvedValue(3); // already at the cap of 3
     const capped = makeService({ prisma });
 
     await capped.svc.postScheduledReply({
-      commentDbId: 'c-db',
-      commentId: 'cid-1',
-      postId: 'p1',
-      network: 'X',
-      postUrl: 'https://x.com/u/status/1',
-      replyText: 'Hi ✨',
+      commentDbId: "c-db",
+      commentId: "cid-1",
+      postId: "p1",
+      network: "X",
+      postUrl: "https://x.com/u/status/1",
+      replyText: "Hi ✨",
     });
 
     expect(capped.deps.engagement.reply).not.toHaveBeenCalled();
@@ -189,18 +220,20 @@ describe('RP1 — delayed auto-reply jobs', () => {
     );
   });
 
-  it('RP1-006: postScheduledReply throws when the reply fails (so BullMQ retries)', async () => {
-    const engagement = { reply: vi.fn().mockResolvedValue({ success: false, error: 'nav timeout' }) };
+  it("RP1-006: postScheduledReply throws when the reply fails (so BullMQ retries)", async () => {
+    const engagement = {
+      reply: vi.fn().mockResolvedValue({ success: false, error: "nav timeout" }),
+    };
     const failing = makeService({ engagement });
 
     await expect(
       failing.svc.postScheduledReply({
-        commentDbId: 'c-db',
-        commentId: 'cid-1',
-        postId: 'p1',
-        network: 'X',
-        postUrl: 'https://x.com/u/status/1',
-        replyText: 'Hi ✨',
+        commentDbId: "c-db",
+        commentId: "cid-1",
+        postId: "p1",
+        network: "X",
+        postUrl: "https://x.com/u/status/1",
+        replyText: "Hi ✨",
       }),
     ).rejects.toThrow(/nav timeout/);
 
@@ -210,20 +243,24 @@ describe('RP1 — delayed auto-reply jobs', () => {
     expect(failing.deps.prisma.incomingComment.update).not.toHaveBeenCalled();
   });
 
-  it('RP1-007: re-entrancy guard skips re-deciding a comment that already has a job in flight', async () => {
+  it("RP1-007: re-entrancy guard skips re-deciding a comment that already has a job in flight", async () => {
     const env2 = makeService();
-    env2.deps.queue!.getEngagementJob.mockResolvedValue({ id: 'cid-1' }); // existing delayed job
+    env2.deps.queue!.getEngagementJob.mockResolvedValue({ id: "cid-1" }); // existing delayed job
 
     // Stub the scrape pipeline so the cycle reaches the per-comment loop.
     env2.svc.getMonitorablePosts = vi.fn().mockResolvedValue([POST]);
-    env2.svc.scrapeCommentsFromUrl = vi.fn().mockResolvedValue([{ commentId: 'cid-1', author: '@s', text: 'hi' }]);
+    env2.svc.scrapeCommentsFromUrl = vi
+      .fn()
+      .mockResolvedValue([{ commentId: "cid-1", author: "@s", text: "hi" }]);
     env2.svc.scrapeNestedReplies = vi.fn().mockResolvedValue([]);
-    env2.svc.saveNewComments = vi.fn().mockResolvedValue([{ id: 'c-db', commentId: 'cid-1', author: '@s', text: 'hi' }]);
-    const decideSpy = vi.spyOn(env2.svc, 'decideReply');
+    env2.svc.saveNewComments = vi
+      .fn()
+      .mockResolvedValue([{ id: "c-db", commentId: "cid-1", author: "@s", text: "hi" }]);
+    const decideSpy = vi.spyOn(env2.svc, "decideReply");
 
     await env2.svc.runMonitoringCycle();
 
-    expect(env2.deps.queue!.getEngagementJob).toHaveBeenCalledWith('cid-1', 'X');
+    expect(env2.deps.queue!.getEngagementJob).toHaveBeenCalledWith("cid-1", "X");
     expect(decideSpy).not.toHaveBeenCalled(); // guarded — no costly re-decision
   });
 });

@@ -13,7 +13,7 @@
  * a consistent style, but different days get different styles.
  */
 
-import { SocialNetwork } from '@prisma/client';
+import { SocialNetwork } from "../../generated/prisma/client.js";
 
 export type ContentStyle = {
   id: string;
@@ -33,202 +33,214 @@ export type ContentStyle = {
 
 export const CONTENT_STYLES: ContentStyle[] = [
   {
-    id: 'hot_take',
-    name: 'Hot Take',
-    description: 'Bold, controversial opinion that makes people stop scrolling',
+    id: "hot_take",
+    name: "Hot Take",
+    description: "Bold, controversial opinion that makes people stop scrolling",
     promptGuidance: [
-      'Write this as a BOLD HOT TAKE — a provocative opinion that challenges conventional wisdom around the topic.',
-      '- Start with a controversial claim (not a question)',
-      '- Use confident, slightly sassy language',
+      "Write this as a BOLD HOT TAKE — a provocative opinion that challenges conventional wisdom around the topic.",
+      "- Start with a controversial claim (not a question)",
+      "- Use confident, slightly sassy language",
       '- No hedging ("maybe", "might", "could") — own the take',
-      '- Keep it punchy and scroll-stopping',
+      "- Keep it punchy and scroll-stopping",
       '- Example vibe: "Your headline is the least interesting thing about your product. Fight me."',
-    ].join('\n'),
-    example: 'Your headline is the least interesting thing about your product. Your onboarding? That is where the tea is. \u2615',
+    ].join("\n"),
+    example:
+      "Your headline is the least interesting thing about your product. Your onboarding? That is where the tea is. \u2615",
     worksForShort: true,
     worksForLong: true,
     humorCompatible: true,
   },
   {
-    id: 'story_time',
-    name: 'Story Time',
-    description: 'Personal anecdote, vulnerable and relatable',
+    id: "story_time",
+    name: "Story Time",
+    description: "Personal anecdote, vulnerable and relatable",
     promptGuidance: [
-      'Write this as a PERSONAL STORY — like telling a friend about something that happened to you.',
+      "Write this as a PERSONAL STORY — like telling a friend about something that happened to you.",
       '- Start with "I" or a specific moment',
-      '- Include a small personal detail (time, feeling, observation)',
-      '- Make it feel like a real person talking, not a brand',
-      '- Vulnerable, warm, conversational',
+      "- Include a small personal detail (time, feeling, observation)",
+      "- Make it feel like a real person talking, not a brand",
+      "- Vulnerable, warm, conversational",
       '- Example vibe: "Last Tuesday at 3am I finally understood why..."',
-    ].join('\n'),
-    example: 'Last Tuesday at 3am I finally understood why I keep taking on urgent client requests. It was never them — it was my own calendar doing the fishing. \uD83C\uDFA3',
+    ].join("\n"),
+    example:
+      "Last Tuesday at 3am I finally understood why I keep taking on urgent client requests. It was never them — it was my own calendar doing the fishing. \uD83C\uDFA3",
     worksForShort: true,
     worksForLong: true,
     humorCompatible: true,
   },
   {
-    id: 'myth_buster',
-    name: 'Myth Buster',
-    description: 'Debunk a common misconception about the topic',
+    id: "myth_buster",
+    name: "Myth Buster",
+    description: "Debunk a common misconception about the topic",
     promptGuidance: [
-      'Write this as a MYTH BUSTER — correct a common misconception in your domain.',
+      "Write this as a MYTH BUSTER — correct a common misconception in your domain.",
       '- Start with "Contrary to..." or "Everyone says... but actually..."',
-      '- Be educational but not preachy',
-      '- Include the real truth with a specific detail',
+      "- Be educational but not preachy",
+      "- Include the real truth with a specific detail",
       '- Slightly smug "I know something you do not" energy',
       '- Example vibe: "The algorithm does not hate you. Here is what really affects reach."',
-    ].join('\n'),
-    example: 'Everyone blames the algorithm when a post flops. Meanwhile the algorithm was fine and you just posted a screenshot of a screenshot. \uD83D\uDC80',
+    ].join("\n"),
+    example:
+      "Everyone blames the algorithm when a post flops. Meanwhile the algorithm was fine and you just posted a screenshot of a screenshot. \uD83D\uDC80",
     worksForShort: true,
     worksForLong: true,
     humorCompatible: true,
   },
   {
-    id: 'meme_energy',
-    name: 'Meme Energy',
-    description: 'Internet humor, relatable meme-style observation',
+    id: "meme_energy",
+    name: "Meme Energy",
+    description: "Internet humor, relatable meme-style observation",
     promptGuidance: [
-      'Write this with MEME ENERGY — like a tweet that would go viral.',
-      '- Use internet humor formats (me: / also me:, POV:, nobody:, etc.)',
-      '- Relatable, slightly absurd',
-      '- Reference meme culture but keep it on-topic for your domain',
-      '- Short, punchy, screenshot-worthy',
+      "Write this with MEME ENERGY — like a tweet that would go viral.",
+      "- Use internet humor formats (me: / also me:, POV:, nobody:, etc.)",
+      "- Relatable, slightly absurd",
+      "- Reference meme culture but keep it on-topic for your domain",
+      "- Short, punchy, screenshot-worthy",
       '- Example vibe: "POV: you check your quarterly goals and realize the deadline is not on your side."',
-    ].join('\n'),
-    example: 'Me: I am so over this quarter.\nMy quarterly goals: bestie we have 2 more months \uD83D\uDC80',
+    ].join("\n"),
+    example:
+      "Me: I am so over this quarter.\nMy quarterly goals: bestie we have 2 more months \uD83D\uDC80",
     worksForShort: true,
     worksForLong: false,
     humorCompatible: true,
   },
   {
-    id: 'mystical_poem',
-    name: 'Mystical Poem',
-    description: 'Short poetic verse, atmospheric and evocative',
+    id: "mystical_poem",
+    name: "Mystical Poem",
+    description: "Short poetic verse, atmospheric and evocative",
     promptGuidance: [
-      'Write this as a SHORT POEM or poetic observation — atmospheric, evocative, beautiful.',
-      '- Use line breaks for rhythm',
-      '- Sensory language (light, shadow, rhythm, breath)',
-      '- No rhyming forced — natural flow',
-      '- Mysterious, dreamy, beautiful',
+      "Write this as a SHORT POEM or poetic observation — atmospheric, evocative, beautiful.",
+      "- Use line breaks for rhythm",
+      "- Sensory language (light, shadow, rhythm, breath)",
+      "- No rhyming forced — natural flow",
+      "- Mysterious, dreamy, beautiful",
       '- Example vibe: "The idea does not push the work. It whispers, and the project remembers."',
-    ].join('\n'),
-    example: 'The idea does not push the work.\nIt whispers,\nand the project remembers\nwhy it started at dawn. \uD83C\uDF05',
+    ].join("\n"),
+    example:
+      "The idea does not push the work.\nIt whispers,\nand the project remembers\nwhy it started at dawn. \uD83C\uDF05",
     worksForShort: true,
     worksForLong: true,
     humorCompatible: false,
   },
   {
-    id: 'listicle',
-    name: 'Listicle',
-    description: 'Numbered list of quick insights',
+    id: "listicle",
+    name: "Listicle",
+    description: "Numbered list of quick insights",
     promptGuidance: [
-      'Write this as a SHORT LIST — 3 quick points or observations.',
-      '- Use numbers (1. 2. 3.) or bullet points',
-      '- Each point is one line, punchy',
-      '- Easy to scan, satisfying to read',
+      "Write this as a SHORT LIST — 3 quick points or observations.",
+      "- Use numbers (1. 2. 3.) or bullet points",
+      "- Each point is one line, punchy",
+      "- Easy to scan, satisfying to read",
       '- Example vibe: "3 things your product knows that your landing page hides:"',
-    ].join('\n'),
-    example: '3 things your users know that your metrics will not admit:\n1. Why they cry at product demos\n2. Their actual feature request\n3. Who they email at 2am',
+    ].join("\n"),
+    example:
+      "3 things your users know that your metrics will not admit:\n1. Why they cry at product demos\n2. Their actual feature request\n3. Who they email at 2am",
     worksForShort: true,
     worksForLong: true,
     humorCompatible: true,
   },
   {
-    id: 'question_hook',
-    name: 'Question Hook',
-    description: 'Thought-provoking question that sparks curiosity',
+    id: "question_hook",
+    name: "Question Hook",
+    description: "Thought-provoking question that sparks curiosity",
     promptGuidance: [
-      'Write this as a THOUGHT-PROVOKING QUESTION — make the reader pause and think.',
+      "Write this as a THOUGHT-PROVOKING QUESTION — make the reader pause and think.",
       '- Start with a specific, unusual question (not "Did you know?")',
-      '- The question should reveal something about the topic',
-      '- Follow with a short, satisfying answer or tease',
-      '- Curiosity gap — they NEED to know the answer',
+      "- The question should reveal something about the topic",
+      "- Follow with a short, satisfying answer or tease",
+      "- Curiosity gap — they NEED to know the answer",
       '- Example vibe: "Why do you keep choosing the same tool? (Hint: it is not coincidence.)"',
-    ].join('\n'),
-    example: 'Why do you keep choosing the same tool?\n\nIt is not coincidence — it is your process calling. And it will not stop until you learn the lesson. \uD83D\uDD04',
+    ].join("\n"),
+    example:
+      "Why do you keep choosing the same tool?\n\nIt is not coincidence — it is your process calling. And it will not stop until you learn the lesson. \uD83D\uDD04",
     worksForShort: true,
     worksForLong: true,
     humorCompatible: true,
   },
   {
-    id: 'weather_report',
-    name: 'Weather Report',
-    description: 'Playful weather-report style for current trends or updates',
+    id: "weather_report",
+    name: "Weather Report",
+    description: "Playful weather-report style for current trends or updates",
     promptGuidance: [
-      'Write this as a TREND OR WEATHER REPORT — like a meteorologist reporting on the current landscape.',
+      "Write this as a TREND OR WEATHER REPORT — like a meteorologist reporting on the current landscape.",
       '- Use forecast language ("forecast", "incoming", "clear skies", "turbulence")',
-      '- Make it feel timely and urgent',
-      '- Playful but informative',
+      "- Make it feel timely and urgent",
+      "- Playful but informative",
       '- Example vibe: "Today\'s forecast: strong momentum in your niche, with scattered launches causing impulse clicks."',
-    ].join('\n'),
-    example: 'Today\'s forecast: \u2600\uFE0F strong momentum behind your topic, with scattered product launches causing impulse replies. Pack a filter. \u26C8\uFE0F',
+    ].join("\n"),
+    example:
+      "Today's forecast: \u2600\uFE0F strong momentum behind your topic, with scattered product launches causing impulse replies. Pack a filter. \u26C8\uFE0F",
     worksForShort: true,
     worksForLong: true,
     humorCompatible: true,
   },
   {
-    id: 'ancient_wisdom',
-    name: 'Ancient Wisdom',
-    description: 'Timeless, philosophical tone referencing traditions',
+    id: "ancient_wisdom",
+    name: "Ancient Wisdom",
+    description: "Timeless, philosophical tone referencing traditions",
     promptGuidance: [
-      'Write this with ANCIENT WISDOM energy — like a sage sharing timeless knowledge.',
-      '- Reference traditions and long-standing practice in the domain',
-      '- Philosophical, contemplative tone',
+      "Write this with ANCIENT WISDOM energy — like a sage sharing timeless knowledge.",
+      "- Reference traditions and long-standing practice in the domain",
+      "- Philosophical, contemplative tone",
       '- Use "the earliest practitioners" or "for millennia" type language',
-      '- Dignified, wise, slightly mysterious',
+      "- Dignified, wise, slightly mysterious",
       '- Example vibe: "The earliest practitioners mapped this 3,000 years ago. They knew what modern experts forgot."',
-    ].join('\n'),
-    example: 'The earliest practitioners mapped this 3,000 years ago. They knew what modern experts forgot: the work does not predict — it reveals. \uD83D\uDD29',
+    ].join("\n"),
+    example:
+      "The earliest practitioners mapped this 3,000 years ago. They knew what modern experts forgot: the work does not predict — it reveals. \uD83D\uDD29",
     worksForShort: true,
     worksForLong: true,
     humorCompatible: false,
   },
   {
-    id: 'real_talk',
-    name: 'Real Talk',
-    description: 'Direct, no-nonsense, like advice from a friend',
+    id: "real_talk",
+    name: "Real Talk",
+    description: "Direct, no-nonsense, like advice from a friend",
     promptGuidance: [
-      'Write this as REAL TALK — direct, no-nonsense advice from a friend who tells it like it is.',
-      '- Conversational, casual, zero pretension',
-      '- Use contractions, slang, informal language',
-      '- Cut the fluff — get to the point',
-      '- Relatable and grounded',
+      "Write this as REAL TALK — direct, no-nonsense advice from a friend who tells it like it is.",
+      "- Conversational, casual, zero pretension",
+      "- Use contractions, slang, informal language",
+      "- Cut the fluff — get to the point",
+      "- Relatable and grounded",
       '- Example vibe: "Stop asking if the algorithm ruined your week. You made those choices. The trend just watched."',
-    ].join('\n'),
-    example: 'Stop blaming the algorithm for your week. You made those choices. The trends just watched and took notes. \uD83D\uDCDD',
+    ].join("\n"),
+    example:
+      "Stop blaming the algorithm for your week. You made those choices. The trends just watched and took notes. \uD83D\uDCDD",
     worksForShort: true,
     worksForLong: true,
     humorCompatible: true,
   },
   {
-    id: 'plot_twist',
-    name: 'Plot Twist',
-    description: 'Setup and punchline with an unexpected ending',
+    id: "plot_twist",
+    name: "Plot Twist",
+    description: "Setup and punchline with an unexpected ending",
     promptGuidance: [
-      'Write this as a PLOT TWIST — set up an expectation, then subvert it.',
-      '- First line: sets up a normal expectation',
-      '- Second line: reveals the twist',
-      '- Short, punchy, satisfying',
+      "Write this as a PLOT TWIST — set up an expectation, then subvert it.",
+      "- First line: sets up a normal expectation",
+      "- Second line: reveals the twist",
+      "- Short, punchy, satisfying",
       '- Example vibe: "I thought this launch would be a quiet rollout. It was mostly refreshing analytics at 11pm."',
-    ].join('\n'),
-    example: 'I thought this launch would be a quiet rollout.\n\nIt was mostly refreshing analytics at 11pm. But apparently that IS the growth. \uD83D\uDCA1',
+    ].join("\n"),
+    example:
+      "I thought this launch would be a quiet rollout.\n\nIt was mostly refreshing analytics at 11pm. But apparently that IS the growth. \uD83D\uDCA1",
     worksForShort: true,
     worksForLong: true,
     humorCompatible: true,
   },
   {
-    id: 'tiny_lesson',
-    name: 'Tiny Lesson',
-    description: 'Bite-sized educational insight, accessible and warm',
+    id: "tiny_lesson",
+    name: "Tiny Lesson",
+    description: "Bite-sized educational insight, accessible and warm",
     promptGuidance: [
-      'Write this as a TINY LESSON — one small, specific thing the reader will learn.',
-      '- Focus on ONE specific concept (not a broad overview)',
-      '- Explain it simply, like teaching a friend',
-      '- Warm, encouraging tone',
+      "Write this as a TINY LESSON — one small, specific thing the reader will learn.",
+      "- Focus on ONE specific concept (not a broad overview)",
+      "- Explain it simply, like teaching a friend",
+      "- Warm, encouraging tone",
       '- End with a small "aha" moment',
       '- Example vibe: "Your first sentence is not who you are. It is how you enter a room."',
-    ].join('\n'),
-    example: 'Your first sentence is not who you are. It is how you enter a room — literally. It is your interface, your first impression, your "hi, nice to meet you" energy. \uD83D\uDEAA',
+    ].join("\n"),
+    example:
+      'Your first sentence is not who you are. It is how you enter a room — literally. It is your interface, your first impression, your "hi, nice to meet you" energy. \uD83D\uDEAA',
     worksForShort: true,
     worksForLong: true,
     humorCompatible: false,
@@ -242,9 +254,7 @@ export const CONTENT_STYLES: ContentStyle[] = [
  */
 export function pickContentStyle(network: SocialNetwork, runId?: string): ContentStyle {
   const isShort = network === SocialNetwork.X;
-  const eligible = CONTENT_STYLES.filter(
-    (s) => isShort ? s.worksForShort : s.worksForLong,
-  );
+  const eligible = CONTENT_STYLES.filter((s) => (isShort ? s.worksForShort : s.worksForLong));
 
   const now = new Date();
   const dayOfYear = Math.floor(
@@ -268,9 +278,16 @@ export function pickContentStyle(network: SocialNetwork, runId?: string): Conten
  * Get the style's prompt guidance to inject into the draft system prompt.
  */
 export function getStylePromptGuidance(style: ContentStyle): string {
-  return '\n\nCONTENT STYLE — "' + style.name + '":\n' +
-    style.promptGuidance + '\n\n' +
-    'Example of this style: "' + style.example + '"\n';
+  return (
+    '\n\nCONTENT STYLE — "' +
+    style.name +
+    '":\n' +
+    style.promptGuidance +
+    "\n\n" +
+    'Example of this style: "' +
+    style.example +
+    '"\n'
+  );
 }
 
 /**

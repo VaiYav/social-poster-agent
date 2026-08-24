@@ -1,5 +1,5 @@
-import { IsBoolean, IsInt, IsOptional, IsString, IsUUID } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsBoolean, IsInt, IsOptional, IsString, IsUUID } from "class-validator";
+import { Type } from "class-transformer";
 
 export class UpdateAccountDto {
   @IsOptional()

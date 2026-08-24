@@ -6,10 +6,10 @@
  *
  * POSSE: sets canonical URL pointing back to the configured BLOG_BASE_URL.
  */
-import { Injectable } from '@nestjs/common';
-import { SocialNetwork } from '@prisma/client';
-import { ArticleBasePoster, type ArticlePosterDeps } from './article-base.poster.js';
-import type { IBrowserPort } from '../../../domain/ports/browser.port.js';
+import { Injectable } from "@nestjs/common";
+import { SocialNetwork } from "../../../generated/prisma/client.js";
+import { ArticleBasePoster, type ArticlePosterDeps } from "./article-base.poster.js";
+import type { IBrowserPort } from "../../../domain/ports/browser.port.js";
 
 @Injectable()
 export class HashnodePoster extends ArticleBasePoster {
@@ -18,11 +18,11 @@ export class HashnodePoster extends ArticleBasePoster {
   }
 
   protected getEditorUrl(): string {
-    return 'https://hashnode.com/new';
+    return "https://hashnode.com/new";
   }
 
   protected getPlatformName(): string {
-    return 'Hashnode';
+    return "Hashnode";
   }
 
   protected getNetwork(): SocialNetwork {

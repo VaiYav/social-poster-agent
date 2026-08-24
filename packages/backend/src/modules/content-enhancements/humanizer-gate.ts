@@ -16,7 +16,7 @@
  * Detection is regex/statistics — fast, deterministic, free.
  */
 
-import { scanSlop, escapeRegex, type SlopMatch } from './slop-lexicon.js';
+import { scanSlop, escapeRegex, type SlopMatch } from "./slop-lexicon.js";
 
 export interface HumanizationReport {
   slopMatches: SlopMatch[];
@@ -41,17 +41,47 @@ const MIN_SENTENCE_WORDS = 1;
 const UNIFORMITY_CV_THRESHOLD = 0.35;
 /** Formal transition words that make a short post sound like an essay. */
 const TRANSITION_WORDS: readonly string[] = [
-  'furthermore', 'moreover', 'additionally', 'consequently', 'therefore', 'thus',
-  'hence', 'accordingly', 'subsequently', 'nevertheless', 'nonetheless', 'however',
-  'meanwhile', 'in contrast', 'conversely', 'as a result', 'for instance', 'for example',
-  'in particular', 'notably', 'specifically', 'indeed', 'in fact', 'undoubtedly',
-  'admittedly', 'particularly', 'especially', 'generally', 'typically', 'usually',
-  'in general', 'overall', 'in conclusion', 'to summarize', 'in summary', 'in short',
+  "furthermore",
+  "moreover",
+  "additionally",
+  "consequently",
+  "therefore",
+  "thus",
+  "hence",
+  "accordingly",
+  "subsequently",
+  "nevertheless",
+  "nonetheless",
+  "however",
+  "meanwhile",
+  "in contrast",
+  "conversely",
+  "as a result",
+  "for instance",
+  "for example",
+  "in particular",
+  "notably",
+  "specifically",
+  "indeed",
+  "in fact",
+  "undoubtedly",
+  "admittedly",
+  "particularly",
+  "especially",
+  "generally",
+  "typically",
+  "usually",
+  "in general",
+  "overall",
+  "in conclusion",
+  "to summarize",
+  "in summary",
+  "in short",
 ];
 /** Max transition words allowed before flagging. */
 const TRANSITION_WORD_LIMIT = 1;
 /** Ignore these common starts when checking repetitive sentence starts. */
-const EXCLUDED_STARTS: readonly string[] = ['and', 'but', 'or', 'so'];
+const EXCLUDED_STARTS: readonly string[] = ["and", "but", "or", "so"];
 /** Ratio of sentences sharing a start word to trigger a flag. */
 const REPETITIVE_START_RATIO = 0.5;
 const MIN_SENTENCES_FOR_REPETITION = 4;
@@ -81,7 +111,7 @@ export function analyzeHumanization(text: string, language: string): Humanizatio
   const uniformSentences = lengths.length >= 3 && burstiness < UNIFORMITY_CV_THRESHOLD;
 
   const starts = sentences
-    .map((s) => (s.split(/\s+/)[0] ?? '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, ''))
+    .map((s) => (s.split(/\s+/)[0] ?? "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, ""))
     .filter((s) => s.length > 0 && !EXCLUDED_STARTS.includes(s));
   let repetitiveSentenceStarts = false;
   if (starts.length >= MIN_SENTENCES_FOR_REPETITION) {
@@ -92,7 +122,7 @@ export function analyzeHumanization(text: string, language: string): Humanizatio
   }
 
   const transitionWordCount = TRANSITION_WORDS.reduce((count, word) => {
-    const re = new RegExp(`\\b${escapeRegex(word)}\\b`, 'gi');
+    const re = new RegExp(`\\b${escapeRegex(word)}\\b`, "gi");
     return count + (text.match(re) ?? []).length;
   }, 0);
 
@@ -100,7 +130,7 @@ export function analyzeHumanization(text: string, language: string): Humanizatio
 
   const flags: string[] = [];
   if (slopMatches.length > 0) {
-    flags.push(`AI slop words/phrases found: ${slopMatches.map((m) => `"${m.term}"`).join(', ')}`);
+    flags.push(`AI slop words/phrases found: ${slopMatches.map((m) => `"${m.term}"`).join(", ")}`);
   }
   if (emDashCount > 0) {
     flags.push(`${emDashCount} em/en dash(es) (—/–) — the #1 AI punctuation tell`);
@@ -109,16 +139,28 @@ export function analyzeHumanization(text: string, language: string): Humanizatio
     flags.push('sentence lengths are uniform (low burstiness — "AI rhythm")');
   }
   if (repetitiveSentenceStarts) {
-    flags.push('too many sentences start with the same word — vary your openings');
+    flags.push("too many sentences start with the same word — vary your openings");
   }
   if (transitionWordCount > TRANSITION_WORD_LIMIT) {
-    flags.push(`${transitionWordCount} formal transition words (furthermore, moreover, etc.) — sounds like an essay`);
+    flags.push(
+      `${transitionWordCount} formal transition words (furthermore, moreover, etc.) — sounds like an essay`,
+    );
   }
   if (hashtagCount > 0) {
     flags.push(`${hashtagCount} hashtag(s) — banned by brand policy`);
   }
 
-  return { slopMatches, emDashCount, sentenceCount: sentences.length, burstiness, uniformSentences, repetitiveSentenceStarts, transitionWordCount, hashtagCount, flags };
+  return {
+    slopMatches,
+    emDashCount,
+    sentenceCount: sentences.length,
+    burstiness,
+    uniformSentences,
+    repetitiveSentenceStarts,
+    transitionWordCount,
+    hashtagCount,
+    flags,
+  };
 }
 
 /**
@@ -132,24 +174,30 @@ export function buildHumanizeInstruction(text: string, language: string): string
   const fixes: string[] = [];
   if (report.slopMatches.length > 0) {
     fixes.push(
-      `Replace or delete these AI-tell words/phrases: ${report.slopMatches.map((m) => `"${m.term}"`).join(', ')}. Use plain, specific language instead.`,
+      `Replace or delete these AI-tell words/phrases: ${report.slopMatches.map((m) => `"${m.term}"`).join(", ")}. Use plain, specific language instead.`,
     );
   }
   if (report.emDashCount > 0) {
-    fixes.push('Remove ALL em/en dashes (—/–). Use periods, commas, or parentheses.');
+    fixes.push("Remove ALL em/en dashes (—/–). Use periods, commas, or parentheses.");
   }
   if (report.uniformSentences) {
-    fixes.push('Break the rhythm: make at least one sentence under 6 words and one over 20. Fragments are allowed.');
+    fixes.push(
+      "Break the rhythm: make at least one sentence under 6 words and one over 20. Fragments are allowed.",
+    );
   }
   if (report.hashtagCount > 0) {
-    fixes.push('Delete all hashtags — posts are pure text.');
+    fixes.push("Delete all hashtags — posts are pure text.");
   }
   if (report.repetitiveSentenceStarts) {
-    fixes.push('Vary sentence openings: start some with "And", "But", "Honestly", a sensory detail, or a pronoun other than the current repeated one.');
+    fixes.push(
+      'Vary sentence openings: start some with "And", "But", "Honestly", a sensory detail, or a pronoun other than the current repeated one.',
+    );
   }
   if (report.transitionWordCount > TRANSITION_WORD_LIMIT) {
-    fixes.push('Remove formal transitions (furthermore, moreover, consequently, etc.). Use natural conjunctions or sentence fragments.');
+    fixes.push(
+      "Remove formal transitions (furthermore, moreover, consequently, etc.). Use natural conjunctions or sentence fragments.",
+    );
   }
 
-  return `HUMANIZER GATE — deterministic scan flagged this draft (${report.flags.join('; ')}). Required fixes:\n- ${fixes.join('\n- ')}`;
+  return `HUMANIZER GATE — deterministic scan flagged this draft (${report.flags.join("; ")}). Required fixes:\n- ${fixes.join("\n- ")}`;
 }

@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { Loader2 } from '@lucide/vue';
+import { Loader2 } from "@lucide/vue";
 
-withDefaults(defineProps<{
-  message?: string;
-}>(), {
-  message: 'Loading...',
-});
+withDefaults(
+  defineProps<{
+    message?: string;
+  }>(),
+  {
+    message: "Loading...",
+  },
+);
 </script>
 
 <template>

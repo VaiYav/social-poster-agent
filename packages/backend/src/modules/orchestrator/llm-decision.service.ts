@@ -5,33 +5,52 @@
  * into an Action. Falls back to rules-only on LLM failure or timeout.
  */
 
-import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { SocialNetwork } from '@prisma/client';
-import { ILlmPort } from '../../domain/ports/llm.port.js';
-import { LangfuseService } from '../../infrastructure/langfuse/langfuse.service.js';
-import { z } from 'zod';
-import { IPromptPort } from '../../domain/ports/prompt.port.js';
-import { combineSignals } from '../../infrastructure/util/abort-signal.js';
-import { ORCHESTRATOR_SYSTEM_PROMPT, buildOrchestratorUserPrompt } from './prompts/orchestrator-prompt.js';
-import type { WorldState, Action, ActionType, NetworkActionType, GenericActionType } from './types.js';
+import { Injectable, Logger, Inject, Optional } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { SocialNetwork } from "../../generated/prisma/client.js";
+import { ILlmPort } from "../../domain/ports/llm.port.js";
+import { LangfuseService } from "../../infrastructure/langfuse/langfuse.service.js";
+import { z } from "zod";
+import { IPromptPort } from "../../domain/ports/prompt.port.js";
+import { combineSignals } from "../../infrastructure/util/abort-signal.js";
+import {
+  ORCHESTRATOR_SYSTEM_PROMPT,
+  buildOrchestratorUserPrompt,
+} from "./prompts/orchestrator-prompt.js";
+import type {
+  WorldState,
+  Action,
+  ActionType,
+  NetworkActionType,
+  GenericActionType,
+} from "./types.js";
 
 const LLM_TIMEOUT_MS_DEFAULT = 30000;
 
 const VALID_ACTIONS: ActionType[] = [
-  'GENERATE_TOPICS', 'GENERATE_POSTS', 'POST', 'BROWSE',
-  'RECOVER_SESSION', 'CHECK_REPLIES', 'REFRESH_TRENDS',
-  'HEALTH_CHECK', 'RECONCILE', 'TRIAGE_QUEUE', 'SCRAPE_METRICS',
-  'RECYCLE_CONTENT', 'AGGREGATE_HOOKS', 'WAIT',
+  "GENERATE_TOPICS",
+  "GENERATE_POSTS",
+  "POST",
+  "BROWSE",
+  "RECOVER_SESSION",
+  "CHECK_REPLIES",
+  "REFRESH_TRENDS",
+  "HEALTH_CHECK",
+  "RECONCILE",
+  "TRIAGE_QUEUE",
+  "SCRAPE_METRICS",
+  "RECYCLE_CONTENT",
+  "AGGREGATE_HOOKS",
+  "WAIT",
 ];
 
-const NETWORK_ACTION_TYPES: ReadonlySet<string> = new Set(['POST', 'BROWSE', 'RECOVER_SESSION']);
+const NETWORK_ACTION_TYPES: ReadonlySet<string> = new Set(["POST", "BROWSE", "RECOVER_SESSION"]);
 
 const LlmResponseSchema = z.object({
   action: z.string(),
   network: z.string().nullable().optional(),
   reason: z.string().optional(),
-  params: z.record(z.unknown()).optional(),
+  params: z.record(z.string(), z.unknown()).optional(),
 });
 
 type LlmResponseShape = z.infer<typeof LlmResponseSchema>;
@@ -49,30 +68,36 @@ export class LlmDecisionService {
   ) {
     this.llmTimeoutMs = Math.max(
       5000,
-      Number(this.configService.get<string>('ORCHESTRATOR_LLM_TIMEOUT_MS', String(LLM_TIMEOUT_MS_DEFAULT))),
+      Number(
+        this.configService.get<string>(
+          "ORCHESTRATOR_LLM_TIMEOUT_MS",
+          String(LLM_TIMEOUT_MS_DEFAULT),
+        ),
+      ),
     );
   }
 
   async decide(world: WorldState, signal?: AbortSignal): Promise<Action> {
-    if (!this.llm) throw new Error('LLM port not available');
+    if (!this.llm) throw new Error("LLM port not available");
 
     const userPrompt = buildOrchestratorUserPrompt(world);
 
     // Fetch system prompt from Langfuse Prompt Management (falls back to local constant)
     const systemPrompt = this.promptPort
-      ? await this.promptPort.getCompiledText('orchestrator-system', {}, ORCHESTRATOR_SYSTEM_PROMPT)
+      ? await this.promptPort.getCompiledText("orchestrator-system", {}, ORCHESTRATOR_SYSTEM_PROMPT)
       : ORCHESTRATOR_SYSTEM_PROMPT;
 
     // Langfuse tracing: each orchestrator decision gets its own trace.
     // tags enable filtering orchestrator decisions from generation traces.
     // promptNames links this trace to the Langfuse Prompt Management prompt used.
     const handler = this.langfuse?.createHandler({
-      tags: ['orchestrator', 'decision'],
+      sessionId: "orchestrator",
+      tags: ["orchestrator", "decision"],
       traceMetadata: {
         utcHour: world.utcHour,
         utcDayOfWeek: world.utcDayOfWeek,
         degraded: world._degraded,
-        promptNames: 'orchestrator-system',
+        promptNames: "orchestrator-system",
       },
     });
     const callbacks = handler ? [handler] : undefined;
@@ -80,21 +105,48 @@ export class LlmDecisionService {
     const controller = new AbortController();
     const stopSignal = combineSignals(controller.signal, signal);
 
+    const generateDecision = () =>
+      this.llm!.generateChat(systemPrompt, userPrompt, {
+        temperature: 0.3,
+        maxTokens: 200,
+        callbacks,
+        signal: stopSignal,
+        budgetScope: "orchestrator",
+        traceName: "orchestrator.decision",
+      });
+
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutId = setTimeout(() => {
         controller.abort();
-        reject(new Error('LLM timeout'));
+        reject(new Error("LLM timeout"));
       }, this.llmTimeoutMs);
     });
 
-    const llmPromise = this.llm.generateChat(systemPrompt, userPrompt, {
-      temperature: 0.3,
-      maxTokens: 200,
-      callbacks,
-      signal: stopSignal,
-      budgetScope: 'orchestrator',
-    });
+    const llmPromise = this.langfuse?.isEnabled
+      ? this.langfuse.withTrace(
+          {
+            rootName: "agent.orchestrator-decision",
+            feature: "orchestrator",
+            sessionId: "orchestrator",
+            tags: ["orchestrator", "decision"],
+            metadata: {
+              utcHour: world.utcHour,
+              utcDayOfWeek: world.utcDayOfWeek,
+              degraded: world._degraded.length > 0,
+              promptNames: "orchestrator-system",
+            },
+            input: {
+              run_id: "orchestrator",
+              utc_hour: world.utcHour,
+              utc_day_of_week: world.utcDayOfWeek,
+              degraded: world._degraded.length > 0,
+            },
+            output: () => ({ status: "completed" }),
+          },
+          generateDecision,
+        )
+      : generateDecision();
 
     // 2.6.4: clear the timeout and suppress the LLM promise rejection when the
     // timeout wins. The original llmPromise is still observed by Promise.race.
@@ -121,21 +173,20 @@ export class LlmDecisionService {
     // Strip common markdown code fences so the JSON extractor doesn't fail
     // when the model wraps its response in ```json ... ```.
     const cleaned = text
-      .replace(/```(?:json)?\n?/gi, '')
-      .replace(/```\n?/g, '')
+      .replace(/```(?:json)?\n?/gi, "")
+      .replace(/```\n?/g, "")
       .trim();
 
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      throw new Error('No JSON in LLM response');
+      throw new Error("No JSON in LLM response");
     }
 
     const parsedRaw = JSON.parse(jsonMatch[0]);
     const parsed = LlmResponseSchema.parse(parsedRaw);
     const actionType = String(parsed.action).toUpperCase() as ActionType;
-    const networkRaw =
-      parsed.network && parsed.network !== 'null' ? parsed.network : undefined;
-    const reason = String(parsed.reason ?? 'LLM decision');
+    const networkRaw = parsed.network && parsed.network !== "null" ? parsed.network : undefined;
+    const reason = String(parsed.reason ?? "LLM decision");
 
     if (!VALID_ACTIONS.includes(actionType)) {
       throw new Error(`Invalid action type: ${actionType}`);
@@ -149,7 +200,9 @@ export class LlmDecisionService {
       // invalid values. Validate against the SocialNetwork enum and pick the
       // first valid one; throw if none match (triggers rules fallback).
       const validNetworks = new Set<string>(Object.values(SocialNetwork));
-      const candidates = String(networkRaw).split('|').map((s) => s.trim().toUpperCase());
+      const candidates = String(networkRaw)
+        .split("|")
+        .map((s) => s.trim().toUpperCase());
       const validNetwork = candidates.find((c) => validNetworks.has(c));
       if (!validNetwork) {
         throw new Error(`Invalid network "${networkRaw}" for ${actionType}`);
@@ -158,7 +211,7 @@ export class LlmDecisionService {
         type: actionType as NetworkActionType,
         network: validNetwork as SocialNetwork,
         reason,
-        source: 'llm',
+        source: "llm",
         params: parsed.params,
       };
     }
@@ -166,7 +219,7 @@ export class LlmDecisionService {
       type: actionType as GenericActionType,
       network: networkRaw as SocialNetwork | undefined,
       reason,
-      source: 'llm',
+      source: "llm",
       params: parsed.params,
     };
   }

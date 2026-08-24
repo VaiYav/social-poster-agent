@@ -4,16 +4,16 @@
  * Identifies posts that performed well (posted >30 days ago) and creates
  * new draft variants with updated angles/hooks. Avoids exact duplicates via SimHash.
  */
-import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { SchedulerRegistry } from '@nestjs/schedule';
-import { CronJob } from 'cron';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { PostStatus } from '@prisma/client';
-import { simhash, isDuplicateAgainstCorpus } from '../generation/simhash.js';
-import { GenerationService } from '../generation/generation.service.js';
-import { parseBool } from '../../infrastructure/config/parse-bool.js';
-import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
+import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { SchedulerRegistry } from "@nestjs/schedule";
+import { CronJob } from "cron";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { PostStatus } from "../../generated/prisma/client.js";
+import { simhash, isDuplicateAgainstCorpus } from "../generation/simhash.js";
+import { GenerationService } from "../generation/generation.service.js";
+import { parseBool } from "../../infrastructure/config/parse-bool.js";
+import { isOrchestratorEnabled } from "../../domain/feature-flags.js";
 
 @Injectable()
 export class RecyclingService implements OnModuleInit {
@@ -30,7 +30,9 @@ export class RecyclingService implements OnModuleInit {
   /**
    * Find posts eligible for recycling — posted >30 days ago, not yet recycled.
    */
-  async findRecyclablePosts(limit = 10): Promise<{ id: string; network: string; content: string; postedAt: Date | null }[]> {
+  async findRecyclablePosts(
+    limit = 10,
+  ): Promise<{ id: string; network: string; content: string; postedAt: Date | null }[]> {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
     const posts = await this.prisma.post.findMany({
@@ -38,9 +40,9 @@ export class RecyclingService implements OnModuleInit {
         status: PostStatus.POSTED,
         postedAt: { lt: thirtyDaysAgo },
         // Check llmMetadata for recycled flag
-        llmMetadata: { path: ['recycled'], not: true },
+        llmMetadata: { path: ["recycled"], not: true },
       },
-      orderBy: { postedAt: 'desc' },
+      orderBy: { postedAt: "desc" },
       take: limit * 2, // get more than needed, filter by simhash
       select: {
         id: true,
@@ -55,7 +57,9 @@ export class RecyclingService implements OnModuleInit {
     // Filter out posts that are too similar to recent posts
     // 2.8.4: Use the same SimHash threshold as GenerationService (isDuplicateAgainstCorpus).
     const recentHashes = await this.loadRecentHashes();
-    const recyclable = posts.filter((post) => !isDuplicateAgainstCorpus(post.content, recentHashes));
+    const recyclable = posts.filter(
+      (post) => !isDuplicateAgainstCorpus(post.content, recentHashes),
+    );
 
     return recyclable.slice(0, limit);
   }
@@ -105,8 +109,8 @@ export class RecyclingService implements OnModuleInit {
    */
   getCronConfig(): { enabled: boolean; schedule: string } {
     return {
-      enabled: parseBool(this.configService.get<string>('RECYCLING_CRON_ENABLED', 'false')),
-      schedule: this.configService.get<string>('RECYCLING_CRON_SCHEDULE', '0 8 * * 1'),
+      enabled: parseBool(this.configService.get<string>("RECYCLING_CRON_ENABLED", "false")),
+      schedule: this.configService.get<string>("RECYCLING_CRON_SCHEDULE", "0 8 * * 1"),
     };
   }
 
@@ -120,24 +124,24 @@ export class RecyclingService implements OnModuleInit {
    */
   onModuleInit(): void {
     if (isOrchestratorEnabled()) {
-      this.logger.log('Orchestrator is enabled — recycling cron NOT registered');
+      this.logger.log("Orchestrator is enabled — recycling cron NOT registered");
       return;
     }
-    if (!parseBool(this.configService.get<string>('RECYCLING_CRON_ENABLED', 'false'))) {
+    if (!parseBool(this.configService.get<string>("RECYCLING_CRON_ENABLED", "false"))) {
       return;
     }
 
-    const cronExpr = this.configService.get<string>('RECYCLING_CRON_SCHEDULE', '0 8 * * 1');
+    const cronExpr = this.configService.get<string>("RECYCLING_CRON_SCHEDULE", "0 8 * * 1");
     const job = new CronJob(cronExpr, async () => {
-      this.logger.log('RC2: scheduled recycling run starting');
+      this.logger.log("RC2: scheduled recycling run starting");
       await this.runRecycling();
     });
     try {
-      this.schedulerRegistry.addCronJob('recycling', job);
+      this.schedulerRegistry.addCronJob("recycling", job);
       job.start();
       this.logger.log(`Recycling cron registered: ${cronExpr}`);
     } catch {
-      this.logger.warn('SchedulerRegistry not available — recycling cron will not run');
+      this.logger.warn("SchedulerRegistry not available — recycling cron will not run");
     }
   }
 

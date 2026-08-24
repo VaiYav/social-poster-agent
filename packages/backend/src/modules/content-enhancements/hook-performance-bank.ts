@@ -20,26 +20,20 @@
  *   `spa:hookbank:updated`         — timestamp of last aggregation
  */
 
-import { Inject, Injectable, Logger, Optional, type OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { SchedulerRegistry } from '@nestjs/schedule';
-import { CronJob } from 'cron';
-import type { Redis } from 'ioredis';
-import { SHARED_REDIS } from '../../infrastructure/redis/redis.module.js';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service.js';
-import { SocialNetwork, PostStatus, Prisma } from '@prisma/client';
-import { isOrchestratorEnabled } from '../orchestrator/feature-flag.js';
+import { Inject, Injectable, Logger, Optional, type OnModuleInit } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { SchedulerRegistry } from "@nestjs/schedule";
+import { CronJob } from "cron";
+import type { Redis } from "ioredis";
+import { SHARED_REDIS } from "../../infrastructure/redis/redis.module.js";
+import { PrismaService } from "../../infrastructure/prisma/prisma.service.js";
+import { SocialNetwork, PostStatus, Prisma } from "../../generated/prisma/client.js";
+import { isOrchestratorEnabled } from "../../domain/feature-flags.js";
 
 /**
  * Hook techniques — matches the categories in the hook_generation prompt.
  */
-export const HOOK_TECHNIQUES = [
-  'question',
-  'bold',
-  'counter_intuitive',
-  'story',
-  'data',
-] as const;
+export const HOOK_TECHNIQUES = ["question", "bold", "counter_intuitive", "story", "data"] as const;
 export type HookTechnique = (typeof HOOK_TECHNIQUES)[number];
 
 /**
@@ -76,7 +70,7 @@ export interface HookRecommendation {
 }
 
 /** Redis key prefix. */
-const BANK_KEY_PREFIX = 'spa:hookbank';
+const BANK_KEY_PREFIX = "spa:hookbank";
 /** Cache TTL for aggregated stats (1 hour). */
 const CACHE_TTL_SECONDS = 3600;
 /** Minimum sample size per technique before trusting the data. */
@@ -95,12 +89,15 @@ const MIN_SAMPLE_SIZE = 3;
  */
 export function classifyHookTechnique(hook: string): HookTechnique {
   const h = hook.toLowerCase().trim();
-  if (/^(what|why|how|when|where|who|did|do|can|could|would|will|is|are)\b/.test(h)) return 'question';
-  if (/[!%]/.test(h) || /\b(always|never|every|must|definitely|absolutely)\b/.test(h)) return 'bold';
-  if (/\b(but|actually|however|contrary|unlike|despite|while most|most people think)\b/.test(h)) return 'counter_intuitive';
-  if (/^(i|my|me|yesterday|last week|last month|recently)\b/.test(h)) return 'story';
-  if (/\b(\d|%|x more|studies show|research|data|statistics|percent)\b/.test(h)) return 'data';
-  return 'question';
+  if (/^(what|why|how|when|where|who|did|do|can|could|would|will|is|are)\b/.test(h))
+    return "question";
+  if (/[!%]/.test(h) || /\b(always|never|every|must|definitely|absolutely)\b/.test(h))
+    return "bold";
+  if (/\b(but|actually|however|contrary|unlike|despite|while most|most people think)\b/.test(h))
+    return "counter_intuitive";
+  if (/^(i|my|me|yesterday|last week|last month|recently)\b/.test(h)) return "story";
+  if (/\b(\d|%|x more|studies show|research|data|statistics|percent)\b/.test(h)) return "data";
+  return "question";
 }
 
 @Injectable()
@@ -122,18 +119,20 @@ export class HookPerformanceBank implements OnModuleInit {
    */
   onModuleInit(): void {
     if (isOrchestratorEnabled()) {
-      this.logger.log('Orchestrator is enabled — hook bank aggregation cron NOT registered');
+      this.logger.log("Orchestrator is enabled — hook bank aggregation cron NOT registered");
       return;
     }
 
-    const cronExpr = this.configService.get<string>('HOOK_BANK_AGGREGATE_SCHEDULE', '0 7 * * *');
-    const job = new CronJob(cronExpr, async () => { await this.aggregateStats(); });
+    const cronExpr = this.configService.get<string>("HOOK_BANK_AGGREGATE_SCHEDULE", "0 7 * * *");
+    const job = new CronJob(cronExpr, async () => {
+      await this.aggregateStats();
+    });
     try {
-      this.schedulerRegistry.addCronJob('hook-bank-aggregate', job);
+      this.schedulerRegistry.addCronJob("hook-bank-aggregate", job);
       job.start();
       this.logger.log(`Hook bank aggregation cron registered: ${cronExpr}`);
     } catch {
-      this.logger.warn('SchedulerRegistry not available — hook bank cron will not run');
+      this.logger.warn("SchedulerRegistry not available — hook bank cron will not run");
     }
   }
 
@@ -152,7 +151,7 @@ export class HookPerformanceBank implements OnModuleInit {
    */
   async aggregateStats(): Promise<void> {
     if (!this.prisma) {
-      this.logger.debug('P1: Prisma unavailable — skipping aggregation');
+      this.logger.debug("P1: Prisma unavailable — skipping aggregation");
       return;
     }
 
@@ -168,7 +167,7 @@ export class HookPerformanceBank implements OnModuleInit {
           network: true,
           llmMetadata: true,
           metrics: {
-            orderBy: { collectedAt: 'desc' },
+            orderBy: { collectedAt: "desc" },
             take: 1,
           },
         },
@@ -176,12 +175,15 @@ export class HookPerformanceBank implements OnModuleInit {
       });
 
       // Group by (network, technique) — track both engagement and quality
-      const groups = new Map<string, {
-        engagementSum: number;
-        engagementCount: number;
-        qualitySum: number;
-        qualityCount: number;
-      }>();
+      const groups = new Map<
+        string,
+        {
+          engagementSum: number;
+          engagementCount: number;
+          qualitySum: number;
+          qualityCount: number;
+        }
+      >();
 
       for (const post of posts) {
         const metadata = post.llmMetadata as {
@@ -193,7 +195,8 @@ export class HookPerformanceBank implements OnModuleInit {
 
         // Use stored technique or classify heuristically
         const technique = (
-          metadata.hookTechnique && HOOK_TECHNIQUES.includes(metadata.hookTechnique as HookTechnique)
+          metadata.hookTechnique &&
+          HOOK_TECHNIQUES.includes(metadata.hookTechnique as HookTechnique)
             ? metadata.hookTechnique
             : classifyHookTechnique(metadata.hook)
         ) as HookTechnique;
@@ -215,7 +218,7 @@ export class HookPerformanceBank implements OnModuleInit {
         }
 
         // Track quality score (always available from critique node)
-        if (typeof metadata.qualityScore === 'number' && metadata.qualityScore > 0) {
+        if (typeof metadata.qualityScore === "number" && metadata.qualityScore > 0) {
           existing.qualitySum += metadata.qualityScore;
           existing.qualityCount += 1;
         }
@@ -226,12 +229,15 @@ export class HookPerformanceBank implements OnModuleInit {
       // Compute averages and write to Redis
       const pipeline = this.redis.multi();
       for (const network of [SocialNetwork.X, SocialNetwork.THREADS, SocialNetwork.FACEBOOK]) {
-        const stats: Record<string, {
-          avg: number;
-          count: number;
-          avgQuality: number;
-          qualityCount: number;
-        }> = {};
+        const stats: Record<
+          string,
+          {
+            avg: number;
+            count: number;
+            avgQuality: number;
+            qualityCount: number;
+          }
+        > = {};
         for (const technique of HOOK_TECHNIQUES) {
           const key = `${network}:${technique}`;
           const group = groups.get(key);
@@ -247,11 +253,11 @@ export class HookPerformanceBank implements OnModuleInit {
         pipeline.set(
           `${BANK_KEY_PREFIX}:stats:${network}`,
           JSON.stringify(stats),
-          'EX',
+          "EX",
           CACHE_TTL_SECONDS,
         );
       }
-      pipeline.set(`${BANK_KEY_PREFIX}:updated`, Date.now().toString(), 'EX', CACHE_TTL_SECONDS);
+      pipeline.set(`${BANK_KEY_PREFIX}:updated`, Date.now().toString(), "EX", CACHE_TTL_SECONDS);
       await pipeline.exec();
 
       this.logger.log(
@@ -279,7 +285,7 @@ export class HookPerformanceBank implements OnModuleInit {
     try {
       const raw = await this.redis.get(`${BANK_KEY_PREFIX}:stats:${network}`);
       if (!raw) {
-        return this.fallbackRecommendation(network, 'No cached stats — run aggregateStats() first');
+        return this.fallbackRecommendation(network, "No cached stats — run aggregateStats() first");
       }
 
       const stats = JSON.parse(raw) as Record<
@@ -288,10 +294,18 @@ export class HookPerformanceBank implements OnModuleInit {
       >;
 
       // Compute baselines
-      const allEngagement = Object.values(stats).filter((s) => s.count >= MIN_SAMPLE_SIZE).map((s) => s.avg);
-      const allQuality = Object.values(stats).filter((s) => s.qualityCount >= MIN_SAMPLE_SIZE).map((s) => s.avgQuality);
-      const engagementBaseline = allEngagement.length > 0 ? allEngagement.reduce((a, b) => a + b, 0) / allEngagement.length : 0;
-      const qualityBaseline = allQuality.length > 0 ? allQuality.reduce((a, b) => a + b, 0) / allQuality.length : 5;
+      const allEngagement = Object.values(stats)
+        .filter((s) => s.count >= MIN_SAMPLE_SIZE)
+        .map((s) => s.avg);
+      const allQuality = Object.values(stats)
+        .filter((s) => s.qualityCount >= MIN_SAMPLE_SIZE)
+        .map((s) => s.avgQuality);
+      const engagementBaseline =
+        allEngagement.length > 0
+          ? allEngagement.reduce((a, b) => a + b, 0) / allEngagement.length
+          : 0;
+      const qualityBaseline =
+        allQuality.length > 0 ? allQuality.reduce((a, b) => a + b, 0) / allQuality.length : 5;
 
       // Build ranked list using hybrid score
       const ranked: TechniqueStats[] = HOOK_TECHNIQUES.map((technique) => {
@@ -322,11 +336,12 @@ export class HookPerformanceBank implements OnModuleInit {
           ? 0.4 * normalizedQuality + 0.6 * Math.min(normalizedEngagement, 1)
           : normalizedQuality; // quality-only when no engagement
 
-        const performanceMultiplier = hasEngagement && engagementBaseline > 0
-          ? avgEng / engagementBaseline
-          : hasQuality && qualityBaseline > 0
-            ? avgQual / qualityBaseline
-            : 1;
+        const performanceMultiplier =
+          hasEngagement && engagementBaseline > 0
+            ? avgEng / engagementBaseline
+            : hasQuality && qualityBaseline > 0
+              ? avgQual / qualityBaseline
+              : 1;
 
         return {
           technique,
@@ -340,7 +355,7 @@ export class HookPerformanceBank implements OnModuleInit {
 
       // Find top technique with enough data (quality or engagement)
       const topWith = ranked.find((r) => r.sampleSize >= MIN_SAMPLE_SIZE);
-      const topTechnique = topWith?.technique ?? 'question';
+      const topTechnique = topWith?.technique ?? "question";
 
       // Find bottom technique with enough data
       const bottomWith = [...ranked]
@@ -351,7 +366,7 @@ export class HookPerformanceBank implements OnModuleInit {
       const hasData = Boolean(topWith);
 
       // Build guidance string for the LLM
-      let guidance = '';
+      let guidance = "";
       if (hasData) {
         const topMult = topWith!.performanceMultiplier.toFixed(1);
         const topQual = topWith!.avgQualityScore.toFixed(1);
@@ -383,10 +398,16 @@ export class HookPerformanceBank implements OnModuleInit {
    * Returns the cached aggregation data.
    */
   async getStats(): Promise<{
-    networks: Record<string, Record<string, { avg: number; count: number; avgQuality: number; qualityCount: number }>>;
+    networks: Record<
+      string,
+      Record<string, { avg: number; count: number; avgQuality: number; qualityCount: number }>
+    >;
     lastUpdated: number | null;
   }> {
-    const networks: Record<string, Record<string, { avg: number; count: number; avgQuality: number; qualityCount: number }>> = {};
+    const networks: Record<
+      string,
+      Record<string, { avg: number; count: number; avgQuality: number; qualityCount: number }>
+    > = {};
     for (const network of [SocialNetwork.X, SocialNetwork.THREADS, SocialNetwork.FACEBOOK]) {
       const raw = await this.redis.get(`${BANK_KEY_PREFIX}:stats:${network}`);
       if (raw) {
@@ -413,7 +434,7 @@ export class HookPerformanceBank implements OnModuleInit {
         sampleSize: 0,
         performanceMultiplier: 1,
       })),
-      topTechnique: 'question',
+      topTechnique: "question",
       bottomTechnique: null,
       guidance: `No historical data yet for ${network} — use a mix of all 5 techniques.`,
       hasData: false,

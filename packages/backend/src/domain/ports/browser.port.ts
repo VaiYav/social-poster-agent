@@ -2,37 +2,37 @@
 // Implementation: BrowserFactory (Camoufox).
 // Unit tests can inject a mock without touching real browser.
 
-import type { BrowserContext, Locator, Page } from './browser-primitives.js';
-import type { SocialNetwork } from '@spa/shared';
-import type { ZodSchema } from 'zod';
+import type { BrowserContext, Locator, Page } from "./browser-primitives.js";
+import type { SocialNetwork } from "@spa/shared";
+import type { ZodSchema } from "zod";
 
-export const IBrowserPort = Symbol('IBrowserPort');
+export const IBrowserPort = Symbol("IBrowserPort");
 
 /** Scroll direction for feed browsing. */
-export type ScrollDirection = 'up' | 'down';
+export type ScrollDirection = "up" | "down";
 
 /** Screenshot phase — used in filename for debugging. */
 export type ScreenshotPhase =
-  | 'before-login'
-  | 'after-login'
-  | 'before-compose'
-  | 'after-compose'
-  | 'after-type'
-  | 'after-type-fallback'
-  | 'after-submit'
-  | 'after-submit-fallback'
-  | 'after-validate'
-  | 'on-error'
-  | 'before-like'
-  | 'after-like'
-  | 'before-comment'
-  | 'after-comment'
-  | 'before-repost'
-  | 'after-repost'
-  | 'before-quote'
-  | 'after-quote'
-  | 'during-scroll'
-  | 'button-disabled-abort';
+  | "before-login"
+  | "after-login"
+  | "before-compose"
+  | "after-compose"
+  | "after-type"
+  | "after-type-fallback"
+  | "after-submit"
+  | "after-submit-fallback"
+  | "after-validate"
+  | "on-error"
+  | "before-like"
+  | "after-like"
+  | "before-comment"
+  | "after-comment"
+  | "before-repost"
+  | "after-repost"
+  | "before-quote"
+  | "after-quote"
+  | "during-scroll"
+  | "button-disabled-abort";
 
 export interface IBrowserPort {
   // ── Context & Session ──────────────────────────────────────────
@@ -41,13 +41,21 @@ export interface IBrowserPort {
    * Create a browser context with optional saved storageState (cookies, localStorage).
    * Used for persistent sessions — restores login state between runs.
    */
-  createContext(network: SocialNetwork, storageState?: string, accountId?: string): Promise<BrowserContext>;
+  createContext(
+    network: SocialNetwork,
+    storageState?: string,
+    accountId?: string,
+  ): Promise<BrowserContext>;
 
   /**
    * Sprint K: Acquire a context from the pool (or create new if pool is empty).
    * Caller MUST call releaseContext() when done.
    */
-  acquireContext(network: SocialNetwork, storageState?: string, accountId?: string): Promise<BrowserContext>;
+  acquireContext(
+    network: SocialNetwork,
+    storageState?: string,
+    accountId?: string,
+  ): Promise<BrowserContext>;
 
   /**
    * Sprint K: Release a context back to the pool for reuse.
@@ -124,11 +132,7 @@ export interface IBrowserPort {
    * Capture a screenshot and save to the screenshot directory for debugging.
    * Filename: {screenshotDir}/{network}/{phase}-{timestamp}.png
    */
-  screenshot(
-    page: Page,
-    network: SocialNetwork,
-    phase: ScreenshotPhase,
-  ): Promise<string>;
+  screenshot(page: Page, network: SocialNetwork, phase: ScreenshotPhase): Promise<string>;
 
   /**
    * Extract visible text from an element — used for post validation

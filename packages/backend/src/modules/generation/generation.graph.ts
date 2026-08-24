@@ -1,23 +1,41 @@
-import { StateGraph, END, START, Annotation, interrupt } from '@langchain/langgraph';
-import type { ILlmPort } from '../../domain/ports/llm.port.js';
-import { SocialNetwork } from '@prisma/client';
-import { Logger } from '@nestjs/common';
-import { buildBaitRewriteInstruction } from '../content-enhancements/engagement-bait.detector.js';
-import { hookCacheKey, getActiveHookCache, type IHookCache } from './hook-cache.js';
-import type { HookPerformanceBank } from '../content-enhancements/hook-performance-bank.js';
-import { classifyHookTechnique, type HookTechnique } from '../content-enhancements/hook-performance-bank.js';
-import type { VisualConcept, VisualConceptService } from '../content-enhancements/visual-concept.service.js';
-import type { ABVariantPair, ABVariantGenerator } from '../content-enhancements/ab-variant.generator.js';
-import type { ABVariantService } from '../content-enhancements/ab-variant.service.js';
-import { pickContentStyle, getStylePromptGuidance, CONTENT_STYLES_BY_ID, type ContentStyle } from '../content-enhancements/content-style.rotation.js';
-import { getSlopListForPrompt } from '../content-enhancements/slop-lexicon.js';
-import { pickHumorMechanic, getHumorPromptGuidance, HUMOR_MECHANICS_BY_ID } from '../content-enhancements/humor-mechanics.js';
-import { buildHumanizeInstruction } from '../content-enhancements/humanizer-gate.js';
-import { getLanguageExamples } from '../content-enhancements/language-packs.js';
-import type { IPromptPort } from '../../domain/ports/prompt.port.js';
-import type { ContentTopic, JudgeScores } from '@spa/shared';
-import { NETWORK_LIMITS } from '../posts/network-limits.js';
-import { BatchedJudgeService } from './batched-judge.service.js';
+import { StateGraph, END, START, Annotation, interrupt } from "@langchain/langgraph";
+import type { ILlmPort } from "../../domain/ports/llm.port.js";
+import { SocialNetwork } from "../../generated/prisma/client.js";
+import { Logger } from "@nestjs/common";
+import { buildBaitRewriteInstruction } from "../content-enhancements/engagement-bait.detector.js";
+import { hookCacheKey, getActiveHookCache, type IHookCache } from "./hook-cache.js";
+import type { HookPerformanceBank } from "../content-enhancements/hook-performance-bank.js";
+import {
+  classifyHookTechnique,
+  type HookTechnique,
+} from "../content-enhancements/hook-performance-bank.js";
+import type {
+  VisualConcept,
+  VisualConceptService,
+} from "../content-enhancements/visual-concept.service.js";
+import type {
+  ABVariantPair,
+  ABVariantGenerator,
+} from "../content-enhancements/ab-variant.generator.js";
+import type { ABVariantService } from "../content-enhancements/ab-variant.service.js";
+import {
+  pickContentStyle,
+  getStylePromptGuidance,
+  CONTENT_STYLES_BY_ID,
+  type ContentStyle,
+} from "../content-enhancements/content-style.rotation.js";
+import { getSlopListForPrompt } from "../content-enhancements/slop-lexicon.js";
+import {
+  pickHumorMechanic,
+  getHumorPromptGuidance,
+  HUMOR_MECHANICS_BY_ID,
+} from "../content-enhancements/humor-mechanics.js";
+import { buildHumanizeInstruction } from "../content-enhancements/humanizer-gate.js";
+import type { IPromptPort } from "../../domain/ports/prompt.port.js";
+import type { AuthorContextResult } from "../../domain/ports/author-context.port.js";
+import type { ContentTopic, JudgeScores } from "@spa/shared";
+import { getNetworkProfile } from "../../domain/network-profiles/network-profiles.js";
+import { BatchedJudgeService } from "./batched-judge.service.js";
 import {
   localPromptPort,
   RESEARCH_EXTRACT_PROMPT,
@@ -25,9 +43,9 @@ import {
   DRAFT_POST_PROMPT,
   CRITIQUE_POST_PROMPT,
   REFINE_POST_PROMPT,
-} from './prompts/fallback-prompts.js';
+} from "./prompts/fallback-prompts.js";
 
-const logger = new Logger('GenerationGraph');
+const logger = new Logger("GenerationGraph");
 
 /**
  * Derive a 1-10 quality score from LLM-as-a-Judge scores when the critique
@@ -36,17 +54,15 @@ const logger = new Logger('GenerationGraph');
  */
 function qualityScoreFromJudgeScores(judgeScores?: JudgeScores): number | undefined {
   if (!judgeScores) return undefined;
-  const dims = ['anti_ai_tone', 'hook_strength', 'factual_accuracy', 'character_limit'] as const;
-  const values = dims.map((k) => judgeScores[k]).filter((v) => typeof v === 'number') as number[];
+  const dims = ["anti_ai_tone", "hook_strength", "factual_accuracy", "character_limit"] as const;
+  const values = dims.map((k) => judgeScores[k]).filter((v) => typeof v === "number") as number[];
   if (values.length === 0) return undefined;
   const avg = values.reduce((a, b) => a + b, 0) / values.length;
   return Math.round(avg * 10);
 }
 
-
-
 // Re-export hook cache helpers so existing imports continue to work.
-export { hookCacheKey, clearHookCache, getHookCacheStats } from './hook-cache.js';
+export { hookCacheKey, clearHookCache, getHookCacheStats } from "./hook-cache.js";
 
 // ============================================================
 // Types
@@ -89,6 +105,12 @@ interface NetworkResult {
 export interface GeneratedPost {
   network: SocialNetwork;
   content: string;
+  /** Account and versioned author context selected before generation. */
+  accountId?: string;
+  personaRevisionId?: string;
+  voiceMode?: string;
+  experimentAssignmentId?: string;
+  authorContextSource?: AuthorContextResult["source"];
   hook: string;
   angle: string;
   model: string;
@@ -141,6 +163,8 @@ export const GenerationState = Annotation.Root({
   topic: Annotation<ContentTopic>,
   targetNetworks: Annotation<SocialNetwork[]>,
   brandVoice: Annotation<string>,
+  /** Structured per-network author context; absent means global fallback. */
+  authorContexts: Annotation<Partial<Record<SocialNetwork, AuthorContextResult>>>,
   // Language for this generation run (ISO 639-1: en, ru, uk, es, it)
   language: Annotation<string>,
   // Accumulated outputs
@@ -148,8 +172,11 @@ export const GenerationState = Annotation.Root({
   hooks: Annotation<string[]>, // 3-5 hook variants from hook_generation
   // Per-network results (keyed by network name) — reducer merges concurrent updates from parallel nodes
   results: Annotation<Record<string, NetworkResult>>({
-    reducer: (old: Record<string, NetworkResult>, update: Record<string, NetworkResult>) => ({ ...old, ...update }),
-    default: () => ({} as Record<string, NetworkResult>),
+    reducer: (old: Record<string, NetworkResult>, update: Record<string, NetworkResult>) => ({
+      ...old,
+      ...update,
+    }),
+    default: () => ({}) as Record<string, NetworkResult>,
   }),
   // LLM metadata
   model: Annotation<string>,
@@ -174,13 +201,18 @@ export type GenerationStateType = typeof GenerationState.State;
  * 1-2 sentence posts outperform essays, so we target well below the cap.
  */
 const NETWORK_LENGTH_GUIDANCE: Partial<Record<SocialNetwork, string>> = {
-  [SocialNetwork.X]: 'Max 280 characters. One idea. If it needs two ideas, cut one.',
-  [SocialNetwork.THREADS]: 'Target 150-280 characters (short posts outperform essays on Threads). Hard cap 500.',
-  [SocialNetwork.FACEBOOK]: 'Target 200-400 characters. Hard cap 500.',
-  [SocialNetwork.BLUESKY]: 'Max 300 characters. One strong take or observation. No hashtags — Bluesky uses alt text and real words for discovery.',
-  [SocialNetwork.MASTODON]: 'Max 500 characters. Slightly more room than X, but still one focused thought. No hashtags — Mastodon search is not hashtag-driven.',
-  [SocialNetwork.TELEGRAM]: 'Hard cap 4096, but this is a promo post — keep it short (≤500 characters). One clear point, no engagement-bait questions.',
-  [SocialNetwork.LINKEDIN]: 'Target 1000-1500 characters. Lead with a specific insight or story, then a short takeaway. Conversational professional, not corporate jargon.',
+  [SocialNetwork.X]: "Max 280 characters. One idea. If it needs two ideas, cut one.",
+  [SocialNetwork.THREADS]:
+    "Target 150-280 characters (short posts outperform essays on Threads). Hard cap 500.",
+  [SocialNetwork.FACEBOOK]: "Target 200-400 characters. Hard cap 500.",
+  [SocialNetwork.BLUESKY]:
+    "Max 300 characters. One strong take or observation. No hashtags — Bluesky uses alt text and real words for discovery.",
+  [SocialNetwork.MASTODON]:
+    "Max 500 characters. Slightly more room than X, but still one focused thought. No hashtags — Mastodon search is not hashtag-driven.",
+  [SocialNetwork.TELEGRAM]:
+    "Hard cap 4096, but this is a promo post — keep it short (≤500 characters). One clear point, no engagement-bait questions.",
+  [SocialNetwork.LINKEDIN]:
+    "Target 1000-1500 characters. Lead with a specific insight or story, then a short takeaway. Conversational professional, not corporate jargon.",
 };
 
 /**
@@ -190,24 +222,33 @@ const NETWORK_LENGTH_GUIDANCE: Partial<Record<SocialNetwork, string>> = {
  * guide (roughly 1 token ≈ 4 characters, plus headroom); analytical roles
  * use smaller caps because their output is structured/short.
  */
-function maxTokensForRole(role: 'facts' | 'hook' | 'critique' | 'judge' | 'draft' | 'refine', network?: SocialNetwork): number {
+function maxTokensForRole(
+  role: "facts" | "hook" | "critique" | "judge" | "draft" | "refine",
+  network?: SocialNetwork,
+): number {
   switch (role) {
-    case 'facts':
+    case "facts":
       return 256;
-    case 'hook':
+    case "hook":
       return 150;
-    case 'critique':
+    case "critique":
       // Critique prompt asks for 10 rubric checks + a final SCORE/VERDICT.
       // 256 tokens truncates the response before the SCORE line, leaving
       // qualityScore undefined and blocking auto-approve. 512 gives enough
       // headroom for the critique without materially increasing cost.
       return 512;
-    case 'judge':
+    case "judge":
       return 700;
-    case 'draft':
-    case 'refine':
+    case "draft":
+    case "refine":
       if (network === SocialNetwork.X || network === SocialNetwork.BLUESKY) return 200;
-      if (network === SocialNetwork.THREADS || network === SocialNetwork.FACEBOOK || network === SocialNetwork.MASTODON || network === SocialNetwork.TELEGRAM) return 350;
+      if (
+        network === SocialNetwork.THREADS ||
+        network === SocialNetwork.FACEBOOK ||
+        network === SocialNetwork.MASTODON ||
+        network === SocialNetwork.TELEGRAM
+      )
+        return 350;
       if (network === SocialNetwork.LINKEDIN) return 500;
       return 350;
     default:
@@ -222,111 +263,55 @@ function maxTokensForRole(role: 'facts' | 'hook' | 'critique' | 'judge' | 'draft
  */
 function stripHashtags(text: string): string {
   return text
-    .replace(/#[\w\u0400-\u04FF\u0500-\u052F]+/g, '') // remove hashtags (Latin + Cyrillic)
-    .replace(/\s{2,}/g, ' ') // collapse multiple spaces
-    .replace(/^\s+|\s+$/g, '') // trim
-    .replace(/\s+([.!?,;:])/g, '$1') // fix space before punctuation
+    .replace(/#[\w\u0400-\u04FF\u0500-\u052F]+/g, "") // remove hashtags (Latin + Cyrillic)
+    .replace(/\s{2,}/g, " ") // collapse multiple spaces
+    .replace(/^\s+|\s+$/g, "") // trim
+    .replace(/\s+([.!?,;:])/g, "$1") // fix space before punctuation
     .trim();
 }
 
-// ── Multilingual support ───────────────────────────────────────────────────
-// Language names and per-language instructions for the generation prompt.
-// Russian and Ukrainian are explicitly distinguished to prevent the LLM from
-// mixing them (a common failure mode since they share Cyrillic alphabet).
-const LANGUAGE_NAMES: Record<string, string> = {
-  en: 'English',
-  ru: 'Russian (русский)',
-  uk: 'Ukrainian (українська)',
-  es: 'Spanish (español)',
-  it: 'Italian (italiano)',
-};
-
-const LANGUAGE_INSTRUCTIONS: Record<string, string> = {
-  en: '',
-  ru: ' Use natural conversational Russian. Use Cyrillic script.',
-  uk: ' Use natural conversational Ukrainian — NOT Russian. Ukrainian has its own vocabulary (e.g. "дякую" not "спасибо", "так" not "да", "час" not "время"). Use Cyrillic script.',
-  es: ' Use natural conversational Spanish. Use appropriate regional Spanish (neutral/international).',
-  it: ' Use natural conversational Italian. Use standard Italian, not dialects.',
-};
-
-const NETWORK_TONE: Partial<Record<SocialNetwork, string>> = {
-  [SocialNetwork.X]: 'Punchy, hook-first, confident. One idea per post. Can be sarcastic, bold, or deadpan. NO hashtags — X algorithm deprioritizes them and 3+ triggers spam filters. No filler.',
-  [SocialNetwork.THREADS]: 'Narrative, storytelling, personal. Like texting a friend about something you noticed. Can be vulnerable, funny, or reflective. NO hashtags — Threads doesn\'t use hashtags for discovery.',
-  [SocialNetwork.FACEBOOK]: 'Conversational, community-oriented. Relatable, warm, but not corny. End with a genuine question (not engagement bait). NO hashtags — Facebook algorithm treats them as spam signals.',
-  [SocialNetwork.BLUESKY]: 'Conversational, a little unpolished, text-first. Think "smart friend at the coffee shop" — opinions, observations, weird specifics. NO hashtags. No engagement bait.',
-  [SocialNetwork.MASTODON]: 'Warm, community-minded, slightly old-internet. Sincere takes and gentle humor land better than hustle culture. NO hashtags. No engagement bait.',
-  [SocialNetwork.TELEGRAM]: 'Direct and useful, like a channel update worth forwarding. One clear point, friendly but not salesy. NO hashtags. No "tap the link below" CTAs.',
-  [SocialNetwork.LINKEDIN]: 'Conversational professional — specific, not self-congratulatory. Share a real insight or small story, then a short takeaway. NO hashtags. No engagement-bait questions.',
-};
-
-const NETWORK_ANGLE: Partial<Record<SocialNetwork, string>> = {
-  [SocialNetwork.X]: 'bold take or counter-intuitive observation — max impact in 280 chars, make someone stop mid-scroll',
-  [SocialNetwork.THREADS]: 'personal story or reflective observation — "I noticed something about..." energy, warmer, more context',
-  [SocialNetwork.FACEBOOK]: 'relatable + discussion-starter — everyday life angle, "has anyone else noticed..." energy, invite genuine discussion',
-  [SocialNetwork.BLUESKY]: 'sharp, slightly irreverent take or observation — the kind of post you\'d quote-skeet, not thread about',
-  [SocialNetwork.MASTODON]: 'sincere, community-rooted take — a small insight or observation you\'d share with people who actually know you',
-  [SocialNetwork.TELEGRAM]: 'single useful promo angle — what changed, why it matters, and where to read more, in one breath',
-  [SocialNetwork.LINKEDIN]: 'professional mini-story or counter-narrative — a specific thing you learned, how it changed your thinking, and a concise takeaway',
-};
+const ENGLISH_LANGUAGE_NAME = "English";
+const ENGLISH_LANGUAGE_INSTRUCTION =
+  " English only. Do NOT use any other language, even if the topic, facts, or brand voice include non-English words.";
 
 /**
- * P2: Per-Network Persona — distinct voice variant per network audience.
- * Augments the shared brand voice with network-specific persona traits.
- * The draft node concatenates `state.brandVoice` + this persona block in the
- * system prompt so each network speaks to its audience in the right register.
+ * Render only the approved, structured parts of an AuthorContext into prompt
+ * guidance. The full profile is never written into Post.llmMetadata.
  */
-const NETWORK_PERSONA: Partial<Record<SocialNetwork, string>> = {
-  [SocialNetwork.X]: `X PERSONA — "the one at the party who actually knows the topic and has opinions about it":
-- Voice: confident, a bit edgy, has opinions and isn't afraid of them. But also admits when they're wrong.
-- Energy: main-character energy but not cringe. Would call out a bad take. Would also admit their own takes are sometimes wrong.
-- References: pop-culture takes, sharp observations, personal stories about their own experience, the kind of hot take that gets quote-tweeted
-- Sentence rhythm: short, punchy, one idea per post. Fragments are fine. Incomplete thoughts are fine.
-- What they'd never do: write a thread that starts "🧵 Let me explain..." or use the word "narrative" or "discourse"
-- What they'd do: text a friend "okay but actually though" at 1am about a development
-- Occasionally posts in all lowercase when the thought is casual — it reads more human`,
-  [SocialNetwork.THREADS]: `THREADS PERSONA — "your friend who got into this topic last year and won't shut up about it (in a good way)":
-- Voice: warm, personal, story-first. Like sharing something you noticed at 2am that you can't stop thinking about.
-- Energy: vulnerable but not whiny. Curious. Genuinely excited about what they found. Sometimes confused by it.
-- References: personal anecdotes, "I noticed...", "has anyone else experienced...", "okay this might be crazy but...", reflective tone
-- Sentence rhythm: flowing, conversational, can be longer. Like a text message to a friend, not an essay. Run-on sentences are okay sometimes.
-- What they'd never do: end with "What do you think?" (engagement bait) or "Drop your thoughts below"
-- What they'd do: end mid-thought, or with a specific question that only someone who read the post would answer`,
-  [SocialNetwork.FACEBOOK]: `FACEBOOK PERSONA — "the knowledgeable one in the friend group who always has a take":
-- Voice: inviting, accessible, relatable. Not a guru — a peer who happens to know stuff and is sometimes wrong about it.
-- Energy: community-oriented. Asks real questions, not engagement-bait questions. Shares personal stories that connect.
-- References: everyday life situations, "you know that feeling when...", relatable examples, specific moments not generalizations
-- Sentence rhythm: clear, natural, can ramble a bit. Ends with something genuine, not a CTA.
-- What they'd never do: write "Comment below if you agree!" or use 5 emojis in a row
-- What they'd do: share a specific story about their week and how it connected to the topic, then stop without a neat conclusion`,
-  [SocialNetwork.BLUESKY]: `BLUESKY PERSONA — "the person at the small party who actually knows what they're talking about and is not selling anything":
-- Voice: conversational, irreverent, text-first. Likes weird specifics and mild contrarianism. Not a guru.
-- Energy: low-key smart. Less hustle, more "huh, that's interesting." Can be funny but never performance-funny.
-- References: pop-culture observations, "has anyone noticed...", small grumbles about bad takes, the kind of post you'd quote-skeet
-- Sentence rhythm: short to medium, one or two sentences. Fragments are fine. No final-sentence wrap-ups.
-- What they'd never do: use hashtags, write a thread opener, or ask "what do you think?"
-- What they'd do: drop a sharp observation and let the timeline do the rest`,
-  [SocialNetwork.MASTODON]: `MASTODON PERSONA — "your friend from the old internet who is kind, skeptical of platforms, and genuinely curious":
-- Voice: warm, sincere, community-minded. Dislikes hustle culture and AI-slop. Willing to be wrong.
-- Energy: gentle but not boring. Loves a niche observation. Does not perform enthusiasm.
-- References: "I just realized...", small community notes, "has anyone else...", things you'd share in a friend's mentions
-- Sentence rhythm: conversational, can be a little longer than X but still focused. Run-ons only when they feel like speech.
-- What they'd never do: use hashtags, post engagement-bait polls, or end with "boosts appreciated"
-- What they'd do: share a small sincere take and sign off naturally`,
-  [SocialNetwork.TELEGRAM]: `TELEGRAM PERSONA — "a sharp channel admin who respects your time and only pings you when it's worth it":
-- Voice: direct, useful, slightly informal. Not corporate. Not breathless.
-- Energy: one clear point. Feels like a note you'd forward to a colleague. No hype.
-- References: "just published", "here's what changed", "worth reading if you're into...", concise context + one link worth clicking
-- Sentence rhythm: 2-3 short paragraphs max. Lead with the point, then the why. No filler.
-- What they'd never do: ask for reactions, use hashtags, or write "tap below"
-- What they'd do: give you one reason to care, then stop`,
-  [SocialNetwork.LINKEDIN]: `LINKEDIN PERSONA — "the colleague who actually learns in public, not the one who posts hustle quotes":
-- Voice: conversational professional. Specific, humble, and slightly self-aware about LinkedIn culture.
-- Energy: thoughtful, not performatively grateful. Shares a real thing that happened or a real thing they changed their mind about.
-- References: "I used to think...", "what surprised me was...", a small project outcome, a counter-intuitive lesson from the work
-- Sentence rhythm: 2-3 short paragraphs. Story up front, insight in the middle, no big conclusion.
-- What they'd never do: use hashtags, ask "agree?", or write "I'm humbled to announce"
-- What they'd do: share one specific learning and stop before it turns into a sermon`,
-};
+function authorContextPrompt(context: AuthorContextResult | undefined): string {
+  if (!context || context.source === "GLOBAL_FALLBACK" || !context.profile) {
+    return "GLOBAL AUTHOR FALLBACK — use the configured brand voice; do not invent a personal biography or lived experience.";
+  }
+
+  const profile = context.profile;
+  const mode = profile.modes.find((candidate) => candidate.id === context.voiceMode);
+  const adapter = profile.networkAdapters[context.network];
+  const firstPerson = mode?.allowedFirstPerson
+    ? "First person is allowed only for approved memory episodes."
+    : "Do not write in first person; never imply lived experience.";
+
+  return [
+    `AUTHOR CONTEXT (versioned ${context.personaRevisionId}):`,
+    `Role: ${profile.identity.role}`,
+    `Worldview: ${profile.identity.worldview.join("; ")}`,
+    `Temperament: ${profile.identity.temperament.join(", ")}`,
+    `Expertise: ${profile.identity.expertise.join(", ")}`,
+    `Audience job: ${profile.identity.audienceJob}`,
+    `Voice mode: ${context.voiceMode} — ${mode?.purpose ?? "use the assigned mode"}`,
+    `Mode rules: ${(mode?.promptRules ?? []).join("; ")}`,
+    `Voice: warmth ${profile.voice.warmth}; assertiveness ${profile.voice.assertiveness}; humor ${profile.voice.humor}; rhythm ${profile.voice.sentenceRhythm}`,
+    `Preferred vocabulary: ${profile.voice.vocabulary.join(", ") || "none specified"}`,
+    `Banned patterns: ${profile.voice.bannedPatterns.join("; ") || "none specified"}`,
+    `Network rules: ${(adapter?.toneRules ?? []).join("; ") || "use the network persona"}`,
+    `Disclosure: ${context.disclosure ?? profile.identity.disclosure}`,
+    `First-person policy: ${firstPerson}`,
+    `Claim policy: factual evidence required = ${profile.claimPolicy.factualEvidenceRequired}; sensitive domains = ${profile.claimPolicy.sensitiveDomains.join(", ") || "none"}`,
+    `Retriever mode: ${context.retrieverMode ?? "NONE"}`,
+    `Approved memory context: ${(context.memoryTrace ?? []).map((item) => item.text).join("; ") || "none"}`,
+    `Verified evidence context: ${(context.evidenceTrace ?? []).map((item) => item.text).join("; ") || "none"}`,
+    "Never fabricate memories, personal events, credentials, or private access.",
+  ].join("\n");
+}
 
 // ============================================================
 // Nodes — each node is a step in the workflow
@@ -351,23 +336,37 @@ async function researchExtractNode(
 
   // Sprint E: LLM-powered fact extraction from topic + keywords + outline
   const outlineStr = state.topic.outline
-    ? state.topic.outline.map((o) => `- ${o.heading}${o.entities.length > 0 ? ` (entities: ${o.entities.join(', ')})` : ''}`).join('\n')
-    : 'No outline available.';
+    ? state.topic.outline
+        .map(
+          (o) =>
+            `- ${o.heading}${o.entities.length > 0 ? ` (entities: ${o.entities.join(", ")})` : ""}`,
+        )
+        .join("\n")
+    : "No outline available.";
 
   const variables = {
     topic: state.topic.topic,
-    keywords: state.topic.keywords.join(', '),
-    category: state.topic.category ?? 'general',
+    keywords: state.topic.keywords.join(", "),
+    category: state.topic.category ?? "general",
     outline: outlineStr,
   };
 
-  const { systemPrompt, userPrompt } = await promptPort.getCompiledChat('research-extract', variables, RESEARCH_EXTRACT_PROMPT);
+  const { systemPrompt, userPrompt } = await promptPort.getCompiledChat(
+    "research-extract",
+    variables,
+    RESEARCH_EXTRACT_PROMPT,
+  );
 
   try {
-    const response = await llm.generateChat(systemPrompt, userPrompt, { temperature: 0.7, role: 'facts', maxTokens: maxTokensForRole('facts') });
+    const response = await llm.generateChat(systemPrompt, userPrompt, {
+      temperature: 0.7,
+      role: "facts",
+      maxTokens: maxTokensForRole("facts"),
+      traceName: "generation.research_extract",
+    });
     const facts = response.content
-      .split('\n')
-      .map((line) => line.replace(/^\d+[\.\)]\s*/, '').trim())
+      .split("\n")
+      .map((line) => line.replace(/^\d+[\.\)]\s*/, "").trim())
       .filter((line) => line.length > 10)
       .slice(0, 8);
 
@@ -375,16 +374,22 @@ async function researchExtractNode(
     // growth") — those went straight into the draft prompt as "facts" and
     // violated our own anti-AI rules. Fewer real facts beat fake filler.
     if (facts.length === 0) {
-      facts.push('No verified facts available — write from the hook alone; do NOT invent statistics or specifics.');
+      facts.push(
+        "No verified facts available — write from the hook alone; do NOT invent statistics or specifics.",
+      );
     }
 
-    logger.debug(`research_extract: LLM extracted ${facts.length} facts for "${state.topic.topic}"`);
+    logger.debug(
+      `research_extract: LLM extracted ${facts.length} facts for "${state.topic.topic}"`,
+    );
     return { facts, model: response.model };
   } catch (err) {
-    logger.warn(`research_extract LLM call failed: ${(err as Error).message} — using fallback facts`);
+    logger.warn(
+      `research_extract LLM call failed: ${(err as Error).message} — using fallback facts`,
+    );
     return {
       facts: [
-        'No verified facts available — write from the hook alone; do NOT invent statistics or specifics.',
+        "No verified facts available — write from the hook alone; do NOT invent statistics or specifics.",
       ],
     };
   }
@@ -418,7 +423,7 @@ async function hookGenerationNode(
   // P1: Fetch hook performance guidance for each target network.
   // Graceful degradation: if the bank is unavailable or fails, generate
   // without guidance (the original behavior).
-  let performanceGuidance = '';
+  let performanceGuidance = "";
   if (hookBank) {
     try {
       const recs = await Promise.all(
@@ -427,38 +432,51 @@ async function hookGenerationNode(
       const withData = recs.filter((r) => r.hasData);
       if (withData.length > 0) {
         performanceGuidance =
-          '\n\nHOOK PERFORMANCE DATA (from historical engagement):\n' +
+          "\n\nHOOK PERFORMANCE DATA (from historical engagement):\n" +
           recs
             .map((r, i) => (r.hasData ? `${state.targetNetworks[i]}: ${r.guidance}` : null))
             .filter(Boolean)
-            .join('\n');
+            .join("\n");
       }
     } catch (err) {
       logger.debug(`P1: Hook bank guidance failed (non-blocking): ${(err as Error).message}`);
     }
   }
 
+  const authorContext = state.targetNetworks
+    .map((network) => authorContextPrompt(state.authorContexts?.[network]))
+    .join("\n\n");
   const variables = {
-    brandVoice: state.brandVoice,
+    brandVoice: `${state.brandVoice}\n\n${authorContext}`,
     topic: state.topic.topic,
     performanceGuidance,
-    facts: state.facts.join(', '),
-    keywords: state.topic.keywords.join(', '),
-    slopList: getSlopListForPrompt(state.language || 'en'),
+    facts: state.facts.join(", "),
+    keywords: state.topic.keywords.join(", "),
+    // English-only generation: always use the English slop lexicon.
+    slopList: getSlopListForPrompt("en"),
   };
 
-  const { systemPrompt, userPrompt } = await promptPort.getCompiledChat('hook-generation', variables, HOOK_GENERATION_PROMPT);
+  const { systemPrompt, userPrompt } = await promptPort.getCompiledChat(
+    "hook-generation",
+    variables,
+    HOOK_GENERATION_PROMPT,
+  );
 
   let response;
   try {
-    response = await llm.generateChat(systemPrompt, userPrompt, { temperature: hookTemperature, role: 'hook', maxTokens: maxTokensForRole('hook') });
+    response = await llm.generateChat(systemPrompt, userPrompt, {
+      temperature: hookTemperature,
+      role: "hook",
+      maxTokens: maxTokensForRole("hook"),
+      traceName: "generation.hook_generation",
+    });
   } catch (err) {
     logger.error(`hook_generation LLM call failed: ${(err as Error).message}`);
     throw err; // Re-throw — GenerationService.generate() catches per-topic
   }
   const hooks = response.content
-    .split('\n')
-    .map((line) => line.replace(/^\d+[\.\)]\s*/, '').trim())
+    .split("\n")
+    .map((line) => line.replace(/^\d+[\.\)]\s*/, "").trim())
     .filter((line) => line.length > 0)
     .slice(0, 5);
 
@@ -482,7 +500,7 @@ async function hookGenerationNode(
 /**
  * Node 3: angle_per_network — assign a different hook + angle to each network.
  *
- * §10.3: "Per-network angle = разный контент, не адаптация одного."
+ * §10.3: "Per-network angle = different content, not an adaptation of one."
  * Each network gets a DIFFERENT hook from the pool, with a network-specific angle.
  */
 function anglePerNetworkNode(state: GenerationStateType): Partial<GenerationStateType> {
@@ -493,8 +511,8 @@ function anglePerNetworkNode(state: GenerationStateType): Partial<GenerationStat
     const net = networks[i];
     if (!net) continue;
     // Assign different hooks to different networks (cycle through available hooks)
-    const hook = state.hooks[i % state.hooks.length] ?? state.hooks[0] ?? '';
-    const angle = NETWORK_ANGLE[net] ?? '';
+    const hook = state.hooks[i % state.hooks.length] ?? state.hooks[0] ?? "";
+    const angle = getNetworkProfile(net).angle;
     // P1: Classify the hook technique for performance tracking.
     // The technique is stored in NetworkResult and propagated to Post.llmMetadata.
     const hookTechnique = classifyHookTechnique(hook);
@@ -514,9 +532,9 @@ function anglePerNetworkNode(state: GenerationStateType): Partial<GenerationStat
       hookTechnique,
       contentStyleId: style.id,
       humorMechanicId: mechanic?.id,
-      draft: '',
-      critique: '',
-      refined: '',
+      draft: "",
+      critique: "",
+      refined: "",
     };
   }
 
@@ -535,14 +553,16 @@ function makeDraftNode(network: SocialNetwork, promptPort: IPromptPort, draftTem
     const netResult = state.results[network];
     if (!netResult) return {};
 
-    const charLimit = NETWORK_LIMITS[network] ?? 280;
-    const tone = NETWORK_TONE[network] ?? '';
-    const persona = NETWORK_PERSONA[network] ?? '';
+    const networkProfile = getNetworkProfile(network);
+    const charLimit = networkProfile.charLimit;
+    const tone = networkProfile.toneGuidance;
+    const persona = getNetworkProfile(network).personaGuidance ?? "";
 
-    // Multilingual support — determine the language for this post
-    const lang = state.language || 'en';
-    const langName = LANGUAGE_NAMES[lang] ?? 'English';
-    const langInstruction = LANGUAGE_INSTRUCTIONS[lang] ?? '';
+    // English-only generation: all prompts are rendered for English regardless
+    // of the source topic's declared language.
+    const lang = "en";
+    const langName = ENGLISH_LANGUAGE_NAME;
+    const langInstruction = ENGLISH_LANGUAGE_INSTRUCTION;
 
     // P10: Source Attribution disabled — links in posts reduce engagement and
     // don't rank on social platforms. Posts should be pure text + hashtags only.
@@ -563,8 +583,8 @@ function makeDraftNode(network: SocialNetwork, promptPort: IPromptPort, draftTem
     // with the network-specific persona and the rotating content style so each
     // post looks visually and tonally different (anti-AI-detection).
     const outlineStr = state.topic.outline
-      ? `Outline:\n${state.topic.outline.map((o: { heading: string }) => `- ${o.heading}`).join('\n')}`
-      : '';
+      ? `Outline:\n${state.topic.outline.map((o: { heading: string }) => `- ${o.heading}`).join("\n")}`
+      : "";
 
     // Q5: humor mechanic guidance (empty string for serious styles)
     const mechanic = netResult.humorMechanicId
@@ -572,14 +592,15 @@ function makeDraftNode(network: SocialNetwork, promptPort: IPromptPort, draftTem
       : null;
     const humorGuidance = getHumorPromptGuidance(mechanic);
 
+    const authorContext = authorContextPrompt(state.authorContexts?.[network]);
     const variables = {
-      brandVoice: state.brandVoice,
-      persona: persona ?? '',
+      brandVoice: `${state.brandVoice}\n\n${authorContext}`,
+      persona: `${persona ?? ""}\n\n${authorContext}`,
       styleGuidance,
       humorGuidance,
       network,
       charLimit: String(charLimit),
-      lengthGuidance: NETWORK_LENGTH_GUIDANCE[network] ?? '',
+      lengthGuidance: NETWORK_LENGTH_GUIDANCE[network] ?? "",
       langName,
       langInstruction,
       topic: state.topic.topic,
@@ -587,18 +608,34 @@ function makeDraftNode(network: SocialNetwork, promptPort: IPromptPort, draftTem
       angle: netResult.angle,
       styleName: style.name,
       styleDescription: style.description,
-      facts: state.facts.join('\n- '),
-      keywords: state.topic.keywords.join(', '),
+      facts: state.facts.join("\n- "),
+      keywords: state.topic.keywords.join(", "),
       tone,
       outline: outlineStr,
       slopList: getSlopListForPrompt(lang),
-      langExamples: getLanguageExamples(lang),
+      langExamples: "",
     };
 
-    const { systemPrompt, userPrompt } = await promptPort.getCompiledChat('draft-post', variables, DRAFT_POST_PROMPT);
+    const { systemPrompt, userPrompt } = await promptPort.getCompiledChat(
+      "draft-post",
+      {
+        ...variables,
+        // M2.2: CTA link policy. The posting pipeline appends/delivers the real
+        // link itself — the LLM must never invent one. X delivers the CTA as a
+        // first reply, so its body stays pure text.
+        ctaPolicy: networkProfile.ctaPolicy,
+      },
+      DRAFT_POST_PROMPT,
+    );
 
     try {
-      const response = await llm.generateChat(systemPrompt, userPrompt, { temperature: draftTemperature, role: 'draft', maxTokens: maxTokensForRole('draft', network) });
+      const response = await llm.generateChat(systemPrompt, userPrompt, {
+        temperature: draftTemperature,
+        role: "draft",
+        maxTokens: maxTokensForRole("draft", network),
+        traceName: `generation.draft.${network}`,
+        accountId: state.authorContexts?.[network]?.accountId,
+      });
 
       // B5: Return ONLY the updated network — the results reducer merges concurrent updates
       return {
@@ -618,7 +655,7 @@ function makeDraftNode(network: SocialNetwork, promptPort: IPromptPort, draftTem
         results: {
           [network]: {
             ...netResult,
-            draft: '',
+            draft: "",
             error: `draft failed: ${(err as Error).message}`,
           },
         },
@@ -641,7 +678,7 @@ function makeCritiqueNode(network: SocialNetwork, promptPort: IPromptPort) {
     // Sprint I: Skip if draft already failed
     if (netResult.error) return {};
 
-    const charLimit = NETWORK_LIMITS[network] ?? 280;
+    const charLimit = getNetworkProfile(network).charLimit;
 
     // P9: Engagement-Bait Detector — deterministic pattern check.
     // When bait is detected, the critique prompt explicitly flags it so the
@@ -651,9 +688,10 @@ function makeCritiqueNode(network: SocialNetwork, promptPort: IPromptPort) {
 
     // Q6: Humanizer Gate — deterministic statistical scan (slop words,
     // em dashes, uniform sentence lengths, hashtags). Free, zero LLM tokens.
-    const lang = state.language || 'en';
+    // English-only generation: the English slop lexicon is always used.
+    const lang = "en";
     const humanizeInstruction = buildHumanizeInstruction(netResult.draft, lang);
-    const gateInstructions = [baitInstruction, humanizeInstruction].filter(Boolean).join('\n');
+    const gateInstructions = [baitInstruction, humanizeInstruction].filter(Boolean).join("\n");
 
     // Q10: Humor-landing check — only meaningful when this post was drafted
     // with a humor mechanic (Q5). Mirrors makeDraftNode's own mechanic lookup.
@@ -661,8 +699,8 @@ function makeCritiqueNode(network: SocialNetwork, promptPort: IPromptPort) {
       ? (HUMOR_MECHANICS_BY_ID[netResult.humorMechanicId] ?? null)
       : null;
     const humorCheck = critiqueMechanic
-      ? '\n11. [Humor check] Does the joke actually land — punchline last, one line, punching at planets/situations/the narrator and never at people or groups? If it reads forced, flag it and say so.\n'
-      : '';
+      ? "\n11. [Humor check] Does the joke actually land — punchline last, one line, punching at planets/situations/the narrator and never at people or groups? If it reads forced, flag it and say so.\n"
+      : "";
 
     const critiqueVariables = {
       network,
@@ -670,15 +708,25 @@ function makeCritiqueNode(network: SocialNetwork, promptPort: IPromptPort) {
       draftLength: String(netResult.draft.length),
       angle: netResult.angle,
       draft: netResult.draft,
-      baitInstruction: gateInstructions ? `\n${gateInstructions}\n` : '',
+      baitInstruction: `${gateInstructions ? `\n${gateInstructions}\n` : ""}\nAUTHOR CONTEXT:\n${authorContextPrompt(state.authorContexts?.[network])}`,
       slopList: getSlopListForPrompt(lang),
       humorCheck,
     };
 
-    const critiquePrompt = await promptPort.getCompiledText('critique-post', critiqueVariables, CRITIQUE_POST_PROMPT);
+    const critiquePrompt = await promptPort.getCompiledText(
+      "critique-post",
+      critiqueVariables,
+      CRITIQUE_POST_PROMPT,
+    );
 
     try {
-      const response = await llm.generateChat('', critiquePrompt, { temperature: 0.3, role: 'critique', maxTokens: maxTokensForRole('critique') });
+      const response = await llm.generateChat("", critiquePrompt, {
+        temperature: 0.3,
+        role: "critique",
+        maxTokens: maxTokensForRole("critique"),
+        traceName: `generation.critique.${network}`,
+        accountId: state.authorContexts?.[network]?.accountId,
+      });
 
       // Parse quality score from response (format: "SCORE: 8" or "SCORE: 8/10")
       // Regex tolerates: optional space, optional /10 suffix, case-insensitive
@@ -687,7 +735,8 @@ function makeCritiqueNode(network: SocialNetwork, promptPort: IPromptPort) {
       if (scoreMatch) {
         const parsed = Number(scoreMatch[1]);
         // Validate: must be finite and in 1-10 range, else treat as missing
-        qualityScore = Number.isFinite(parsed) && parsed >= 1 && parsed <= 10 ? Math.round(parsed) : undefined;
+        qualityScore =
+          Number.isFinite(parsed) && parsed >= 1 && parsed <= 10 ? Math.round(parsed) : undefined;
       }
       if (qualityScore !== undefined) {
         logger.debug(`critique_${network}: quality score = ${qualityScore}/10`);
@@ -714,7 +763,7 @@ function makeCritiqueNode(network: SocialNetwork, promptPort: IPromptPort) {
         results: {
           [network]: {
             ...netResult,
-            critique: '',
+            critique: "",
             error: `critique failed: ${(err as Error).message}`,
           },
         },
@@ -737,15 +786,16 @@ function makeRefineNode(network: SocialNetwork, promptPort: IPromptPort, refineT
     // Sprint I: Skip if previous step failed
     if (netResult.error) return {};
 
-    const lang = state.language || 'en';
-    const langName = LANGUAGE_NAMES[lang] ?? 'English';
-    const langInstruction = LANGUAGE_INSTRUCTIONS[lang] ?? '';
+    // English-only generation: the rewrite must always stay in English.
+    const lang = "en";
+    const langName = ENGLISH_LANGUAGE_NAME;
+    const langInstruction = ENGLISH_LANGUAGE_INSTRUCTION;
 
     // Q8: Judge-triggered retry pass — the judge flagged the REFINED text as
     // AI-sounding. Rewrite the current refined text using the judge's reasons;
     // the normal skip logic does not apply.
     const isJudgeRetry = netResult.pendingHumanizeRetry === true;
-    const sourceText = isJudgeRetry ? (netResult.refined || netResult.draft) : netResult.draft;
+    const sourceText = isJudgeRetry ? netResult.refined || netResult.draft : netResult.draft;
 
     // P9: Force refinement when engagement bait is detected — even if the LLM
     // critique said "GOOD". The deterministic bait detector is authoritative;
@@ -774,29 +824,39 @@ function makeRefineNode(network: SocialNetwork, promptPort: IPromptPort, refineT
       };
     }
 
-    const charLimit = NETWORK_LIMITS[network] ?? 280;
+    const charLimit = getNetworkProfile(network).charLimit;
 
-    const gateInstructions = [baitInstruction, humanizeInstruction].filter(Boolean).join('\n');
+    const gateInstructions = [baitInstruction, humanizeInstruction].filter(Boolean).join("\n");
     const critiqueText = isJudgeRetry
-      ? `LLM-as-a-Judge flagged this post as AI-sounding. Reasons:\n${netResult.judgeFeedback ?? 'anti_ai_tone below threshold'}`
+      ? `LLM-as-a-Judge flagged this post as AI-sounding. Reasons:\n${netResult.judgeFeedback ?? "anti_ai_tone below threshold"}`
       : netResult.critique;
 
     const refineVariables = {
       network,
       draft: sourceText,
       critique: critiqueText,
-      baitInstruction: gateInstructions ? `\n${gateInstructions}\n` : '',
+      baitInstruction: `${gateInstructions ? `\n${gateInstructions}\n` : ""}\nAUTHOR CONTEXT:\n${authorContextPrompt(state.authorContexts?.[network])}`,
       charLimit: String(charLimit),
       slopList: getSlopListForPrompt(lang),
       langName,
       langInstruction,
-      langExamples: getLanguageExamples(lang),
+      langExamples: "",
     };
 
-    const refinePrompt = await promptPort.getCompiledText('refine-post', refineVariables, REFINE_POST_PROMPT);
+    const refinePrompt = await promptPort.getCompiledText(
+      "refine-post",
+      refineVariables,
+      REFINE_POST_PROMPT,
+    );
 
     try {
-      const response = await llm.generateChat('', refinePrompt, { temperature: refineTemperature, role: 'refine', maxTokens: maxTokensForRole('refine', network) });
+      const response = await llm.generateChat("", refinePrompt, {
+        temperature: refineTemperature,
+        role: "refine",
+        maxTokens: maxTokensForRole("refine", network),
+        traceName: `generation.refine.${network}`,
+        accountId: state.authorContexts?.[network]?.accountId,
+      });
 
       let refined = response.content.trim();
       let refineTokens = response.tokens ?? 0;
@@ -812,9 +872,15 @@ function makeRefineNode(network: SocialNetwork, promptPort: IPromptPort, refineT
         );
         try {
           const cutResponse = await llm.generateChat(
-            '',
+            "",
             `Cut this ${network} post to ${charLimit} characters or fewer. Keep the hook and the punchline. Remove filler, not substance. Preserve the original language (${langName}).\n\nPost:\n"${refined}"\n\nReturn ONLY the shortened post (max ${charLimit} chars):`,
-            { temperature: 0.3, role: 'refine', maxTokens: maxTokensForRole('refine', network) },
+            {
+              temperature: 0.3,
+              role: "refine",
+              maxTokens: maxTokensForRole("refine", network),
+              traceName: `generation.refine.${network}`,
+              accountId: state.authorContexts?.[network]?.accountId,
+            },
           );
           refineTokens += cutResponse.tokens ?? 0;
           refineCost += cutResponse.cost ?? 0;
@@ -823,11 +889,17 @@ function makeRefineNode(network: SocialNetwork, promptPort: IPromptPort, refineT
             refined = cut;
           } else {
             // LLM still didn't comply — hard truncate at last word boundary
-            refined = refined.slice(0, charLimit).replace(/\s+\S*$/, '').trim();
+            refined = refined
+              .slice(0, charLimit)
+              .replace(/\s+\S*$/, "")
+              .trim();
           }
         } catch {
           // LLM unavailable — hard truncate
-          refined = refined.slice(0, charLimit).replace(/\s+\S*$/, '').trim();
+          refined = refined
+            .slice(0, charLimit)
+            .replace(/\s+\S*$/, "")
+            .trim();
         }
         logger.debug(`refine_${network}: after truncation pass — ${refined.length} chars`);
       }
@@ -850,7 +922,9 @@ function makeRefineNode(network: SocialNetwork, promptPort: IPromptPort, refineT
       // save_to_db drop the post entirely — contradicting the "fall back to
       // draft" intent. A failed refine is non-fatal: the draft passed critique
       // and the HITL/auto-approve gate still guards publication.
-      logger.error(`refine_${network} LLM call failed: ${(err as Error).message} — using unrefined text`);
+      logger.error(
+        `refine_${network} LLM call failed: ${(err as Error).message} — using unrefined text`,
+      );
       return {
         results: {
           [network]: {
@@ -896,11 +970,7 @@ function makeVisualConceptNode(network: SocialNetwork) {
     if (!content) return {};
 
     try {
-      const concept = await visualService.generateConcept(
-        content,
-        network,
-        state.topic.topic,
-      );
+      const concept = await visualService.generateConcept(content, network, state.topic.topic);
       return {
         results: {
           [network]: { ...netResult, visualConcept: concept },
@@ -941,9 +1011,16 @@ function makeABVariantNode(network: SocialNetwork, judgeSkipABThreshold = 0.6) {
     // P0: skip A/B variants when judge quality is below the threshold (saves tokens/latency).
     const scores = netResult.judgeScores;
     if (scores) {
-      const minScore = Math.min(scores.anti_ai_tone, scores.hook_strength, scores.factual_accuracy, scores.character_limit);
+      const minScore = Math.min(
+        scores.anti_ai_tone,
+        scores.hook_strength,
+        scores.factual_accuracy,
+        scores.character_limit,
+      );
       if (minScore < judgeSkipABThreshold) {
-        logger.debug(`ab_variant_${network}: skipped — min judge score ${minScore.toFixed(2)} < ${judgeSkipABThreshold}`);
+        logger.debug(
+          `ab_variant_${network}: skipped — min judge score ${minScore.toFixed(2)} < ${judgeSkipABThreshold}`,
+        );
         return {
           results: {
             [network]: { ...netResult, abVariants: null },
@@ -1029,9 +1106,13 @@ function makeJudgeNode(
     const content = netResult.refined || netResult.draft;
     if (!content) return {};
 
-    const lang = state.language || 'en';
+    // English-only generation: the English slop lexicon is always used for judging.
+    const lang = "en";
     const slopList = getSlopListForPrompt(lang);
-    const factsText = state.facts.length > 0 ? state.facts.map((f) => `- ${f}`).join('\n') : '- (no source facts provided)';
+    const factsText =
+      state.facts.length > 0
+        ? state.facts.map((f) => `- ${f}`).join("\n")
+        : "- (no source facts provided)";
 
     // Build batch inputs for ALL target networks so concurrent judge nodes share
     // a single LLM call via BatchedJudgeService.
@@ -1044,7 +1125,7 @@ function makeJudgeNode(
         return {
           network: net,
           content: c,
-          charLimit: NETWORK_LIMITS[net] ?? 280,
+          charLimit: getNetworkProfile(net).charLimit,
           factsText,
           slopList,
         };
@@ -1066,22 +1147,28 @@ function makeJudgeNode(
       // Stage 2: hard-fail — any critical dimension below its per-dimension threshold kills the post.
       const failReasons: string[] = [];
       if (judgeScores.anti_ai_tone < thresholds.antiAiTone) {
-        failReasons.push(`anti_ai_tone=${judgeScores.anti_ai_tone.toFixed(2)} < ${thresholds.antiAiTone}`);
+        failReasons.push(
+          `anti_ai_tone=${judgeScores.anti_ai_tone.toFixed(2)} < ${thresholds.antiAiTone}`,
+        );
       }
       if (judgeScores.factual_accuracy < thresholds.factualAccuracy) {
-        failReasons.push(`factual_accuracy=${judgeScores.factual_accuracy.toFixed(2)} < ${thresholds.factualAccuracy}`);
+        failReasons.push(
+          `factual_accuracy=${judgeScores.factual_accuracy.toFixed(2)} < ${thresholds.factualAccuracy}`,
+        );
       }
       if (judgeScores.character_limit < thresholds.characterLimit) {
-        failReasons.push(`character_limit=${judgeScores.character_limit.toFixed(2)} < ${thresholds.characterLimit}`);
+        failReasons.push(
+          `character_limit=${judgeScores.character_limit.toFixed(2)} < ${thresholds.characterLimit}`,
+        );
       }
       if (failReasons.length > 0) {
-        logger.warn(`judge_${network}: hard-fail (${failReasons.join(', ')}) — not saving post`);
+        logger.warn(`judge_${network}: hard-fail (${failReasons.join(", ")}) — not saving post`);
         return {
           results: {
             [network]: {
               ...netResult,
               judgeScores,
-              error: `Judge hard-fail: ${failReasons.join(', ')}`,
+              error: `Judge hard-fail: ${failReasons.join(", ")}`,
             },
           },
         };
@@ -1090,9 +1177,12 @@ function makeJudgeNode(
       // Q8: Judge-gated refine loop — when the post sounds like AI and we
       // haven't retried yet, route back through refine ONCE with the judge's
       // reasons. The router (routeAfterJudge) reads pendingHumanizeRetry.
-      const needsRetry = judgeScores.anti_ai_tone < refineThreshold && netResult.judgeRetried !== true;
+      const needsRetry =
+        judgeScores.anti_ai_tone < refineThreshold && netResult.judgeRetried !== true;
       if (needsRetry) {
-        logger.debug(`judge_${network}: anti_ai_tone ${judgeScores.anti_ai_tone} < ${refineThreshold} — triggering one refine retry`);
+        logger.debug(
+          `judge_${network}: anti_ai_tone ${judgeScores.anti_ai_tone} < ${refineThreshold} — triggering one refine retry`,
+        );
         return {
           results: {
             [network]: {
@@ -1117,7 +1207,9 @@ function makeJudgeNode(
       };
     } catch (err) {
       // Non-blocking — post proceeds without judge scores
-      logger.warn(`judge_${network} failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+      logger.warn(
+        `judge_${network} failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`,
+      );
       return {};
     }
   };
@@ -1128,12 +1220,12 @@ function makeJudgeNode(
  * flagged the post as AI-sounding, otherwise continue to visual_concept.
  */
 function routeAfterJudge(network: SocialNetwork) {
-  return (state: GenerationStateType): 'refine' | 'continue' => {
+  return (state: GenerationStateType): "refine" | "continue" => {
     const netResult = state.results[network];
     if (netResult && netResult.pendingHumanizeRetry === true && !netResult.error) {
-      return 'refine';
+      return "refine";
     }
-    return 'continue';
+    return "continue";
   };
 }
 
@@ -1162,10 +1254,16 @@ function saveToDbNode(
     const content = stripHashtags(netResult.refined || netResult.draft);
     if (!content) continue;
 
-    const qualityScore = netResult.qualityScore ?? qualityScoreFromJudgeScores(netResult.judgeScores);
+    const qualityScore =
+      netResult.qualityScore ?? qualityScoreFromJudgeScores(netResult.judgeScores);
     posts.push({
       network,
       content,
+      accountId: state.authorContexts?.[network]?.accountId,
+      personaRevisionId: state.authorContexts?.[network]?.personaRevisionId ?? undefined,
+      voiceMode: state.authorContexts?.[network]?.voiceMode,
+      experimentAssignmentId: state.authorContexts?.[network]?.experimentAssignmentId ?? undefined,
+      authorContextSource: state.authorContexts?.[network]?.source,
       hook: netResult.hook,
       angle: netResult.angle,
       model: state.model,
@@ -1182,7 +1280,7 @@ function saveToDbNode(
     });
   }
 
-  return { posts, error: errors.length > 0 ? errors.join('; ') : null };
+  return { posts, error: errors.length > 0 ? errors.join("; ") : null };
 }
 
 /**
@@ -1215,10 +1313,13 @@ function humanReviewNode(state: GenerationStateType): Partial<GenerationStateTyp
 
   // interrupt() throws GraphInterrupt — graph pauses, checkpoint saved.
   // On resume, the return value is the resume payload from Command.
-  const reviewResult = interrupt<{ drafts: Record<string, string> }, {
-    approved: boolean;
-    edits?: Record<string, string>;
-  }>({ drafts: draftsForReview });
+  const reviewResult = interrupt<
+    { drafts: Record<string, string> },
+    {
+      approved: boolean;
+      edits?: Record<string, string>;
+    }
+  >({ drafts: draftsForReview });
 
   // If reviewer provided edits, apply them to the REFINED text — that's what
   // save_to_db persists (refined || draft).
@@ -1307,7 +1408,7 @@ export function buildGenerationGraph(
     hookCache?: IHookCache;
   },
 ) {
-  const logger = new Logger('GenerationGraph');
+  const logger = new Logger("GenerationGraph");
   const judgeRefineThreshold = options?.judgeRefineThreshold ?? 0.6;
   const judgeHardFailThreshold = options?.judgeHardFailThreshold ?? 0.25;
   const judgeThresholds: JudgeThresholds = {
@@ -1316,14 +1417,23 @@ export function buildGenerationGraph(
     characterLimit: options?.judgeHardFailCharacter ?? judgeHardFailThreshold,
     skipAB: options?.judgeSkipABThreshold ?? 0.6,
   };
-  const batchedJudgeService = new BatchedJudgeService(llm, promptPort, maxTokensForRole('judge') * 2);
+  const batchedJudgeService = new BatchedJudgeService(
+    llm,
+    promptPort,
+    maxTokensForRole("judge") * 2,
+  );
   const HOOK_TEMPERATURE = options?.temperatures?.hook ?? 0.95;
   const DRAFT_TEMPERATURE = options?.temperatures?.draft ?? 0.8;
   const REFINE_TEMPERATURE = options?.temperatures?.refine ?? 0.6;
   const hookCache = options?.hookCache ?? getActiveHookCache();
 
   /** Wrap a node to publish progress after execution. */
-  function withProgress(nodeName: string, fn: (s: GenerationStateType) => Promise<Partial<GenerationStateType>> | Partial<GenerationStateType>) {
+  function withProgress(
+    nodeName: string,
+    fn: (
+      s: GenerationStateType,
+    ) => Promise<Partial<GenerationStateType>> | Partial<GenerationStateType>,
+  ) {
     return async (state: GenerationStateType): Promise<Partial<GenerationStateType>> => {
       logger.debug(`Node: ${nodeName}`);
       const result = await fn(state);
@@ -1366,55 +1476,106 @@ export function buildGenerationGraph(
   >;
   graph = graph
     // Step 1: research_extract
-    .addNode('research_extract', withProgress('research_extract', (s) => researchExtractNode(s, llm, promptPort)))
+    .addNode(
+      "research_extract",
+      withProgress("research_extract", (s) => researchExtractNode(s, llm, promptPort)),
+    )
     // Step 2: hook_generation (3-5 variants)
-    .addNode('hook_generation', withProgress('hook_generation', (s) => hookGenerationNode(s, llm, hookBank, promptPort, hookCache, HOOK_TEMPERATURE)))
+    .addNode(
+      "hook_generation",
+      withProgress("hook_generation", (s) =>
+        hookGenerationNode(s, llm, hookBank, promptPort, hookCache, HOOK_TEMPERATURE),
+      ),
+    )
     // Step 3: angle_per_network (assign hooks + angles)
-    .addNode('angle_per_network', withProgress('angle_per_network', (s) => anglePerNetworkNode(s)));
+    .addNode(
+      "angle_per_network",
+      withProgress("angle_per_network", (s) => anglePerNetworkNode(s)),
+    );
 
   // Step 4-6.6: per-network parallel nodes (draft → critique → refine → judge → visual_concept → ab_variant)
   for (const network of SOCIAL_NETWORKS) {
     const lower = network.toLowerCase();
     graph = graph
-      .addNode(`draft_${lower}`, withProgress(`draft_${lower}`, (s) => makeDraftNode(network, promptPort, DRAFT_TEMPERATURE)(s, llm)))
-      .addNode(`critique_${lower}`, withProgress(`critique_${lower}`, (s) => makeCritiqueNode(network, promptPort)(s, llm)))
-      .addNode(`refine_${lower}`, withProgress(`refine_${lower}`, (s) => makeRefineNode(network, promptPort, REFINE_TEMPERATURE)(s, llm)))
-      .addNode(`judge_${lower}`, withProgress(`judge_${lower}`, (s) => makeJudgeNode(network, batchedJudgeService, judgeRefineThreshold, judgeThresholds)(s, llm)))
-      .addNode(`visual_concept_${lower}`, withProgress(`visual_concept_${lower}`, (s) => makeVisualConceptNode(network)(s, visualService)))
-      .addNode(`ab_variant_${lower}`, withProgress(`ab_variant_${lower}`, (s) => makeABVariantNode(network, judgeThresholds.skipAB)(s, abGenerator, abVariantService)));
+      .addNode(
+        `draft_${lower}`,
+        withProgress(`draft_${lower}`, (s) =>
+          makeDraftNode(network, promptPort, DRAFT_TEMPERATURE)(s, llm),
+        ),
+      )
+      .addNode(
+        `critique_${lower}`,
+        withProgress(`critique_${lower}`, (s) => makeCritiqueNode(network, promptPort)(s, llm)),
+      )
+      .addNode(
+        `refine_${lower}`,
+        withProgress(`refine_${lower}`, (s) =>
+          makeRefineNode(network, promptPort, REFINE_TEMPERATURE)(s, llm),
+        ),
+      )
+      .addNode(
+        `judge_${lower}`,
+        withProgress(`judge_${lower}`, (s) =>
+          makeJudgeNode(
+            network,
+            batchedJudgeService,
+            judgeRefineThreshold,
+            judgeThresholds,
+          )(s, llm),
+        ),
+      )
+      .addNode(
+        `visual_concept_${lower}`,
+        withProgress(`visual_concept_${lower}`, (s) =>
+          makeVisualConceptNode(network)(s, visualService),
+        ),
+      )
+      .addNode(
+        `ab_variant_${lower}`,
+        withProgress(`ab_variant_${lower}`, (s) =>
+          makeABVariantNode(network, judgeThresholds.skipAB)(s, abGenerator, abVariantService),
+        ),
+      );
   }
 
   // Step 7: save + HITL review
   graph = graph
-    .addNode('save_to_db', withProgress('save_to_db', (s) => saveToDbNode(s, options?.getRecordedPromptLabels)))
+    .addNode(
+      "save_to_db",
+      withProgress("save_to_db", (s) => saveToDbNode(s, options?.getRecordedPromptLabels)),
+    )
     // Sprint I: HITL review node (no-op when humanReview=false)
-    .addNode('human_review', withProgress('human_review', (s) => humanReviewNode(s)));
+    .addNode(
+      "human_review",
+      withProgress("human_review", (s) => humanReviewNode(s)),
+    );
 
   // Edges: linear through step 3
   graph = graph
-    .addEdge(START, 'research_extract')
-    .addEdge('research_extract', 'hook_generation')
-    .addEdge('hook_generation', 'angle_per_network');
+    .addEdge(START, "research_extract")
+    .addEdge("research_extract", "hook_generation")
+    .addEdge("hook_generation", "angle_per_network");
 
   // Fan out / fan in: per network (draft → critique → refine → judge → visual_concept → ab_variant → human_review)
   for (const network of SOCIAL_NETWORKS) {
     const lower = network.toLowerCase();
     graph = graph
-      .addEdge('angle_per_network', `draft_${lower}`)
+      .addEdge("angle_per_network", `draft_${lower}`)
       .addEdge(`draft_${lower}`, `critique_${lower}`)
       .addEdge(`critique_${lower}`, `refine_${lower}`)
       .addEdge(`refine_${lower}`, `judge_${lower}`)
       // Q8: Judge → refine (one retry when the post sounds like AI) | visual_concept.
       // The refine_* → judge_* edges above close the loop; judgeRetried guards
       // against infinite cycles (max ONE retry per network).
-      .addConditionalEdges(`judge_${lower}`, routeAfterJudge(network), { refine: `refine_${lower}`, continue: `visual_concept_${lower}` })
+      .addConditionalEdges(`judge_${lower}`, routeAfterJudge(network), {
+        refine: `refine_${lower}`,
+        continue: `visual_concept_${lower}`,
+      })
       .addEdge(`visual_concept_${lower}`, `ab_variant_${lower}`)
-      .addEdge(`ab_variant_${lower}`, 'human_review');
+      .addEdge(`ab_variant_${lower}`, "human_review");
   }
 
-  graph = graph
-    .addEdge('human_review', 'save_to_db')
-    .addEdge('save_to_db', END);
+  graph = graph.addEdge("human_review", "save_to_db").addEdge("save_to_db", END);
 
   return graph;
 }
@@ -1428,18 +1589,21 @@ export function createInitialState(
   targetNetworks: SocialNetwork | SocialNetwork[],
   brandVoice: string,
   humanReview = false,
-  language = 'en',
+  _language = "en",
+  authorContexts: Partial<Record<SocialNetwork, AuthorContextResult>> = {},
 ): GenerationStateType {
   const networks = Array.isArray(targetNetworks) ? targetNetworks : [targetNetworks];
   return {
     topic,
     targetNetworks: networks,
     brandVoice,
-    language,
+    authorContexts,
+    // Generation is English-only regardless of the language argument.
+    language: "en",
     facts: [],
     hooks: [],
     results: {},
-    model: '',
+    model: "",
     posts: [],
     error: null,
     humanReview,

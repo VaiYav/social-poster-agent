@@ -9,4 +9,4 @@ export type {
   GenerationRunStatus,
   GenerationTrigger,
   ContentSourceType,
-} from '@spa/shared';
+} from "@spa/shared";

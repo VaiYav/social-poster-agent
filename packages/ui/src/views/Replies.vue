@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
-import { Send, X, RefreshCw, MessageSquare, Activity } from '@lucide/vue';
-import { useRepliesStore } from '../stores/replies';
-import { useToast } from '../composables/useToast';
-import { Card, Button, SectionHeader, Badge, Textarea } from '../components/ui';
-import NetworkIcon from '../components/NetworkIcon.vue';
-import LoadingSpinner from '../components/LoadingSpinner.vue';
-import ErrorState from '../components/ErrorState.vue';
-import EmptyState from '../components/EmptyState.vue';
+import { ref, onMounted, computed } from "vue";
+import { Send, X, RefreshCw, MessageSquare, Activity } from "@lucide/vue";
+import { useRepliesStore } from "../stores/replies";
+import { useToast } from "../composables/useToast";
+import { Card, Button, SectionHeader, Badge, Textarea } from "../components/ui";
+import NetworkIcon from "../components/NetworkIcon.vue";
+import LoadingSpinner from "../components/LoadingSpinner.vue";
+import ErrorState from "../components/ErrorState.vue";
+import EmptyState from "../components/EmptyState.vue";
 
 const repliesStore = useRepliesStore();
 const toast = useToast();
@@ -37,7 +37,7 @@ async function handleRunCycle() {
   running.value = true;
   try {
     await repliesStore.runCycle();
-    toast.success('Replies monitoring cycle triggered');
+    toast.success("Replies monitoring cycle triggered");
   } catch (err) {
     toast.error((err as Error).message);
   } finally {
@@ -49,13 +49,13 @@ async function handleManualReply(id: string) {
   const text = replyText.value[id]?.trim();
   if (!text) return;
   await repliesStore.manualReply(id, text);
-  replyText.value[id] = '';
-  toast.success('Reply posted');
+  replyText.value[id] = "";
+  toast.success("Reply posted");
 }
 
 async function handleDismiss(id: string) {
   await repliesStore.dismiss(id);
-  toast.info('Comment dismissed');
+  toast.info("Comment dismissed");
 }
 </script>
 
@@ -67,32 +67,45 @@ async function handleDismiss(id: string) {
     />
 
     <!-- Stats -->
-    <div v-if="repliesStore.stats" class="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+    <div
+      v-if="repliesStore.stats"
+      class="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6"
+    >
       <Card class="p-4">
         <p class="text-xs text-text-secondary">Enabled</p>
         <Badge :variant="repliesStore.isEnabled ? 'success' : 'neutral'" class="mt-1">
-          {{ repliesStore.isEnabled ? 'Yes' : 'No' }}
+          {{ repliesStore.isEnabled ? "Yes" : "No" }}
         </Badge>
       </Card>
       <Card class="p-4">
         <p class="text-xs text-text-secondary">Pending Review</p>
-        <p class="mt-1 text-2xl font-semibold text-text-primary">{{ repliesStore.stats.pendingReview }}</p>
+        <p class="mt-1 text-2xl font-semibold text-text-primary">
+          {{ repliesStore.stats.pendingReview }}
+        </p>
       </Card>
       <Card class="p-4">
         <p class="text-xs text-text-secondary">New</p>
-        <p class="mt-1 text-2xl font-semibold text-text-primary">{{ repliesStore.stats.counts.new }}</p>
+        <p class="mt-1 text-2xl font-semibold text-text-primary">
+          {{ repliesStore.stats.counts.new }}
+        </p>
       </Card>
       <Card class="p-4">
         <p class="text-xs text-text-secondary">Replied</p>
-        <p class="mt-1 text-2xl font-semibold text-text-primary">{{ repliesStore.stats.counts.replied }}</p>
+        <p class="mt-1 text-2xl font-semibold text-text-primary">
+          {{ repliesStore.stats.counts.replied }}
+        </p>
       </Card>
       <Card class="p-4">
         <p class="text-xs text-text-secondary">Replied Manual</p>
-        <p class="mt-1 text-2xl font-semibold text-text-primary">{{ repliesStore.stats.counts.repliedManual }}</p>
+        <p class="mt-1 text-2xl font-semibold text-text-primary">
+          {{ repliesStore.stats.counts.repliedManual }}
+        </p>
       </Card>
       <Card class="p-4">
         <p class="text-xs text-text-secondary">Skipped</p>
-        <p class="mt-1 text-2xl font-semibold text-text-primary">{{ repliesStore.stats.counts.skipped }}</p>
+        <p class="mt-1 text-2xl font-semibold text-text-primary">
+          {{ repliesStore.stats.counts.skipped }}
+        </p>
       </Card>
     </div>
 
@@ -114,10 +127,7 @@ async function handleDismiss(id: string) {
 
     <!-- Loading / Error -->
     <LoadingSpinner v-if="repliesStore.loading && !repliesStore.pending.length" />
-    <ErrorState
-      v-else-if="repliesStore.error"
-      :message="repliesStore.error"
-    />
+    <ErrorState v-else-if="repliesStore.error" :message="repliesStore.error" />
 
     <!-- Pending Human-Review Comments -->
     <Card v-else>
@@ -150,7 +160,7 @@ async function handleDismiss(id: string) {
               <span class="text-sm font-medium text-text-primary">@{{ item.author }}</span>
               <span class="text-xs text-text-muted">{{ formatTime(item.scrapedAt) }}</span>
             </div>
-            <Badge variant="warning">{{ item.humanReviewReason ?? 'Review needed' }}</Badge>
+            <Badge variant="warning">{{ item.humanReviewReason ?? "Review needed" }}</Badge>
           </div>
 
           <p class="mb-4 text-sm text-text-secondary">{{ item.text }}</p>
@@ -163,7 +173,11 @@ async function handleDismiss(id: string) {
               class="flex-1"
             />
             <div class="flex gap-2">
-              <Button size="sm" @click="handleManualReply(item.id)" :disabled="!replyText[item.id]?.trim()">
+              <Button
+                size="sm"
+                @click="handleManualReply(item.id)"
+                :disabled="!replyText[item.id]?.trim()"
+              >
                 <Send class="h-3 w-3" />
                 Reply
               </Button>

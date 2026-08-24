@@ -55,6 +55,9 @@ Most social schedulers are just queues with a text box. SPA treats posting as a 
 
 ## Platform status
 
+> This table is an operational support snapshot, not feature/task backlog status.
+> Canonical work state is in [`docs/planning/FEATURES.md`](docs/planning/FEATURES.md).
+
 | Platform | Type | Status | Notes |
 |---|---|---|---|
 | **X (Twitter)** | Social short-form | ✅ Ready | Tested and used daily. Auto-login + 2FA. Residential proxy strongly recommended for production. |
@@ -99,6 +102,9 @@ If you want a new platform, the cleanest path is to add a `SocialNetwork` enum v
 ---
 
 ## Feature matrix
+
+> Capability labels below describe the README snapshot, not canonical development
+> status. Resolve current work by feature ID in `docs/planning/FEATURES.md`.
 
 | Feature | Status | Notes |
 |---|---|---|
@@ -151,7 +157,8 @@ If you want a new platform, the cleanest path is to add a `SocialNetwork` enum v
 - **✅ Ready** — implemented, has tests, works in CI, and is either enabled by default or can be enabled with a single env var.
 - **🧪 Experimental** — implemented behind a feature flag and may need real-network testing, external services, or further hardening before production use.
 - **🚧 In progress** — code exists, but the end-to-end flow is not complete or not yet tested with real accounts.
-- **🧭 Planned** — listed in `docs/specs` or the roadmap but not yet merged.
+- **🧭 Planned** — product intent exists; canonical status and tasks are resolved by
+  feature ID in `docs/planning/FEATURES.md` and `docs/planning/BACKLOG.md`.
 
 ---
 
@@ -227,6 +234,14 @@ Brand voice, domain context, trending niches, and visual styles can be customize
 - **Browser hardening** — Camoufox + memory-optimized `firefox_user_prefs`, resource blocking in read-only contexts, and persistent Facebook profiles.
 
 For the full operational guide, see `CLAUDE.md`. For contribution guidelines, see `CONTRIBUTING.md`.
+Product sequencing lives in `ROADMAP_V2.md`; canonical feature/task status and the
+completed-work archive live in [`docs/planning/`](docs/planning/README.md). Agent
+quality/evaluation design starts at [`docs/evaluation/`](docs/evaluation/README.md).
+Check the [documentation map](docs/planning/DOCUMENT_MAP.md) before creating another
+feature proposal, roadmap, backlog or implementation plan.
+Dependency waves and the task-claiming method are in the
+[execution roadmap](docs/planning/EXECUTION_ROADMAP.md); the current queue remains in
+`docs/planning/BACKLOG.md`.
 
 ---
 
@@ -311,7 +326,9 @@ These features are implemented and pass tests, but have not been fully exercised
 - 📘 Better Facebook session recovery.
 - ⚖️ LLM judge calibration UI and feedback loop.
 
-See `.forge/orchestrator/MASTER-PLAN.md` and `.forge/orchestrator/TASKS.md` for the detailed orchestrator roadmap.
+See `.forge/orchestrator/MASTER-PLAN.md` for historical design detail; its task
+checklist is frozen. Current status is `ORCH-001`/`ORCH-101..102` in
+`docs/planning/`.
 
 ---
 

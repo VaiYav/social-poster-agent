@@ -1,6 +1,6 @@
-import { defineStore } from 'pinia';
-import { ref } from 'vue';
-import api from '../composables/useApi';
+import { defineStore } from "pinia";
+import { ref } from "vue";
+import api from "../composables/useApi";
 
 interface Stats {
   drafts: number;
@@ -37,7 +37,7 @@ export interface TrendingTopic {
 
 export interface MergedTrendingTopic {
   topic: string;
-  sources: ('events' | 'google_trends' | 'x_trends')[];
+  sources: ("events" | "google_trends" | "x_trends")[];
   networks: string[];
   priority: number;
   scrapedAt?: string;
@@ -47,7 +47,7 @@ export interface MergedTrendingTopic {
  * Stats store — dashboard stats + generation run history.
  * Used by Dashboard and Generate views.
  */
-export const useStatsStore = defineStore('stats', () => {
+export const useStatsStore = defineStore("stats", () => {
   const stats = ref<Stats>({ drafts: 0, posted: 0, failed: 0, approved: 0, rejected: 0 });
   const runs = ref<GenerationRun[]>([]);
   const models = ref<LlmModel[]>([]);
@@ -61,11 +61,11 @@ export const useStatsStore = defineStore('stats', () => {
     error.value = null;
     try {
       const [draftRes, postedRes, failedRes, approvedRes, rejectedRes] = await Promise.all([
-        api.get('/posts', { params: { status: 'DRAFT', limit: 1 } }),
-        api.get('/posts', { params: { status: 'POSTED', limit: 1 } }),
-        api.get('/posts', { params: { status: 'FAILED', limit: 1 } }),
-        api.get('/posts', { params: { status: 'APPROVED', limit: 1 } }),
-        api.get('/posts', { params: { status: 'REJECTED', limit: 1 } }),
+        api.get("/posts", { params: { status: "DRAFT", limit: 1 } }),
+        api.get("/posts", { params: { status: "POSTED", limit: 1 } }),
+        api.get("/posts", { params: { status: "FAILED", limit: 1 } }),
+        api.get("/posts", { params: { status: "APPROVED", limit: 1 } }),
+        api.get("/posts", { params: { status: "REJECTED", limit: 1 } }),
       ]);
       stats.value = {
         drafts: draftRes.data.total,
@@ -83,22 +83,34 @@ export const useStatsStore = defineStore('stats', () => {
 
   async function fetchRuns(limit = 20) {
     try {
-      const res = await api.get('/generation/runs', { params: { limit } });
+      const res = await api.get("/generation/runs", { params: { limit } });
       runs.value = res.data;
     } catch (e: unknown) {
       error.value = (e as Error).message;
     }
   }
 
-  async function triggerGeneration(count: number, networks: string[], sourceType: string, multiStage = false, model?: string) {
-    const res = await api.post('/generation/run', { count, networks, sourceType, multiStage, model });
+  async function triggerGeneration(
+    count: number,
+    networks: string[],
+    sourceType: string,
+    multiStage = false,
+    model?: string,
+  ) {
+    const res = await api.post("/generation/run", {
+      count,
+      networks,
+      sourceType,
+      multiStage,
+      model,
+    });
     await fetchRuns();
     return res.data;
   }
 
   async function fetchModels() {
     try {
-      const res = await api.get('/generation/models');
+      const res = await api.get("/generation/models");
       models.value = res.data;
     } catch {
       // Silently fail — model picker is optional, generation still works with default chain
@@ -107,14 +119,14 @@ export const useStatsStore = defineStore('stats', () => {
   }
 
   async function repurposeArticles(articleCount: number, networks: string[]) {
-    const res = await api.post('/generation/repurpose', { articleCount, networks });
+    const res = await api.post("/generation/repurpose", { articleCount, networks });
     await fetchRuns();
     return res.data;
   }
 
   async function fetchTrending() {
     try {
-      const res = await api.get('/trending');
+      const res = await api.get("/trending");
       trending.value = res.data;
     } catch {
       trending.value = [];
@@ -123,12 +135,27 @@ export const useStatsStore = defineStore('stats', () => {
 
   async function fetchMergedTrends() {
     try {
-      const res = await api.get('/trending/merged');
+      const res = await api.get("/trending/merged");
       mergedTrending.value = res.data;
     } catch {
       mergedTrending.value = [];
     }
   }
 
-  return { stats, runs, models, trending, mergedTrending, loading, error, fetchStats, fetchRuns, triggerGeneration, fetchModels, repurposeArticles, fetchTrending, fetchMergedTrends };
+  return {
+    stats,
+    runs,
+    models,
+    trending,
+    mergedTrending,
+    loading,
+    error,
+    fetchStats,
+    fetchRuns,
+    triggerGeneration,
+    fetchModels,
+    repurposeArticles,
+    fetchTrending,
+    fetchMergedTrends,
+  };
 });
